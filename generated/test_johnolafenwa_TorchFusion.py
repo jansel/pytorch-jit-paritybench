@@ -46,6 +46,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data import Dataset
@@ -1412,8 +1414,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4])], {}),
      False),
     (SelfAttention,
-     lambda: ([], {'in_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
     (StandardDiscriminatorBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),

@@ -51,6 +51,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -1527,11 +1529,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (AdaAtt_attention,
      lambda: ([], {'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([1024, 4]), torch.rand([64, 4, 4, 4]), torch.rand([1024, 4, 4, 4]), torch.rand([1024, 4, 4, 4])], {}),
      False),
     (Attention,
      lambda: ([], {'opt': _mock_config(rnn_size=4, att_hid_size=4)}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
     (Embeddings,
      lambda: ([], {'d_model': 4, 'vocab': 4}),

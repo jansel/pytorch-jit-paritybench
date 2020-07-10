@@ -58,6 +58,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import time
@@ -769,7 +771,7 @@ TESTCASES = [
      lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
      True),
     (BloomEmbedding,
-     lambda: ([], {'num_embeddings': 64, 'embedding_dim': 64}),
+     lambda: ([], {'num_embeddings': 18, 'embedding_dim': 64}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
      False),
     (ScaledEmbedding,

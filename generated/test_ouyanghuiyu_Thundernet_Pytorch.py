@@ -80,6 +80,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -1597,14 +1599,34 @@ TESTCASES = [
      lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (L1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (LargeSeparableConv2d,
      lambda: ([], {'c_in': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
+    (NormRegL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (RPN,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 245, 64, 64])], {}),
      True),
+    (RegL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegWeightedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (SAM,
      lambda: ([], {'f_channels': 4, 'CEM_FILTER': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
@@ -1650,4 +1672,19 @@ class Test_ouyanghuiyu_Thundernet_Pytorch(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

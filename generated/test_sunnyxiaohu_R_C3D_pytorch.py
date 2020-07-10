@@ -289,6 +289,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -2295,6 +2297,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (NONLocalBlock3D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
+     False),
     (Reduction_A,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 384, 64, 64])], {}),
@@ -2302,6 +2308,10 @@ TESTCASES = [
     (Reduction_B,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     False),
+    (_NonLocalBlockND,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
      False),
 ]
 
@@ -2371,4 +2381,10 @@ class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
 

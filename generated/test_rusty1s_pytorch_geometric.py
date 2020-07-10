@@ -456,6 +456,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -8506,6 +8508,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (MetaLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), (torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (MultiHead,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -8568,4 +8574,7 @@ class Test_rusty1s_pytorch_geometric(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

@@ -33,6 +33,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.nn as nn
@@ -918,8 +920,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 3, 9, 9])], {}),
      True),
     (SEModule,
-     lambda: ([], {'channels': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channels': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SKConv,
      lambda: ([], {'features': 4, 'M': 4, 'G': 4, 'r': 4}),

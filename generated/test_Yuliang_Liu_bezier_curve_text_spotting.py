@@ -165,6 +165,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from scipy.special import comb as n_over_k
@@ -5986,6 +5988,14 @@ TESTCASES = [
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
      True),
+    (RPNHeadConvRegressor,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     True),
+    (RPNHeadFeatureSingleConv,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     True),
     (SEModule,
      lambda: ([], {'C': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -6001,10 +6011,6 @@ TESTCASES = [
     (ShiftBlock5x5,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'expansion': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (ShuffleV2Block,
-     lambda: ([], {'input_depth': 64, 'output_depth': 64, 'expansion': 4, 'stride': 1}),
-     lambda: ([torch.rand([4, 32, 64, 64])], {}),
      False),
 ]
 
@@ -6092,4 +6098,7 @@ class Test_Yuliang_Liu_bezier_curve_text_spotting(_paritybench_base):
 
     def test_027(self):
         self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
 

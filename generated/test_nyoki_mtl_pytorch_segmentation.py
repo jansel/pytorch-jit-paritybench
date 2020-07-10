@@ -60,6 +60,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import tensorflow as tf
@@ -1352,6 +1354,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (XceptionBlock,
+     lambda: ([], {'channel_list': [4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (_ActivatedBatchNorm,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1442,4 +1448,7 @@ class Test_nyoki_mtl_pytorch_segmentation(_paritybench_base):
 
     def test_027(self):
         self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
 

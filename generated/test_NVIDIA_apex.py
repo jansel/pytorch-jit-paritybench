@@ -191,6 +191,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -2307,10 +2309,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 32, 32])], {}),
      True),
-    (Model,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 16777216])], {}),
-     True),
     (SyncBatchNorm,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2343,7 +2341,4 @@ class Test_NVIDIA_apex(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

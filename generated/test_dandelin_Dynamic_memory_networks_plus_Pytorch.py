@@ -20,6 +20,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data.dataset import Dataset
@@ -304,6 +306,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      False),
+    (AttentionGRUCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
     (EpisodicMemory,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -319,4 +325,7 @@ class Test_dandelin_Dynamic_memory_networks_plus_Pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

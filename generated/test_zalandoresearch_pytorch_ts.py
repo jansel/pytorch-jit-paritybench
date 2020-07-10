@@ -111,6 +111,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import functools
@@ -1176,6 +1178,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (FeatureAssembler,
+     lambda: ([], {'T': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
     (FeatureEmbedder,
      lambda: ([], {'cardinalities': [4, 4], 'embedding_dims': [4, 4]}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -1251,4 +1257,7 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

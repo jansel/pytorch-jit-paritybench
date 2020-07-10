@@ -28,6 +28,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import time
@@ -675,6 +677,14 @@ TESTCASES = [
      lambda: ([], {'n_in': 4, 'n_hid': 4, 'n_out': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (MLPDecoder,
+     lambda: ([], {'n_in_node': 4, 'edge_types': 4, 'msg_hid': 4, 'msg_out': 4, 'n_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPEncoder,
+     lambda: ([], {'n_in': 4, 'n_hid': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
 ]
 
 class Test_ethanfetaya_NRI(_paritybench_base):
@@ -683,4 +693,10 @@ class Test_ethanfetaya_NRI(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

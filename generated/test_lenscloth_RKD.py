@@ -37,6 +37,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import random
@@ -963,7 +965,7 @@ TESTCASES = [
      False),
     (HardNegative,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
     (InceptionModule,
      lambda: ([], {'inplane': 4, 'outplane_a1x1': 4, 'outplane_b3x3_reduce': 4, 'outplane_b3x3': 4, 'outplane_c5x5_reduce': 4, 'outplane_c5x5': 4, 'outplane_pool_proj': 4}),

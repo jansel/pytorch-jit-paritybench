@@ -44,6 +44,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -616,6 +618,23 @@ def split_s3_path(url):
     return bucket_name, s3_path
 
 
+@s3_request
+def s3_etag(url):
+    """Check ETag on S3 object."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_object = s3_resource.Object(bucket_name, s3_path)
+    return s3_object.e_tag
+
+
+@s3_request
+def s3_get(url, temp_file):
+    """Pull a file directly from S3."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_resource.Bucket(bucket_name).download_fileobj(s3_path, temp_file)
+
+
 def url_to_filename(url, etag=None):
     """
     Convert `url` into a hashed filename in a repeatable way.
@@ -1129,6 +1148,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (VisualFeatEncoder,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([(torch.rand([4, 4, 4, 2048]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
 ]
 
 class Test_airsplay_lxmert(_paritybench_base):
@@ -1164,4 +1187,7 @@ class Test_airsplay_lxmert(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

@@ -66,6 +66,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -1743,7 +1745,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Attention,
      lambda: ([], {'opt': _mock_config(rnn_size=4, att_hid_size=4)}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),

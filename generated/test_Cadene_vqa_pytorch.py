@@ -50,6 +50,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import time
@@ -493,18 +495,6 @@ TESTCASES = [
      lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
-    (MLBFusion,
-     lambda: ([], {'opt': _mock_config()}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (MutanFusion,
-     lambda: ([], {'opt': _mock_config(dim_v=4, dim_hv=4, dim_q=4, dim_hq=4, R=4, dim_mm=4, dropout_v=0.5, dropout_q=0.5, dropout_hv=0.5, dropout_hq=0.5)}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
-     False),
-    (MutanFusion2d,
-     lambda: ([], {'opt': _mock_config(dim_v=4, dim_hv=4, dim_q=4, dim_hq=4, R=4, dim_mm=4, dropout_v=0.5, dropout_q=0.5, dropout_hv=0.5, dropout_hq=0.5)}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
     (TwoLSTM,
      lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
@@ -517,13 +507,4 @@ class Test_Cadene_vqa_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

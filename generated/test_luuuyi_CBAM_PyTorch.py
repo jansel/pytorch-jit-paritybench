@@ -24,6 +24,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -241,8 +243,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (ChannelAttention,
-     lambda: ([], {'in_planes': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'in_planes': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SpatialAttention,
      lambda: ([], {}),

@@ -43,6 +43,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy
@@ -1883,6 +1885,10 @@ TESTCASES = [
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'squzee_channel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Fit,
+     lambda: ([], {'prev_filters': 4, 'filters': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (GoogleNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1987,13 +1993,25 @@ TESTCASES = [
      lambda: ([], {'input_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ReductionCell,
+     lambda: ([], {'x_in': 4, 'prev_in': 4, 'output_channels': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (ResNextBottleNeckC,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1}),
+     lambda: ([], {'in_channels': 64, 'out_channels': 18, 'stride': 1}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
     (ResnetInResneet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (ResnetInit,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'stride': 1}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
+    (RiRBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'layer_num': 1, 'stride': 1}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
      False),
     (SeperableBranch,
      lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}),
@@ -2199,4 +2217,16 @@ class Test_weiaicunzai_pytorch_cifar100(_paritybench_base):
 
     def test_053(self):
         self._check(*TESTCASES[53])
+
+    def test_054(self):
+        self._check(*TESTCASES[54])
+
+    def test_055(self):
+        self._check(*TESTCASES[55])
+
+    def test_056(self):
+        self._check(*TESTCASES[56])
+
+    def test_057(self):
+        self._check(*TESTCASES[57])
 

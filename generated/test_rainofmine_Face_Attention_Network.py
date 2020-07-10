@@ -31,6 +31,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -818,6 +820,10 @@ TESTCASES = [
      lambda: ([], {'num_features_in': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (PyramidFeatures,
+     lambda: ([], {'C3_size': 4, 'C4_size': 4, 'C5_size': 4}),
+     lambda: ([(torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (RegressionModel,
      lambda: ([], {'num_features_in': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -855,4 +861,7 @@ class Test_rainofmine_Face_Attention_Network(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

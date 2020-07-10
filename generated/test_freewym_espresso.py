@@ -425,6 +425,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import logging
@@ -10502,6 +10504,10 @@ TESTCASES = [
      lambda: ([], {'normalized_shape': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (GumbelVectorQuantizer,
+     lambda: ([], {'dim': 4, 'num_vars': 4, 'temp': [4, 4, 4], 'groups': 1, 'combine_groups': 1, 'vq_dim': 4, 'time_first': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
     (Highway,
      lambda: ([], {'input_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -10654,4 +10660,7 @@ class Test_freewym_espresso(_paritybench_base):
 
     def test_025(self):
         self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
 

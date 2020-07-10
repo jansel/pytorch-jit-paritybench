@@ -47,6 +47,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.nn as nn
@@ -1933,12 +1935,8 @@ TESTCASES = [
      lambda: ([], {'nclass': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (DilatedParllelResidualBlockB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (DownSamplerB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
+     lambda: ([], {'nIn': 64, 'nOut': 18}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
     (ESPNet,
@@ -1968,6 +1966,10 @@ TESTCASES = [
     (FeatureFusionModule,
      lambda: ([], {'highter_in_channels': 4, 'lower_in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FusionNode,
+     lambda: ([], {'inplane': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
      False),
     (GlobalAvgPool2d,
      lambda: ([], {}),

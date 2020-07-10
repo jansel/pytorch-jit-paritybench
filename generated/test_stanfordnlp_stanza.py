@@ -127,6 +127,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import re
@@ -1933,9 +1935,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicAttention,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
     (BiaffineScorer,
      lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeepAttention,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
      False),
     (DeepBiaffineScorer,
      lambda: ([], {'input1_size': 4, 'input2_size': 4, 'hidden_size': 4, 'output_size': 4}),
@@ -1944,6 +1954,10 @@ TESTCASES = [
     (HighwayLSTM,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LinearAttention,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
      False),
     (LockedDropout,
      lambda: ([], {'dropprob': 4}),
@@ -1998,4 +2012,13 @@ class Test_stanfordnlp_stanza(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

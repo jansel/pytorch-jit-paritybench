@@ -28,6 +28,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -518,12 +520,12 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (PAM_CAM_Layer,
-     lambda: ([], {'in_ch': 64}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     lambda: ([], {'in_ch': 18}),
+     lambda: ([torch.rand([4, 36, 64, 64])], {}),
      True),
     (PAM_Module,
-     lambda: ([], {'in_dim': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_dim': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
     (ResNeXt101,
      lambda: ([], {}),

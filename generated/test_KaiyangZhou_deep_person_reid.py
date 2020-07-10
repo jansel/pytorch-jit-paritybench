@@ -109,6 +109,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -3525,8 +3527,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {}),
      False),
     (ChannelGate,
-     lambda: ([], {'in_channels': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (ChannelShuffle,
      lambda: ([], {'num_groups': 1}),
@@ -3664,26 +3666,6 @@ TESTCASES = [
      lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (OSBlock,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (OSBlockINin,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (OSBlockINv1,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (OSBlockINv2,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (OSBlockINv3,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (Reduction,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 96, 64, 64])], {}),
@@ -3712,6 +3694,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ShuffleNetV2,
+     lambda: ([], {'num_classes': 4, 'loss': MSELoss(), 'stages_repeats': [4, 4, 4], 'stages_out_channels': [4, 4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (SqueezeNet,
      lambda: ([], {'num_classes': 4, 'loss': MSELoss()}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3924,16 +3910,4 @@ class Test_KaiyangZhou_deep_person_reid(_paritybench_base):
 
     def test_061(self):
         self._check(*TESTCASES[61])
-
-    def test_062(self):
-        self._check(*TESTCASES[62])
-
-    def test_063(self):
-        self._check(*TESTCASES[63])
-
-    def test_064(self):
-        self._check(*TESTCASES[64])
-
-    def test_065(self):
-        self._check(*TESTCASES[65])
 

@@ -112,6 +112,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -2952,9 +2954,13 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CLSTMCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 69, 69]))], {}),
+     False),
     (D_GET_LOGITS,
-     lambda: ([], {'nbf': 64}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([], {'nbf': 18}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
      True),
     (Depth3DGridGen,
      lambda: ([], {'height': 4, 'width': 4}),
@@ -2973,8 +2979,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (GLB_D_NET,
-     lambda: ([], {'num_classes': 64}),
-     lambda: ([torch.rand([4, 65, 64, 64])], {}),
+     lambda: ([], {'num_classes': 18}),
+     lambda: ([torch.rand([4, 19, 64, 64])], {}),
      True),
     (GLU,
      lambda: ([], {}),
@@ -2993,8 +2999,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (INS_D_NET,
-     lambda: ([], {'num_classes': 64}),
-     lambda: ([torch.rand([4, 65, 64, 64])], {}),
+     lambda: ([], {'num_classes': 18}),
+     lambda: ([torch.rand([4, 19, 64, 64])], {}),
      True),
     (PreEncoderRNN,
      lambda: ([], {'ntoken': 4}),
@@ -3048,4 +3054,7 @@ class Test_jamesli1618_Obj_GAN(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

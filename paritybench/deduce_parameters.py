@@ -97,14 +97,14 @@ class DeduceParameters(object):
             error_msg = f"{error_type.__name__}: {error_value}"
             sorted_args = self.sorted_args(tb, error_msg)
             self.last_traceback = traceback.format_exc(-2)
+            try:
+                line = traceback.extract_tb(tb, limit=-1)[0].line
+            except IndexError:
+                pass
 
             if error_msg.startswith('AssertionError:'):
                 # Error msg often not useful for assert error
-                try:
-                    line = traceback.extract_tb(tb, limit=-1)[0].line
-                    error_msg = f"{error_msg} {line}"
-                except IndexError:
-                    pass
+                error_msg = f"{error_msg} {line}"
 
         self.attempt_log.append((guess_str, error_msg))
 
@@ -114,7 +114,7 @@ class DeduceParameters(object):
 
         for pass_number in (0, 1, 2):
             for arg in sorted_args:
-                if arg.try_to_fix(error_msg, pass_number):
+                if arg.try_to_fix(error_msg, line, pass_number):
                     if str(self) not in self.tried:
                         return False
                     arg.rollback()
@@ -321,8 +321,8 @@ class DeduceParameter(object):
     def num_guesses(self):
         return len(self._guesses)
 
-    def try_to_fix(self, error_message: str, pass_number: int) -> bool:
-        new_guess = self._guesses[-1].get_fix(error_message, pass_number, self.name)
+    def try_to_fix(self, error_message: str, line: str, pass_number: int) -> bool:
+        new_guess = self._guesses[-1].get_fix(error_message, line, pass_number, self.name)
         if new_guess is not None:
             self.change_guess(new_guess)
             return True
@@ -398,7 +398,7 @@ class Guess(object):
     def __str__(self):
         return str(self.value)
 
-    def get_fix(self, error_message: str, pass_number: int, name: str):
+    def get_fix(self, error_message: str, line: str, pass_number: int, name: str):
         pass
 
     def rollback(self):
@@ -413,8 +413,8 @@ class LiteralGuess(Guess):
     def __str__(self):
         return repr(self.value)
 
-    def get_fix(self, error_message: str, pass_number: int, name: str):
-        fix = super(LiteralGuess, self).get_fix(error_message, pass_number, name)
+    def get_fix(self, error_message: str, line: str, pass_number: int, name: str):
+        fix = super(LiteralGuess, self).get_fix(error_message, line, pass_number, name)
         if fix:
             return fix
 
@@ -424,6 +424,10 @@ class LiteralGuess(Guess):
 
         if pass_number == 0 and isinstance(self.value, int):
             def fix_too_small():
+                if self.value < 18:
+                    return 18
+                if self.value < 32:
+                    return 32
                 if self.value < 64:
                     return 64
 
@@ -458,6 +462,8 @@ class LiteralGuess(Guess):
                  fix_too_small),
                 (r"ValueError: .* must be divisible by groups",
                  fix_too_small),
+                (r"invalid depth",
+                 fix_too_small),
                 (r"KeyError: [1-9]",
                  lambda: self.value // 2),
                 (r"multiple of (?P<m>\d{1,3})",
@@ -480,6 +486,8 @@ class LiteralGuess(Guess):
                  lambda: self.value * 2 if self.value < 256 else None),
                 (r"Trying to create tensor with negative dimension",
                  lambda: self.value * 2 if self.value < 256 else None),
+                (r"getattr.*attribute name must be string",
+                 lambda: 'relu' if 'act' in name else None),
             ])
 
         if pass_number == 1 and isinstance(self.value, int):
@@ -545,6 +553,10 @@ class LiteralGuess(Guess):
                  lambda: _mock_layer()),
                 (r"TypeError: 'list' object cannot be interpreted as an integer",
                  lambda: TensorGuess.default_size),
+                (r"assert len\(\w+\) == (?P<want>\d+)",
+                 lambda want: [TensorGuess.default_size] * want),
+                (r"expected .* list .* (?P<want>\d+)",
+                 lambda want: [TensorGuess.default_size] * want),
             ])
 
         if pass_number == 0 and isinstance(self.value, torch.nn.Module):
@@ -604,8 +616,8 @@ class TensorGuess(Guess):
 
     __repr__ = __str__
 
-    def get_fix(self, error_message: str, pass_number: int, name: str):
-        fix = super(TensorGuess, self).get_fix(error_message, pass_number, name)
+    def get_fix(self, error_message: str, line: str, pass_number: int, name: str):
+        fix = super(TensorGuess, self).get_fix(error_message, line, pass_number, name)
         if fix:
             return fix
 
@@ -652,8 +664,27 @@ class TensorGuess(Guess):
              lambda: LiteralGuess(list(self.shape))),
             (r"argument 'size' must be tuple of ints, but found element of type Tensor",
              lambda: LiteralGuess(self.default_size)),
+            (r"ValueError: too many values to unpack \(expected (?P<num>\d+)",
+             lambda num: self.fix_tuple_guess(name, line, num)),
+            (r"ValueError: not enough values to unpack \(expected (?P<num>\d+)",
+             lambda num: self.fix_tuple_guess(name, line, num)),
+            (r"assert isinstance\((?P<str_name>\w+), .*tuple",
+             lambda str_name: TupleGuess([f"{name}[{i}]" for i in range(4)]) if str_name == name else None),
+            (r"assert isinstance\((?P<str_name>\w+), .*list",
+             lambda str_name: ListGuess([f"{name}[{i}]" for i in range(4)]) if str_name == name else None),
         ]
+
         return self.apply_fixors(other_fixors, error_message)
+
+    def fix_tuple_guess(self, name, line, num):
+        if re.search(r"[.](shape|size|split)", line) or re.search(name + r"[.]", line):
+            return
+        match = re.search(r"\s*,\s*".join([r"(\w+)"] * num) + r"\s*=\s*(?:list|tuple\()?" + name,
+                          line)
+        if match:
+            names = match.groups()
+            assert len(names) == num
+            return TupleGuess(names)
 
     def shape_fixors(self, pass_number: int):
         if pass_number == 0:
@@ -674,7 +705,13 @@ class TensorGuess(Guess):
                  self.fix_dimensions),
                 (r"input must have (?P<want>\d+) dimensions, got (?P<got>\d+)",
                  self.fix_dimensions),
+                (r"Expected (?P<want>\d+)D .* got (?P<got>\d+)D",
+                 self.fix_dimensions),
+                (r"expects .* (?P<want>\d+) dimensions, but self is (?P<got>\d+)D",
+                 self.fix_dimensions),
                 (r"Expected (?P<want>\d+)-dimensional tensor, but got (?P<got>\d+)-dimensional tensor",
+                 self.fix_dimensions),
+                (r"sizes provided \((?P<want>\d+)\) must be greater .* tensor \((?P<got>\d+)\)",
                  self.fix_dimensions),
                 (r"The size.*[(](?P<want>\d+)[)] must match.*[(](?P<got>\d+)[)] at.*dimension (?P<dim>\d+)",
                  self.fix_dimensions_at),
@@ -722,12 +759,16 @@ class TensorGuess(Guess):
                  self.fix_too_small),
                 (r"Output size is too small",
                  self.fix_too_small),
+                (r"smaller than kernel size",
+                 self.fix_too_small),
                 (r"shape '(?P<view>\[[\d, -]+\])' is invalid for input of size (?P<size>\d+)",
                  self.fix_view),
                 (r"expected input with shape \[\*, (?P<want>\d+)\], but got input of size\[.* (?P<got>\d+)\]",
                  lambda want, got: self.fix_too_small() if want > got else self.fix_too_big()),
                 (r"only one element tensors can be converted to Python scalars",
                  lambda: self.shape[:-1] if 1 < len(self.shape) <= 3 else None),
+                (r"can't allocate memory",
+                 self.fix_too_big),
             ]
 
         if pass_number == 1:
@@ -738,6 +779,10 @@ class TensorGuess(Guess):
                  self.fix_convolution),
                 (r"same number of dimensions: got (?P<got>\d+) and (?P<want>\d+)",
                  self.fix_dimensions),
+                (r"sizes provided \((?P<want>\d+)\) must be greater .* tensor \((?P<got>\d+)\)",
+                 lambda want, got: self.fix_dimensions(want - 1, got - 1)),
+                (r"ValueError: not enough values to unpack \(expected (?P<want>\d+), got (?P<got>\d+)\)",
+                 lambda want, got: self.fix_dimensions(want + 1, got + 1)),
                 (r"Got \d+D .*needs (?P<want>\d+)D",
                  self.fix_dimensions),
                 (r"The size.*[(](?P<got>\d+)[)] must match.*[(](?P<want>\d+)[)] at.*dimension (?P<dim>\d+)",
@@ -899,16 +944,56 @@ class ConfigGuess(Guess):
         super(ConfigGuess, self).__init__(value=value or MockConfig())
         self._rollback = []
 
-    def get_fix(self, error_message: str, pass_number: int, name: str):
+    def get_fix(self, error_message: str, line: str, pass_number: int, name: str):
         guesses = sorted(self.value._guesses.values(),
                          key=lambda x: x.created, reverse=True)
         for guess in guesses:
-            if guess.try_to_fix(error_message, pass_number):
+            if guess.try_to_fix(error_message, line, pass_number):
                 self._rollback.append(guess)
                 return self
 
     def rollback(self):
         self._rollback.pop().rollback()
+
+
+class TupleGuess(Guess):
+    def __init__(self, names):
+        super().__init__()
+        self._guesses = []
+        self._rollback = []
+
+        for pos, name in enumerate(names):
+            self._guesses.append(DeduceParameter.initial_arg_forward(name, pos))
+
+    def get_fix(self, error_message: str, line: str, pass_number: int, name: str):
+        for guess in self._guesses:
+            if guess.try_to_fix(error_message, line, pass_number):
+                self._rollback.append(guess)
+                return self
+
+    def rollback(self):
+        self._rollback.pop().rollback()
+
+    def clone(self):
+        return self.__class__(self._guesses)
+
+    def guess(self):
+        return tuple(g.guess() for g in self._guesses)
+
+    def __str__(self):
+        return "({})".format(", ".join(map(str, self._guesses)))
+
+    __repr__ = __str__
+
+
+class ListGuess(TupleGuess):
+    def guess(self):
+        return [g.guess() for g in self._guesses]
+
+    def __str__(self):
+        return "[{}]".format(", ".join(map(str, self._guesses)))
+
+    __repr__ = __str__
 
 
 class MockConfig(object):
@@ -933,3 +1018,11 @@ class MockConfig(object):
 
     def __iter__(self):
         return iter([])
+
+    def __contains__(self, item):
+        self.__getitem__(item)
+        return True
+
+    @property
+    def __class__(self):
+        return dict

@@ -152,6 +152,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -4690,6 +4692,14 @@ TESTCASES = [
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
      True),
+    (RPNHeadConvRegressor,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     True),
+    (RPNHeadFeatureSingleConv,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     True),
     (SEModule,
      lambda: ([], {'C': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4765,4 +4775,10 @@ class Test_yqyao_FCOS_PLUS(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
 

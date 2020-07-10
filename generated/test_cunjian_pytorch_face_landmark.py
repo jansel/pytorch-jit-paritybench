@@ -65,6 +65,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.nn as nn
@@ -598,8 +600,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (BasicRFB,
-     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_planes': 18, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
     (ConvBlock,
      lambda: ([], {'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}),

@@ -46,6 +46,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import random
@@ -854,6 +856,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ConvLSTMCell,
+     lambda: ([], {'input_size': [4, 4], 'input_dim': 4, 'hidden_dim': 4, 'kernel_size': [4, 4], 'bias': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 65, 65]))], {}),
+     False),
     (LapLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 512, 512]), torch.rand([4, 4, 512, 512])], {}),
@@ -873,4 +879,7 @@ class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

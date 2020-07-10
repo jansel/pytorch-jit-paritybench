@@ -406,6 +406,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import warnings
@@ -825,6 +827,15 @@ def _split_s3_path(url: str) ->Tuple[str, str]:
     if s3_path.startswith('/'):
         s3_path = s3_path[1:]
     return bucket_name, s3_path
+
+
+@_s3_request
+def _s3_etag(url: str) ->Optional[str]:
+    """Check ETag on S3 object."""
+    s3_resource = _get_s3_resource()
+    bucket_name, s3_path = _split_s3_path(url)
+    s3_object = s3_resource.Object(bucket_name, s3_path)
+    return s3_object.e_tag
 
 
 logger = logging.getLogger(__name__)

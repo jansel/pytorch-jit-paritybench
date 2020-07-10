@@ -132,6 +132,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -3230,10 +3232,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (BottleneckX,
-     lambda: ([], {'inplanes': 64, 'planes': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     False),
     (ClassificationModel,
      lambda: ([], {'num_features_in': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3274,6 +3272,10 @@ TESTCASES = [
      lambda: ([], {'o': 4, 'channels': [4, 4], 'up_f': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4]), 0, 0], {}),
      False),
+    (L1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (MemoryEfficientSwish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3282,6 +3284,22 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (NormRegL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegWeightedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (RegressionModel,
      lambda: ([], {'num_features_in': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3416,4 +3434,16 @@ class Test_chenjun2hao_CenterFace_pytorch(_paritybench_base):
 
     def test_027(self):
         self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
 

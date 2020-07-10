@@ -24,6 +24,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -699,6 +701,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DPRB,
+     lambda: ([], {'nIn': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
+     True),
     (DRB,
      lambda: ([], {'nIn': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -767,4 +773,7 @@ class Test_lizhengwei1992_Fast_Portrait_Segmentation(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

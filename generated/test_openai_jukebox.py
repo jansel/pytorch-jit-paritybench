@@ -210,6 +210,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -3822,10 +3824,6 @@ TESTCASES = [
      lambda: ([], {'n_ctx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Model,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 16777216])], {}),
-     True),
     (MultipleInput,
      lambda: ([], {}),
      lambda: ([torch.rand([3, 3]), torch.rand([3, 3])], {}),
@@ -3952,7 +3950,4 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
 

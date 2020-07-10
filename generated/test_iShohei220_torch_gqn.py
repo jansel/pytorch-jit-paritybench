@@ -26,6 +26,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -362,6 +364,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dLSTMCell,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), (torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (Pool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 7, 1, 1])], {}),
@@ -385,4 +391,7 @@ class Test_iShohei220_torch_gqn(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

@@ -180,6 +180,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.nn as nn
@@ -2355,6 +2357,18 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DecoderBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([(torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 8, 8]))], {}),
+     False),
+    (FPNBlock,
+     lambda: ([], {'pyramid_channels': 4, 'skip_channels': 4}),
+     lambda: ([(torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16]))], {}),
+     False),
+    (FPNDecoder,
+     lambda: ([], {'encoder_channels': [4, 4, 4, 4]}),
+     lambda: ([(torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16]), torch.rand([4, 4, 32, 32]), torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (FullyConvolutionalLinear,
      lambda: ([], {'dim_in': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -2392,8 +2406,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
     (SCSEModule,
-     lambda: ([], {'ch': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'ch': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (TransposeX2,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
@@ -2456,4 +2470,13 @@ class Test_lightforever_mlcomp(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
 

@@ -66,6 +66,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import time
@@ -4497,6 +4499,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (NonLocalBlock3D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
+     False),
     (PolyConv2d,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'num_blocks': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
@@ -4529,6 +4535,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResNeXtBottleneck,
+     lambda: ([], {'inplanes': 64, 'planes': 32, 'cardinality': 4}),
+     lambda: ([torch.rand([4, 64, 64, 32, 32])], {}),
+     True),
     (SEModule,
      lambda: ([], {'channels': 4, 'reduction': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4553,6 +4563,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 216, 216])], {}),
      True),
+    (_NonLocalBlockND,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
+     False),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
@@ -4751,4 +4765,13 @@ class Test_alexandonian_pretorched_x(_paritybench_base):
 
     def test_063(self):
         self._check(*TESTCASES[63])
+
+    def test_064(self):
+        self._check(*TESTCASES[64])
+
+    def test_065(self):
+        self._check(*TESTCASES[65])
+
+    def test_066(self):
+        self._check(*TESTCASES[66])
 

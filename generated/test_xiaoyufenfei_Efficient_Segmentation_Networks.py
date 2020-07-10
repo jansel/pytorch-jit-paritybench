@@ -74,6 +74,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils import data
@@ -3361,12 +3363,8 @@ TESTCASES = [
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DilatedParllelResidualBlockB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (DownSamplerB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
+     lambda: ([], {'nIn': 64, 'nOut': 18}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
     (DownSamplingBlock,
@@ -3381,10 +3379,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'num_dense_layer': 1, 'dilated': [4, 4], 'growth_rate': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (EESP,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     False),
     (EESPNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3817,10 +3811,4 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_077(self):
         self._check(*TESTCASES[77])
-
-    def test_078(self):
-        self._check(*TESTCASES[78])
-
-    def test_079(self):
-        self._check(*TESTCASES[79])
 

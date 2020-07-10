@@ -62,6 +62,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -615,6 +617,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionLayer,
+     lambda: ([], {'conv_channels': 4, 'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), (torch.rand([4, 4, 4]), torch.rand([4, 4, 4]))], {}),
+     False),
     (SinusoidalEncoding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -624,4 +630,7 @@ TESTCASES = [
 class Test_r9y9_deepvoice3_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

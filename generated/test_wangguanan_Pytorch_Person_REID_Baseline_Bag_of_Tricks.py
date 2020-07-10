@@ -50,6 +50,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -719,8 +721,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (ChannelGate,
-     lambda: ([], {'in_channels': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (Conv1x1,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
@@ -758,14 +760,6 @@ TESTCASES = [
      lambda: ([], {'class_num': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (OSBlock,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (OSBlockINin,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (Res50BNNeck,
      lambda: ([], {'class_num': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -811,10 +805,4 @@ class Test_wangguanan_Pytorch_Person_REID_Baseline_Bag_of_Tricks(_paritybench_ba
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

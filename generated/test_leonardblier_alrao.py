@@ -38,6 +38,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -839,7 +841,7 @@ TESTCASES = [
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
     (BasicBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Block,
@@ -854,6 +856,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (L2LossAdditional,
+     lambda: ([], {}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])), torch.rand([4, 4])], {}),
+     False),
     (L2LossLog,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -875,7 +881,7 @@ TESTCASES = [
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
     (PreActBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (RegModel,
@@ -934,4 +940,7 @@ class Test_leonardblier_alrao(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

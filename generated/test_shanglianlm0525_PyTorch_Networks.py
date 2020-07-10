@@ -67,6 +67,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -2769,12 +2771,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CBAM,
-     lambda: ([], {'channel': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channel': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (ChannelAttentionModule,
-     lambda: ([], {'channel': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channel': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (ChannelShuffle,
      lambda: ([], {'groups': 1}),
@@ -2868,6 +2870,10 @@ TESTCASES = [
      lambda: ([], {'channel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResNeXtBlock,
+     lambda: ([], {'in_places': 64, 'places': 32}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
     (ResNet,
      lambda: ([], {'blocks': [4, 4, 4, 4]}),
      lambda: ([torch.rand([4, 3, 216, 216])], {}),
@@ -3036,4 +3042,7 @@ class Test_shanglianlm0525_PyTorch_Networks(_paritybench_base):
 
     def test_037(self):
         self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
 

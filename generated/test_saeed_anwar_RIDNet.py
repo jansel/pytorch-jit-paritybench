@@ -39,6 +39,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data.dataloader import default_collate
@@ -747,8 +749,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (CALayer,
-     lambda: ([], {'channel': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channel': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (EResidualBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),

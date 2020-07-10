@@ -25,6 +25,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from itertools import chain
@@ -318,6 +320,23 @@ def split_s3_path(url):
     return bucket_name, s3_path
 
 
+@s3_request
+def s3_etag(url):
+    """Check ETag on S3 object."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_object = s3_resource.Object(bucket_name, s3_path)
+    return s3_object.e_tag
+
+
+@s3_request
+def s3_get(url, temp_file):
+    """Pull a file directly from S3."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_resource.Bucket(bucket_name).download_fileobj(s3_path, temp_file)
+
+
 def url_to_filename(url, etag=None):
     """
     Convert `url` into a hashed filename in a repeatable way.
@@ -446,8 +465,8 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (SelfAttn,
-     lambda: ([], {'in_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
 ]
 

@@ -66,6 +66,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.utils.data
@@ -1361,11 +1363,11 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
     (Decoder,
-     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 64, 'output_dim': 4}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 18, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      False),
     (Decoder_all,
-     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 64, 'output_dim': 4}),
+     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 18, 'output_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (E_adaIN,

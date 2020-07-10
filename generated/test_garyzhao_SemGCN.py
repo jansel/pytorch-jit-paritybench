@@ -46,6 +46,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -316,6 +318,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
+    (_NonLocalBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 4, 4])], {}),
+     False),
 ]
 
 class Test_garyzhao_SemGCN(_paritybench_base):
@@ -327,4 +333,7 @@ class Test_garyzhao_SemGCN(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

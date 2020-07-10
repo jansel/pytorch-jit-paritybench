@@ -51,6 +51,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -765,6 +767,10 @@ TESTCASES = [
      lambda: ([], {'in_channel': 4, 'depth': 1, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (bottleneck_IR_SE,
+     lambda: ([], {'in_channel': 64, 'depth': 18, 'stride': 1}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
 ]
 
 class Test_ZhaoJ9014_face_evoLVe_PyTorch(_paritybench_base):
@@ -779,4 +785,7 @@ class Test_ZhaoJ9014_face_evoLVe_PyTorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

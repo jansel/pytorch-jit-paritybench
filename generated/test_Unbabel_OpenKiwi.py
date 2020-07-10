@@ -110,6 +110,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -1111,4 +1113,22 @@ def convolve_tensor(sequences, window_size, pad_value=0):
     t = F.pad(sequences, pad=pad, value=pad_value)
     t = t.unfold(1, window_size, 1)
     return t
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLPScorer,
+     lambda: ([], {'query_size': 4, 'key_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Unbabel_OpenKiwi(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

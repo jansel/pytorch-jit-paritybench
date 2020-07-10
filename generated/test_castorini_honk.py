@@ -45,6 +45,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import uuid
@@ -237,7 +239,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (SpeechResModel,
-     lambda: ([], {'config': _mock_config(n_labels=4, n_feature_maps=4, n_layers=1, use_dilation=1)}),
+     lambda: ([], {'config': _mock_config(n_labels=4, n_feature_maps=4, res_pool=4, n_layers=1, use_dilation=1)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
 ]

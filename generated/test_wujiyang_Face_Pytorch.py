@@ -57,6 +57,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -1009,6 +1011,10 @@ TESTCASES = [
      lambda: ([], {'channels': 4, 'reduction': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CenterLoss,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4])], {}),
+     False),
     (ConvBlock,
      lambda: ([], {'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1098,4 +1104,7 @@ class Test_wujiyang_Face_Pytorch(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

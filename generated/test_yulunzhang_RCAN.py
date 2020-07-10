@@ -62,6 +62,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data.dataloader import default_collate
@@ -730,8 +732,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (CALayer,
-     lambda: ([], {'channel': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channel': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (Discriminator,
      lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
@@ -746,8 +748,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (SELayer,
-     lambda: ([], {'channel': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channel': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SEResBlock,
      lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),

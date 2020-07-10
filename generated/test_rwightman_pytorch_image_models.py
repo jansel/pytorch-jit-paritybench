@@ -128,6 +128,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -6666,8 +6668,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (ChannelAttn,
-     lambda: ([], {'channels': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channels': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (ChannelShuffle,
      lambda: ([], {'groups': 1}),
@@ -6708,10 +6710,6 @@ TESTCASES = [
     (DlaBasic,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DlaBottle2neck,
-     lambda: ([], {'inplanes': 64, 'outplanes': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
      False),
     (DlaBottleneck,
      lambda: ([], {'inplanes': 4, 'outplanes': 4}),
@@ -6814,8 +6812,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
     (LightChannelAttn,
-     lambda: ([], {'channels': 64}),
-     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     lambda: ([], {'channels': 18}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (MLP,
      lambda: ([], {}),
@@ -7200,7 +7198,4 @@ class Test_rwightman_pytorch_image_models(_paritybench_base):
 
     def test_082(self):
         self._check(*TESTCASES[82])
-
-    def test_083(self):
-        self._check(*TESTCASES[83])
 

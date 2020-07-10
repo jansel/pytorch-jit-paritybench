@@ -40,6 +40,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data import Dataset
@@ -676,6 +678,10 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 512, 512])], {}),
      False),
+    (LiftedStructureLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4])], {}),
+     False),
     (ResNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -724,4 +730,7 @@ class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

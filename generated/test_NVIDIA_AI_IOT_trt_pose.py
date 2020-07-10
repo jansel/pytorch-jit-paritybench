@@ -33,6 +33,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils import cpp_extension
@@ -230,6 +232,10 @@ TESTCASES = [
      lambda: ([], {'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}),
      lambda: ([torch.rand([4, 256, 64, 64])], {}),
      True),
+    (HeatmapMaxpoolAndPermute,
+     lambda: ([], {}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (InputReNormalization,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 4, 4])], {}),
@@ -259,4 +265,7 @@ class Test_NVIDIA_AI_IOT_trt_pose(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

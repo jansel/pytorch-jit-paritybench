@@ -340,6 +340,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from typing import List
@@ -7730,6 +7732,10 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (LastTimestepPool,
+     lambda: ([], {'config': _mock_config(), 'n_input': 4}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
     (MaxPool,
      lambda: ([], {'config': _mock_config(), 'n_input': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -7851,4 +7857,7 @@ class Test_facebookresearch_pytext(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

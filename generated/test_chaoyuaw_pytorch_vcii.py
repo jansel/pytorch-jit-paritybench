@@ -32,6 +32,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -312,6 +314,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvLSTMCell,
+     lambda: ([], {'input_channels': 4, 'hidden_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 62, 62]), torch.rand([4, 4, 62, 62]))], {}),
+     False),
     (UNet,
      lambda: ([], {'n_channels': 4, 'shrink': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -356,4 +362,7 @@ class Test_chaoyuaw_pytorch_vcii(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

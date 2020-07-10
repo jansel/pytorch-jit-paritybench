@@ -30,6 +30,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -184,4 +186,22 @@ class DecoderCell(nn.Module):
         x = F.pixel_shuffle(x, 2)
         x = F.tanh(self.conv2(x)) / 2
         return x, hidden1, hidden2, hidden3, hidden4
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvLSTMCell,
+     lambda: ([], {'input_channels': 4, 'hidden_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 62, 62]), torch.rand([4, 4, 62, 62]))], {}),
+     False),
+]
+
+class Test_1zb_pytorch_image_comp_rnn(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

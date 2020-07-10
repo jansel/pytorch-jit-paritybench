@@ -321,6 +321,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -3733,7 +3735,7 @@ TESTCASES = [
      False),
     (TripletLoss,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
     (TripletLossV2,
      lambda: ([], {}),
@@ -3754,6 +3756,14 @@ TESTCASES = [
     (WingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_SimpleNet,
+     lambda: ([], {'input_shape': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_TracedNet,
+     lambda: ([], {'input_shape': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -3898,4 +3908,10 @@ class Test_catalyst_team_catalyst(_paritybench_base):
 
     def test_046(self):
         self._check(*TESTCASES[46])
+
+    def test_047(self):
+        self._check(*TESTCASES[47])
+
+    def test_048(self):
+        self._check(*TESTCASES[48])
 

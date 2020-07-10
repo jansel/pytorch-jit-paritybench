@@ -33,6 +33,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -194,6 +196,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
      False),
+    (VGG,
+     lambda: ([], {'blocks': [4, 4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 243, 243])], {}),
+     True),
 ]
 
 class Test_weiaicunzai_Bag_of_Tricks_for_Image_Classification_with_Convolutional_Neural_Networks(_paritybench_base):
@@ -202,4 +208,7 @@ class Test_weiaicunzai_Bag_of_Tricks_for_Image_Classification_with_Convolutional
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

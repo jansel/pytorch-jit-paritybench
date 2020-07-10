@@ -27,6 +27,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch.nn as nn
@@ -151,4 +153,22 @@ class MultiLSTM(nn.Module):
         else:
             NotImplementedError
         return x
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MultiLSTM,
+     lambda: ([], {'in_out_vec_dim': 4, 'moving_horizon': 4, 'activation': 'relu'}),
+     lambda: ([(torch.rand([4, 4, 4]), 0)], {}),
+     False),
+]
+
+class Test_Wizaron_deep_forecast_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

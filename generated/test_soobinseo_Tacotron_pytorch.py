@@ -29,6 +29,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data import Dataset
@@ -394,10 +396,6 @@ TESTCASES = [
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 128, 64])], {}),
      False),
-    (Highwaynet,
-     lambda: ([], {'num_units': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
     (Prenet,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -417,7 +415,4 @@ class Test_soobinseo_Tacotron_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

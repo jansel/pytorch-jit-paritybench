@@ -99,6 +99,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -3946,10 +3948,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (EESP,
-     lambda: ([], {'in_channels': 4, 'out_channels': 64}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (EESPNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -4067,8 +4065,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (_DAHead,
-     lambda: ([], {'in_channels': 64, 'nclass': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_channels': 32, 'nclass': 4}),
+     lambda: ([torch.rand([4, 32, 64, 64])], {}),
      False),
     (_DenseASPPBlock,
      lambda: ([], {'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}),
@@ -4115,8 +4113,8 @@ TESTCASES = [
      lambda: ([torch.rand([4, 2048, 4, 4])], {}),
      True),
     (_PositionAttentionModule,
-     lambda: ([], {'in_channels': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
@@ -4301,7 +4299,4 @@ class Test_Tramac_awesome_semantic_segmentation_pytorch(_paritybench_base):
 
     def test_058(self):
         self._check(*TESTCASES[58])
-
-    def test_059(self):
-        self._check(*TESTCASES[59])
 

@@ -50,6 +50,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import time
@@ -2023,12 +2025,8 @@ TESTCASES = [
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DilatedParllelResidualBlockB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (DownSamplerB,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
+     lambda: ([], {'nIn': 64, 'nOut': 18}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
     (ENet,
@@ -2212,7 +2210,4 @@ class Test_wutianyiRosun_CGNet(_paritybench_base):
 
     def test_036(self):
         self._check(*TESTCASES[36])
-
-    def test_037(self):
-        self._check(*TESTCASES[37])
 

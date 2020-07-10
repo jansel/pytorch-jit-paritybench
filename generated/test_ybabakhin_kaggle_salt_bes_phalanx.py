@@ -63,6 +63,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -348,11 +350,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Decoder,
-     lambda: ([], {'in_channels': 4, 'channels': 4, 'out_channels': 64}),
+     lambda: ([], {'in_channels': 4, 'channels': 4, 'out_channels': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (Decoderv2,
-     lambda: ([], {'up_in': 4, 'x_in': 4, 'n_out': 64}),
+     lambda: ([], {'up_in': 4, 'x_in': 4, 'n_out': 18}),
      lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
      True),
     (FPAv2,

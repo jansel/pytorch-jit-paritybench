@@ -184,6 +184,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import logging
@@ -5604,9 +5606,21 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4]), torch.rand([4, 4])], {}),
      False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([(torch.rand([4, 4, 64, 64, 64]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
     (RPNHead,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
+    (ResNet_S3D,
+     lambda: ([], {'depth': 18}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
+    (SSNHead,
+     lambda: ([], {}),
+     lambda: ([(torch.rand([4, 3072, 4, 3072]), torch.rand([4, 4, 4, 3072]))], {}),
      False),
     (STPPReorganized,
      lambda: ([], {'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}),
@@ -5616,6 +5630,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
+    (SimpleSpatialTemporalModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (SlowFastSpatialTemporalModule,
+     lambda: ([], {}),
+     lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
 ]
 
 class Test_open_mmlab_mmaction(_paritybench_base):
@@ -5639,4 +5661,19 @@ class Test_open_mmlab_mmaction(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

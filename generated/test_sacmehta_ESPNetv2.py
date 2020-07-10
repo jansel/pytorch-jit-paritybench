@@ -34,6 +34,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.nn import init
@@ -561,10 +563,6 @@ TESTCASES = [
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (EESP,
-     lambda: ([], {'nIn': 64, 'nOut': 64}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     False),
     (EESPNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -606,7 +604,4 @@ class Test_sacmehta_ESPNetv2(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

@@ -44,6 +44,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import math
@@ -248,4 +250,29 @@ class MarginLoss(torch.nn.Module):
         if pair_cnt > 0.0:
             loss = (loss + beta_regularization_loss) / pair_cnt
         return loss
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MarginLoss,
+     lambda: ([], {'nb_classes': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4])], {}),
+     False),
+    (Sampler,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4])], {}),
+     False),
+]
+
+class Test_CompVis_metric_learning_divide_and_conquer(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

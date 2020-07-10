@@ -53,6 +53,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -2299,10 +2301,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (EvolvedNetworkImageNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
-     False),
     (ExpandedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2620,7 +2618,4 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_052(self):
         self._check(*TESTCASES[52])
-
-    def test_053(self):
-        self._check(*TESTCASES[53])
 

@@ -164,6 +164,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -3107,6 +3109,10 @@ TESTCASES = [
      lambda: ([], {'dilation_rate': 1, 'dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (Discriminator,
+     lambda: ([], {'out_h': 256, 'out_w': 16, 'channel_dims': [4, 4, 4, 4], 'relu_leak': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (Distance,
      lambda: ([], {}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -3395,4 +3401,7 @@ class Test_ne7ermore_torch_light(_paritybench_base):
 
     def test_049(self):
         self._check(*TESTCASES[49])
+
+    def test_050(self):
+        self._check(*TESTCASES[50])
 

@@ -331,6 +331,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -4880,7 +4882,7 @@ TESTCASES = [
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
      True),
     (BasicBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (BatchNorm,
@@ -5016,7 +5018,7 @@ TESTCASES = [
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
      True),
     (PreActBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (PreActBottleneck,

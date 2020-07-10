@@ -226,6 +226,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import numpy as np
@@ -1269,6 +1271,23 @@ def generate_genotype(gene_function):
         genotype = Genotype(normal=gene_normal, normal_concat=concat, reduce=gene_reduce, reduce_concat=concat)
         return genotype
     return wrapper
+
+
+@generate_genotype
+def get_gene_from_config(config, steps=4):
+    gene = {'normal': [], 'reduce': []}
+    for cell_type in gene.keys():
+        first_edge = config['edge_{}_0'.format(cell_type)], 0
+        second_edge = config['edge_{}_1'.format(cell_type)], 1
+        gene[cell_type].append(first_edge)
+        gene[cell_type].append(second_edge)
+    for i, offset in zip(range(3, steps + 2), [2, 5, 9]):
+        for cell_type in gene.keys():
+            input_nodes = config['inputs_node_{}_{}'.format(cell_type, i)].split('_')
+            for node in input_nodes:
+                edge = config['edge_{}_{}'.format(cell_type, int(node) + offset)], int(node)
+                gene[cell_type].append(edge)
+    return gene
 
 
 class DARTSImageNet(NetworkCIFAR):

@@ -118,6 +118,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 import torch
@@ -2064,6 +2066,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([], {}),
      False),
+    (ShuffleNetV2,
+     lambda: ([], {'stages_repeats': [4, 4, 4], 'stages_out_channels': [4, 4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (SinkhornDivergence,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -2160,4 +2166,7 @@ class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
 
     def test_025(self):
         self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
 

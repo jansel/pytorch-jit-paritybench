@@ -24,6 +24,8 @@ argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
 yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+xrange = range
+wraps = functools.wraps
 
 
 from torch.utils.data import Dataset
@@ -336,7 +338,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CRF,
      lambda: ([], {'hidden_dim': 4, 'tagset_size': 4}),
-     lambda: ([torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      True),
     (Highway,
      lambda: ([], {'size': 4}),
