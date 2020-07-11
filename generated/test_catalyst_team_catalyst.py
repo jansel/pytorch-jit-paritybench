@@ -309,7 +309,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -532,6 +532,9 @@ from torch.utils.data.sampler import Sampler
 from typing import Sequence
 
 
+import pandas as pd
+
+
 from sklearn.metrics import confusion_matrix as confusion_matrix_fn
 
 
@@ -581,6 +584,12 @@ from torch.backends import cudnn
 
 
 from torch.utils.data import Subset
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.optim as optim
@@ -3585,10 +3594,6 @@ TESTCASES = [
      lambda: ([], {'in_features': 4, 'hid_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
-    (ConcurrentSpatialAndChannelSqueezeAndChannelExcitation,
-     lambda: ([], {'in_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (ContrastiveDistanceLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3705,10 +3710,6 @@ TESTCASES = [
      lambda: ([], {'net': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SqueezeAndExcitation,
-     lambda: ([], {'in_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (TemporalAttentionPooling,
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -3741,10 +3742,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
-    (TripletPairwiseEmbeddingLoss,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
-     True),
     (UnetEncoder,
      lambda: ([], {'in_channels': 4, 'num_channels': 4, 'num_blocks': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -3756,14 +3753,6 @@ TESTCASES = [
     (WingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (_SimpleNet,
-     lambda: ([], {'input_shape': [4, 4, 4]}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (_TracedNet,
-     lambda: ([], {'input_shape': [4, 4, 4]}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -3899,19 +3888,4 @@ class Test_catalyst_team_catalyst(_paritybench_base):
 
     def test_043(self):
         self._check(*TESTCASES[43])
-
-    def test_044(self):
-        self._check(*TESTCASES[44])
-
-    def test_045(self):
-        self._check(*TESTCASES[45])
-
-    def test_046(self):
-        self._check(*TESTCASES[46])
-
-    def test_047(self):
-        self._check(*TESTCASES[47])
-
-    def test_048(self):
-        self._check(*TESTCASES[48])
 

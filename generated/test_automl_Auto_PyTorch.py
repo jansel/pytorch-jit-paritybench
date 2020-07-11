@@ -214,7 +214,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -327,6 +327,9 @@ from torch.utils.data.dataset import Subset
 
 
 from torch.utils.data.sampler import SubsetRandomSampler
+
+
+import pandas as pd
 
 
 from sklearn.model_selection import BaseCrossValidator
@@ -2519,14 +2522,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (AuxiliaryHeadCIFAR,
-     lambda: ([], {'C': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
-    (AuxiliaryHeadImageNet,
-     lambda: ([], {'C': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
     (BaseNet,
      lambda: ([], {'config': _mock_config(), 'in_features': 4, 'out_features': 4, 'final_activation': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2703,10 +2698,4 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
 
     def test_025(self):
         self._check(*TESTCASES[25])
-
-    def test_026(self):
-        self._check(*TESTCASES[26])
-
-    def test_027(self):
-        self._check(*TESTCASES[27])
 

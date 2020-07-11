@@ -198,7 +198,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -3808,14 +3808,6 @@ TESTCASES = [
      lambda: ([], {'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (LinearInLinear,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3])], {}),
-     True),
-    (M,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1, 16, 16])], {}),
-     True),
     (MLP,
      lambda: ([], {'n_in': 4, 'n_state': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3823,18 +3815,6 @@ TESTCASES = [
     (Mask,
      lambda: ([], {'n_ctx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (MultipleInput,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3]), torch.rand([3, 3])], {}),
-     True),
-    (MultipleOutput,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3])], {}),
-     True),
-    (MultipleOutput_shared,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3])], {}),
      True),
     (NoBottleneck,
      lambda: ([], {'levels': 4}),
@@ -3864,10 +3844,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SyncBatchNorm,
-     lambda: ([], {'num_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (mLSTMRNNCell,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -3932,22 +3908,4 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
 

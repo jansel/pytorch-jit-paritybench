@@ -188,7 +188,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -277,6 +277,9 @@ from collections import OrderedDict
 
 
 from torch.nn import functional as F
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.nn.init as init
@@ -3747,10 +3750,6 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 256, 64, 64])], {}),
      False),
-    (BBoxHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12544, 12544])], {}),
-     False),
     (BaseDetector,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3763,14 +3762,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CBAM,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
-    (ChannelGate,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (ChannelPool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3810,14 +3801,6 @@ TESTCASES = [
     (RetinaHead,
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
-     False),
-    (SELayer,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
-    (SharedFCBBoxHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12544, 12544])], {}),
      False),
     (ShuffleNetV2,
      lambda: ([], {}),
@@ -3887,19 +3870,4 @@ class Test_implus_PytorchInsight(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
 

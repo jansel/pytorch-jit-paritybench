@@ -47,7 +47,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -70,6 +70,9 @@ import string
 
 
 from collections import Counter
+
+
+import pandas as pd
 
 
 import random
@@ -1385,6 +1388,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseModel,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (BasicCNN1D,
      lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
@@ -1417,6 +1424,10 @@ TESTCASES = [
      lambda: ([], {'n_src_vocab': 4, 'n_max_seq': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
      False),
+    (FastText,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, linear_hidden_size=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (KIMCNN1D,
      lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, embedding_type=4, max_seq_len=4, kernel_sizes=[4, 4], kernel_nums=[4, 4])}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -1485,4 +1496,10 @@ class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

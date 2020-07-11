@@ -31,7 +31,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2861,10 +2861,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (BNInception,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
-     True),
     (BaseModel,
      lambda: ([], {}),
      lambda: ([], {}),
@@ -2876,22 +2872,6 @@ TESTCASES = [
     (DecoderGenerator_512_64,
      lambda: ([], {'norm_layer': 1}),
      lambda: ([torch.rand([4, 512, 4, 4])], {}),
-     True),
-    (DecoderGenerator_mask_eye,
-     lambda: ([], {'norm_layer': 1}),
-     lambda: ([torch.rand([512, 512])], {}),
-     True),
-    (DecoderGenerator_mask_eye_image,
-     lambda: ([], {'norm_layer': 1}),
-     lambda: ([torch.rand([512, 512])], {}),
-     True),
-    (DecoderGenerator_mask_mouth,
-     lambda: ([], {'norm_layer': 1}),
-     lambda: ([torch.rand([512, 512])], {}),
-     True),
-    (DecoderGenerator_mask_skin,
-     lambda: ([], {'norm_layer': 1}),
-     lambda: ([torch.rand([512, 512])], {}),
      True),
     (DecoderResBlock,
      lambda: ([], {'channel_in': 4, 'channel_out': 4}),
@@ -2916,10 +2896,6 @@ TESTCASES = [
     (EncoderGenerator_256_512,
      lambda: ([], {'norm_layer': 1}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (EncoderGenerator_mask_skin,
-     lambda: ([], {'norm_layer': 1}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
      False),
     (EncoderResBlock,
      lambda: ([], {'channel_in': 4, 'channel_out': 4}),
@@ -3006,22 +2982,4 @@ class Test_cientgu_Mask_Guided_Portrait_Editing(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
 

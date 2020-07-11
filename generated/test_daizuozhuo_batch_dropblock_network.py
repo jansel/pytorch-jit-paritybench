@@ -28,7 +28,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -111,6 +111,9 @@ import math
 
 
 import torch as th
+
+
+import matplotlib.pyplot as plt
 
 
 import time
@@ -689,15 +692,11 @@ TESTCASES = [
     (ResNetBuilder,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
+     True),
     (Resnet,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (SELayer,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
 ]
 
 class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
@@ -730,7 +729,4 @@ class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

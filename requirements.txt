@@ -1,0 +1,12 @@
+astor
+numpy
+pytest
+torch
+scipy
+scikit-learn
+tensorflow
+torchaudio
+torchtext
+torchvision
+pandas
+matplotlib

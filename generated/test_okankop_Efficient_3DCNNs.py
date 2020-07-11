@@ -47,7 +47,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -685,8 +685,20 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (MobileNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
+    (ResNeXtBottleneck,
+     lambda: ([], {'inplanes': 64, 'planes': 32, 'cardinality': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64, 64])], {}),
+     True),
     (ShuffleNet,
      lambda: ([], {'groups': 1}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
+    (ShuffleNetV2,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
      False),
     (SqueezeNet,
@@ -713,4 +725,13 @@ class Test_okankop_Efficient_3DCNNs(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

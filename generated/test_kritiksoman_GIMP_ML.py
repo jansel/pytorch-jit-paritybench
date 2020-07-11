@@ -97,7 +97,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -266,6 +266,12 @@ import torch.utils.model_zoo as modelzoo
 import torch.utils.model_zoo as model_zoo
 
 
+import matplotlib as mpl
+
+
+import matplotlib.cm as cm
+
+
 from functools import reduce
 
 
@@ -273,6 +279,9 @@ from torch.utils import data
 
 
 import scipy.io as sio
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.backends.cudnn as cudnn
@@ -3396,10 +3405,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (_NetD,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 96, 96])], {}),
-     True),
     (_NetG,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3555,7 +3560,4 @@ class Test_kritiksoman_GIMP_ML(_paritybench_base):
 
     def test_046(self):
         self._check(*TESTCASES[46])
-
-    def test_047(self):
-        self._check(*TESTCASES[47])
 

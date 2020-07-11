@@ -103,7 +103,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -4365,10 +4365,6 @@ TESTCASES = [
      lambda: ([], {'num_inputs': 4, 'num_outputs': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (GapMinion,
-     lambda: ([], {'num_inputs': 4, 'num_outputs': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 2, 64])], {}),
-     False),
     (LayerNorm,
      lambda: ([], {'features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4500,7 +4496,4 @@ class Test_santi_pdp_pase(_paritybench_base):
 
     def test_022(self):
         self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
 

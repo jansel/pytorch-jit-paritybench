@@ -319,7 +319,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -456,6 +456,9 @@ from torchvision.models import resnet50
 
 
 from torchvision.models import resnet152
+
+
+import pandas as pd
 
 
 from sklearn.model_selection import StratifiedKFold
@@ -4865,14 +4868,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (AuxiliaryHeadCIFAR,
-     lambda: ([], {'C': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
-    (AuxiliaryHeadImageNet,
-     lambda: ([], {'C': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
     (AvgPool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4905,10 +4900,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (ChannelAttentionGate,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (ConvBn2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4977,10 +4968,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (GoogLeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (IdentityLayer,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4992,10 +4979,6 @@ TESTCASES = [
     (InteractiveKLLoss,
      lambda: ([], {'temperature': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (LinearCombine,
      lambda: ([], {'layers_num': 1}),
@@ -5028,10 +5011,6 @@ TESTCASES = [
     (ReductionLayer,
      lambda: ([], {'in_channels_pp': 4, 'in_channels_p': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResNeXt,
-     lambda: ([], {'num_blocks': [4, 4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (SepConv,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
@@ -5104,10 +5083,6 @@ TESTCASES = [
     (ZeroLayer,
      lambda: ([], {'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (fc1,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
      True),
 ]
 
@@ -5276,25 +5251,4 @@ class Test_microsoft_nni(_paritybench_base):
 
     def test_054(self):
         self._check(*TESTCASES[54])
-
-    def test_055(self):
-        self._check(*TESTCASES[55])
-
-    def test_056(self):
-        self._check(*TESTCASES[56])
-
-    def test_057(self):
-        self._check(*TESTCASES[57])
-
-    def test_058(self):
-        self._check(*TESTCASES[58])
-
-    def test_059(self):
-        self._check(*TESTCASES[59])
-
-    def test_060(self):
-        self._check(*TESTCASES[60])
-
-    def test_061(self):
-        self._check(*TESTCASES[61])
 

@@ -39,7 +39,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -319,11 +319,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (GAT,
      lambda: ([], {'nfeat': 4, 'nhid': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (GraphAttentionLayer,
      lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (MemoryComponent,
      lambda: ([], {'hop': 4, 'h': 4, 'd_model': 4, 'dropout_p': 0.5}),

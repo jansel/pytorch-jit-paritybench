@@ -295,7 +295,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -327,6 +327,9 @@ from collections import OrderedDict
 
 
 import numpy as np
+
+
+import matplotlib.pyplot as plt
 
 
 from functools import reduce
@@ -8279,14 +8282,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (DenseNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
-    (SmallFeatureExtractor,
-     lambda: ([], {}),
-     lambda: ([torch.rand([1, 1])], {}),
-     True),
     (_DenseBlock,
      lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -8310,10 +8305,4 @@ class Test_cornellius_gp_gpytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

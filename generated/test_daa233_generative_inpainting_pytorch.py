@@ -17,7 +17,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -827,14 +827,6 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4, 'cnum': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (GlobalDis,
-     lambda: ([], {'config': _mock_config(input_dim=4, ndf=4)}),
-     lambda: ([torch.rand([4, 4, 256, 256])], {}),
-     False),
-    (LocalDis,
-     lambda: ([], {'config': _mock_config(input_dim=4, ndf=4)}),
-     lambda: ([torch.rand([4, 4, 128, 128])], {}),
-     False),
 ]
 
 class Test_daa233_generative_inpainting_pytorch(_paritybench_base):
@@ -846,10 +838,4 @@ class Test_daa233_generative_inpainting_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

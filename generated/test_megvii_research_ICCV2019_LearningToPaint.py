@@ -34,7 +34,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -325,10 +325,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 6, 64, 64])], {}),
      True),
-    (FCN,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
     (TReLU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -347,7 +343,4 @@ class Test_megvii_research_ICCV2019_LearningToPaint(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

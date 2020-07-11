@@ -37,7 +37,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -66,6 +66,9 @@ import numpy as np
 
 
 import scipy.misc as m
+
+
+import matplotlib.pyplot as plt
 
 
 from torch.utils import data
@@ -1560,11 +1563,11 @@ TESTCASES = [
     (segnetDown2,
      lambda: ([], {'in_size': 4, 'out_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (segnetDown3,
      lambda: ([], {'in_size': 4, 'out_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (unetConv2,
      lambda: ([], {'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),

@@ -32,7 +32,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1148,10 +1148,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VisualFeatEncoder,
-     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([(torch.rand([4, 4, 4, 2048]), torch.rand([4, 4, 4, 4]))], {}),
-     False),
 ]
 
 class Test_airsplay_lxmert(_paritybench_base):
@@ -1187,7 +1183,4 @@ class Test_airsplay_lxmert(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

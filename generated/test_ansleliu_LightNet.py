@@ -87,7 +87,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2705,14 +2705,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1088, 64, 64])], {}),
      True),
-    (ModifiedSCSEBlock,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
-    (SCSEBlock,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (SCSEInvertedResidual,
      lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2720,10 +2712,6 @@ TESTCASES = [
     (SDASPPInPlaceABNBlock,
      lambda: ([], {'in_chs': 4, 'out_chs': 4}),
      lambda: ([torch.rand([4, 4, 56, 112])], {}),
-     True),
-    (SEBlock,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
      True),
     (SemanticEncodingLoss,
      lambda: ([], {}),
@@ -2805,13 +2793,4 @@ class Test_ansleliu_LightNet(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
 

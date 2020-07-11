@@ -20,7 +20,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -58,6 +58,9 @@ import math
 
 
 from typing import Optional
+
+
+import matplotlib.pyplot as plt
 
 
 from torch.utils.tensorboard import SummaryWriter
@@ -509,14 +512,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (VeryTinyNeRFModel,
-     lambda: ([], {}),
-     lambda: ([torch.rand([78, 78])], {}),
-     True),
-    (VeryTinyNerfModel,
-     lambda: ([], {}),
-     lambda: ([torch.rand([39, 39])], {}),
-     True),
 ]
 
 class Test_krrish94_nerf_pytorch(_paritybench_base):
@@ -531,10 +526,4 @@ class Test_krrish94_nerf_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

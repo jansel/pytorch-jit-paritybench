@@ -44,7 +44,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -448,17 +448,9 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1088, 64, 64])], {}),
      False),
-    (ONet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 48, 48])], {}),
-     True),
     (PNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (RNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 24, 24])], {}),
      True),
 ]
 
@@ -489,10 +481,4 @@ class Test_kuaikuaikim_DFace(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

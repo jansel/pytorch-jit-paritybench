@@ -27,7 +27,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -92,6 +92,9 @@ import torchvision.transforms as transforms
 
 
 from torchvision.utils import save_image
+
+
+from matplotlib import pyplot as plt
 
 
 import torch.optim as optim
@@ -591,10 +594,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (G_mapping,
-     lambda: ([], {}),
-     lambda: ([torch.rand([512, 512])], {}),
-     True),
     (Generator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 512, 1, 1])], {}),
@@ -643,7 +642,4 @@ class Test_tomguluson92_StyleGAN_PyTorch(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

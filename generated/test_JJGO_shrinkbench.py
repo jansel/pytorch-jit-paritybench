@@ -45,7 +45,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -122,6 +122,9 @@ import math
 
 
 from collections import OrderedDict
+
+
+import pandas as pd
 
 
 from torch.nn.modules.utils import _pair
@@ -462,10 +465,6 @@ TESTCASES = [
      lambda: ([], {'lambd': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VGGBnDrop,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
 ]
 
 class Test_JJGO_shrinkbench(_paritybench_base):
@@ -477,7 +476,4 @@ class Test_JJGO_shrinkbench(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

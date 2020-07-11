@@ -22,7 +22,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -72,6 +72,12 @@ import torch.nn.init as init
 
 
 import numpy as np
+
+
+import matplotlib
+
+
+from matplotlib import pyplot as plt
 
 
 from torch.autograd import grad
@@ -734,17 +740,9 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (GoogLeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (Inception,
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (PreActBlock,
      lambda: ([], {'in_planes': 4, 'planes': 18}),
@@ -753,10 +751,6 @@ TESTCASES = [
     (PreActBottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResNeXt,
-     lambda: ([], {'num_blocks': [4, 4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (SepConv,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
@@ -795,13 +789,4 @@ class Test_hongyi_zhang_mixup(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

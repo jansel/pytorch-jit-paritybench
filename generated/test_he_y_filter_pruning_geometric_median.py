@@ -34,7 +34,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -784,10 +784,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CifarCaffeNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (DownsampleA,
      lambda: ([], {'nIn': 4, 'nOut': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -812,10 +808,6 @@ TESTCASES = [
      lambda: ([], {'nChannels': 4, 'nOutChannels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (vgg,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
 ]
 
 class Test_he_y_filter_pruning_geometric_median(_paritybench_base):
@@ -836,10 +828,4 @@ class Test_he_y_filter_pruning_geometric_median(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

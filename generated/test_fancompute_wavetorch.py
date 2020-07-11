@@ -36,7 +36,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -56,6 +56,9 @@ import torch
 
 
 import numpy as np
+
+
+import matplotlib.pyplot as plt
 
 
 from torch.nn.functional import conv2d
@@ -97,6 +100,9 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
 
+import matplotlib as mpl
+
+
 import math
 
 
@@ -104,6 +110,12 @@ import random
 
 
 from torch.nn.utils.rnn import pad_sequence
+
+
+from matplotlib.gridspec import GridSpec
+
+
+import pandas as pd
 
 
 import sklearn
@@ -125,6 +137,9 @@ import copy
 
 
 import warnings
+
+
+import matplotlib.animation as animation
 
 
 from sklearn.metrics import confusion_matrix

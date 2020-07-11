@@ -162,7 +162,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -236,6 +236,9 @@ from torch.utils.data import BatchSampler
 
 
 from torch.utils.data import Dataset as TorchDataset
+
+
+from matplotlib.pyplot import imread
 
 
 from collections import OrderedDict
@@ -2549,10 +2552,6 @@ TESTCASES = [
      lambda: ([], {'imgH': 16, 'nc': 4, 'nclass': 4, 'nh': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
-    (ClassificationDecoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 256, 4, 256])], {}),
-     False),
     (FPNTopDown,
      lambda: ([], {'pyramid_channels': [4, 4], 'feature_channel': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
@@ -2630,7 +2629,4 @@ class Test_Megvii_CSG_MegReader(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

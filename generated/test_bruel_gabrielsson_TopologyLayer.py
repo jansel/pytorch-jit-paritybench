@@ -47,7 +47,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -61,6 +61,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+import matplotlib.pyplot as plt
 
 
 import torch
@@ -109,6 +112,9 @@ from torch.autograd import Variable
 
 
 from torch.autograd import Function
+
+
+import matplotlib
 
 
 ape = 1, 28, 28
@@ -601,10 +607,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([100, 100])], {}),
-     False),
     (NormLoss,
      lambda: ([], {'p': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -621,7 +623,4 @@ class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

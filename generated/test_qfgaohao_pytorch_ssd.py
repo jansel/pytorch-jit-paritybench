@@ -59,7 +59,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -614,10 +614,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AlexNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 243, 243])], {}),
-     True),
     (Fire,
      lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -655,7 +651,4 @@ class Test_qfgaohao_pytorch_ssd(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

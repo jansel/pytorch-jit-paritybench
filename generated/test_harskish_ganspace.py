@@ -72,7 +72,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -107,6 +107,9 @@ from types import SimpleNamespace
 
 
 from scipy.cluster.vq import kmeans
+
+
+import matplotlib.pyplot as plt
 
 
 from torch.nn.functional import interpolate
@@ -157,7 +160,22 @@ from torchvision import transforms
 from torch.utils.data import TensorDataset
 
 
+from matplotlib.figure import Figure
+
+
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+
+
+import matplotlib.gridspec as gridspec
+
+
 from scipy.ndimage.morphology import binary_dilation
+
+
+from matplotlib.ticker import MaxNLocator
+
+
+import matplotlib
 
 
 from torchvision.datasets.folder import default_loader
@@ -2297,10 +2315,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (G_mapping,
-     lambda: ([], {}),
-     lambda: ([torch.rand([512, 512])], {}),
-     False),
     (InstrumentedModel,
      lambda: ([], {'model': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -2337,10 +2351,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 18}),
      lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
-    (StyleGAN_G,
-     lambda: ([], {'resolution': 4}),
-     lambda: ([torch.rand([512, 512])], {}),
-     False),
     (StyleMod,
      lambda: ([], {'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}),
      lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -2397,10 +2407,4 @@ class Test_harskish_ganspace(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

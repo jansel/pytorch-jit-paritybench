@@ -25,7 +25,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -930,17 +930,9 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (GoogLeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (Inception,
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (PreActBlock,
      lambda: ([], {'in_planes': 4, 'planes': 18}),
@@ -949,10 +941,6 @@ TESTCASES = [
     (PreActBottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResNeXt,
-     lambda: ([], {'num_blocks': [4, 4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (SE,
      lambda: ([], {'in_planes': 4, 'se_planes': 4}),
@@ -965,10 +953,6 @@ TESTCASES = [
     (ShuffleBlock,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ShuffleNetV2,
-     lambda: ([], {'net_size': 2}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (SplitBlock,
      lambda: ([], {'ratio': 4}),
@@ -1019,16 +1003,4 @@ class Test_kuangliu_pytorch_cifar(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
 

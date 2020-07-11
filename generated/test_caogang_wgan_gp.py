@@ -25,7 +25,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -75,6 +75,12 @@ import torch.optim as optim
 
 
 from sklearn.preprocessing import OneHotEncoder
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
 
 
 import sklearn.datasets
@@ -134,14 +140,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Discriminator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2])], {}),
-     True),
-    (Generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2]), torch.rand([4, 4, 4, 4])], {}),
-     False),
     (ResBlock,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 512, 64])], {}),
@@ -151,10 +149,4 @@ TESTCASES = [
 class Test_caogang_wgan_gp(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

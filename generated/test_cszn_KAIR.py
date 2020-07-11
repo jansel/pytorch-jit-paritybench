@@ -65,7 +65,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -151,6 +151,9 @@ from torch.nn import init
 
 
 from torchvision.utils import make_grid
+
+
+import matplotlib.pyplot as plt
 
 
 def pixel_unshuffle(input, upscale_factor):
@@ -1378,10 +1381,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
      True),
-    (Discriminator_VGG_128_SN,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 128, 128])], {}),
-     True),
     (HyPaNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 2, 64, 64])], {}),
@@ -1429,7 +1428,7 @@ TESTCASES = [
     (TVLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (VGGFeatureExtractor,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1484,7 +1483,4 @@ class Test_cszn_KAIR(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
 

@@ -14,7 +14,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -76,6 +76,9 @@ from math import log10
 
 
 import numpy as np
+
+
+import pandas as pd
 
 
 import torchvision.utils as utils
@@ -281,7 +284,7 @@ TESTCASES = [
     (GeneratorLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
-     False),
+     True),
     (ResidualBlock,
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -293,7 +296,7 @@ TESTCASES = [
     (TVLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (UpsampleBLock,
      lambda: ([], {'in_channels': 4, 'up_scale': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

@@ -62,7 +62,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -124,6 +124,12 @@ import torchvision.models as models
 
 
 from torch import optim
+
+
+import matplotlib
+
+
+from matplotlib import pyplot as plt
 
 
 from torch.nn.modules.loss import _Loss
@@ -3399,10 +3405,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (FGlo,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (FPEBlock,
      lambda: ([], {'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3808,7 +3810,4 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_076(self):
         self._check(*TESTCASES[76])
-
-    def test_077(self):
-        self._check(*TESTCASES[77])
 

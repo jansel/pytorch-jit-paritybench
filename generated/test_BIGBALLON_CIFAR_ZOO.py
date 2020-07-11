@@ -21,7 +21,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -867,10 +867,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AlexNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -883,21 +879,9 @@ TESTCASES = [
      lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'expansion': 4, 'M': 4, 'r': 4, 'L': 4}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      False),
-    (CBAM,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
-    (ChannelGate,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (ChannelPool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (DenseNet,
-     lambda: ([], {'block': 256, 'depth': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (Downblock,
      lambda: ([], {'channels': 4, 'kernel_size': 4}),
@@ -910,10 +894,6 @@ TESTCASES = [
     (GeResNeXt,
      lambda: ([], {'cardinality': 4, 'depth': 1, 'num_classes': 4, 'base_width': 4}),
      lambda: ([torch.rand([4, 3, 9, 9])], {}),
-     True),
-    (LeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (ResNeXt,
      lambda: ([], {'cardinality': 4, 'depth': 1, 'num_classes': 4, 'base_width': 4}),
@@ -950,10 +930,6 @@ TESTCASES = [
     (Transition,
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([512, 512])], {}),
      True),
 ]
 
@@ -1005,22 +981,4 @@ class Test_BIGBALLON_CIFAR_ZOO(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
 

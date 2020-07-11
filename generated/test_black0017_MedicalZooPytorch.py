@@ -91,7 +91,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -183,6 +183,9 @@ import torch.backends.cudnn as cudnn
 
 
 import itertools
+
+
+import matplotlib.pyplot as plt
 
 
 import math
@@ -2625,6 +2628,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (DownTransition,
+     lambda: ([], {'inChans': 4, 'nConvs': 4, 'elu': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
     (DualPathDenseNet,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2645,13 +2652,29 @@ TESTCASES = [
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (InputTransition,
+     lambda: ([], {'in_channels': 4, 'elu': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (LUConv,
+     lambda: ([], {'nchan': 4, 'elu': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
     (OutConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (OutputTransition,
+     lambda: ([], {'in_channels': 4, 'classes': 4, 'elu': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
     (PEXP,
      lambda: ([], {'n_input': 4, 'n_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetEncoder,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 16, 16])], {}),
      True),
     (ResidualConv,
      lambda: ([], {'nin': 4, 'nout': 4}),
@@ -2813,4 +2836,19 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
 
     def test_033(self):
         self._check(*TESTCASES[33])
+
+    def test_034(self):
+        self._check(*TESTCASES[34])
+
+    def test_035(self):
+        self._check(*TESTCASES[35])
+
+    def test_036(self):
+        self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
 

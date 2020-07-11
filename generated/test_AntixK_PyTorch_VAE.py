@@ -54,7 +54,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -3102,6 +3102,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'latent1_dim': 4, 'latent2_dim': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
+    (IWAE,
+     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
     (InfoVAE,
      lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -3119,6 +3123,10 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (LogCoshVAE,
+     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (MIWAE,
      lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
@@ -3236,4 +3244,10 @@ class Test_AntixK_PyTorch_VAE(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
 

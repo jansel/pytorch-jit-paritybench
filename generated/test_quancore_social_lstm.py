@@ -20,7 +20,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -60,6 +60,18 @@ import itertools
 import torch.nn as nn
 
 
+import pandas as pd
+
+
+import matplotlib
+
+
+import matplotlib.animation as animation
+
+
+import matplotlib.pyplot as plt
+
+
 from random import randint
 
 
@@ -67,6 +79,9 @@ from random import choice
 
 
 from random import shuffle
+
+
+import matplotlib as mpl
 
 
 class SocialModel(nn.Module):

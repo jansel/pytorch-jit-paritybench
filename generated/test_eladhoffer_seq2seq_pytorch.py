@@ -50,7 +50,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2640,10 +2640,6 @@ TESTCASES = [
      lambda: ([], {'query_size': 4, 'key_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
-    (AverageNetwork,
-     lambda: ([], {'input_size': 4, 'inner_linear': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (ConvEncoder,
      lambda: ([], {'vocab_size': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
@@ -2660,10 +2656,6 @@ TESTCASES = [
      lambda: ([], {'input_shape': 4, 'output_shape': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
-    (Linear,
-     lambda: ([], {'in_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (MaskedConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 64])], {}),
@@ -2671,10 +2663,6 @@ TESTCASES = [
     (MaskedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (MultiHeadAttentionV2,
-     lambda: ([], {'input_size': 4, 'output_size': 4, 'num_heads': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
     (OrderAttention,
      lambda: ([], {}),
@@ -2703,10 +2691,6 @@ TESTCASES = [
     (TimeNorm2d,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (TransformerAttentionEncoder,
-     lambda: ([], {'vocab_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
@@ -2759,16 +2743,4 @@ class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
 

@@ -11,7 +11,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -28,6 +28,9 @@ wraps = functools.wraps
 
 
 import numpy as np
+
+
+import pandas as pd
 
 
 import torch
@@ -98,22 +101,4 @@ class FaceNetModel(nn.Module):
         features = self.forward(x)
         res = self.model.classifier(features)
         return res
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (FaceNetModel,
-     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 192, 192])], {}),
-     True),
-]
-
-class Test_tbmoon_facenet(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

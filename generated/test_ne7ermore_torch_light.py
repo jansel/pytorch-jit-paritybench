@@ -152,7 +152,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -280,6 +280,9 @@ from itertools import count
 
 
 from torch.distributions import Categorical
+
+
+import pandas as pd
 
 
 from torchvision.models import vgg19
@@ -3087,7 +3090,7 @@ TESTCASES = [
      True),
     (CrossEntropy,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      True),
     (DQN,
      lambda: ([], {'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}),
@@ -3175,7 +3178,7 @@ TESTCASES = [
      True),
     (NlpCrossEntropy,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      True),
     (ObjModel,
      lambda: ([], {'dim': 4, 'num_classes': 4}),
@@ -3215,7 +3218,7 @@ TESTCASES = [
      True),
     (SelfCriticCriterion,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4]), torch.rand([4])], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4]), torch.rand([4])], {}),
      True),
     (SubModel,
      lambda: ([], {'dim': 4}),
@@ -3231,7 +3234,7 @@ TESTCASES = [
      True),
     (WordCrossEntropy,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      True),
     (_DenseBLayer,
      lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}),

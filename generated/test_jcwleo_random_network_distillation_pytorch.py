@@ -14,7 +14,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -204,10 +204,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CnnActorCriticNetwork,
-     lambda: ([], {'input_size': 4, 'output_size': 4}),
-     lambda: ([torch.rand([4, 4, 90, 90])], {}),
-     True),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -216,10 +212,6 @@ TESTCASES = [
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (RNDModel,
-     lambda: ([], {'input_size': 4, 'output_size': 4}),
-     lambda: ([torch.rand([4, 1, 90, 90])], {}),
-     True),
 ]
 
 class Test_jcwleo_random_network_distillation_pytorch(_paritybench_base):
@@ -228,10 +220,4 @@ class Test_jcwleo_random_network_distillation_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

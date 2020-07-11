@@ -54,7 +54,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -95,6 +95,9 @@ import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
+
+
+import matplotlib.pyplot as plt
 
 
 from torch.autograd import *
@@ -146,6 +149,9 @@ import types
 
 
 import warnings
+
+
+import matplotlib.patches as patches
 
 
 import itertools
@@ -1753,7 +1759,11 @@ TESTCASES = [
      True),
     (FGCriterion,
      lambda: ([], {'opt': _mock_config()}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (RewardCriterion,
+     lambda: ([], {'opt': _mock_config(vocab_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
 ]
 
@@ -1766,4 +1776,7 @@ class Test_jiasenlu_NeuralBabyTalk(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

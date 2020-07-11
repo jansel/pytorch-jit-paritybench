@@ -94,7 +94,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1005,18 +1005,6 @@ TESTCASES = [
      lambda: ([], {'state_size': 4, 'action_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Actor,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([3, 3])], {}),
-     True),
-    (ActorCritic,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([3, 3])], {}),
-     False),
-    (Critic,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([3, 3])], {}),
-     False),
     (EpsilonGreedy,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1041,18 +1029,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (NatureFeatures,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 90, 90])], {}),
-     True),
     (PolicyNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SoftActor,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([3, 3])], {}),
-     False),
     (StateValueFunction,
      lambda: ([], {'state_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1086,19 +1066,4 @@ class Test_learnables_cherry(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

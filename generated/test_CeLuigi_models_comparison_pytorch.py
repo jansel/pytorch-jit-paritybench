@@ -38,7 +38,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2683,4 +2683,316 @@ class Identity(nn.Module):
 
     def forward(self, x):
         return x
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveAvgMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AvgPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'in_filters': 4, 'out_filters': 4, 'reps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2080, 64, 64])], {}),
+     True),
+    (BnActConv2d,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparables,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BranchSeparablesReduction,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesStem,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CatBnAct,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CellStem0,
+     lambda: ([], {'stem_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CellStem1,
+     lambda: ([], {'stem_filters': 4, 'num_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {}),
+     False),
+    (DPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionResNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (InceptionV4,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
+    (Inception_A,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     True),
+    (Inception_B,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (Inception_C,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1536, 64, 64])], {}),
+     True),
+    (InputBlock,
+     lambda: ([], {'num_init_features': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mixed_3a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (Mixed_4a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 160, 64, 64])], {}),
+     True),
+    (Mixed_5a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (MobileNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (NormalCell,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ReductionCell0,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell1,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Reduction_A,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     True),
+    (Reduction_B,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShuffleNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SpatialCrossMapLRN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_CeLuigi_models_comparison_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
+
+    def test_032(self):
+        self._check(*TESTCASES[32])
+
+    def test_033(self):
+        self._check(*TESTCASES[33])
+
+    def test_034(self):
+        self._check(*TESTCASES[34])
+
+    def test_035(self):
+        self._check(*TESTCASES[35])
+
+    def test_036(self):
+        self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
+
+    def test_039(self):
+        self._check(*TESTCASES[39])
+
+    def test_040(self):
+        self._check(*TESTCASES[40])
+
+    def test_041(self):
+        self._check(*TESTCASES[41])
+
+    def test_042(self):
+        self._check(*TESTCASES[42])
 

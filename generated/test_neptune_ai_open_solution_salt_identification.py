@@ -30,7 +30,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -116,6 +116,12 @@ from itertools import chain
 
 
 from collections import Iterable
+
+
+import pandas as pd
+
+
+import matplotlib.pyplot as plt
 
 
 from sklearn.model_selection import BaseCrossValidator
@@ -973,10 +979,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ChannelSELayer,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (Conv2dBnRelu,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1129,7 +1131,4 @@ class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
 

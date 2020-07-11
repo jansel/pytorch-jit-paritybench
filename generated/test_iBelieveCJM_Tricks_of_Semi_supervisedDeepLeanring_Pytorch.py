@@ -53,7 +53,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -704,10 +704,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LeNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (PreActBlock,
      lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -715,10 +711,6 @@ TESTCASES = [
     (PreActBottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResNeXt,
-     lambda: ([], {'num_blocks': [4, 4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (ShuffleBlock,
      lambda: ([], {'groups': 1}),
@@ -751,10 +743,4 @@ class Test_iBelieveCJM_Tricks_of_Semi_supervisedDeepLeanring_Pytorch(_paritybenc
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
 

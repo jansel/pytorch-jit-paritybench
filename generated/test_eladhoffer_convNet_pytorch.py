@@ -41,7 +41,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2253,14 +2253,6 @@ TESTCASES = [
      lambda: ([], {'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (AuxiliaryHeadCIFAR,
-     lambda: ([], {'channels': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
-    (AuxiliaryHeadImageNet,
-     lambda: ([], {'channels': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2301,6 +2293,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (EvolvedNetworkImageNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
     (ExpandedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2316,7 +2312,7 @@ TESTCASES = [
     (HadamardProj,
      lambda: ([], {'input_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (HardSigmoid,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2332,10 +2328,6 @@ TESTCASES = [
     (InceptionModule,
      lambda: ([], {'in_channels': 4, 'n1x1_channels': 4, 'n3x3r_channels': 4, 'n3x3_channels': 4, 'dn3x3r_channels': 4, 'dn3x3_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Inception_v1_GoogLeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 216, 216])], {}),
      True),
     (L1BatchNorm2d,
      lambda: ([], {'num_features': 4}),
@@ -2397,18 +2389,10 @@ TESTCASES = [
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ResNetZI_cifar,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
     (ResNetZI_imagenet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (SEBlock,
-     lambda: ([], {'in_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (SepConv,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2606,16 +2590,4 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_048(self):
         self._check(*TESTCASES[48])
-
-    def test_049(self):
-        self._check(*TESTCASES[49])
-
-    def test_050(self):
-        self._check(*TESTCASES[50])
-
-    def test_051(self):
-        self._check(*TESTCASES[51])
-
-    def test_052(self):
-        self._check(*TESTCASES[52])
 

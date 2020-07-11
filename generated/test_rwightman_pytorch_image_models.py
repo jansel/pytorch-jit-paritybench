@@ -116,7 +116,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -6811,13 +6811,13 @@ TESTCASES = [
      lambda: ([], {'num_init_features': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (LabelSmoothingCrossEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
     (LightChannelAttn,
      lambda: ([], {'channels': 18}),
      lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
-    (MLP,
-     lambda: ([], {}),
-     lambda: ([torch.rand([1000, 1000])], {}),
      True),
     (MaxPool,
      lambda: ([], {'kernel_size': 4}),

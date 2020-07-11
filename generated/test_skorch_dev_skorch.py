@@ -59,7 +59,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -169,6 +169,9 @@ from torch.nn.functional import binary_cross_entropy_with_logits
 
 
 from torchvision.transforms.functional import to_pil_image
+
+
+import matplotlib.pyplot as plt
 
 
 from sklearn.datasets import load_files
@@ -589,14 +592,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
      False),
-    (MLPClassifier,
-     lambda: ([], {}),
-     lambda: ([torch.rand([20, 20])], {}),
-     False),
-    (MLPModule,
-     lambda: ([], {}),
-     lambda: ([torch.rand([20, 20])], {}),
-     False),
     (RNNClassifier,
      lambda: ([], {}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
@@ -616,10 +611,4 @@ class Test_skorch_dev_skorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

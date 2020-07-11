@@ -56,7 +56,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -171,6 +171,9 @@ from torch.nn.parameter import Parameter
 import scipy.misc
 
 
+import matplotlib.pyplot as plt
+
+
 import math
 
 
@@ -186,6 +189,9 @@ from time import gmtime
 from time import strftime
 
 
+import pandas as pd
+
+
 import warnings
 
 
@@ -198,6 +204,9 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
 
+import matplotlib as mpl
+
+
 from collections import Counter
 
 
@@ -208,6 +217,9 @@ import torch.utils.model_zoo as model_zoo
 
 
 import torch.nn.init as init
+
+
+import matplotlib
 
 
 class generator(nn.Module):
@@ -1305,10 +1317,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CifarCaffeNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (Discriminator,
      lambda: ([], {'in_dim': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -1373,10 +1381,6 @@ TESTCASES = [
      lambda: ([], {'input_width': 4, 'input_height': 4, 'input_dim': 4, 'output_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([62, 62])], {}),
-     True),
     (wide_basic,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1440,10 +1444,4 @@ class Test_vikasverma1077_manifold_mixup(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
 

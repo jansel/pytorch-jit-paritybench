@@ -257,7 +257,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -14372,4 +14372,1688 @@ class STN3d(nn.Module):
         params = self.local_net(x)
         x_transformed = F_affine3d(x, params.view(3, 4))
         return x_transformed
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASPOCModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ASPP_module,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ActiveContourLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (AdaptiveAvgMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AngularPenaltySMLoss,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (Atrous_module,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AttentionRefinmentModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AvgPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEDiceFocalLoss,
+     lambda: ([], {'focal_param': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEDicePenalizeBorderLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEDiceTL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCELoss2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEWithLogitsViewLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BDLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BNInception,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (BNPReLU,
+     lambda: ([], {'nIn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BR,
+     lambda: ([], {'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BaseAttentionBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BaseOCModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlockV1b,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BatchReNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BinaryFocalLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'reps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2080, 64, 64])], {}),
+     True),
+    (BnActConv2d,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BottleneckBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'remove_first_relu': 4, 'add_last_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BoundaryRefine,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparables,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesReduction,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesStem,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (C,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (C1Bilinear,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 2048, 64, 64])], {}),
+     False),
+    (CB,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CBR,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CDilated,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CNA,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CatBnAct,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CellStem0,
+     lambda: ([], {'stem_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CellStem1,
+     lambda: ([], {'stem_filters': 4, 'num_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (ChainedResidualPool,
+     lambda: ([], {'feats': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChainedResidualPoolImproved,
+     lambda: ([], {'feats': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Classifier_Module,
+     lambda: ([], {'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4, 'inplane': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ComboBCEDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ComboSemsegLossWeighted,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2dX2_Res,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv3BN,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBNReLU,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'norm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBNReluStack,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBnRelu2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvRelu,
+     lambda: ([], {'in_': 4, 'out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvResConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvResidual,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvSamePad2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv_transition,
+     lambda: ([], {'kernel_size': [4, 4, 4], 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DABModule,
+     lambda: ([], {'nIn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DABNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (DAP,
+     lambda: ([], {'in_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (DUpsampling,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DecoderBlock,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DecoderBlockLinkNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (DecoderBlockLinkNetInceptionV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (DecoderBlockLinkNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (DecoderBlockV2,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeconvBN,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeconvX2_Res,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeepLabV2,
+     lambda: ([], {'num_classes': 4, 'n_blocks': [4, 4, 4, 4], 'pyramids': [4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (DeepLabv3_plus,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (DenseBlock,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DenseLayer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Dense_layer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Diffuse,
+     lambda: ([], {'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Dilated_Bottleneck_block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dilation_rate': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Dilated_UNetEnc,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownSamplerB,
+     lambda: ([], {'nIn': 64, 'nOut': 18}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (DownSamplingBlock,
+     lambda: ([], {'nIn': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ECRE,
+     lambda: ([], {'in_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ENet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ESPNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ESPNet_Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (EncModule,
+     lambda: ([], {'in_channels': 4, 'nclass': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Encoding,
+     lambda: ([], {'D': 4, 'K': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCDenseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (FactorizedReduction,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureFused,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureFusion,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (Final1x1ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fire,
+     lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fire_Up,
+     lambda: ([], {'kernel_size': 4, 'in_channels': 4, 'inner_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FocalLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FocalLoss2,
+     lambda: ([], {'num_class': 4}),
+     lambda: ([torch.rand([16, 4]), torch.rand([4, 4])], {}),
+     False),
+    (FocalLoss3,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (FusionNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (GCN_Densenet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (GCN_PSP,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (GlobalConvolutionBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'k': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GroupNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (HardSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionResA,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     True),
+    (InceptionResB,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1152, 64, 64])], {}),
+     True),
+    (InceptionResC,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2144, 64, 64])], {}),
+     True),
+    (InceptionResNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (InceptionV4,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
+    (Inception_A,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     True),
+    (Inception_B,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (Inception_C,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1536, 64, 64])], {}),
+     True),
+    (InputBlock,
+     lambda: ([], {'num_init_features': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (InputInjection,
+     lambda: ([], {'ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InputProjectionA,
+     lambda: ([], {'samplingTimes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Laplace,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (Laplace3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     True),
+    (LaplaceL1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LaplaceL2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LaplaceL23D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (MDConv,
+     lambda: ([], {'in_channels': 4, 'kernel_sizes': 4, 'stride': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaxPool,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaxPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mean,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (Mish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MishAuto,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MishJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MixBlock,
+     lambda: ([], {'dw_ksize': 4, 'expand_ksize': 4, 'project_ksize': 4, 'in_channels': 4, 'out_channels': 4, 'expand_ratio': 4, 'id_skip': [4, 4], 'strides': [4, 4], 'se_ratio': 4, 'swish': 4, 'dilated': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Mixed_3a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (Mixed_4a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 160, 64, 64])], {}),
+     True),
+    (Mixed_5a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (MultiWay,
+     lambda: ([], {'scale': 1.0, 'block_cls': _mock_layer, 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NestNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (NormalCell,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PPMBilinear,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4096, 64, 64])], {}),
+     False),
+    (PSPModule,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PSPUpsample,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PassConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PolyConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+    (PyramidAttentionBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PyramidOCModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PyramidPoolingModule,
+     lambda: ([], {'in_size': [4, 4], 'in_channels': 4, 'out_channels': 4, 'setting': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RU,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell0,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell1,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reduction_A,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     True),
+    (Reduction_B,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (RefineNet4Cascade,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (RefineNet4CascadePoolingImproved,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ReluConvBn,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResStackDecoder,
+     lambda: ([], {'x_big_channels': 4, 'x_channels': 4, 'y_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResStackEncoder,
+     lambda: ([], {'x_channels': 4, 'y_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualConvUnit,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SEB,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([(torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4]))], {}),
+     False),
+    (SEB_dw,
+     lambda: ([], {'low_feature': 4, 'high_feature': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'ch': 4, 'squeeze_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d_same,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SoftDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpatialPath,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqueezeNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (StableBCELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StackDecoder,
+     lambda: ([], {'x_big_channels': 4, 'x_channels': 4, 'y_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StackEncoder,
+     lambda: ([], {'x_channels': 4, 'y_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StandardUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StemBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SwishAuto,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SwishJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ThresholdedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransitionDown,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TransitionUp,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TverskyLoss,
+     lambda: ([], {'alpha': 4, 'beta': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (UNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNet1024,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNet128,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNet256,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNet512,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNet960,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UNetDec,
+     lambda: ([], {'in_channels': 18, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 18, 4, 4])], {}),
+     True),
+    (UNetDilated,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UNetDownStack,
+     lambda: ([], {'input_dim': 4, 'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UNetRes,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UNetUpStack,
+     lambda: ([], {'input_dim': 4, 'filters': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 8, 8])], {}),
+     False),
+    (UnetConv2D,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'norm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UnetDecoder,
+     lambda: ([], {'in_channels': 4, 'featrures': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UnetEncoder,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UnetUpECRE,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'norm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpCNA,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WeightedBCELoss2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WeightedSoftDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Xception,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (_ASPPModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pyramids': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_BNPReLU,
+     lambda: ([], {'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_BiSeHead,
+     lambda: ([], {'in_channels': 4, 'inter_channels': 4, 'nclass': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_Bottleneck,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1, 'downsample': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_BoundaryRefineModule,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ChannelAttentionModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ConvBN,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ConvBNPReLU,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ConvBNReLU,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ConvBatchNormReLU,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_ConvBatchNormReluBlock,
+     lambda: ([], {'inplanes': 4, 'outplanes': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DAHead,
+     lambda: ([], {'in_channels': 32, 'nclass': 4}),
+     lambda: ([torch.rand([4, 32, 64, 64])], {}),
+     False),
+    (_DecoderBlock,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (_DeconvModule,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_DenseASPPBlock,
+     lambda: ([], {'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseASPPConv,
+     lambda: ([], {'in_channels': 4, 'inter_channels': 4, 'out_channels': 4, 'atrous_rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseASPPHead,
+     lambda: ([], {'in_channels': 4, 'nclass': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseUpsamplingConvModule,
+     lambda: ([], {'down_factor': 4, 'in_dim': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_DepthwiseConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_EncoderBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (_FCNHead,
+     lambda: ([], {'in_channels': 4, 'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_GlobalAvgPooling,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_GlobalConvModule,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'kernel_size': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_GroupNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_LearnedBilinearDeconvModule,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_PositionAttentionModule,
+     lambda: ([], {'in_channels': 18}),
+     lambda: ([torch.rand([4, 18, 64, 64])], {}),
+     True),
+    (_PyramidSpatialPoolingModule,
+     lambda: ([], {'in_channels': 4, 'down_channels': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ResBlock,
+     lambda: ([], {'n_layers': 1, 'in_channels': 4, 'mid_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_ResidualBlockMulGrid,
+     lambda: ([], {'layers': 1, 'inplanes': 4, 'midplanes': 4, 'outplanes': 4, 'stride': 1, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (conv2DBatchNorm,
+     lambda: ([], {'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (conv2DBatchNormRelu,
+     lambda: ([], {'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (deconv2DBatchNorm,
+     lambda: ([], {'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (deconv2DBatchNormRelu,
+     lambda: ([], {'in_channels': 4, 'n_filters': 4, 'k_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (mIoULoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (resnext101_32x4d_features,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (resnext101_32x4d_features_blob,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_achaiah_pywick(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
+
+    def test_032(self):
+        self._check(*TESTCASES[32])
+
+    def test_033(self):
+        self._check(*TESTCASES[33])
+
+    def test_034(self):
+        self._check(*TESTCASES[34])
+
+    def test_035(self):
+        self._check(*TESTCASES[35])
+
+    def test_036(self):
+        self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
+
+    def test_039(self):
+        self._check(*TESTCASES[39])
+
+    def test_040(self):
+        self._check(*TESTCASES[40])
+
+    def test_041(self):
+        self._check(*TESTCASES[41])
+
+    def test_042(self):
+        self._check(*TESTCASES[42])
+
+    def test_043(self):
+        self._check(*TESTCASES[43])
+
+    def test_044(self):
+        self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
+
+    def test_046(self):
+        self._check(*TESTCASES[46])
+
+    def test_047(self):
+        self._check(*TESTCASES[47])
+
+    def test_048(self):
+        self._check(*TESTCASES[48])
+
+    def test_049(self):
+        self._check(*TESTCASES[49])
+
+    def test_050(self):
+        self._check(*TESTCASES[50])
+
+    def test_051(self):
+        self._check(*TESTCASES[51])
+
+    def test_052(self):
+        self._check(*TESTCASES[52])
+
+    def test_053(self):
+        self._check(*TESTCASES[53])
+
+    def test_054(self):
+        self._check(*TESTCASES[54])
+
+    def test_055(self):
+        self._check(*TESTCASES[55])
+
+    def test_056(self):
+        self._check(*TESTCASES[56])
+
+    def test_057(self):
+        self._check(*TESTCASES[57])
+
+    def test_058(self):
+        self._check(*TESTCASES[58])
+
+    def test_059(self):
+        self._check(*TESTCASES[59])
+
+    def test_060(self):
+        self._check(*TESTCASES[60])
+
+    def test_061(self):
+        self._check(*TESTCASES[61])
+
+    def test_062(self):
+        self._check(*TESTCASES[62])
+
+    def test_063(self):
+        self._check(*TESTCASES[63])
+
+    def test_064(self):
+        self._check(*TESTCASES[64])
+
+    def test_065(self):
+        self._check(*TESTCASES[65])
+
+    def test_066(self):
+        self._check(*TESTCASES[66])
+
+    def test_067(self):
+        self._check(*TESTCASES[67])
+
+    def test_068(self):
+        self._check(*TESTCASES[68])
+
+    def test_069(self):
+        self._check(*TESTCASES[69])
+
+    def test_070(self):
+        self._check(*TESTCASES[70])
+
+    def test_071(self):
+        self._check(*TESTCASES[71])
+
+    def test_072(self):
+        self._check(*TESTCASES[72])
+
+    def test_073(self):
+        self._check(*TESTCASES[73])
+
+    def test_074(self):
+        self._check(*TESTCASES[74])
+
+    def test_075(self):
+        self._check(*TESTCASES[75])
+
+    def test_076(self):
+        self._check(*TESTCASES[76])
+
+    def test_077(self):
+        self._check(*TESTCASES[77])
+
+    def test_078(self):
+        self._check(*TESTCASES[78])
+
+    def test_079(self):
+        self._check(*TESTCASES[79])
+
+    def test_080(self):
+        self._check(*TESTCASES[80])
+
+    def test_081(self):
+        self._check(*TESTCASES[81])
+
+    def test_082(self):
+        self._check(*TESTCASES[82])
+
+    def test_083(self):
+        self._check(*TESTCASES[83])
+
+    def test_084(self):
+        self._check(*TESTCASES[84])
+
+    def test_085(self):
+        self._check(*TESTCASES[85])
+
+    def test_086(self):
+        self._check(*TESTCASES[86])
+
+    def test_087(self):
+        self._check(*TESTCASES[87])
+
+    def test_088(self):
+        self._check(*TESTCASES[88])
+
+    def test_089(self):
+        self._check(*TESTCASES[89])
+
+    def test_090(self):
+        self._check(*TESTCASES[90])
+
+    def test_091(self):
+        self._check(*TESTCASES[91])
+
+    def test_092(self):
+        self._check(*TESTCASES[92])
+
+    def test_093(self):
+        self._check(*TESTCASES[93])
+
+    def test_094(self):
+        self._check(*TESTCASES[94])
+
+    def test_095(self):
+        self._check(*TESTCASES[95])
+
+    def test_096(self):
+        self._check(*TESTCASES[96])
+
+    def test_097(self):
+        self._check(*TESTCASES[97])
+
+    def test_098(self):
+        self._check(*TESTCASES[98])
+
+    def test_099(self):
+        self._check(*TESTCASES[99])
+
+    def test_100(self):
+        self._check(*TESTCASES[100])
+
+    def test_101(self):
+        self._check(*TESTCASES[101])
+
+    def test_102(self):
+        self._check(*TESTCASES[102])
+
+    def test_103(self):
+        self._check(*TESTCASES[103])
+
+    def test_104(self):
+        self._check(*TESTCASES[104])
+
+    def test_105(self):
+        self._check(*TESTCASES[105])
+
+    def test_106(self):
+        self._check(*TESTCASES[106])
+
+    def test_107(self):
+        self._check(*TESTCASES[107])
+
+    def test_108(self):
+        self._check(*TESTCASES[108])
+
+    def test_109(self):
+        self._check(*TESTCASES[109])
+
+    def test_110(self):
+        self._check(*TESTCASES[110])
+
+    def test_111(self):
+        self._check(*TESTCASES[111])
+
+    def test_112(self):
+        self._check(*TESTCASES[112])
+
+    def test_113(self):
+        self._check(*TESTCASES[113])
+
+    def test_114(self):
+        self._check(*TESTCASES[114])
+
+    def test_115(self):
+        self._check(*TESTCASES[115])
+
+    def test_116(self):
+        self._check(*TESTCASES[116])
+
+    def test_117(self):
+        self._check(*TESTCASES[117])
+
+    def test_118(self):
+        self._check(*TESTCASES[118])
+
+    def test_119(self):
+        self._check(*TESTCASES[119])
+
+    def test_120(self):
+        self._check(*TESTCASES[120])
+
+    def test_121(self):
+        self._check(*TESTCASES[121])
+
+    def test_122(self):
+        self._check(*TESTCASES[122])
+
+    def test_123(self):
+        self._check(*TESTCASES[123])
+
+    def test_124(self):
+        self._check(*TESTCASES[124])
+
+    def test_125(self):
+        self._check(*TESTCASES[125])
+
+    def test_126(self):
+        self._check(*TESTCASES[126])
+
+    def test_127(self):
+        self._check(*TESTCASES[127])
+
+    def test_128(self):
+        self._check(*TESTCASES[128])
+
+    def test_129(self):
+        self._check(*TESTCASES[129])
+
+    def test_130(self):
+        self._check(*TESTCASES[130])
+
+    def test_131(self):
+        self._check(*TESTCASES[131])
+
+    def test_132(self):
+        self._check(*TESTCASES[132])
+
+    def test_133(self):
+        self._check(*TESTCASES[133])
+
+    def test_134(self):
+        self._check(*TESTCASES[134])
+
+    def test_135(self):
+        self._check(*TESTCASES[135])
+
+    def test_136(self):
+        self._check(*TESTCASES[136])
+
+    def test_137(self):
+        self._check(*TESTCASES[137])
+
+    def test_138(self):
+        self._check(*TESTCASES[138])
+
+    def test_139(self):
+        self._check(*TESTCASES[139])
+
+    def test_140(self):
+        self._check(*TESTCASES[140])
+
+    def test_141(self):
+        self._check(*TESTCASES[141])
+
+    def test_142(self):
+        self._check(*TESTCASES[142])
+
+    def test_143(self):
+        self._check(*TESTCASES[143])
+
+    def test_144(self):
+        self._check(*TESTCASES[144])
+
+    def test_145(self):
+        self._check(*TESTCASES[145])
+
+    def test_146(self):
+        self._check(*TESTCASES[146])
+
+    def test_147(self):
+        self._check(*TESTCASES[147])
+
+    def test_148(self):
+        self._check(*TESTCASES[148])
+
+    def test_149(self):
+        self._check(*TESTCASES[149])
+
+    def test_150(self):
+        self._check(*TESTCASES[150])
+
+    def test_151(self):
+        self._check(*TESTCASES[151])
+
+    def test_152(self):
+        self._check(*TESTCASES[152])
+
+    def test_153(self):
+        self._check(*TESTCASES[153])
+
+    def test_154(self):
+        self._check(*TESTCASES[154])
+
+    def test_155(self):
+        self._check(*TESTCASES[155])
+
+    def test_156(self):
+        self._check(*TESTCASES[156])
+
+    def test_157(self):
+        self._check(*TESTCASES[157])
+
+    def test_158(self):
+        self._check(*TESTCASES[158])
+
+    def test_159(self):
+        self._check(*TESTCASES[159])
+
+    def test_160(self):
+        self._check(*TESTCASES[160])
+
+    def test_161(self):
+        self._check(*TESTCASES[161])
+
+    def test_162(self):
+        self._check(*TESTCASES[162])
+
+    def test_163(self):
+        self._check(*TESTCASES[163])
+
+    def test_164(self):
+        self._check(*TESTCASES[164])
+
+    def test_165(self):
+        self._check(*TESTCASES[165])
+
+    def test_166(self):
+        self._check(*TESTCASES[166])
+
+    def test_167(self):
+        self._check(*TESTCASES[167])
+
+    def test_168(self):
+        self._check(*TESTCASES[168])
+
+    def test_169(self):
+        self._check(*TESTCASES[169])
+
+    def test_170(self):
+        self._check(*TESTCASES[170])
+
+    def test_171(self):
+        self._check(*TESTCASES[171])
+
+    def test_172(self):
+        self._check(*TESTCASES[172])
+
+    def test_173(self):
+        self._check(*TESTCASES[173])
+
+    def test_174(self):
+        self._check(*TESTCASES[174])
+
+    def test_175(self):
+        self._check(*TESTCASES[175])
+
+    def test_176(self):
+        self._check(*TESTCASES[176])
+
+    def test_177(self):
+        self._check(*TESTCASES[177])
+
+    def test_178(self):
+        self._check(*TESTCASES[178])
+
+    def test_179(self):
+        self._check(*TESTCASES[179])
+
+    def test_180(self):
+        self._check(*TESTCASES[180])
+
+    def test_181(self):
+        self._check(*TESTCASES[181])
+
+    def test_182(self):
+        self._check(*TESTCASES[182])
+
+    def test_183(self):
+        self._check(*TESTCASES[183])
+
+    def test_184(self):
+        self._check(*TESTCASES[184])
+
+    def test_185(self):
+        self._check(*TESTCASES[185])
+
+    def test_186(self):
+        self._check(*TESTCASES[186])
+
+    def test_187(self):
+        self._check(*TESTCASES[187])
+
+    def test_188(self):
+        self._check(*TESTCASES[188])
+
+    def test_189(self):
+        self._check(*TESTCASES[189])
+
+    def test_190(self):
+        self._check(*TESTCASES[190])
+
+    def test_191(self):
+        self._check(*TESTCASES[191])
+
+    def test_192(self):
+        self._check(*TESTCASES[192])
+
+    def test_193(self):
+        self._check(*TESTCASES[193])
+
+    def test_194(self):
+        self._check(*TESTCASES[194])
+
+    def test_195(self):
+        self._check(*TESTCASES[195])
+
+    def test_196(self):
+        self._check(*TESTCASES[196])
+
+    def test_197(self):
+        self._check(*TESTCASES[197])
+
+    def test_198(self):
+        self._check(*TESTCASES[198])
+
+    def test_199(self):
+        self._check(*TESTCASES[199])
+
+    def test_200(self):
+        self._check(*TESTCASES[200])
+
+    def test_201(self):
+        self._check(*TESTCASES[201])
+
+    def test_202(self):
+        self._check(*TESTCASES[202])
+
+    def test_203(self):
+        self._check(*TESTCASES[203])
+
+    def test_204(self):
+        self._check(*TESTCASES[204])
+
+    def test_205(self):
+        self._check(*TESTCASES[205])
+
+    def test_206(self):
+        self._check(*TESTCASES[206])
+
+    def test_207(self):
+        self._check(*TESTCASES[207])
+
+    def test_208(self):
+        self._check(*TESTCASES[208])
+
+    def test_209(self):
+        self._check(*TESTCASES[209])
+
+    def test_210(self):
+        self._check(*TESTCASES[210])
+
+    def test_211(self):
+        self._check(*TESTCASES[211])
+
+    def test_212(self):
+        self._check(*TESTCASES[212])
+
+    def test_213(self):
+        self._check(*TESTCASES[213])
+
+    def test_214(self):
+        self._check(*TESTCASES[214])
+
+    def test_215(self):
+        self._check(*TESTCASES[215])
+
+    def test_216(self):
+        self._check(*TESTCASES[216])
+
+    def test_217(self):
+        self._check(*TESTCASES[217])
+
+    def test_218(self):
+        self._check(*TESTCASES[218])
+
+    def test_219(self):
+        self._check(*TESTCASES[219])
+
+    def test_220(self):
+        self._check(*TESTCASES[220])
+
+    def test_221(self):
+        self._check(*TESTCASES[221])
+
+    def test_222(self):
+        self._check(*TESTCASES[222])
+
+    def test_223(self):
+        self._check(*TESTCASES[223])
+
+    def test_224(self):
+        self._check(*TESTCASES[224])
+
+    def test_225(self):
+        self._check(*TESTCASES[225])
+
+    def test_226(self):
+        self._check(*TESTCASES[226])
+
+    def test_227(self):
+        self._check(*TESTCASES[227])
+
+    def test_228(self):
+        self._check(*TESTCASES[228])
+
+    def test_229(self):
+        self._check(*TESTCASES[229])
+
+    def test_230(self):
+        self._check(*TESTCASES[230])
+
+    def test_231(self):
+        self._check(*TESTCASES[231])
+
+    def test_232(self):
+        self._check(*TESTCASES[232])
+
+    def test_233(self):
+        self._check(*TESTCASES[233])
+
+    def test_234(self):
+        self._check(*TESTCASES[234])
+
+    def test_235(self):
+        self._check(*TESTCASES[235])
+
+    def test_236(self):
+        self._check(*TESTCASES[236])
+
+    def test_237(self):
+        self._check(*TESTCASES[237])
+
+    def test_238(self):
+        self._check(*TESTCASES[238])
 

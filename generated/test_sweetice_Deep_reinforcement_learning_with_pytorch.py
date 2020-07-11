@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -52,6 +52,9 @@ import torch.nn.functional as F
 
 
 import numpy as np
+
+
+import matplotlib.pyplot as plt
 
 
 import copy
@@ -282,17 +285,9 @@ TESTCASES = [
      lambda: ([], {'num_inputs': 4, 'num_outputs': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (ActorNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3])], {}),
-     True),
     (Critic,
      lambda: ([], {'state_dim': 4, 'action_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
-     True),
-    (CriticNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([3, 3])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
 ]
 
@@ -305,10 +300,4 @@ class Test_sweetice_Deep_reinforcement_learning_with_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

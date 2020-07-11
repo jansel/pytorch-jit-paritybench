@@ -112,7 +112,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -171,6 +171,9 @@ from collections import OrderedDict
 
 
 import random
+
+
+import matplotlib
 
 
 from itertools import groupby
@@ -1054,6 +1057,8 @@ class TransformerXL(LMBase):
 
     def plot_attention(self, n_cols=4):
         """Plot attention for each head in all layers."""
+        from matplotlib import pyplot as plt
+        from matplotlib.ticker import MaxNLocator
         save_path = mkdir_join(self.save_path, 'att_weights')
         if save_path is not None and os.path.isdir(save_path):
             shutil.rmtree(save_path)
@@ -1325,6 +1330,8 @@ class TransformerLM(LMBase):
 
     def plot_attention(self, n_cols=4):
         """Plot attention for each head in all layers."""
+        from matplotlib import pyplot as plt
+        from matplotlib.ticker import MaxNLocator
         save_path = mkdir_join(self.save_path, 'att_weights')
         if save_path is not None and os.path.isdir(save_path):
             shutil.rmtree(save_path)
@@ -4129,6 +4136,8 @@ class RNNDecoder(DecoderBase):
         """Plot attention for each head."""
         if self.att_weight == 0:
             return 0
+        from matplotlib import pyplot as plt
+        from matplotlib.ticker import MaxNLocator
         _save_path = mkdir_join(save_path, 'dec_att_weights')
         if _save_path is not None and os.path.isdir(_save_path):
             shutil.rmtree(_save_path)
@@ -5388,6 +5397,8 @@ class TransformerDecoder(DecoderBase):
 
     def _plot_attention(self, save_path, n_cols=2):
         """Plot attention for each head in all layers."""
+        from matplotlib import pyplot as plt
+        from matplotlib.ticker import MaxNLocator
         _save_path = mkdir_join(save_path, 'dec_att_weights')
         if _save_path is not None and os.path.isdir(_save_path):
             shutil.rmtree(_save_path)
@@ -6906,6 +6917,8 @@ class TransformerEncoder(EncoderBase):
 
     def _plot_attention(self, save_path, n_cols=2):
         """Plot attention for each head in all layers."""
+        from matplotlib import pyplot as plt
+        from matplotlib.ticker import MaxNLocator
         _save_path = mkdir_join(save_path, 'enc_att_weights')
         if _save_path is not None and os.path.isdir(_save_path):
             shutil.rmtree(_save_path)

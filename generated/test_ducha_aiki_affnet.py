@@ -40,7 +40,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -78,6 +78,9 @@ import torch.backends.cudnn as cudnn
 
 
 import time
+
+
+import matplotlib.pyplot as plt
 
 
 from copy import deepcopy
@@ -122,6 +125,12 @@ import copy
 import torch.nn
 
 
+from matplotlib.animation import FuncAnimation
+
+
+import matplotlib.animation as animation
+
+
 from torch import nn
 
 
@@ -129,6 +138,9 @@ from time import time
 
 
 import scipy.io as sio
+
+
+import matplotlib
 
 
 def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):

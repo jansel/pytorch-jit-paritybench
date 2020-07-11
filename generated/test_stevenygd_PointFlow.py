@@ -25,7 +25,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -123,6 +123,12 @@ from math import log
 
 
 from math import pi
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
 
 
 class SequentialFlow(nn.Module):
@@ -781,22 +787,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ConcatLinear,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ConcatLinear_v2,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
-     True),
-    (ConcatScaleLinear,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
-     True),
-    (ConcatSquashLinear,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
-     True),
     (Encoder,
      lambda: ([], {'zdim': 4}),
      lambda: ([torch.rand([4, 3, 3])], {}),
@@ -813,14 +803,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (ScaleLinear,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
-     True),
-    (SquashLinear,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
-     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
-     True),
     (Swish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -842,22 +824,4 @@ class Test_stevenygd_PointFlow(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

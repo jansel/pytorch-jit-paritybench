@@ -23,7 +23,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -85,6 +85,9 @@ from torch.nn import init
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import matplotlib.pyplot as plt
 
 
 import numpy as np
@@ -627,10 +630,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AlexNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (BasicBlock,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -655,10 +654,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'outplanes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([512, 512])], {}),
-     True),
 ]
 
 class Test_bearpaw_pytorch_classification(_paritybench_base):
@@ -679,10 +674,4 @@ class Test_bearpaw_pytorch_classification(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

@@ -45,7 +45,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -59,6 +59,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+import matplotlib.pyplot as plt
 
 
 import torch
@@ -206,6 +209,9 @@ import torch.nn.init as init
 
 
 from torchvision.transforms import ToTensor
+
+
+import matplotlib
 
 
 from torch import nn
@@ -984,14 +990,6 @@ TESTCASES = [
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ToyModel,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (ToyMpModel,
-     lambda: ([], {'dev0': 4, 'dev1': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
     (TransformerNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1046,10 +1044,4 @@ class Test_pytorch_examples(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

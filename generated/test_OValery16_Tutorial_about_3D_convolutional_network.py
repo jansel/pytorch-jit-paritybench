@@ -11,7 +11,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -309,22 +309,4 @@ class Classifier(nn.Module):
         x=self.fc2(x)
         """
         return x
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (Classifier,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([20, 20])], {}),
-     True),
-]
-
-class Test_OValery16_Tutorial_about_3D_convolutional_network(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

@@ -42,7 +42,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -92,6 +92,9 @@ from torchtext import vocab
 
 
 import time
+
+
+import matplotlib.pyplot as plt
 
 
 from sklearn import metrics
@@ -746,10 +749,6 @@ TESTCASES = [
      lambda: ([], {'config': _mock_config(input_size=4, hidden_size=4, output_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Highway,
-     lambda: ([], {'layer_num': 1}),
-     lambda: ([torch.rand([600, 600])], {}),
-     False),
     (LayerNorm,
      lambda: ([], {'features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -824,7 +823,4 @@ class Test_songyingxin_TextClassification(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

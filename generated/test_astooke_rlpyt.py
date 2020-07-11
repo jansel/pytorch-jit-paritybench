@@ -244,7 +244,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1108,10 +1108,6 @@ TESTCASES = [
      lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (QofMuMlpModel,
-     lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
-     lambda: ([torch.rand([4, 4, 2, 2]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
     (VMlpModel,
      lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1145,7 +1141,4 @@ class Test_astooke_rlpyt(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

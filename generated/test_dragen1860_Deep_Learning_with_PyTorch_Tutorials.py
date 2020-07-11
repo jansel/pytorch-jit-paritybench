@@ -44,7 +44,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -79,6 +79,9 @@ from torch import optim
 
 
 import torchvision
+
+
+from matplotlib import pyplot as plt
 
 
 import numpy as np
@@ -426,10 +429,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Discriminator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2])], {}),
-     True),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -438,18 +437,10 @@ TESTCASES = [
      lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
-    (Generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2])], {}),
-     True),
     (GraphConvolution,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
-    (MLP,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
-     True),
     (MyLinear,
      lambda: ([], {'inp': 4, 'outp': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -457,10 +448,6 @@ TESTCASES = [
     (ResBlk,
      lambda: ([], {'ch_in': 4, 'ch_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResNet18,
-     lambda: ([], {'num_class': 4}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
      True),
     (VAE,
      lambda: ([], {}),
@@ -492,16 +479,4 @@ class Test_dragen1860_Deep_Learning_with_PyTorch_Tutorials(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

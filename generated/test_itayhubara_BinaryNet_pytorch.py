@@ -19,7 +19,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -93,6 +93,9 @@ import random
 
 
 import logging.config
+
+
+import pandas as pd
 
 
 def Binarize(tensor, quant_mode='det'):
@@ -409,7 +412,7 @@ TESTCASES = [
     (HingeLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (Net,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 784])], {}),

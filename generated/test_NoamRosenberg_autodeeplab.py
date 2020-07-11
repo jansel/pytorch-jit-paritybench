@@ -71,7 +71,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -117,6 +117,9 @@ from numpy import int64 as int64
 import torchvision.transforms as transforms
 
 
+import matplotlib.pyplot as plt
+
+
 from torch.utils import data
 
 
@@ -130,6 +133,9 @@ import torch.utils.data as data
 
 
 import scipy.misc as m
+
+
+import pandas as pd
 
 
 import scipy.io

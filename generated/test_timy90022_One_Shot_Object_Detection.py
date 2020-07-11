@@ -78,7 +78,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -164,6 +164,9 @@ from torch.utils.cpp_extension import CppExtension
 
 
 from torch.utils.cpp_extension import CUDAExtension
+
+
+import pandas as pd
 
 
 import torch.optim as optim
@@ -1821,10 +1824,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ChannelGate,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (Depth3DGridGen,
      lambda: ([], {'height': 4, 'width': 4}),
      lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1865,7 +1864,4 @@ class Test_timy90022_One_Shot_Object_Detection(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

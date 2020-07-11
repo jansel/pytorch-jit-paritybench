@@ -49,7 +49,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -78,6 +78,9 @@ import random
 
 
 import time
+
+
+import pandas as pd
 
 
 from functools import partial
@@ -905,10 +908,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AuxBlock,
-     lambda: ([], {'last_fc': 4, 'num_classes': 4, 'base_size': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 32, 4, 32])], {}),
-     True),
     (AuxSkipAttention,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -940,10 +939,6 @@ TESTCASES = [
     (ConvolutionalBlockAttentionModule,
      lambda: ([], {'in_planes': 18}),
      lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
-    (FCNet,
-     lambda: ([], {'in_channels': 8, 'num_classes': 4}),
-     lambda: ([torch.rand([8, 8])], {}),
      True),
     (FeatureExtractor,
      lambda: ([], {'num_classes': 4}),
@@ -1069,10 +1064,4 @@ class Test_lRomul_argus_freesound(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
 

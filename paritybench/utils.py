@@ -1,11 +1,16 @@
 import logging
 import os
+import re
 import resource
 import signal
 import sys
+import tempfile
 import time
+import types
 
 from torch import multiprocessing
+
+from paritybench.reporting import ErrorAggregatorDict, Stats
 
 log = logging.getLogger(__name__)
 
@@ -44,3 +49,44 @@ def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
     except Exception:
         log.exception("Error from subprocess")
         sys.exit(1)
+
+
+def import_file(path):
+    """
+    :param path: to a *.py file
+    :return: a python module
+    """
+    module = types.ModuleType(re.findall(r"test_[^.]+", path)[0])
+    sys.modules[module.__name__] = module
+    exec(compile(open(path).read(), filename=path, mode='exec'),
+         module.__dict__, module.__dict__)
+    if not hasattr(module, "TESTCASES"):
+        module.TESTCASES = []
+    return module
+
+
+def subproc_wrapper(path, fn, name_filter=None):
+    """
+    A wrapper around call_with_timeout() adding a temp dir and error handling.
+
+    :param path: path to code to test
+    :param fn: function to run in subprocess
+    :param name_filter: optional string to filter what we test
+    :return: errors, stats
+    """
+    log.info(f"Running {path}")
+    with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
+        try:
+            return call_with_timeout(fn, (tempdir, path, name_filter), {}, timeout=900)
+        except TimeoutError:
+            return ErrorAggregatorDict.single(
+                "meta",
+                TimeoutError("Timeout testing module"),
+                path
+            ), Stats({"timeout": 1})
+        except OSError:
+            return ErrorAggregatorDict.single(
+                "meta",
+                OSError("Crash testing module"),
+                path
+            ), Stats({"crash": 1})

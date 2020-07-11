@@ -213,7 +213,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -248,6 +248,9 @@ from torchvision.models import wide_resnet50_2
 
 
 from torch.cuda.amp import GradScaler
+
+
+from torch.cuda.amp import autocast
 
 
 import random
@@ -476,6 +479,9 @@ import re
 
 
 import copy
+
+
+import matplotlib
 
 
 from torch.optim.lr_scheduler import ExponentialLR
@@ -771,10 +777,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DummyModel,
-     lambda: ([], {}),
-     lambda: ([torch.rand([1, 1])], {}),
-     True),
     (DummyPretrainedModel,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -822,7 +824,4 @@ class Test_pytorch_ignite(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

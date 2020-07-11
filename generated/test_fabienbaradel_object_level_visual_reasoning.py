@@ -30,7 +30,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -67,10 +67,22 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 
+import matplotlib
+
+
+import pandas
+
+
 from torchvision.utils import save_image
 
 
 import numpy as np
+
+
+import matplotlib.patches as patches
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.utils.data as data
@@ -113,6 +125,9 @@ import numbers
 
 
 from torch.nn import Module
+
+
+from matplotlib.patches import Polygon
 
 
 class BasicBlock(nn.Module):

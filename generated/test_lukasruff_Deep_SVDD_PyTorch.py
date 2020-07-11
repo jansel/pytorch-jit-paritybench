@@ -30,7 +30,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -95,6 +95,9 @@ import torch.optim as optim
 
 
 from torch.utils.data.dataloader import DataLoader
+
+
+import matplotlib.pyplot as plt
 
 
 from torchvision.utils import make_grid
@@ -332,43 +335,4 @@ class MNIST_LeNet_Autoencoder(BaseNet):
         x = self.deconv3(x)
         x = torch.sigmoid(x)
         return x
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (CIFAR10_LeNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
-    (CIFAR10_LeNet_Autoencoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
-    (CIFAR10_LeNet_ELU,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
-    (CIFAR10_LeNet_ELU_Autoencoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
-]
-
-class Test_lukasruff_Deep_SVDD_PyTorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

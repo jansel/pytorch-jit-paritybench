@@ -18,7 +18,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -76,6 +76,9 @@ import torch.backends.cudnn as cudnn
 import collections
 
 
+import matplotlib.pyplot as plt
+
+
 from sklearn.decomposition import PCA
 
 
@@ -83,6 +86,9 @@ from torchvision import datasets
 
 
 from torchvision import transforms
+
+
+import matplotlib.patheffects as PathEffects
 
 
 class FaceModel(nn.Module):
@@ -212,29 +218,4 @@ class FaceModelCenter(nn.Module):
         features_norm = self.forward(x)
         x = self.model.classifier(features_norm)
         return F.log_softmax(x)
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (FaceModel,
-     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 96, 96])], {}),
-     True),
-    (FaceModelCenter,
-     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 96, 96])], {}),
-     False),
-]
-
-class Test_liorshk_facenet_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

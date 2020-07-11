@@ -13,7 +13,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -66,6 +66,15 @@ import torchvision.transforms as transforms
 
 
 from torchvision.datasets import MNIST
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
+
+
+from matplotlib import gridspec
 
 
 N = 1000
@@ -147,43 +156,4 @@ class D_net_cat(nn.Module):
         x = F.relu(x)
         x = self.lin3(x)
         return F.sigmoid(x)
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (D_net_cat,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (D_net_gauss,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2])], {}),
-     True),
-    (P_net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12, 12])], {}),
-     True),
-    (Q_net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
-     True),
-]
-
-class Test_fducau_AAE_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

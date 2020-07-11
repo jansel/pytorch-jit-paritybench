@@ -35,7 +35,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -91,6 +91,12 @@ from torch.utils.data.dataloader import DataLoader
 
 
 from torch.utils.data.dataloader import ExceptionWrapper
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.nn as nn
@@ -852,10 +858,6 @@ TESTCASES = [
      lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Pos2Weight,
-     lambda: ([], {'inC': 4}),
-     lambda: ([torch.rand([3, 3])], {}),
-     True),
     (RCAB,
      lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -895,7 +897,4 @@ class Test_XuecaiHu_Meta_SR_Pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

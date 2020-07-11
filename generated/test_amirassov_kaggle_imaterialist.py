@@ -214,7 +214,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -309,6 +309,9 @@ import copy
 
 
 from collections import Sequence
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.nn as nn
@@ -4271,10 +4274,6 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 256, 64, 64])], {}),
      False),
-    (BBoxHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12544, 12544])], {}),
-     False),
     (BaseDetector,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -4315,10 +4314,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SharedFCBBoxHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12544, 12544])], {}),
-     False),
 ]
 
 class Test_amirassov_kaggle_imaterialist(_paritybench_base):
@@ -4354,10 +4349,4 @@ class Test_amirassov_kaggle_imaterialist(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

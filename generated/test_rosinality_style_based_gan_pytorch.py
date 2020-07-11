@@ -11,7 +11,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -485,14 +485,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (StyledConvBlock,
-     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
-     lambda: ([torch.rand([512, 4, 64, 64]), torch.rand([512, 512]), torch.rand([512, 4, 64, 64])], {}),
-     True),
-    (StyledGenerator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([512, 512])], {}),
-     False),
 ]
 
 class Test_rosinality_style_based_gan_pytorch(_paritybench_base):
@@ -528,10 +520,4 @@ class Test_rosinality_style_based_gan_pytorch(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

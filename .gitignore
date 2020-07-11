@@ -16,3 +16,5 @@ output.*
 data
 runs
 facelet_bank
+log*
+regenerate_jansel.sh

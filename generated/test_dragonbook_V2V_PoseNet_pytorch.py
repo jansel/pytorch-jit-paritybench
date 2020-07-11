@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -305,6 +305,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 2, 'stride': 2}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (V2VModel,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 16, 16])], {}),
+     True),
     (VolumetricSoftmax,
      lambda: ([], {'channel': 4, 'sizes': [4, 4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -329,4 +333,7 @@ class Test_dragonbook_V2V_PoseNet_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

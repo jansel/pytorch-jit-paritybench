@@ -373,7 +373,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -10017,7 +10017,7 @@ TESTCASES = [
     (BeamableMM,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (ConvTBC,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),

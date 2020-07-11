@@ -99,7 +99,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -185,6 +185,9 @@ from typing import Set
 
 
 from typing import Callable
+
+
+import pandas as pd
 
 
 import torch.nn.functional as F
@@ -1202,22 +1205,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (NBEATSBlock,
-     lambda: ([], {'units': 4, 'thetas_dim': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (NBEATSGenericBlock,
-     lambda: ([], {'units': 4, 'thetas_dim': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     False),
-    (NBEATSSeasonalBlock,
-     lambda: ([], {'units': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     False),
-    (NBEATSTrendBlock,
-     lambda: ([], {'units': 4, 'thetas_dim': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     False),
     (NOPScaler,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1248,16 +1235,4 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

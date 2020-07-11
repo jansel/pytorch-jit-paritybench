@@ -1,9 +1,10 @@
 import copy
 import os
-import torch
-import unittest
 import re
+import unittest
 from functools import lru_cache
+
+import torch
 from torch.testing._internal.jit_utils import JitTestCase
 
 
@@ -49,7 +50,7 @@ def _fails_compile():
 
 
 class _paritybench_base(JitTestCase):
-    def _check(self, module, init_args, forward_args, compiles=True):
+    def _check(self, module, init_args, forward_args, compiles):
         args, kwargs = init_args()
         script = module(*args, **kwargs)
 
@@ -64,16 +65,19 @@ class _paritybench_base(JitTestCase):
         if os.environ.get('TEST_PY_ONLY'):
             return
 
-        if not os.environ.get('TEST_ALL') and not compiles:
+        if os.environ.get('TEST_WORKING_ONLY') and not compiles:
             raise unittest.SkipTest("jit compile fails")
 
         jit_script = torch.jit.script(script)
 
         if os.environ.get('TEST_COMPILE_ONLY'):
             return
+
         result3 = jit_script(*args, **kwargs)
+
         if os.environ.get('TEST_RUN_ONLY'):
             return
+
         try:
             self.assertEqual(result1, result2)
         except AssertionError:

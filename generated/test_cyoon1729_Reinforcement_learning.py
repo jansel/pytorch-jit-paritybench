@@ -83,7 +83,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -145,6 +145,9 @@ from torch.autograd import Variable
 
 
 import torch.autograd
+
+
+import matplotlib.pyplot as plt
 
 
 class TwoHeadNetwork(nn.Module):
@@ -709,7 +712,7 @@ TESTCASES = [
      True),
     (SoftQNetwork,
      lambda: ([], {'num_inputs': 4, 'num_actions': 4}),
-     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
     (TwoHeadNetwork,
      lambda: ([], {'input_dim': 4, 'output_dim': 4}),

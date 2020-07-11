@@ -25,7 +25,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -87,6 +87,9 @@ import torch.nn.init as init
 
 
 from sklearn.metrics import accuracy_score
+
+
+import pandas as pd
 
 
 from torch.nn import functional as Func
@@ -1620,10 +1623,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VGGM,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 216, 216])], {}),
-     True),
 ]
 
 class Test_prakashjayy_pytorch_classifiers(_paritybench_base):
@@ -1716,7 +1715,4 @@ class Test_prakashjayy_pytorch_classifiers(_paritybench_base):
 
     def test_029(self):
         self._check(*TESTCASES[29])
-
-    def test_030(self):
-        self._check(*TESTCASES[30])
 

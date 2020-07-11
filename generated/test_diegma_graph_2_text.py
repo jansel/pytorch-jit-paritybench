@@ -77,7 +77,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -3041,10 +3041,6 @@ TESTCASES = [
      lambda: ([], {'num_layers': 1, 'input_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (StackedGRU,
-     lambda: ([], {'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
     (TargetContextGate,
      lambda: ([], {'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -3094,7 +3090,4 @@ class Test_diegma_graph_2_text(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

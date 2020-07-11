@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -711,14 +711,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MixtureDensityNetwork,
-     lambda: ([], {}),
-     lambda: ([torch.rand([1, 1])], {}),
-     True),
-    (OmniglotEncoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 16, 16])], {}),
-     True),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -760,10 +752,4 @@ class Test_iwasaki_kenta_keita(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

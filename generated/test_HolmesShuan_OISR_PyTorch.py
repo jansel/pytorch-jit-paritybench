@@ -153,7 +153,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -209,6 +209,12 @@ from torch.utils.data.dataloader import ExceptionWrapper
 
 
 from torch.utils.data.dataloader import default_collate
+
+
+import matplotlib
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.nn as nn
@@ -1094,14 +1100,6 @@ TESTCASES = [
      lambda: ([], {'channel': 18}),
      lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
-    (CBAM,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
-    (ChannelGate,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (ChannelPool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1134,10 +1132,6 @@ TESTCASES = [
      lambda: ([], {'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SE,
-     lambda: ([], {'gate_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     False),
     (SpatialGate,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1180,13 +1174,4 @@ class Test_HolmesShuan_OISR_PyTorch(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

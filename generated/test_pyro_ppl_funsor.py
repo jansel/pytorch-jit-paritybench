@@ -84,7 +84,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -122,6 +122,9 @@ import functools
 
 
 import uuid
+
+
+import pandas as pd
 
 
 import math
@@ -1356,22 +1359,4 @@ class Decoder(nn.Module):
         h3 = F.relu(self.fc3(z))
         out = torch.sigmoid(self.fc4(h3))
         return out.reshape(out.shape[:-1] + (28, 28))
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (Decoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([20, 20])], {}),
-     True),
-]
-
-class Test_pyro_ppl_funsor(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

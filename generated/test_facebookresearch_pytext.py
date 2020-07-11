@@ -328,7 +328,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -408,6 +408,9 @@ import copy
 
 
 import numpy as np
+
+
+import pandas as pd
 
 
 import re
@@ -7720,10 +7723,6 @@ TESTCASES = [
      lambda: ([], {'num_embeddings': 4, 'embed_dim': 4, 'pooling_type': 4}),
      lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (FCModelWithNanAndInfWts,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
     (GeLU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -7857,7 +7856,4 @@ class Test_facebookresearch_pytext(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
 

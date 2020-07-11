@@ -103,7 +103,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -177,6 +177,9 @@ import torch.utils.model_zoo as model_zoo
 
 
 import torch.nn.init as init
+
+
+import matplotlib.pyplot as plt
 
 
 import torchvision.datasets as dset
@@ -739,10 +742,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AlexNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (CifarResNeXt,
      lambda: ([], {'cardinality': 4, 'depth': 1, 'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 9, 9])], {}),
@@ -759,10 +758,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'outplanes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (vgg,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
 ]
 
 class Test_Eric_mingjie_rethinking_network_pruning(_paritybench_base):
@@ -777,10 +772,4 @@ class Test_Eric_mingjie_rethinking_network_pruning(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

@@ -13,7 +13,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -48,6 +48,9 @@ import math
 
 
 import scipy.io as sio
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.nn as nn
@@ -244,10 +247,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
-    (_netD,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1, 128, 128])], {}),
-     True),
     (_netG,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
@@ -266,7 +265,4 @@ class Test_twtygqyy_pytorch_LapSRN(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

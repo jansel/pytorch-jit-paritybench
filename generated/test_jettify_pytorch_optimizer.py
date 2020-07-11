@@ -32,7 +32,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -76,6 +76,9 @@ import math
 
 
 import numpy as np
+
+
+import matplotlib.pyplot as plt
 
 
 import re
@@ -176,22 +179,4 @@ class LogisticRegression(nn.Module):
         output = self.linear2(output)
         y_pred = torch.sigmoid(output)
         return y_pred
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (LogisticRegression,
-     lambda: ([], {}),
-     lambda: ([torch.rand([2, 2])], {}),
-     True),
-]
-
-class Test_jettify_pytorch_optimizer(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

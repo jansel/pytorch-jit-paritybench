@@ -40,7 +40,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1360,6 +1360,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (CondenseNet,
+     lambda: ([], {'args': _mock_config(stages=[4, 4], growth=[4, 4], data=4, group_1x1=4, group_3x3=4, bottleneck=4, num_classes=4)}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (Conv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1441,4 +1445,7 @@ class Test_hendrycks_robustness(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

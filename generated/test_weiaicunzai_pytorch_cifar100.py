@@ -31,7 +31,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -45,6 +45,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+import matplotlib.pyplot as plt
 
 
 import numpy
@@ -71,6 +74,9 @@ import numpy as np
 from torchvision import transforms
 
 
+import matplotlib
+
+
 from torch.optim.lr_scheduler import _LRScheduler
 
 
@@ -81,6 +87,9 @@ import math
 
 
 from functools import partial
+
+
+from matplotlib import pyplot as plt
 
 
 import torchvision.transforms as transforms
@@ -2001,10 +2010,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 64, 'out_channels': 18, 'stride': 1}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      True),
-    (ResnetInResneet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     False),
     (ResnetInit,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'stride': 1}),
      lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
@@ -2044,10 +2049,6 @@ TESTCASES = [
     (Transition,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([512, 512])], {}),
      True),
     (Xception,
      lambda: ([], {'block': _mock_layer}),
@@ -2223,10 +2224,4 @@ class Test_weiaicunzai_pytorch_cifar100(_paritybench_base):
 
     def test_055(self):
         self._check(*TESTCASES[55])
-
-    def test_056(self):
-        self._check(*TESTCASES[56])
-
-    def test_057(self):
-        self._check(*TESTCASES[57])
 

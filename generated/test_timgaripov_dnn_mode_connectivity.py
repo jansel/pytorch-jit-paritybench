@@ -22,7 +22,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -857,25 +857,13 @@ TESTCASES = [
      lambda: ([], {'num_bends': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ConvFCBase,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (PolyChain,
      lambda: ([], {'num_bends': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (PreResNetBase,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (WideBasic,
      lambda: ([], {'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (WideResNetBase,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
 ]
 
@@ -891,13 +879,4 @@ class Test_timgaripov_dnn_mode_connectivity(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

@@ -34,7 +34,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -120,6 +120,9 @@ from torchvision import utils as vutils
 
 
 from time import time
+
+
+import matplotlib.pyplot as plt
 
 
 import torch.distributions as distribution
@@ -1401,10 +1404,6 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (ResGenerator,
-     lambda: ([], {'output_size': [4, 4]}),
-     lambda: ([torch.rand([100, 100])], {}),
-     False),
     (ResProjectionDiscriminator,
      lambda: ([], {'input_size': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1561,7 +1560,4 @@ class Test_johnolafenwa_TorchFusion(_paritybench_base):
 
     def test_037(self):
         self._check(*TESTCASES[37])
-
-    def test_038(self):
-        self._check(*TESTCASES[38])
 

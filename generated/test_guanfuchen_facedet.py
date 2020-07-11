@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -64,6 +64,9 @@ import random
 
 
 from torchvision import transforms
+
+
+import matplotlib.pyplot as plt
 
 
 import math
@@ -591,30 +594,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Cascade12CalNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 12, 12])], {}),
-     True),
-    (Cascade12Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 12, 12])], {}),
-     True),
-    (Cascade24CalNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 24, 24])], {}),
-     True),
-    (Cascade24Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 24, 24])], {}),
-     True),
-    (Cascade48CalNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 48, 48])], {}),
-     True),
-    (Cascade48Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 48, 48])], {}),
-     True),
     (FaceBox,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -631,17 +610,9 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ONet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 48, 48])], {}),
-     True),
     (PNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (RNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 24, 24])], {}),
      True),
     (StrideConv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -677,28 +648,4 @@ class Test_guanfuchen_facedet(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

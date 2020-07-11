@@ -45,7 +45,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -107,6 +107,12 @@ from torch.optim import lr_scheduler
 
 
 import torch.optim as optim
+
+
+import matplotlib.pyplot as plt
+
+
+from matplotlib import pyplot as plt
 
 
 from torch.utils.data import DataLoader
@@ -979,10 +985,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ArcMarginProduct,
-     lambda: ([], {}),
-     lambda: ([torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {}),
-     True),
     (AttentionModule_stage3,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 14, 14])], {}),
@@ -1023,18 +1025,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (InnerProduct,
-     lambda: ([], {}),
-     lambda: ([torch.rand([128, 128]), torch.rand([4, 4, 4, 4])], {}),
-     True),
     (MobileFaceNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 128, 128])], {}),
      False),
-    (MultiMarginProduct,
-     lambda: ([], {}),
-     lambda: ([torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {}),
-     True),
     (ResidualBlock,
      lambda: ([], {'in_channel': 4, 'out_channel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1046,10 +1040,6 @@ TESTCASES = [
     (SEModule,
      lambda: ([], {'channels': 4, 'reduction': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SphereNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 108, 108])], {}),
      True),
 ]
 
@@ -1095,16 +1085,4 @@ class Test_wujiyang_Face_Pytorch(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
 

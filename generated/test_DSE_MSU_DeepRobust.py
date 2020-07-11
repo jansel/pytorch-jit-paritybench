@@ -118,7 +118,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -279,6 +279,9 @@ from torch.utils.data import Dataset
 
 
 from torchvision import models
+
+
+import matplotlib.pyplot as plt
 
 
 import numpy as py
@@ -3829,11 +3832,11 @@ TESTCASES = [
      False),
     (GGCL_F,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (GaussianConvolution,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (GraphConvolution,
      lambda: ([], {'in_features': 4, 'out_features': 4}),

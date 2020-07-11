@@ -54,7 +54,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -97,6 +97,9 @@ import time
 import numpy as np
 
 
+import matplotlib
+
+
 from scipy import misc
 
 
@@ -118,6 +121,9 @@ from abc import abstractmethod
 from functools import wraps
 
 
+from matplotlib import cm
+
+
 from torchvision.utils import save_image as tv_save_image
 
 
@@ -125,6 +131,9 @@ from collections import defaultdict
 
 
 from torch.utils.tensorboard import SummaryWriter
+
+
+import matplotlib.pyplot as plt
 
 
 from torchvision.utils import make_grid

@@ -87,7 +87,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -3963,7 +3963,7 @@ TESTCASES = [
     (Encoding,
      lambda: ([], {'D': 4, 'K': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (FeatureFused,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
@@ -4095,10 +4095,6 @@ TESTCASES = [
     (_FCNHead,
      lambda: ([], {'in_channels': 4, 'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (_FGlo,
-     lambda: ([], {'in_channels': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
      True),
     (_GlobalAvgPooling,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}),
@@ -4296,7 +4292,4 @@ class Test_Tramac_awesome_semantic_segmentation_pytorch(_paritybench_base):
 
     def test_057(self):
         self._check(*TESTCASES[57])
-
-    def test_058(self):
-        self._check(*TESTCASES[58])
 

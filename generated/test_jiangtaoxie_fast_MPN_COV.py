@@ -28,7 +28,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -42,6 +42,12 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+import matplotlib as mpl
+
+
+import matplotlib.pyplot as plt
 
 
 import scipy.io as sio
@@ -1093,10 +1099,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CBP,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 512, 4, 512])], {}),
-     True),
     (Custom,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1116,10 +1118,6 @@ TESTCASES = [
     (InceptionA,
      lambda: ([], {'in_channels': 4, 'pool_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (InceptionAux,
-     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 18, 18])], {}),
      True),
     (InceptionB,
      lambda: ([], {'in_channels': 4}),
@@ -1203,10 +1201,4 @@ class Test_jiangtaoxie_fast_MPN_COV(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
 

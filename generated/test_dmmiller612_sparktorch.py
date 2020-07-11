@@ -24,7 +24,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -152,43 +152,4 @@ class NetworkWithParameters(nn.Module):
         x = F.relu(x)
         x = self.fc2(x)
         return x
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (AutoEncoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (ClassificationNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-    (NetworkWithParameters,
-     lambda: ([], {'param': 4}),
-     lambda: ([torch.rand([10, 10])], {}),
-     True),
-]
-
-class Test_dmmiller612_sparktorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

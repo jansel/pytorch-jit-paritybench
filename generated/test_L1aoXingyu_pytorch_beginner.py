@@ -20,7 +20,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -34,6 +34,9 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+import matplotlib.pyplot as plt
 
 
 import numpy as np
@@ -393,26 +396,6 @@ TESTCASES = [
      lambda: ([], {'in_dim': 4, 'hidden_dim': 4, 'n_layer': 1, 'n_class': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
-    (VAE,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
-     False),
-    (autoencoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
-     True),
-    (discriminator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
-     True),
-    (generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([100, 100])], {}),
-     True),
-    (linearRegression,
-     lambda: ([], {}),
-     lambda: ([torch.rand([1, 1])], {}),
-     True),
     (neuralNetwork,
      lambda: ([], {'in_dim': 4, 'n_hidden_1': 4, 'n_hidden_2': 4, 'out_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -437,19 +420,4 @@ class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

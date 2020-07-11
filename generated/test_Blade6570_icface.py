@@ -41,7 +41,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -64,6 +64,9 @@ import torchvision.transforms as transforms
 
 
 import torch
+
+
+import pandas
 
 
 import torch.utils.data as data
@@ -346,10 +349,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([], {'input': torch.rand([4, 4]), 'target_is_real': 4}),
      True),
-    (NLayerDiscriminator,
-     lambda: ([], {'input_nc': 4}),
-     lambda: ([torch.rand([4, 4, 128, 128])], {}),
-     True),
     (PixelDiscriminator,
      lambda: ([], {'input_nc': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -386,7 +385,4 @@ class Test_Blade6570_icface(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

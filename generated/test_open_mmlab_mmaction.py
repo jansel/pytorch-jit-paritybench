@@ -172,7 +172,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -297,6 +297,9 @@ from torch.autograd import gradcheck
 
 
 from torch.nn.modules.utils import _triple
+
+
+import pandas as pd
 
 
 from functools import reduce
@@ -5594,10 +5597,6 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 256, 64, 64])], {}),
      False),
-    (BBoxHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([12544, 12544])], {}),
-     False),
     (BNInception,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -5617,10 +5616,6 @@ TESTCASES = [
     (ResNet_S3D,
      lambda: ([], {'depth': 18}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
-     False),
-    (SSNHead,
-     lambda: ([], {}),
-     lambda: ([(torch.rand([4, 3072, 4, 3072]), torch.rand([4, 4, 4, 3072]))], {}),
      False),
     (STPPReorganized,
      lambda: ([], {'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}),
@@ -5670,10 +5665,4 @@ class Test_open_mmlab_mmaction(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

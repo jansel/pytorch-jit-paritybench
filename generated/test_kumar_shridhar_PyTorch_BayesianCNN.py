@@ -38,7 +38,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -64,6 +64,9 @@ from math import pi
 
 
 from collections import OrderedDict
+
+
+import matplotlib.pyplot as plt
 
 
 from torch import nn
@@ -100,6 +103,9 @@ from torch.nn import Parameter
 
 
 from torch.optim import lr_scheduler
+
+
+import pandas as pd
 
 
 class GaussianMixture(torch.nn.Module):
@@ -567,17 +573,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AlexNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
-     True),
     (FlattenLayer,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LeNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
     (ModuleWrapper,
      lambda: ([], {}),
@@ -605,10 +603,4 @@ class Test_kumar_shridhar_PyTorch_BayesianCNN(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

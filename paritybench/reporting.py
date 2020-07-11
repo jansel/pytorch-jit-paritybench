@@ -23,9 +23,15 @@ class Stats(Counter):
             "init_ok",
             "deduced_args_ok",
             "jit_compiles",
+            "projects",
+            "projects_passed",
+            "projects_failed",
+            "tests",
+            "tests_passed",
+            "tests_failed",
         ]
         stats_keys = stats_keys + list(set(self.keys()) - set(stats_keys))
-        return str([(k, self[k]) for k in stats_keys])
+        return str([(k, self[k]) for k in stats_keys if k in self])
 
 
 class ErrorAggregator(object):
@@ -87,12 +93,18 @@ class ErrorAggregator(object):
     def __len__(self):
         return sum(map(len, self.error_groups))
 
-    csv_headers = ["phase", "count", "example_short", "example_long", "example_from"]
+    csv_headers = ["phase", "count", "example_short", "example_long", "example_from1", "example_from2"]
 
     def write_csv(self, phase, out: csv.writer):
         for errors in sorted(self.error_groups, key=len, reverse=True)[:20]:
             short, context, long = random.choice(errors)
-            out.writerow([phase, len(errors), short, long, context])
+            if "#" in context:
+                context1, _, context2 = context.partition(" # ")
+            else:
+                context1 = context.replace("./paritybench_download/", "./generated/test_").replace(".zip:", ".py:")
+                context2 = context
+
+            out.writerow([phase, len(errors), short, long, context1, context2])
 
 
 class ErrorAggregatorDict(object):

@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -697,14 +697,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AuxiliaryHeadCIFAR,
-     lambda: ([], {'C': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
-    (AuxiliaryHeadImageNet,
-     lambda: ([], {'C': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8])], {}),
-     True),
     (Cell,
      lambda: ([], {'steps': 4, 'multiplier': 4, 'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([14, 4, 2, 2])], {}),
@@ -777,10 +769,4 @@ class Test_quark0_darts(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

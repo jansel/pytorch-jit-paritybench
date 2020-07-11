@@ -18,7 +18,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1161,10 +1161,6 @@ TESTCASES = [
      lambda: ([], {'style_dim': 4, 'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
      True),
-    (AdainResBlk,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
-     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([64, 64])], {}),
-     False),
     (AddCoordsTh,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -1193,10 +1189,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256])], {}),
      False),
-    (Generator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([64, 3, 64, 64]), torch.rand([64, 64])], {}),
-     False),
     (HighPass,
      lambda: ([], {'w_hpf': 4, 'device': 0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1209,10 +1201,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 128, 128])], {}),
      True),
-    (MappingNetwork,
-     lambda: ([], {}),
-     lambda: ([torch.rand([16, 16]), torch.zeros([4], dtype=torch.int64)], {}),
-     False),
     (ResBlk,
      lambda: ([], {'dim_in': 4, 'dim_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1262,13 +1250,4 @@ class Test_clovaai_stargan_v2(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

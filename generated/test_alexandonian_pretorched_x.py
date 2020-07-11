@@ -54,7 +54,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -4439,10 +4439,6 @@ TESTCASES = [
      lambda: ([], {'fn': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MNISTNonLocalNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1, 24, 24])], {}),
-     False),
     (MaxPool,
      lambda: ([], {'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4537,7 +4533,7 @@ TESTCASES = [
      True),
     (ResNeXtBottleneck,
      lambda: ([], {'inplanes': 64, 'planes': 32, 'cardinality': 4}),
-     lambda: ([torch.rand([4, 64, 64, 32, 32])], {}),
+     lambda: ([torch.rand([4, 64, 64, 64, 64])], {}),
      True),
     (SEModule,
      lambda: ([], {'channels': 4, 'reduction': 4}),
@@ -4559,10 +4555,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (VGGM,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 216, 216])], {}),
-     True),
     (_NonLocalBlockND,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
@@ -4768,10 +4760,4 @@ class Test_alexandonian_pretorched_x(_paritybench_base):
 
     def test_064(self):
         self._check(*TESTCASES[64])
-
-    def test_065(self):
-        self._check(*TESTCASES[65])
-
-    def test_066(self):
-        self._check(*TESTCASES[66])
 

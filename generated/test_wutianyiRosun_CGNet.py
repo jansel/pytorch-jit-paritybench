@@ -38,7 +38,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -79,6 +79,9 @@ import torch.backends.cudnn as cudnn
 
 
 import torchvision.transforms as transforms
+
+
+import matplotlib.pyplot as plt
 
 
 import collections
@@ -2041,10 +2044,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (FGlo,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
     (InitialBlock,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -2207,7 +2206,4 @@ class Test_wutianyiRosun_CGNet(_paritybench_base):
 
     def test_035(self):
         self._check(*TESTCASES[35])
-
-    def test_036(self):
-        self._check(*TESTCASES[36])
 
