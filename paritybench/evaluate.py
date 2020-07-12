@@ -16,6 +16,14 @@ from paritybench.utils import import_file, subproc_wrapper
 log = logging.getLogger(__name__)
 
 
+class EagerFailed(RuntimeError):
+    pass
+
+
+class JitFailed(RuntimeError):
+    pass
+
+
 def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
@@ -32,7 +40,7 @@ def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
         nn = nn_cls(*args, **kwargs)
     except Exception as e:
         record_error('init', e)
-        return False
+        raise EagerFailed()
 
     try:
         nn.eval()
@@ -43,7 +51,7 @@ def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
         nn_script = torch.jit.script(nn)
     except Exception as e:
         record_error('compile', e)
-        return False
+        raise JitFailed()
 
     try:
         args, kwargs = get_forward_args()
@@ -51,13 +59,13 @@ def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
         result2 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
     except Exception as e:
         record_error('run_eager', e)
-        return False
+        raise EagerFailed()
 
     try:
         result3 = nn_script(*args, **kwargs)
     except Exception as e:
         record_error('run_jit', e)
-        return False
+        raise JitFailed()
 
     try:
         JitTestCase().assertEqual(result1, result2)
@@ -65,9 +73,9 @@ def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
             JitTestCase().assertEqual(result2, result3)
         except Exception as e:
             record_error('check_output', e)
-            return False
+            raise JitFailed()
     except AssertionError:
-        pass  # output is not deterministic, cant check it
+        pass  # output is not deterministic, cant check it -- assuming correct
 
     return True
 
@@ -92,16 +100,26 @@ def test_pyfile_subproc(tempdir: str, path: str, name_filter=None):
     index = -1
     for nn_cls, get_init_args, get_forward_args, compiles in module.TESTCASES:
         index += 1
-        repro = f"{nn_cls.__name__} # pytest {path} -f test_{index:03d}"
-        if test_nn_module(nn_cls,
-                          get_init_args,
-                          get_forward_args,
-                          partial(errors.record, module=repro)):
-            stats["tests_passed"] += 1
+        repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
+        try:
+            rv = test_nn_module(
+                nn_cls,
+                get_init_args,
+                get_forward_args,
+                partial(errors.record, module=repro))
+            stats["tests_passed"] += int(rv)
+        except JitFailed:
+            pass
+        except EagerFailed:
+            stats["eager_failed"] += 1
 
+    stats["tests"] = stats["tests"] - stats["eager_failed"]
     stats["tests_failed"] = stats["tests"] - stats["tests_passed"]
 
-    if stats["tests_failed"]:
+    if not stats["tests"]:
+        # eager failed not the jit, remove from totals
+        stats["projects"] -= 1
+    elif stats["tests_failed"]:
         stats["projects_failed"] += 1
     else:
         stats["projects_passed"] += 1
