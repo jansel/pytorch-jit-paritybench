@@ -24,7 +24,7 @@ class JitFailed(RuntimeError):
     pass
 
 
-def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
+def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
     as eager.
@@ -80,7 +80,7 @@ def test_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     return True
 
 
-def test_pyfile_subproc(tempdir: str, path: str, name_filter=None):
+def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -95,14 +95,18 @@ def test_pyfile_subproc(tempdir: str, path: str, name_filter=None):
         return errors, stats
 
     stats["projects"] += 1
-    stats["tests"] += len(module.TESTCASES)
 
     index = -1
     for nn_cls, get_init_args, get_forward_args, compiles in module.TESTCASES:
         index += 1
+
+        if name_filter and name_filter not in nn_cls.__name__:
+            continue
+
+        stats["tests"] += 1
         repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
         try:
-            rv = test_nn_module(
+            rv = evaluate_nn_module(
                 nn_cls,
                 get_init_args,
                 get_forward_args,
@@ -127,16 +131,18 @@ def test_pyfile_subproc(tempdir: str, path: str, name_filter=None):
     return errors, stats
 
 
-test_pyfile = partial(subproc_wrapper, fn=test_pyfile_subproc)
+evaluate_pyfile = partial(subproc_wrapper, fn=evaluate_pyfile_subproc)
 
 
-def evaluate(tests_dir: str = './generated', limit: int = None, fn: callable = test_pyfile, name_filter: str = None):
+def evaluate_all(tests_dir: str = './generated', limit: int = None, fn: callable = evaluate_pyfile,
+                 jobs=4):
     """
     Generate a paritybench score, main entrypoint for this module.
 
     :param tests_dir: directory containing paritybench testcases
     :param limit: optional maximum number of files to process
     :param fn: inner function to run the tests
+    :param jobs: how many processes to run at once
     """
     start = time.time()
     stats = Stats()
@@ -146,13 +152,10 @@ def evaluate(tests_dir: str = './generated', limit: int = None, fn: callable = t
                  if re.search(r"test_.*[.]py$", f)]
     testfiles.sort()
 
-    if name_filter:
-        testfiles = [f for f in testfiles if name_filter in f]
-
     if limit:
         testfiles = testfiles[:limit]
 
-    pool = ThreadPool(4)
+    pool = ThreadPool(jobs)
     for errors_part, stats_part in pool.imap_unordered(fn, testfiles):
         errors.update(errors_part)
         stats.update(stats_part)

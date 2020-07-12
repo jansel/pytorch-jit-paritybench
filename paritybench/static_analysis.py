@@ -464,7 +464,7 @@ class Flatten(ast.NodeTransformer):
         return value
 
     def flatten_IfExp(self, node, output):
-        paritybench.evaluate.evaluate = self.flatten(paritybench.evaluate.evaluate, output)
+        paritybench.evaluate.evaluate_all = self.flatten(paritybench.evaluate.evaluate_all, output)
         # TODO(jansel): handle node.{body, orelse}
         return self.to_tmp(node, output)
 

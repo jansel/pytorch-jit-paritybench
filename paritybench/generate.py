@@ -40,7 +40,7 @@ def generate_zipfile_subproc(tempdir: str, path: str, name_filter=None):
 generate_zipfile = partial(subproc_wrapper, fn=generate_zipfile_subproc)
 
 
-def generate_all(download_dir, limit=None):
+def generate_all(download_dir, limit=None, jobs=4):
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()
@@ -51,7 +51,7 @@ def generate_all(download_dir, limit=None):
 
     if limit:
         zipfiles = zipfiles[:limit]
-    pool = ThreadPool(4)
+    pool = ThreadPool(jobs)
     for errors_part, stats_part in pool.imap_unordered(generate_zipfile, zipfiles):
         errors.update(errors_part)
         stats.update(stats_part)

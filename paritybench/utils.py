@@ -42,7 +42,7 @@ def call_with_timeout(fn, args, kwargs=None, timeout=10):
 
 def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
     _, hard = resource.getrlimit(resource.RLIMIT_AS)
-    resource.setrlimit(resource.RLIMIT_AS, (10 * 1024 ** 3, hard))
+    resource.setrlimit(resource.RLIMIT_AS, (int(os.environ.get("RLIMIT_AS_GB", 10)) * 1024 ** 3, hard))
     try:
         result = fn(*args, *kwargs)
         return_pipe.send(result)
@@ -65,19 +65,19 @@ def import_file(path):
     return module
 
 
-def subproc_wrapper(path, fn, name_filter=None):
+def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
     """
     A wrapper around call_with_timeout() adding a temp dir and error handling.
 
     :param path: path to code to test
     :param fn: function to run in subprocess
-    :param name_filter: optional string to filter what we test
+    :param timeout: seconds to wait
     :return: errors, stats
     """
     log.info(f"Running {path}")
     with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
         try:
-            return call_with_timeout(fn, (tempdir, path, name_filter), {}, timeout=900)
+            return call_with_timeout(fn, (tempdir, path), {}, timeout=timeout)
         except TimeoutError:
             return ErrorAggregatorDict.single(
                 "meta",
@@ -90,3 +90,10 @@ def subproc_wrapper(path, fn, name_filter=None):
                 OSError("Crash testing module"),
                 path
             ), Stats({"crash": 1})
+
+
+def tempdir_wrapper(path: str, fn: callable):
+    """ Non-forking version of subproc_wrapper """
+    log.info(f"Running {path}")
+    with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
+        return fn(tempdir, path)

@@ -10,3 +10,4 @@ torchtext
 torchvision
 pandas
 matplotlib
+hypothesis
