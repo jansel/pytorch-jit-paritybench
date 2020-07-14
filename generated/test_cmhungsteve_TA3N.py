@@ -732,6 +732,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (C3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
     (RelationModule,
      lambda: ([], {'img_feature_dim': 4, 'num_bottleneck': 4, 'num_frames': 4}),
      lambda: ([torch.rand([4, 16])], {}),
@@ -755,4 +759,7 @@ class Test_cmhungsteve_TA3N(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

@@ -1118,7 +1118,7 @@ TESTCASES = [
      False),
     (BertEmbeddings,
      lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (BertIntermediate,
      lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),

@@ -376,7 +376,7 @@ TESTCASES = [
      True),
     (Embedding,
      lambda: ([], {'args': _mock_config(fix_embeddings=4, num_vocab=4, embedding_dim=4, dropout=0.5)}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (FullFusion,
      lambda: ([], {'args': _mock_config(dropout=0.5, hidden_size=4), 'input_size': 4}),

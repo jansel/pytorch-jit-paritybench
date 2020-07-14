@@ -515,7 +515,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BiLM,
      lambda: ([], {'nin': 4, 'nout': 4, 'embedding_dim': 4, 'hidden_dim': 4, 'num_layers': 1}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (ConvContactMap,
      lambda: ([], {'embed_dim': 4}),

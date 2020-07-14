@@ -363,7 +363,7 @@ TESTCASES = [
      False),
     (EncoderText,
      lambda: ([], {'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

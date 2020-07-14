@@ -1376,7 +1376,7 @@ TESTCASES = [
      False),
     (SNEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (SNLinear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),

@@ -490,6 +490,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (DenseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
     (PreActivationBasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
@@ -523,4 +527,7 @@ class Test_kenshohara_3D_ResNets_PyTorch(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

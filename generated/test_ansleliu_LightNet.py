@@ -2671,7 +2671,7 @@ TESTCASES = [
      False),
     (CrossEntropy2d,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (DenseModule,
      lambda: ([], {'in_chns': 4, 'squeeze_ratio': 4, 'out_chns': 4, 'n_layers': 1}),

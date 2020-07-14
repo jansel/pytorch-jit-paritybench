@@ -391,6 +391,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (C3D,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
     (SpatioTemporalConv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
@@ -400,4 +404,7 @@ TESTCASES = [
 class Test_jfzhang95_pytorch_video_recognition(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

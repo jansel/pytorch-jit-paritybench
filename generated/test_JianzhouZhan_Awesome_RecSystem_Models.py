@@ -368,7 +368,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (FM_layer,
      lambda: ([], {'num_feat': 4, 'num_field': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
      True),
 ]
 

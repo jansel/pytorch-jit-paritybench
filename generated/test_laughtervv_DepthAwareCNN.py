@@ -899,7 +899,7 @@ TESTCASES = [
      False),
     (FocalLoss,
      lambda: ([], {'class_num': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4, 4], dtype=torch.int64)], {}),
      False),
     (LayerNorm,
      lambda: ([], {'features': 4}),

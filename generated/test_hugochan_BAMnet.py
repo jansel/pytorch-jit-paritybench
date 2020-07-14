@@ -620,7 +620,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (EncoderCNN,
      lambda: ([], {'vocab_size': 4, 'embed_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (EntRomHop,
      lambda: ([], {'query_embed_size': 4, 'in_memory_embed_size': 4, 'hidden_size': 4}),
@@ -632,7 +632,7 @@ TESTCASES = [
      True),
     (SelfAttention_CoAtt,
      lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.ones([4], dtype=torch.int64), torch.rand([4, 4])], {}),
      False),
 ]
 

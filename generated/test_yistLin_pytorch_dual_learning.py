@@ -400,7 +400,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (RNNModel,
      lambda: ([], {'ntoken': 4, 'ninp': 4, 'nhid': 4, 'nlayers': 1}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
      True),
 ]
 

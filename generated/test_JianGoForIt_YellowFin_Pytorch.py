@@ -359,7 +359,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (AttentionWordRNN,
      lambda: ([], {'batch_size': 4, 'num_tokens': 4, 'embed_size': 4, 'word_gru_hidden': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([2, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([2, 4, 4])], {}),
      False),
     (Block,
      lambda: ([], {'in_planes': 4}),

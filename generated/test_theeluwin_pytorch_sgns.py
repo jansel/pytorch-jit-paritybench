@@ -129,7 +129,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Word2Vec,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

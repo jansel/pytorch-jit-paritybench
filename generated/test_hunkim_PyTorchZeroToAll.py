@@ -320,7 +320,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (EncoderRNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([1, 1, 4])], {}),
      True),
     (InceptionA,
      lambda: ([], {'in_channels': 4}),
@@ -328,7 +328,7 @@ TESTCASES = [
      True),
     (RNNClassifier,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

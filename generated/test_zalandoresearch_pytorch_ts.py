@@ -1187,7 +1187,7 @@ TESTCASES = [
      False),
     (FeatureEmbedder,
      lambda: ([], {'cardinalities': [4, 4], 'embedding_dims': [4, 4]}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (FlowSequential,
      lambda: ([], {}),

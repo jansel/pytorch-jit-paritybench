@@ -2334,7 +2334,7 @@ TESTCASES = [
      True),
     (SingleEmbeddings,
      lambda: ([], {'opt': _mock_config(dropout_emb=0.5, full_dict_size=4, inp_dim=4)}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

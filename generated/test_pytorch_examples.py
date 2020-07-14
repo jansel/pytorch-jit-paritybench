@@ -968,7 +968,7 @@ TESTCASES = [
      True),
     (EmbeddingTable,
      lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (Linear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),

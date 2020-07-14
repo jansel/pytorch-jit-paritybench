@@ -594,7 +594,7 @@ TESTCASES = [
      False),
     (RNNClassifier,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (UNet,
      lambda: ([], {}),

@@ -768,19 +768,19 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BilinearNet,
      lambda: ([], {'num_users': 4, 'num_items': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (BloomEmbedding,
      lambda: ([], {'num_embeddings': 18, 'embedding_dim': 64}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (ScaledEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (ZeroEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

@@ -322,7 +322,7 @@ TESTCASES = [
      True),
     (RT,
      lambda: ([], {'input_size': 4, 'output_size': 4, 'h': 4, 'rnn_type': 4, 'ksize': 4, 'n_level': 4, 'n': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (RTransformer,
      lambda: ([], {'d_model': 4, 'rnn_type': 4, 'ksize': 4, 'n_level': 4, 'n': 4, 'h': 4, 'dropout': 0.5}),

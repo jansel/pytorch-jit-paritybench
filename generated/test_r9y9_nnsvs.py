@@ -166,7 +166,7 @@ TESTCASES = [
      False),
     (LSTMRNN,
      lambda: ([], {'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (ResnetBlock,
      lambda: ([], {'dim': 4}),

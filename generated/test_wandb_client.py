@@ -863,7 +863,7 @@ TESTCASES = [
      True),
     (NGramLanguageModeler,
      lambda: ([], {'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

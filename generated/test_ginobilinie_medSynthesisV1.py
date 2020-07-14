@@ -1157,11 +1157,11 @@ TESTCASES = [
      True),
     (CrossEntropy2d,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      True),
     (CrossEntropy3d,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.ones([4, 4, 4, 4], dtype=torch.int64)], {}),
      True),
     (Discriminator,
      lambda: ([], {}),
@@ -1174,6 +1174,10 @@ TESTCASES = [
     (UNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UNet3D,
+     lambda: ([], {'in_channel': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
      False),
     (UNetConvBlock,
      lambda: ([], {'in_size': 4, 'out_size': 4}),
@@ -1221,7 +1225,7 @@ TESTCASES = [
      True),
     (myFocalLoss,
      lambda: ([], {'class_num': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (residualUnit,
      lambda: ([], {'in_size': 4, 'out_size': 4}),
@@ -1300,4 +1304,7 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

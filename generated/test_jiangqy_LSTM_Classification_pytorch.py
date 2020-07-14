@@ -93,7 +93,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (LSTMClassifier,
      lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'label_size': 4, 'batch_size': 4, 'use_gpu': False}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
 ]
 

@@ -1803,7 +1803,7 @@ TESTCASES = [
      True),
     (RnnContextEncoder,
      lambda: ([], {'n': 4, 'k': 4, 'nembed': 4, 'nhid': 4, 'init_range': 4, 'device_id': 0}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (SelectionClassifier,
      lambda: ([], {'selection_length': 4, 'input_size': 4, 'output_size': 4}),

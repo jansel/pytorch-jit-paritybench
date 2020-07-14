@@ -338,7 +338,7 @@ TESTCASES = [
      False),
     (NodeEmbeddingPrep,
      lambda: ([], {'input_dim': 4, 'n_nodes': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([4, 4])], {}),
      False),
     (PoolAggregator,
      lambda: ([], {'input_dim': 4, 'output_dim': 4, 'pool_fn': _mock_layer(), 'activation': _mock_layer()}),

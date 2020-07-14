@@ -363,7 +363,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (FixedEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([], {'input': torch.zeros([4], dtype=torch.int64)}),
+     lambda: ([], {'input': torch.ones([4], dtype=torch.int64)}),
      False),
     (SelfAttention,
      lambda: ([], {'d_hid': 4}),

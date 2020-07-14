@@ -160,7 +160,7 @@ TESTCASES = [
      True),
     (Encoder,
      lambda: ([], {'input_size': 4, 'embed_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
 ]
 

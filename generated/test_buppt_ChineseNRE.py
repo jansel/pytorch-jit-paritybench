@@ -111,7 +111,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BiLSTM_ATT,
      lambda: ([], {'config': _mock_config(BATCH=4, EMBEDDING_SIZE=4, EMBEDDING_DIM=4, HIDDEN_DIM=4, TAG_SIZE=4, POS_SIZE=4, POS_DIM=4, pretrained=False), 'embedding_pre': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
 ]
 

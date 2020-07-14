@@ -171,11 +171,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (TSNE,
      lambda: ([], {'n_points': 4, 'n_topics': 4, 'n_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (VTSNE,
      lambda: ([], {'n_points': 4, 'n_topics': 4, 'n_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

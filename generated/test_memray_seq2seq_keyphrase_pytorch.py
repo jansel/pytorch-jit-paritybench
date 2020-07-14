@@ -857,7 +857,7 @@ TESTCASES = [
      True),
     (StandardNLL,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
      True),
 ]
 

@@ -1183,7 +1183,7 @@ TESTCASES = [
      False),
     (Discriminator,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 3, 256, 256]), torch.ones([4], dtype=torch.int64)], {}),
      False),
     (FAN,
      lambda: ([], {}),
@@ -1207,7 +1207,7 @@ TESTCASES = [
      False),
     (StyleEncoder,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 3, 256, 256]), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

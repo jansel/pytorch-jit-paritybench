@@ -1896,3 +1896,133 @@ class VideoInpaintingModel(BaseModel):
             raise ValueError(f'forwarding model should be "G", "D_t", or "D_s", but got {model}')
         return output
 
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdversarialLoss,
+     lambda: ([], {}),
+     lambda: ([], {'outputs': torch.rand([4, 4]), 'is_real': 4}),
+     True),
+    (Conv2dBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv3dBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Dist2LogitLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (GatedConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (L1LossMaskedMean,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2LossMaskedMean,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNTemporalPatchGANDiscriminator,
+     lambda: ([], {'nc_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
+    (TemporalPatchGANDiscriminator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Unit3D,
+     lambda: ([], {'in_channels': 4, 'output_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (VanillaConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (Vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (VideoCN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 4, 4])], {}),
+     False),
+    (alexnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (resnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (squeezenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_amjltc295_Free_Form_Video_Inpainting(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+

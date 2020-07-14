@@ -284,11 +284,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CTransformer,
      lambda: ([], {'emb': 4, 'heads': 4, 'depth': 1, 'seq_length': 4, 'num_tokens': 4, 'num_classes': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (GTransformer,
      lambda: ([], {'emb': 4, 'heads': 4, 'depth': 1, 'seq_length': 4, 'num_tokens': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (SelfAttentionWide,
      lambda: ([], {'emb': 4}),

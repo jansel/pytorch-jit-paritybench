@@ -4367,6 +4367,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Fast,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4760,4 +4764,7 @@ class Test_alexandonian_pretorched_x(_paritybench_base):
 
     def test_064(self):
         self._check(*TESTCASES[64])
+
+    def test_065(self):
+        self._check(*TESTCASES[65])
 

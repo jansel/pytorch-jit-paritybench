@@ -176,11 +176,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CBOWModel,
      lambda: ([], {'emb_size': 4, 'emb_dimension': 4, 'window_size': 4}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (SkipGramModel,
      lambda: ([], {'emb_size': 4, 'emb_dimension': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

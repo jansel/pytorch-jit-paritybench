@@ -619,6 +619,10 @@ TESTCASES = [
      lambda: ([], {'inChans': 4, 'elu': 4, 'nll': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      False),
+    (VNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 16, 16])], {}),
+     False),
     (_DenseBlock,
      lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -660,4 +664,7 @@ class Test_prigoyal_pytorch_memonger(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

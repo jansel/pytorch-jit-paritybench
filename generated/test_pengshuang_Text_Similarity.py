@@ -1185,7 +1185,7 @@ TESTCASES = [
      True),
     (Encoder,
      lambda: ([], {'input_size': 4, 'embedding_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
     (InceptionModule,
      lambda: ([], {'in_channel': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4}),

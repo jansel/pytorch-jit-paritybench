@@ -382,7 +382,7 @@ TESTCASES = [
      False),
     (CrossEntropy2d,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (Residual_Covolution,
      lambda: ([], {'icol': 4, 'ocol': 4, 'num_classes': 4}),

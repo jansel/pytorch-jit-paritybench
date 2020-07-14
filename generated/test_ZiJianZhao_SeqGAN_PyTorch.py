@@ -311,15 +311,15 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (GANLoss,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64), torch.rand([4, 4, 4, 64])], {}),
      False),
     (Generator,
      lambda: ([], {'num_emb': 4, 'emb_dim': 4, 'hidden_dim': 4, 'use_cuda': False}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (TargetLSTM,
      lambda: ([], {'num_emb': 4, 'emb_dim': 4, 'hidden_dim': 4, 'use_cuda': False}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
 ]
 

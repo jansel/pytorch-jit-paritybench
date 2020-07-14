@@ -270,15 +270,15 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BertModel4Pretrain,
      lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4, 4, 4], dtype=torch.int64), torch.rand([4, 4, 4]), torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (Classifier,
      lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4), 'n_labels': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
      False),
     (Embeddings,
      lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5)}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (LayerNorm,
      lambda: ([], {'cfg': _mock_config(dim=4)}),
@@ -290,7 +290,7 @@ TESTCASES = [
      True),
     (Transformer,
      lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
      False),
 ]
 

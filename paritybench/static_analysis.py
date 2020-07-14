@@ -3,7 +3,6 @@ import logging
 import re
 import torch
 
-import paritybench.evaluate
 
 log = logging.getLogger(__name__)
 
@@ -255,102 +254,50 @@ def split_import(node):
             yield module_name, tmp
 
 
-class Flatten(ast.NodeTransformer):
+class FlattenStatement(ast.NodeTransformer):
     """
     Simplify AST to remove nested expressions.
 
     a = b + c + foo()
 
     becomes
-    _t_0 = foo()
-    _t_1 = c + _t_0
-    a = b + _t_1
+    _t_0 = b + c
+    _t_1 = foo()
+    a = _t_0 + _t_1
     """
 
-    def __init__(self):
+    def __init__(self, flattener):
         super().__init__()
-        self._cnt = 0
+        self.unique_name = flattener.unique_name
+        self.prefix = []
+        self.suffix = []
 
-    def unique_name(self):
-        v = self._cnt
-        self._cnt += 1
-        return f"_t_{v}"
+    def __call__(self, node):
+        node = self.visit(node)
+        if node is None:
+            return self.prefix + self.suffix
+        elif isinstance(node, list):
+            return self.prefix + node + self.suffix
+        else:
+            return self.prefix + [node] + self.suffix
 
-    def visit_Import(self, node):
-        result = []
-        for module_name, new_node in split_import(node):
-            result.append(new_node)
-        return result
+    def to_tmp(self, node):
+        if isinstance(node, (
+                ast.Name, ast.Constant, ast.NamedExpr, ast.expr_context, ast.keyword, ast.arguments,
+                ast.withitem, ast.excepthandler,
+                ast.operator, ast.boolop, ast.unaryop, ast.cmpop, type(None))):
+            return node
 
-    visit_ImportFrom = visit_Import
+        ctx = getattr(node, "ctx", ast.Load())
+        if isinstance(ctx, ast.Load):
+            return self.to_tmp_Load(node)
+        if isinstance(ctx, ast.Store):
+            return self.to_tmp_Store(node)
+        if isinstance(ctx, ast.Del):
+            return None
+        assert False, f"Unknown ctx: {ast.dump(node)}"
 
-    def visit_Return(self, node: ast.Return):
-        statements = []
-        node.value = self.flatten(node.value, statements)
-        return statements + [node]
-
-    def visit_Delete(self, node: ast.Delete):
-        statements = []
-        for target in node.targets:
-            if isinstance(target, ast.Subscript):
-                target.value = self.flatten(target.value, statements)
-                target.slice = self.flatten(target.slice, statements)
-                statements.append(ast.Delete([target]))
-                ast.copy_location(statements[-1], node)
-            else:
-                statements.append(ast.Delete([self.flatten(target, statements)]))
-                ast.copy_location(statements[-1], node)
-        return statements
-
-    def visit_Assign(self, node: (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-        statements = []
-        suffix = []
-        node.value = self.flatten(node.value, statements)
-        if len(node.targets) > 1:
-            node.targets = [self.flatten_target(t, suffix) for t in node.targets]
-        return statements + [node] + suffix
-
-    visit_AugAssign = visit_Assign
-    visit_AnnAssign = visit_Assign
-
-    def visit_For(self, node: (ast.For, ast.AsyncFor)):
-        statements = []
-        node.iter = self.flatten(node.iter, statements)
-        # TODO(jansel): handle targets
-        node = self.generic_visit(node)
-        return statements + [node]
-
-    visit_AsyncFor = visit_For
-
-    def visit_If(self, node: ast.If):
-        statements = []
-        node.test = self.flatten(node.test, statements)
-        node = self.generic_visit(node)
-        return statements + [node]
-
-    def visit_Raise(self, node: ast.Raise):
-        statements = []
-        node.exc = self.flatten(node.exc, statements)
-        node.cause = self.flatten(node.cause, statements)
-        return statements + [node]
-
-    def visit_Assert(self, node: ast.Assert):
-        statements = []
-        node.test = self.flatten(node.test, statements)
-        # TODO(jansel): handlle node.msg
-        return statements + [node]
-
-    def visit_With(self, node: (ast.With, ast.AsyncWith)):
-        statements = []
-        for item in node.items:
-            item.context_expr = self.flatten(item.context_expr, statements)
-            # TODO(jansel): handle item.optional_vars
-        node = self.generic_visit(node)
-        return statements + [node]
-
-    visit_AsyncWith = visit_With
-
-    def to_tmp(self, node, output):
+    def to_tmp_Load(self, node):
         ident = self.unique_name()
         store = ast.Name(ident, ast.Store())
         load = ast.Name(ident, ast.Load())
@@ -361,10 +308,10 @@ class Flatten(ast.NodeTransformer):
         ast.copy_location(assign, node)
         ast.copy_location(store, node)
         ast.copy_location(load, node)
-        output.append(assign)
+        self.prefix.append(assign)
         return load
 
-    def to_tmp_target(self, node, output):
+    def to_tmp_Store(self, node):
         ident = self.unique_name()
         store = ast.Name(ident, ast.Store())
         load = ast.Name(ident, ast.Load())
@@ -375,175 +322,73 @@ class Flatten(ast.NodeTransformer):
         ast.copy_location(assign, node)
         ast.copy_location(store, node)
         ast.copy_location(load, node)
-        output.append(assign)
+        self.suffix.append(assign)
         return store
 
-    def visit_Expr(self, node: ast.Expr):
-        statements = []
-        node.value = self.flatten(node.value, statements)
-        return statements + [node]
-
-    #########################################################
-    # simplify the left hand side of an assignment
-    #     self.foo, self.bar = blah
-    # becomes:
-    #     _t_0, _t_1 = blah
-    #     self.foo = _t_0
-    #     self.bar = _t_1
-
-    def flatten_target(self, node, suffix):
-        method = 'flatten_target_' + node.__class__.__name__
-        return getattr(self, method)(node, suffix)
-
-    def flatten_target_Name(self, node, _):
-        # (identifier id, expr_context ctx)
+    def to_tmp_Del(self, node):
         return node
 
-    def flatten_target_Starred(self, node, suffix):
-        # (expr value, expr_context ctx)
-        node.value = self.flatten_target(node.value, suffix)
-        return node
+    def to_tmp_visit(self, node):
+        return self.to_tmp(self.visit(node))
 
-    def flatten_target_Attribute(self, node, suffix):
-        # (expr value, identifier attr, expr_context ctx)
-        node.value = self.flatten(node.value, suffix)
-        return self.to_tmp_target(node, suffix)
-
-    def flatten_target_Subscript(self, node, suffix):
-        # (expr value, slice slice, expr_context ctx)
-        node.value = self.flatten(node.value, suffix)
-        node.slice = self.flatten_slice(node.slice, suffix)
-        return self.to_tmp_target(node, suffix)
-
-    def flatten_target_List(self, node, suffix):
-        # (expr* elts, expr_context ctx)
-        node.elts = [self.flatten_target(n, suffix) for n in node.elts]
-        return node
-
-    flatten_target_Tuple = flatten_target_List
-
-    #########################################################
-
-    def flatten(self, node, output_statements):
-        method = 'flatten_' + node.__class__.__name__
-        return getattr(self, method)(node, output_statements)
-
-    def flatten_None(self, node, _):
-        assert node is None
+    def visit_Delete(self, node: ast.Delete):
+        for target in node.targets:
+            new_node = ast.Delete([self.visit(target)])
+            ast.copy_location(new_node, node)
+            self.prefix.append(new_node)
         return None
 
-    def flatten_Name(self, node, _):
+    def visit_Subscript(self, node):
+        node.value = self.to_tmp_visit(node.value)
+        node.slice = self.visit(node.slice)
         return node
 
-    def flatten_Constant(self, node, output):
+    visit_ExtSlice = ast.NodeTransformer.generic_visit
+    visit_Assign = ast.NodeTransformer.generic_visit
+
+    def generic_visit(self, node):
+        for field, old_value in ast.iter_fields(node):
+            if isinstance(old_value, list):
+                new_values = []
+                for value in old_value:
+                    if isinstance(value, ast.AST):
+                        value = self.to_tmp_visit(value)
+                    if value is not None:
+                        new_values.append(value)
+                old_value[:] = new_values
+            elif isinstance(old_value, ast.AST):
+                new_node = self.to_tmp_visit(old_value)
+                setattr(node, field, new_node)
         return node
 
-    def flatten_BoolOp(self, node, output):
-        node.values[0] = self.flatten(node.values[0], output)
-        # TODO(jansel): handle [1:] values
-        return self.to_tmp(node, output)
-
-    def flatten_BinOp(self, node, output):
-        node.left = self.flatten(node.left, output)
-        node.right = self.flatten(node.right, output)
-        return self.to_tmp(node, output)
-
-    def flatten_UnaryOp(self, node, output):
-        node.operand = self.flatten(node.operand, output)
-        return self.to_tmp(node, output)
-
-    def flatten_NamedExpr(self, node, output):
-        value = self.flatten(node.value, output)
-        assert isinstance(value, (ast.Name, ast.Constant))
-        assign = ast.Assign(
-            targets=[node.target],
-            value=value
-        )
-        ast.copy_location(assign, node)
-        output.append(assign)
-        return value
-
-    def flatten_IfExp(self, node, output):
-        paritybench.evaluate.evaluate_all = self.flatten(paritybench.evaluate.evaluate_all, output)
-        # TODO(jansel): handle node.{body, orelse}
-        return self.to_tmp(node, output)
-
-    def flatten_Compare(self, node, output):
-        node.left = self.flatten(node.left, output)
-        node.comparators = [self.flatten(n, output) for n in node.comparators]
-        return self.to_tmp(node, output)
-
-    def flatten_Call(self, node, output):
-        node.func = self.flatten(node.func, output)
-        node.args = [self.flatten(a, output) for a in node.args]
-        node.keywords = [ast.keyword(arg=k.arg, value=self.flatten(k.value, output)) for k in node.keywords]
-        return self.to_tmp(node, output)
-
-    def flatten_Attribute(self, node, output):
-        node.value = self.flatten(node.value, output)
-        return self.to_tmp(node, output)
-
-    def flatten_Subscript(self, node, output):
-        node.value = self.flatten(node.value, output)
-        node.slice = self.flatten(node.slice, output)
-        return self.to_tmp(node, output)
-
-    def flatten_slice(self, node: ast.slice, output):
-        node.lower = self.flatten(node.lower, output)
-        node.upper = self.flatten(node.upper, output)
-        node.step = self.flatten(node.step, output)
-        return node
-
-    def flatten_Starred(self, node, output):
-        node.value = self.flatten(node.value, output)
-        return node
-
-    def flatten_Attribute(self, node, output):
-        # (expr value, identifier attr, expr_context ctx)
-        node.value = self.flatten(node.value, output)
-        return self.to_tmp(node, output)
-
-    def flatten_Subscript(self, node, output):
-        # (expr value, slice slice, expr_context ctx)
-        node.value = self.flatten(node.value, output)
-        node.slice = self.flatten_slice(node.slice, output)
-        return self.to_tmp(node, output)
-
-    def flatten_List(self, node, output):
-        # (expr* elts, expr_context ctx)
-        node.elts = [self.flatten_target(n, output) for n in node.elts]
+    def visit_BoolOp(self, node):
+        node.values[0] = self.to_tmp_visit(node.values[0])
+        # TODO(jansel): convert values[0] to if
         return self.to_tmp(node)
 
-    flatten_Tuple = flatten_List
+    def visit_IfExp(self, node):
+        ident = self.unique_name()
+        assign_if = ast.If(
+            test=self.to_tmp_visit(node.test),
+            body=FlattenStatement(self)(
+                ast.Assign(
+                    targets=[ast.Name(ident, ast.Store())],
+                    value=node.body)
+            ),
+            orelse=FlattenStatement(self)(
+                ast.Assign(
+                    targets=[ast.Name(ident, ast.Store())],
+                    value=node.orelse)
+            )
+        )
+        ast.copy_location(assign_if, node)
+        ast.fix_missing_locations(assign_if)
 
-    def flatten_Yield(self, node, output):  #
-        node.value = self.flatten(node.value, output)
-        return node
+        load = ast.Name(ident, ast.Load())
+        ast.copy_location(load, node)
+        return load
 
-    flatten_YeildFrom = flatten_Yield
-    flatten_Await = flatten_Yield
-
-    def flatten_Dict(self, node, output):
-        # (expr* keys, expr* values)
-        node.keys = [self.flatten(n) for n in node.keys]
-        node.values = [self.flatten(n) for n in node.values]
-        return self.to_tmp(node, output)
-
-    def flatten_Set(self, node, output):
-        # (expr* elts)
-        node.elts = [self.flatten(n) for n in node.elts]
-        return self.to_tmp(node, output)
-
-    def flatten_JoinedStr(self, node, output):
-        # (expr* values)
-        node.values = [self.flatten(n, output) for n in node.values]
-        return self.to_tmp(node, output)
-
-    def flatten_FormattedValue(self, node, output):  # (expr value, int? conversion, expr? format_spec)
-        node.value = self.flatten(node.value, output)
-        return node
-
-    def flatten_Lambda(self, node, output):
+    def visit_Lambda(self, node):
         """ Converts Lambda to FunctionDef """
         # (arguments args, expr body)
         name = self.unique_name()
@@ -556,26 +401,166 @@ class Flatten(ast.NodeTransformer):
             body=[rv]
         )
         ast.copy_location(fn, node)
-        output.append(self.generic_visit(fn))
+        self.prefix.append(self.generic_visit(fn))
 
         load = ast.Name(name, ctx=ast.Load())
         ast.copy_location(load, node)
         return load
 
+    def visit_Expr(self, node):
+        node.value = self.visit(node.value)
+        return node
+
+    def _comprehension(self, node, add_name, init, add_args):
+        assert len(node.generators) == 1, "expected 1 generator " + ast.dump(node)
+        data = self.unique_name()
+        add = f"{data}_{add_name}"
+        statements = [
+            ast.Assign(
+                targets=[ast.Name(data, ast.Store())],
+                value=init
+            ),
+            ast.Assign(
+                targets=[ast.Name(add, ast.Store())],
+                value=ast.Attribute(
+                    value=ast.Name(data, ast.Load()),
+                    attr=add_name,
+                    ctx=ast.Load())
+            ),
+            ast.For(
+                target=node.generators[0].target,  # TODO(jansel): flatten target
+                iter=self.to_tmp_visit(node.generators[0].iter),
+                body=FlattenStatement(self)(self._comprehension_if(
+                    node.generators[0].ifs,
+                    ast.Expr(value=ast.Call(
+                        func=ast.Name(add, ast.Load()),
+                        args=add_args,
+                        keywords=[],
+                    )))),
+                orelse=[]
+            ),
+        ]
+        for stmt in statements:
+            ast.copy_location(stmt, node)
+            ast.fix_missing_locations(stmt)
+            self.prefix.append(stmt)
+
+        load = ast.Name(data, ast.Load())
+        ast.copy_location(load, node)
+        return load
+
+    def _comprehension_if(self, conds, inner):
+        for cond in reversed(conds):
+            inner = ast.If(cond, [inner], [])
+        return inner
+
+    def visit_ListComp(self, node):
+        return self._comprehension(
+            node,
+            "append",
+            ast.List([], ctx=ast.Load()),
+            [node.elt])
+
     '''
-    def flatten_ListComp(self, node, output):  # (expr elt, comprehension* generators)
+    def visit_SetComp(self, node, output):  # (expr elt, comprehension* generators)
         # TODO(jansel): need to implement this
         return self.to_tmp(node, output)
 
-    def flatten_SetComp(self, node, output):  # (expr elt, comprehension* generators)
+    def visit_DictComp(self, node, output):  # (expr key, expr value, comprehension* generators)
         # TODO(jansel): need to implement this
         return self.to_tmp(node, output)
 
-    def flatten_DictComp(self, node, output):  # (expr key, expr value, comprehension* generators)
-        # TODO(jansel): need to implement this
-        return self.to_tmp(node, output)
-
-    def flatten_GeneratorExp(self, node, output):  # (expr elt, comprehension* generators)
+    def visit_GeneratorExp(self, node, output):  # (expr elt, comprehension* generators)
        # TODO(jansel): need to implement this
        return self.to_tmp(node, output)
    '''
+
+
+class Flatten(ast.NodeTransformer):
+    """
+    Simplify AST to remove nested expressions.
+
+    a = b + c + foo()
+
+    becomes
+    _t_0 = foo()
+    _t_1 = c + _t_0
+    a = b + _t_1
+    """
+
+    @classmethod
+    def run(cls, tree):
+        return cls().visit(tree)
+
+    def __init__(self):
+        super().__init__()
+        self._cnt = 0
+        self.prefix = None
+        self.suffix = None
+
+    def unique_name(self):
+        """ Create a name for a new local variable """
+        v = self._cnt
+        self._cnt += 1
+        return f"_t_{v:02d}"
+
+    def visit_Import(self, node):
+        result = []
+        for module_name, new_node in split_import(node):
+            result.append(new_node)
+        return result
+
+    visit_ImportFrom = visit_Import
+
+    def flatten_statement(self, node):
+        return FlattenStatement(self)(node)
+
+    visit_Return = flatten_statement
+    visit_Delete = flatten_statement
+    visit_Assign = flatten_statement
+    visit_AugAssign = flatten_statement
+    visit_AnnAssign = flatten_statement
+    visit_Raise = flatten_statement
+    visit_Expr = flatten_statement
+
+    def visit_For(self, node: (ast.For, ast.AsyncFor)):
+        log.info(ast.dump(node))
+
+        fs1 = FlattenStatement(self)
+        node.iter = fs1.to_tmp_visit(node.iter)
+        assert not fs1.suffix, "for.iter should not add to suffix"
+
+        fs2 = FlattenStatement(self)
+        node.target = fs2.to_tmp_visit(node.target)
+        assert not fs2.prefix, f"For.targets should not add to prefix"
+
+        if node.body:
+            node.body = fs2.suffix + node.body
+
+        if node.orelse:
+            node.orelse = fs2.suffix + node.orelse
+
+        return fs1.prefix + [self.generic_visit(node)]
+
+    visit_AsyncFor = visit_For
+
+    # TODO(jansel): visit_While
+    # TODO(jansel): visit_Try
+
+    def visit_If(self, node: (ast.If, ast.Assert)):
+        fs = FlattenStatement(self)
+        node.test = fs.to_tmp_visit(node.test)
+        assert not fs.suffix, f"{node.__class__} should not cause a suffix"
+        return fs.prefix + [self.generic_visit(node)]
+
+    visit_Assert = visit_If
+
+    def visit_With(self, node: (ast.With, ast.AsyncWith)):
+        fs = FlattenStatement(self)
+        for item in node.items:
+            item.context_expr = fs.visit(item.context_expr)
+            # TODO(jansel): handle item.optional_vars
+        assert not fs.suffix, f"{node.__class__} should not cause a suffix"
+        return fs.prefix + [self.generic_visit(node)]
+
+    visit_AsyncWith = visit_With

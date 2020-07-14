@@ -5825,7 +5825,7 @@ TESTCASES = [
      False),
     (TiedWeights,
      lambda: ([], {}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (VariationalDropout,
      lambda: ([], {}),

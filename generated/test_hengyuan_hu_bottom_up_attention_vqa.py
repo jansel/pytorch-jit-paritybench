@@ -266,7 +266,7 @@ TESTCASES = [
      True),
     (WordEmbedding,
      lambda: ([], {'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

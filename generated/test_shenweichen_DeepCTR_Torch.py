@@ -2621,7 +2621,7 @@ TESTCASES = [
      False),
     (Interac,
      lambda: ([], {'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (InteractingLayer,
      lambda: ([], {'in_features': 4}),

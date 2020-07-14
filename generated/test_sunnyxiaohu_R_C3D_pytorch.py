@@ -2269,6 +2269,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 64, 64, 64])], {}),
      False),
+    (Mixed_3b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 16, 16])], {}),
+     True),
     (Mixed_4a,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 160, 64, 64])], {}),
@@ -2387,4 +2391,7 @@ class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
 

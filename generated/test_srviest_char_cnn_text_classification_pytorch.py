@@ -197,7 +197,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CNN_Text,
      lambda: ([], {'args': _mock_config(embed_num=4, embed_dim=4, class_num=4, kernel_num=4, kernel_sizes=[4, 4], dropout=0.5, static=4)}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
 ]
 

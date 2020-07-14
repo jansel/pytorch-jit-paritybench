@@ -320,7 +320,7 @@ TESTCASES = [
      False),
     (_NonLocalBlock,
      lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 64, 8, 8])], {}),
      False),
 ]
 

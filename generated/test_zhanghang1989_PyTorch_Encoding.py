@@ -3412,7 +3412,7 @@ TESTCASES = [
      True),
     (LabelSmoothing,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (Mean,
      lambda: ([], {'dim': 4}),

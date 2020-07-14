@@ -86,3 +86,21 @@ class C3D(nn.Module):
         probs = self.softmax(logits)
         return probs
 
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (C3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
+]
+
+class Test_DavideA_c3d_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

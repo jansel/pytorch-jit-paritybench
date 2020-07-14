@@ -592,11 +592,11 @@ class TensorGuess(Guess):
         self.dtype = dtype
         self.fill_value = fill_value  # currently one 1 is supported
         self.hint = hint
-        assert self.fill_value in (None, 1)
+        assert self.fill_value in (None, 1, 0)
         # used for embedding lookups often
-        if self.fill_value == 1:
+        if self.fill_value == 0:
             self.value = torch.zeros(self.shape, dtype=self.dtype)
-        elif self.dtype == torch.int64:
+        elif self.dtype == torch.int64 or self.fill_value == 1:
             self.value = torch.ones(self.shape, dtype=self.dtype)
         else:
             self.value = torch.rand(self.shape, dtype=self.dtype)
@@ -605,12 +605,12 @@ class TensorGuess(Guess):
         return self.__class__(self.shape, self.dtype)
 
     def __str__(self):
-        if self.fill_value == 1:
-            return f"torch.ones({self.shape}, dtype={self.dtype})"
+        if self.fill_value == 0:
+            return f"torch.zeros({self.shape}, dtype={self.dtype})"
         elif self.dtype == torch.float32:
             return f"torch.rand({self.shape})"
         elif self.dtype == torch.int64:
-            return f"torch.zeros({self.shape}, dtype={self.dtype})"
+            return f"torch.ones({self.shape}, dtype={self.dtype})"
         else:
             return f"torch.rand({self.shape}, dtype={self.dtype})"
 

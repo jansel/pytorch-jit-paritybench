@@ -1350,7 +1350,7 @@ TESTCASES = [
      False),
     (Embedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (Flatten,
      lambda: ([], {}),

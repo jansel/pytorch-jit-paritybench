@@ -4270,7 +4270,7 @@ TESTCASES = [
      True),
     (CrossEntropyLabelSmooth,
      lambda: ([], {'num_classes': 4, 'epsilon': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      True),
     (DilConv,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),

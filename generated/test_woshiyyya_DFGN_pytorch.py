@@ -1813,7 +1813,7 @@ TESTCASES = [
      True),
     (PositionalEncoder,
      lambda: ([], {'h_dim': 4, 'config': _mock_config(max_doc_len=4, model_gpu=False)}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      True),
 ]
 

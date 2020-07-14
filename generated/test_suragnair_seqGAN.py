@@ -226,11 +226,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Discriminator,
      lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
      True),
     (Generator,
      lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
      True),
 ]
 

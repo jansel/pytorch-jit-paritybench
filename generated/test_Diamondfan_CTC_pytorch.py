@@ -446,7 +446,7 @@ TESTCASES = [
      True),
     (Encoder,
      lambda: ([], {'n_position': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (InferenceBatchLogSoftmax,
      lambda: ([], {}),

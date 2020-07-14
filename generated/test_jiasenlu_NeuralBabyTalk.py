@@ -1759,7 +1759,7 @@ TESTCASES = [
      True),
     (FGCriterion,
      lambda: ([], {'opt': _mock_config()}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      False),
     (RewardCriterion,
      lambda: ([], {'opt': _mock_config(vocab_size=4)}),

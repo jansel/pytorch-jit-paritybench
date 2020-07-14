@@ -534,15 +534,15 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (LookupFC,
      lambda: ([], {'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (LookupLayer,
      lambda: ([], {'in_ch': 4, 'out_ch': 4, 'num_objects': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (LookupLinear,
      lambda: ([], {'in_ch': 4, 'out_ch': 4, 'num_objects': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

@@ -226,7 +226,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CharEmbedding,
      lambda: ([], {'config': _mock_config(vocab_size=4, embedding_dim=4)}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (Projection,
      lambda: ([], {'config': _mock_config(cnn_features=4)}),

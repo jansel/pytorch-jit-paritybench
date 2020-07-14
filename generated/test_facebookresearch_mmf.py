@@ -6257,3 +6257,238 @@ class ResNet152FeatModule(nn.Module):
     def forward(self, x):
         return self.feature_module(x)
 
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BCNet,
+     lambda: ([], {'v_dim': 4, 'q_dim': 4, 'h_dim': 4, 'h_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertBiAttention,
+     lambda: ([], {'config': _mock_config(bi_hidden_size=4, bi_num_attention_heads=4, visualization=4, v_hidden_size=4, v_attention_probs_dropout_prob=0.5, hidden_size=4, attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertImageIntermediate,
+     lambda: ([], {'config': _mock_config(v_hidden_size=4, v_intermediate_size=4, v_hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertImagePooler,
+     lambda: ([], {'config': _mock_config(v_hidden_size=4, bi_hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertImageSelfAttention,
+     lambda: ([], {'config': _mock_config(v_hidden_size=4, v_num_attention_heads=4, dynamic_attention=4, visualization=4, hidden_size=4, v_attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertSelfAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, visualization=4, attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertTextPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4, bi_hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BiAttention,
+     lambda: ([], {'x_dim': 4, 'y_dim': 4, 'z_dim': 4, 'glimpse': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Block,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (BlockTucker,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CompactBilinearPooling,
+     lambda: ([], {'input_dim1': 4, 'input_dim2': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConcatenationAttention,
+     lambda: ([], {'image_feat_dim': 4, 'txt_rnn_embeding_dim': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (ConvNet,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvTransform,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (FCNet,
+     lambda: ([], {'dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedTanh,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearSum,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearTransform,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MCB,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MFB,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MLB,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPClassifer,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MfbExpand,
+     lambda: ([], {'img_feat_dim': 4, 'txt_emb_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadImageFeatureEmbedding,
+     lambda: ([], {'img_dim': 4, 'question_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Mutan,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OcrPtrNet,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (ReLUWithWeightNormFC,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNet152FeatModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UnFlatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4])], {}),
+     False),
+    (WeightNormClassifier,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_facebookresearch_mmf(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
+

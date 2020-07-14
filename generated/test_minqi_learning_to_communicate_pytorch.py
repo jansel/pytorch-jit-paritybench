@@ -148,7 +148,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (SwitchCNet,
      lambda: ([], {'opt': _mock_config(game_comm_bits=4, game_nagents=4, model_rnn_size=4, model_action_aware=4, model_dial=4, game_action_space_total=4, comm_enabled=4, model_bn=4, model_comm_narrow=4, model_rnn_dropout_rate=0.5, model_rnn_layers=1)}),
-     lambda: ([torch.zeros([1024], dtype=torch.int64), torch.rand([64, 4, 4, 4]), torch.rand([1, 1024, 4]), torch.zeros([1024], dtype=torch.int64), torch.zeros([1024], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([1024], dtype=torch.int64), torch.rand([64, 4, 4, 4]), torch.rand([1, 1024, 4]), torch.ones([1024], dtype=torch.int64), torch.ones([1024], dtype=torch.int64)], {}),
      False),
 ]
 

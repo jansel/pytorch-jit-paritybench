@@ -707,7 +707,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (ConditionalBatchNorm2d,
      lambda: ([], {'num_features': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (SNConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -715,7 +715,7 @@ TESTCASES = [
      False),
     (SNEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (SNLinear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),

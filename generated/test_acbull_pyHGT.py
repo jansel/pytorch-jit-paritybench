@@ -220,7 +220,7 @@ TESTCASES = [
      False),
     (RelTemporalEncoding,
      lambda: ([], {'n_hid': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

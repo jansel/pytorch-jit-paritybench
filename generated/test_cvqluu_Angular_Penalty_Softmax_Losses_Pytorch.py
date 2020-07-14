@@ -160,7 +160,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (AngularPenaltySMLoss,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 

@@ -129,7 +129,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Vocoder,
      lambda: ([], {'mel_channels': 4, 'conditioning_channels': 4, 'embedding_dim': 4, 'rnn_channels': 4, 'fc_channels': 4, 'bits': 4, 'hop_length': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
      False),
 ]
 

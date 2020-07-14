@@ -721,7 +721,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (TransE,
      lambda: ([], {'args': _mock_config(save_path=4, entity_num=4, rel_num=4, embedding_dim=4, score_func=4)}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
      True),
 ]
 

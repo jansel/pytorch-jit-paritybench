@@ -1538,7 +1538,7 @@ TESTCASES = [
      False),
     (NormEmbeddings,
      lambda: ([], {'emb_size': 4, 'tokens': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (PositionFeedForward,
      lambda: ([], {'input_size': 4, 'out_dim': 4, 'nhid': 4}),

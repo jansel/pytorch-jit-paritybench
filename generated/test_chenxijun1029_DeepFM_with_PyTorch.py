@@ -212,7 +212,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (DeepFM,
      lambda: ([], {'feature_sizes': [4, 4]}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
      False),
 ]
 

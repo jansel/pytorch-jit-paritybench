@@ -110,7 +110,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (NEG_loss,
      lambda: ([], {'num_classes': 4, 'embed_size': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), 4], {}),
+     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), 4], {}),
      False),
 ]
 

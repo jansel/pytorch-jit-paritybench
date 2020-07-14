@@ -1201,6 +1201,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 2080, 64, 64])], {}),
      False),
+    (C3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 16, 112, 112])], {}),
+     True),
     (InceptionResnetV2,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 512, 512])], {}),
@@ -1306,4 +1310,7 @@ class Test_coderSkyChen_Action_Recognition_Zoo(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

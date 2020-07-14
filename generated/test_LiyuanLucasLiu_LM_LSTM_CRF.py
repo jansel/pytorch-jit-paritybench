@@ -596,7 +596,7 @@ TESTCASES = [
      True),
     (LSTM_CRF,
      lambda: ([], {'vocab_size': 4, 'tagset_size': 4, 'embedding_dim': 4, 'hidden_dim': 4, 'rnn_layers': 1, 'dropout_ratio': 0.5}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (hw,
      lambda: ([], {'size': 4}),

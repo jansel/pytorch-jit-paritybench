@@ -1874,7 +1874,7 @@ TESTCASES = [
      False),
     (GATNEModel,
      lambda: ([], {'num_nodes': 4, 'embedding_size': 4, 'embedding_u_size': 4, 'edge_type_count': 4, 'dim_a': 4}),
-     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      True),
     (GINMLP,
      lambda: ([], {'in_feats': 4, 'out_feats': 4, 'hidden_dim': 4, 'num_layers': 1}),

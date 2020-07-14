@@ -5609,6 +5609,10 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([(torch.rand([4, 4, 64, 64, 64]), torch.rand([4, 4, 4, 4]))], {}),
      False),
+    (InceptionV1_I3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
     (RPNHead,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
@@ -5665,4 +5669,7 @@ class Test_open_mmlab_mmaction(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

@@ -2404,6 +2404,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pool_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (ResNeXt3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 16, 16])], {}),
+     False),
     (ResNeXt3DStemSinglePathway,
      lambda: ([], {'dim_in': 4, 'dim_out': 4, 'kernel': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
@@ -2482,4 +2486,7 @@ class Test_lightforever_mlcomp(_paritybench_base):
 
     def test_019(self):
         self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
 
