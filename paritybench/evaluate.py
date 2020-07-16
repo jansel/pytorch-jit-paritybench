@@ -24,7 +24,7 @@ class JitFailed(RuntimeError):
     pass
 
 
-def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
+def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, jit_script=torch.jit.script):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
     as eager.
@@ -35,31 +35,15 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     :param record_error: function to record an exception for debugging/reporting
     :return: True if the test passes
     """
-    try:
-        args, kwargs = get_init_args()
-        nn = nn_cls(*args, **kwargs)
-    except Exception as e:
-        record_error('init', e)
-        raise EagerFailed()
+    nn = init_module(record_error, nn_cls, get_init_args)
 
     try:
-        nn.eval()
-    except Exception:
-        pass
-
-    try:
-        nn_script = torch.jit.script(nn)
+        nn_script = jit_script(nn)
     except Exception as e:
         record_error('compile', e)
         raise JitFailed()
 
-    try:
-        args, kwargs = get_forward_args()
-        result1 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-        result2 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-    except Exception as e:
-        record_error('run_eager', e)
-        raise EagerFailed()
+    args, kwargs, result1, result2 = run_eager(record_error, nn, get_forward_args)
 
     try:
         result3 = nn_script(*args, **kwargs)
@@ -67,20 +51,49 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
         record_error('run_jit', e)
         raise JitFailed()
 
+    check_output(record_error, result1, result2, result3)
+
+    return True
+
+
+def run_eager(record_error, nn, get_forward_args):
+    try:
+        args, kwargs = get_forward_args()
+        result1 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        result2 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+    except Exception as e:
+        record_error('run_eager', e)
+        raise EagerFailed()
+    return args, kwargs, result1, result2
+
+
+def init_module(record_error, nn_cls, get_init_args):
+    try:
+        args, kwargs = get_init_args()
+        nn = nn_cls(*args, **kwargs)
+    except Exception as e:
+        record_error('init', e)
+        raise EagerFailed()
+    try:
+        nn.eval()
+    except Exception:
+        pass
+    return nn
+
+
+def check_output(record_error, result1, result2, result3, category="check_output"):
     try:
         JitTestCase().assertEqual(result1, result2)
         try:
             JitTestCase().assertEqual(result2, result3)
         except Exception as e:
-            record_error('check_output', e)
+            record_error(category, e)
             raise JitFailed()
     except AssertionError:
         pass  # output is not deterministic, cant check it -- assuming correct
 
-    return True
 
-
-def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
+def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None, check_module=evaluate_nn_module):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -106,7 +119,7 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
         stats["tests"] += 1
         repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
         try:
-            rv = evaluate_nn_module(
+            rv = check_module(
                 nn_cls,
                 get_init_args,
                 get_forward_args,
