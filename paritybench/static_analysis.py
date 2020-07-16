@@ -254,6 +254,12 @@ def split_import(node):
             yield module_name, tmp
 
 
+def copy_locations_recursive(new_node, old_old):
+    ast.copy_location(new_node, old_old)
+    ast.fix_missing_locations(new_node)
+    return new_node
+
+
 class FlattenStatement(ast.NodeTransformer):
     """
     Simplify AST to remove nested expressions.
@@ -476,24 +482,29 @@ class FlattenStatement(ast.NodeTransformer):
                     value=ast.Name(data, ast.Load()),
                     attr=add_name,
                     ctx=ast.Load())
-            ),
-            ast.For(
-                target=node.generators[0].target,  # TODO(jansel): flatten target
-                iter=self.to_tmp_visit(node.generators[0].iter),
-                body=FlattenStatement(self)(self._comprehension_if(
-                    node.generators[0].ifs,
-                    ast.Expr(value=ast.Call(
-                        func=ast.Name(add, ast.Load()),
-                        args=add_args,
-                        keywords=[],
-                    )))),
-                orelse=[]
-            ),
-        ]
-        for stmt in statements:
-            ast.copy_location(stmt, node)
-            ast.fix_missing_locations(stmt)
-            self.prefix.append(stmt)
+            )]
+
+        for s in statements:
+            copy_locations_recursive(s, node)
+
+        statements.extend(
+            FlattenStatement(self)(copy_locations_recursive(
+                new_node=ast.For(
+                    target=node.generators[0].target,
+                    iter=node.generators[0].iter,
+                    body=[self._comprehension_if(
+                        node.generators[0].ifs,
+                        ast.Expr(value=ast.Call(
+                            func=ast.Name(add, ast.Load()),
+                            args=add_args,
+                            keywords=[],
+                        )))],
+                    orelse=[]
+                ),
+                old_old=node)
+            )
+        )
+        self.prefix.extend(statements)
 
         load = ast.Name(data, ast.Load())
         ast.copy_location(load, node)
@@ -578,8 +589,11 @@ class FlattenStatement(ast.NodeTransformer):
 
     def visit_For(self, node):
         node.iter = self.to_tmp_visit(node.iter)
+        fs = FlattenStatement(self)
+        node.target = fs.to_tmp_visit(node.target)
+        assert not fs.prefix
         # TODO(jansel): handle node.targets?
-        node.body = self._body(node.body)
+        node.body = fs.suffix + self._body(node.body)
         node.orelse = self._body(node.orelse)
         return node
 
