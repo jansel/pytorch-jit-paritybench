@@ -5,18 +5,14 @@ import textwrap
 from collections import defaultdict
 from collections import deque
 from copy import deepcopy
-from functools import partial
 from functools import wraps
 from types import ModuleType
 from typing import List
 
 import torch
 
-from paritybench import evaluate
-from paritybench.evaluate import JitFailed, init_module, run_eager, check_output
+from lazy_transpiler.transformations import Flatten
 from paritybench.module_extractor import to_source
-from paritybench.static_analysis import Flatten
-from paritybench.utils import subproc_wrapper
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +27,9 @@ def type_specialization_key(value):
 
 class LazyTranspilerVirtualMachine(ModuleType):
     """
-    Virtual machine that executes python and translates it to python+graphs just-in-time.
+    Virtual machine that executes python and translates it to python+graphs.
 
-    We process python one expression at a time.  If that statement is
+    We process python one expression/statement at a time.  If that statement is
     "python-stuff" we run it, if that statement is `torch.*` operations we
     defer them until the results are needed and we have built up a large graph.
     This outputs runnable python, so on the second call we can reuse the
@@ -423,36 +419,3 @@ class LTVMBreak(LTVMException):
 
 class LTVMContinue(LTVMException):
     pass
-
-
-def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
-    nn = init_module(record_error, nn_cls, get_init_args)
-    args, kwargs, result1, result2 = run_eager(record_error, nn, get_forward_args)
-
-    try:
-        result3 = LTVMCallable(nn).debug_call(args, kwargs)
-    except Exception as e:
-        record_error('flatten', e)
-        raise JitFailed()
-
-    check_output(record_error, result1, result2, result3, 'flatten_output')
-
-    try:
-        ltvm = LazyTranspilerVirtualMachine(nn)
-        result3 = ltvm.run(*deepcopy(args), **deepcopy(kwargs))
-        result4 = ltvm.run(*args, **kwargs)
-    except Exception as e:
-        record_error('ltvm', e)
-        raise JitFailed()
-
-    log.info(str(ltvm))
-
-    check_output(record_error, result1, result2, result3, 'ltvm_output')
-    check_output(record_error, result1, result2, result4, 'ltvm_rerun')
-
-    return True
-
-
-analyze_pyfile_subproc = partial(evaluate.evaluate_pyfile_subproc, check_module=analyze_nn_module)
-analyze_pyfile = partial(subproc_wrapper, fn=analyze_pyfile_subproc)
-analyze_all = partial(evaluate.evaluate_all, fn=analyze_pyfile)

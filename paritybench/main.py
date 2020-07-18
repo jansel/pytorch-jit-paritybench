@@ -4,7 +4,6 @@ import os
 import sys
 from functools import partial
 
-from paritybench.analyze import analyze_all, analyze_pyfile_subproc
 from paritybench.crawler import CrawlGitHub
 from paritybench.evaluate import evaluate_all, evaluate_pyfile_subproc
 from paritybench.generate import generate_all, generate_zipfile_subproc
@@ -34,6 +33,15 @@ def main_one_file(fn, path, args):
     return
 
 
+def add_options(parser):
+    parser.add_argument("--jobs", "-j", type=int, default=4)
+    parser.add_argument("--limit", "-l", type=int, help="only run the first N files")
+    parser.add_argument("--filter", "-f", "-k", help="only run module containing given name")
+    parser.add_argument("--no-fork", action="store_true", help="don't run *-one test in a subprocess")
+    parser.add_argument("--memory-limit-gb", type=int, default=10)
+    parser.add_argument("--tests-dir", default="./generated", help="./generated")
+
+
 def main():
     assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
     logging.basicConfig(level=logging.INFO)
@@ -48,17 +56,9 @@ def main():
     group.add_argument("--evaluate-one", "-e", help="Check torch.jit.script on a given test_*.py file")
     group.add_argument("--evaluate-all", action="store_true", help="Check torch.jit.script parity")
 
-    group.add_argument("--analyze-one", "-a")
-    group.add_argument("--analyze-all", "-z", action="store_true")
-
-    parser.add_argument("--jobs", "-j", type=int, default=4)
-    parser.add_argument("--limit", "-l", type=int, help="only run the first N files")
-    parser.add_argument("--filter", "-f", "-k", help="only run module containing given name")
-    parser.add_argument("--no-fork", action="store_true", help="don't run *-one test in a subprocess")
-    parser.add_argument("--memory-limit-gb", type=int, default=10)
+    add_options(parser)
 
     parser.add_argument("--download-dir", default="./paritybench_download", help="./paritybench_download")
-    parser.add_argument("--tests-dir", default="./generated", help="./generated")
     args = parser.parse_args()
 
     os.environ["RLIMIT_AS_GB"] = str(args.memory_limit_gb)
@@ -73,12 +73,6 @@ def main():
 
     if args.generate_all:
         return generate_all(download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
-
-    if args.analyze_one:
-        return main_one_file(analyze_pyfile_subproc, args.analyze_one, args)
-
-    if args.analyze_all:
-        return analyze_all(tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
 
     if args.evaluate_one:
         return main_one_file(evaluate_pyfile_subproc, args.evaluate_one, args)
