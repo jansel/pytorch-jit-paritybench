@@ -199,7 +199,7 @@ class LTVMBlock(object):
         if self.specializations:
             # TODO(jansel): turn this into a lookup table and inline the checks in the generated code
             # for now we assume exactly one specialization
-            return self.specializations[0].run(ltvm)
+            return self.specializations[0].run(ltvm, self.statements[0].module)
 
         transpiler = LTVMBlockTranspiler(self, ltvm)
         try:
@@ -229,7 +229,7 @@ class LTVMBlockTranspiler(object):
         return LTVMSpecializedBlock(self.output_statements)
 
     def exec_and_record(self, node: ast.AST, stmt: LTVMStatement):
-        """ exec() a statement now and add it to the generated code """
+        """ exec() a statement now, track its impact, and add it to the generated code """
         exec(compile(ast.Interactive([node]),
                      stmt.filename,
                      "single"),
@@ -239,17 +239,22 @@ class LTVMBlockTranspiler(object):
         # node.lineno already exists in ast.AST
         self.output_statements.append(node)
 
-    def run_generic(self, stmt):
-        self.exec_and_record(stmt.node, stmt)
-
-    def make_jump(self, block, locations_from):
+    def make_jump(self, block: LTVMBlock, locations_from: ast.AST):
         if not block.statements:
             return []
         index = len(self.ltvm.blocks)
         self.ltvm.blocks.append(block)
         return [self.make_ltvm_call("block_", [ast.Constant(index, None)], locations_from)]
 
-    def make_ltvm_call(self, name, args, locations_from):
+    def make_ltvm_call(self, name: str, args: List[ast.AST], locations_from: ast.AST):
+        """
+        Build an AST node to call a __ltvm__.* function from generated code.
+
+        :param name: of the method to call
+        :param args:  AST node list of args
+        :param locations_from: copy locations from this node
+        :return: ast.Expr(...)
+        """
         node = ast.Expr(
             ast.Call(
                 ast.Attribute(
@@ -269,17 +274,21 @@ class LTVMBlockTranspiler(object):
             stmt = self.hopper.popleft()
             getattr(self, f"run_{stmt.node_name}")(stmt)
 
-    run_Delete = run_generic
-    run_Assign = run_generic
-    run_AugAssign = run_generic
-    run_AnnAssign = run_generic
-    run_Assert = run_generic
-    run_Expr = run_generic
-    run_Pass = run_generic
-
     def run_Return(self, stmt):
         self.exec_and_record(
             self.make_ltvm_call("return_", [stmt.node.value], stmt.node),
+            stmt
+        )
+
+    def run_Break(self, stmt):
+        self.exec_and_record(
+            self.make_ltvm_call("break_", [], stmt.node),
+            stmt
+        )
+
+    def run_Continue(self, stmt):
+        self.exec_and_record(
+            self.make_ltvm_call("continue_", [], stmt.node),
             stmt
         )
 
@@ -291,9 +300,21 @@ class LTVMBlockTranspiler(object):
 
     def run_For(self, stmt):
         node = deepcopy(stmt.node)
+        # TODO(jansel): add support for break/continue
         node.body = self.make_jump(stmt.block(node.body), node)
         node.orelse = self.make_jump(stmt.block(node.orelse), node)
         self.exec_and_record(node, stmt)
+
+    def run_generic(self, stmt: LTVMStatement):
+        self.exec_and_record(stmt.node, stmt)
+
+    run_Delete = run_generic
+    run_Assign = run_generic
+    run_AugAssign = run_generic
+    run_AnnAssign = run_generic
+    run_Assert = run_generic
+    run_Expr = run_generic
+    run_Pass = run_generic
 
     def _unimplemented(self, _):
         raise NotImplementedError(self.statement.__class__.__name__)
@@ -310,8 +331,6 @@ class LTVMBlockTranspiler(object):
     run_While = _unimplemented
     run_With = _unimplemented
     run_Try = _unimplemented
-    run_Break = _unimplemented
-    run_Continue = _unimplemented
     run_Raise = _unimplemented
 
 
@@ -322,6 +341,10 @@ class LTVMSpecializedBlock(object):
 
     def __init__(self, statements):
         super().__init__()
+        self.bytecode = compile(ast.Module(statements, []), "<ltvm>", "exec")
+
+    def run(self, ltvm, module):
+        exec(self.bytecode, module.__dict__, ltvm.scope)
 
 
 class LTVMException(Exception):
