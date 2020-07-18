@@ -1,8 +1,10 @@
 import ast
-from copy import deepcopy
 import inspect
 import logging
 import textwrap
+from collections import defaultdict
+from collections import deque
+from copy import deepcopy
 from functools import partial
 from functools import wraps
 from types import ModuleType
@@ -15,9 +17,16 @@ from paritybench.evaluate import JitFailed, init_module, run_eager, check_output
 from paritybench.module_extractor import to_source
 from paritybench.static_analysis import Flatten
 from paritybench.utils import subproc_wrapper
-from collections import deque
 
 log = logging.getLogger(__name__)
+
+
+def type_specialization_key(value):
+    """ Convert a value to a hashable id we can use to decide to reuse or regenerate a trace. """
+    if isinstance(value, torch.nn.Module):
+        # each instance of a module gets a different trace
+        return id(value)
+    return type(value)
 
 
 class LazyTranspilerVirtualMachine(ModuleType):
@@ -37,21 +46,49 @@ class LazyTranspilerVirtualMachine(ModuleType):
         super().__init__("__ltvm__")
         self.root_callable = LTVMCallable.parse(root_callable)
         self.root_block = LTVMBlock(self.root_callable.statements())
-
-        # current local scope
-        self.scope = {"__ltvm__": self}
-
+        # contains a copy of the root block specific to input types
+        self.specializations = defaultdict(self.root_block.clone)
+        # generated blocks the root block can jump to
         self.blocks: List[LTVMBlock] = []
-
+        # active local variable used in generated code
+        self.scope = {}
         self.break_ex = LTVMBreak
         self.continue_ex = LTVMContinue
 
-    def run(self, args, kwargs):
-        self.scope.update(self.root_callable.bind(args, kwargs).arguments)
+    def __str__(self):
+        """ Debug printout """
+        # TODO(jansel): print all the specializations
+        root_block = textwrap.indent(str(next(iter(self.specializations.values()))), '    ')
+        return (
+                f"LazyTranspilerVirtualMachine:\n__ltvm__.root_block:\n{root_block}\n"
+                +
+                "\n".join(
+                    f"__ltvm__.blocks[{i}]:\n{textwrap.indent(str(v), '    ')}"
+                    for i, v in enumerate(self.blocks)
+                )
+        )
+
+    def init_scope(self, args):
+        self.scope = {"__ltvm__": self}
+        self.scope.update(args)
+
+    def run(self, *args, **kwargs):
+        """
+        Transpile and run the wrapped module with the given args
+
+        :param args: for user function we are transpiling
+        :param kwargs: for user function we are transpiling
+        :return: same as user function
+        """
         try:
-            self.root_block.run(self)
+            args = self.root_callable.bind(args, kwargs).arguments
+            specialize_key = tuple(map(type_specialization_key, args.values()))
+            self.init_scope(args)
+            self.specializations[specialize_key].run(self)
         except LTVMReturnValue as rv:
             return rv.value
+        finally:
+            self.scope.clear()  # free memory
 
     @staticmethod
     def nameof(key):
@@ -167,6 +204,11 @@ class LTVMCallable(object):
 
 
 class LTVMStatement(object):
+    """
+    Wrapper around a ast.AST that tracks where it came from and can cache
+    some analysis.
+    """
+
     def __init__(self, statement: ast.AST, func: LTVMCallable):
         super().__init__()
         self.node: ast.AST = statement
@@ -178,8 +220,8 @@ class LTVMStatement(object):
     def node_name(self):
         return self.node.__class__.__name__
 
-    def block(self, body):
-        return LTVMBlock([LTVMStatement(s, self.func) for s in body])
+    def block(self, body, suffix=None):
+        return LTVMBlock([LTVMStatement(s, self.func) for s in body] + (suffix or []))
 
 
 class LTVMBlock(object):
@@ -191,9 +233,16 @@ class LTVMBlock(object):
 
     def __init__(self, statements):
         super(LTVMBlock, self).__init__()
-        # hopper is the queue of statements to run
         self.statements = statements
         self.specializations = []
+
+    def clone(self):
+        return self.__class__(self.statements)
+
+    def __str__(self):
+        if self.specializations:
+            return str(self.specializations[0])
+        return "<not yet compiled>"
 
     def run(self, ltvm: LazyTranspilerVirtualMachine):
         if self.specializations:
@@ -210,7 +259,7 @@ class LTVMBlock(object):
 
 class LTVMBlockTranspiler(object):
     """
-    Run a block of code statement by statement and produce a
+    Run a block of code statement-by-statement and produce a
     LTVMSpecializedBlock which we can run on subsequent invocations.
     """
 
@@ -230,14 +279,15 @@ class LTVMBlockTranspiler(object):
 
     def exec_and_record(self, node: ast.AST, stmt: LTVMStatement):
         """ exec() a statement now, track its impact, and add it to the generated code """
+        node.filename = stmt.filename
+        # node.lineno already exists in ast.AST
+        self.output_statements.append(node)
+
         exec(compile(ast.Interactive([node]),
                      stmt.filename,
                      "single"),
              stmt.module.__dict__,
              self.ltvm.scope)
-        node.filename = stmt.filename
-        # node.lineno already exists in ast.AST
-        self.output_statements.append(node)
 
     def make_jump(self, block: LTVMBlock, locations_from: ast.AST):
         if not block.statements:
@@ -294,8 +344,10 @@ class LTVMBlockTranspiler(object):
 
     def run_If(self, stmt):
         node = deepcopy(stmt.node)
-        node.body = self.make_jump(stmt.block(node.body), node)
-        node.orelse = self.make_jump(stmt.block(node.orelse), node)
+        remaining_statements = list(self.hopper)
+        self.hopper.clear()
+        node.body = self.make_jump(stmt.block(node.body, suffix=remaining_statements), node)
+        node.orelse = self.make_jump(stmt.block(node.orelse, suffix=remaining_statements), node)
         self.exec_and_record(node, stmt)
 
     def run_For(self, stmt):
@@ -308,6 +360,8 @@ class LTVMBlockTranspiler(object):
     def run_generic(self, stmt: LTVMStatement):
         self.exec_and_record(stmt.node, stmt)
 
+    run_Import = run_generic
+    run_ImportFrom = run_generic
     run_Delete = run_generic
     run_Assign = run_generic
     run_AugAssign = run_generic
@@ -316,15 +370,13 @@ class LTVMBlockTranspiler(object):
     run_Expr = run_generic
     run_Pass = run_generic
 
-    def _unimplemented(self, _):
-        raise NotImplementedError(self.statement.__class__.__name__)
+    def _unimplemented(self, stmt):
+        raise NotImplementedError(stmt.node_name)
 
     run_FunctionDef = _unimplemented
     run_AsyncFunctionDef = _unimplemented
     run_ClassDef = _unimplemented
     run_AsyncWith = _unimplemented
-    run_Import = _unimplemented
-    run_ImportFrom = _unimplemented
     run_Global = _unimplemented
     run_Nonlocal = _unimplemented
     run_AsyncFor = _unimplemented
@@ -341,10 +393,14 @@ class LTVMSpecializedBlock(object):
 
     def __init__(self, statements):
         super().__init__()
+        self.statements = statements
         self.bytecode = compile(ast.Module(statements, []), "<ltvm>", "exec")
 
     def run(self, ltvm, module):
         exec(self.bytecode, module.__dict__, ltvm.scope)
+
+    def __str__(self):
+        return "\n".join(map(str.rstrip, map(to_source, self.statements)))
 
 
 class LTVMException(Exception):
@@ -383,12 +439,16 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
 
     try:
         ltvm = LazyTranspilerVirtualMachine(nn)
-        result3 = ltvm.run(args, kwargs)
+        result3 = ltvm.run(*deepcopy(args), **deepcopy(kwargs))
+        result4 = ltvm.run(*args, **kwargs)
     except Exception as e:
         record_error('ltvm', e)
         raise JitFailed()
 
+    log.info(str(ltvm))
+
     check_output(record_error, result1, result2, result3, 'ltvm_output')
+    check_output(record_error, result1, result2, result4, 'ltvm_rerun')
 
     return True
 
