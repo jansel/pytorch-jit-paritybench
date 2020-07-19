@@ -11,8 +11,10 @@ from typing import List
 
 import torch
 
-from lazy_transpiler.transformations import Flatten
+from lazy_transpiler.dynamic_analysis import TrackingState, Flag
+from lazy_transpiler.transformations import Flatten, Replace
 from paritybench.module_extractor import to_source
+from paritybench.static_analysis import ExtractReadsWrites
 
 log = logging.getLogger(__name__)
 
@@ -41,13 +43,16 @@ class LazyTranspilerVirtualMachine(ModuleType):
     def __init__(self, root_callable):
         super().__init__("__ltvm__")
         self.root_callable = LTVMCallable.parse(root_callable)
-        self.root_block = LTVMBlock(self.root_callable.statements())
+        self.root_block = LTVMBlock(self.root_callable.statements(),
+                                    self.root_callable.initial_tracking())
         # contains a copy of the root block specific to input types
         self.specializations = defaultdict(self.root_block.clone)
         # generated blocks the root block can jump to
         self.blocks: List[LTVMBlock] = []
         # active local variable used in generated code
+        self.local_vars = set(self.root_callable.writes)
         self.scope = {}
+        self.modules = {}
         self.break_ex = LTVMBreak
         self.continue_ex = LTVMContinue
 
@@ -56,8 +61,7 @@ class LazyTranspilerVirtualMachine(ModuleType):
         # TODO(jansel): print all the specializations
         root_block = textwrap.indent(str(next(iter(self.specializations.values()))), '    ')
         return (
-                f"LazyTranspilerVirtualMachine:\n__ltvm__.root_block:\n{root_block}\n"
-                +
+                f"LazyTranspilerVirtualMachine:\n__ltvm__.root_block:\n{root_block}\n" +
                 "\n".join(
                     f"__ltvm__.blocks[{i}]:\n{textwrap.indent(str(v), '    ')}"
                     for i, v in enumerate(self.blocks)
@@ -80,6 +84,7 @@ class LazyTranspilerVirtualMachine(ModuleType):
             args = self.root_callable.bind(args, kwargs).arguments
             specialize_key = tuple(map(type_specialization_key, args.values()))
             self.init_scope(args)
+            self.specializations[specialize_key].tracking.init_args(args.keys())
             self.specializations[specialize_key].run(self)
         except LTVMReturnValue as rv:
             return rv.value
@@ -139,8 +144,18 @@ class LTVMCallable(object):
         bound.apply_defaults()
         return bound
 
+    def statements(self):
+        return [LTVMStatement(s, self) for s in self.tree.body[0].body]
+
+    def initial_tracking(self):
+        tracking = TrackingState()
+        tracking.add_flags(next(iter(self.signature.parameters.keys())), Flag.from_self)
+        tracking.add_flags(self.writes, set())  # locals
+        tracking.add_flags(["__ltvm__"], Flag.special)
+        return tracking
+
     def decode_nn_module(self, nn):
-        # This is a bit hacky and needs some cleanup
+        # This is hacky and needs some cleanup
 
         self.self_ptr = nn
 
@@ -164,16 +179,19 @@ class LTVMCallable(object):
         tree.body[0].name = self.name = f"_v_{tree.body[0].name}"
 
         source2 = to_source(tree)
-        log.info(f"{nn.__class__.__name__}:\n{source2}\n\n")
+        log.info(f"{nn.__class__.__name__}:\n{source2}\n")
 
         # TODO(jansel): remove this hack needed for `super()` support
         self.module.__t_class = nn.__class__
         self.module.__t_self = nn
-
         self.tree = tree
+        self.reads, self.writes = ExtractReadsWrites.run(tree.body[0].body)
 
-    def statements(self):
-        return [LTVMStatement(s, self) for s in self.tree.body[0].body]
+        rw = set.intersection(self.reads, self.writes)
+        log.info("\nREAD+WRITE: %s \nREADS: %s, \nWRITES %s\n\n",
+                 ','.join(rw),
+                 ','.join(self.reads - rw),
+                 ','.join(self.writes - rw))
 
     def debug_call(self, args, kwargs):
         def _staticmethod(fn):
@@ -205,19 +223,48 @@ class LTVMStatement(object):
     some analysis.
     """
 
-    def __init__(self, statement: ast.AST, func: LTVMCallable):
+    def __init__(self, node: ast.AST, func: LTVMCallable):
         super().__init__()
-        self.node: ast.AST = statement
+        self.node: ast.AST = node
         self.filename: str = func.filename
         self.module: ModuleType = func.module
         self.func = func
+
+        node.filename = self.filename
+        # node.lineno already exists in ast.AST
+
+        self.reads, self.writes = ExtractReadsWrites.run(node)
 
     @property
     def node_name(self):
         return self.node.__class__.__name__
 
-    def block(self, body, suffix=None):
-        return LTVMBlock([LTVMStatement(s, self.func) for s in body] + (suffix or []))
+    def block(self, body, tracking, suffix=None):
+        return LTVMBlock(
+            [LTVMStatement(s, self.func) for s in body] + (suffix or []),
+            tracking
+        )
+
+    def derived(self, node):
+        """ another statement derived from this one """
+        ast.fix_missing_locations(ast.copy_location(node, self.node))
+        return LTVMStatement(node, self.func)
+
+    def prepare_node(self, tracking: TrackingState, ltvm: LazyTranspilerVirtualMachine):
+        """ Some cleanup right before running self.node """
+        module_name = self.module.__name__
+        replacements = {}
+        for var in self.reads:
+            if var not in tracking.var_flags:
+                # must be a global?
+                replacements[var] = ast.parse(f"__ltvm__.modules['{module_name}'].{var}").body[0].value
+                tracking.add_flags([var], Flag.from_global)
+
+        if replacements:
+            ltvm.modules[module_name] = self.module
+            return Replace(replacements).visit(deepcopy(self.node))
+
+        return self.node
 
 
 class LTVMBlock(object):
@@ -227,13 +274,14 @@ class LTVMBlock(object):
     directly.
     """
 
-    def __init__(self, statements):
+    def __init__(self, statements, tracking: TrackingState):
         super(LTVMBlock, self).__init__()
         self.statements = statements
         self.specializations = []
+        self.tracking = tracking.clone()
 
     def clone(self):
-        return self.__class__(self.statements)
+        return self.__class__(self.statements, self.tracking)
 
     def __str__(self):
         if self.specializations:
@@ -266,33 +314,36 @@ class LTVMBlockTranspiler(object):
         # hopper contains statements we still need to run
         self.hopper = deque(block.statements)
         self.ltvm = ltvm
+        self.tracking = block.tracking.clone()
 
     def finalize(self):
         """
         End the transpilation and produce compiled specialized code
         """
-        return LTVMSpecializedBlock(self.output_statements)
+        return LTVMSpecializedBlock(self.output_statements, self.tracking)
 
-    def exec_and_record(self, node: ast.AST, stmt: LTVMStatement):
+    def exec_or_defer(self, stmt: LTVMStatement):
         """ exec() a statement now, track its impact, and add it to the generated code """
-        node.filename = stmt.filename
-        # node.lineno already exists in ast.AST
-        self.output_statements.append(node)
+        node = stmt.prepare_node(self.tracking, self.ltvm)
 
+        self.output_statements.append(node)
+        self.tracking.propogate_flags(stmt)
         exec(compile(ast.Interactive([node]),
                      stmt.filename,
                      "single"),
              stmt.module.__dict__,
              self.ltvm.scope)
 
-    def make_jump(self, block: LTVMBlock, locations_from: ast.AST):
+    def make_jump(self, block: LTVMBlock, locations_from):
         if not block.statements:
             return []
         index = len(self.ltvm.blocks)
         self.ltvm.blocks.append(block)
-        return [self.make_ltvm_call("block_", [ast.Constant(index, None)], locations_from)]
+        return [ast.fix_missing_locations(ast.copy_location(
+            self.make_ltvm_call("block_", [ast.Constant(index, None)]),
+            locations_from))]
 
-    def make_ltvm_call(self, name: str, args: List[ast.AST], locations_from: ast.AST):
+    def make_ltvm_call(self, name: str, args: List[ast.AST]):
         """
         Build an AST node to call a __ltvm__.* function from generated code.
 
@@ -312,7 +363,6 @@ class LTVMBlockTranspiler(object):
                 [],
             )
         )
-        ast.fix_missing_locations(ast.copy_location(node, locations_from))
         return node
 
     def run_all(self):
@@ -321,50 +371,45 @@ class LTVMBlockTranspiler(object):
             getattr(self, f"run_{stmt.node_name}")(stmt)
 
     def run_Return(self, stmt):
-        self.exec_and_record(
-            self.make_ltvm_call("return_", [stmt.node.value], stmt.node),
-            stmt
+        self.exec_or_defer(
+            stmt.derived(self.make_ltvm_call("return_", [stmt.node.value]))
         )
 
     def run_Break(self, stmt):
-        self.exec_and_record(
-            self.make_ltvm_call("break_", [], stmt.node),
-            stmt
+        self.exec_or_defer(
+            stmt.derived(self.make_ltvm_call("break_", []))
         )
 
     def run_Continue(self, stmt):
-        self.exec_and_record(
-            self.make_ltvm_call("continue_", [], stmt.node),
-            stmt
+        self.exec_or_defer(
+            stmt.derived(self.make_ltvm_call("continue_", []))
         )
 
     def run_If(self, stmt):
         node = deepcopy(stmt.node)
         remaining_statements = list(self.hopper)
         self.hopper.clear()
-        node.body = self.make_jump(stmt.block(node.body, suffix=remaining_statements), node)
-        node.orelse = self.make_jump(stmt.block(node.orelse, suffix=remaining_statements), node)
-        self.exec_and_record(node, stmt)
+        node.body = self.make_jump(stmt.block(node.body, self.tracking, suffix=remaining_statements), node)
+        node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking, suffix=remaining_statements), node)
+        self.exec_or_defer(stmt.derived(node))
 
     def run_For(self, stmt):
         node = deepcopy(stmt.node)
         # TODO(jansel): add support for break/continue
-        node.body = self.make_jump(stmt.block(node.body), node)
-        node.orelse = self.make_jump(stmt.block(node.orelse), node)
-        self.exec_and_record(node, stmt)
+        # TODO(jansel): run tracking to a fixed point
+        node.body = self.make_jump(stmt.block(node.body, self.tracking), node)
+        node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking), node)
+        self.exec_or_defer(stmt.derived(node))
 
-    def run_generic(self, stmt: LTVMStatement):
-        self.exec_and_record(stmt.node, stmt)
-
-    run_Import = run_generic
-    run_ImportFrom = run_generic
-    run_Delete = run_generic
-    run_Assign = run_generic
-    run_AugAssign = run_generic
-    run_AnnAssign = run_generic
-    run_Assert = run_generic
-    run_Expr = run_generic
-    run_Pass = run_generic
+    run_Import = exec_or_defer
+    run_ImportFrom = exec_or_defer
+    run_Delete = exec_or_defer
+    run_Assign = exec_or_defer
+    run_AugAssign = exec_or_defer
+    run_AnnAssign = exec_or_defer
+    run_Assert = exec_or_defer
+    run_Expr = exec_or_defer
+    run_Pass = exec_or_defer
 
     def _unimplemented(self, stmt):
         raise NotImplementedError(stmt.node_name)
@@ -387,16 +432,18 @@ class LTVMSpecializedBlock(object):
     Contains a block that has been specialized based on input types
     """
 
-    def __init__(self, statements):
+    def __init__(self, statements, final_tracking_debug):
         super().__init__()
         self.statements = statements
         self.bytecode = compile(ast.Module(statements, []), "<ltvm>", "exec")
+        self.final_tracking_debug = final_tracking_debug
 
     def run(self, ltvm, module):
         exec(self.bytecode, module.__dict__, ltvm.scope)
 
     def __str__(self):
-        return "\n".join(map(str.rstrip, map(to_source, self.statements)))
+        result = "\n".join(map(str.rstrip, map(to_source, self.statements)))
+        return f"{result}\n{self.final_tracking_debug}"
 
 
 class LTVMException(Exception):

@@ -168,6 +168,13 @@ class ExtractReadsWrites(ast.NodeVisitor):
         writes.add(node.arg)
         self.generic_visit(node)
 
+    def visit_AugAssign(self, node):
+        self.generic_visit(node)
+
+        reads, _ = self.context[-1]
+        _, target_writes = ExtractReadsWrites.run(node.target)
+        reads.update(target_writes)
+
 
 class ExtractConfigUsage(ast.NodeVisitor):
     """
@@ -257,5 +264,3 @@ def copy_locations_recursive(new_node, old_old):
     ast.copy_location(new_node, old_old)
     ast.fix_missing_locations(new_node)
     return new_node
-
-

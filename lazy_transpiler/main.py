@@ -50,7 +50,7 @@ def main():
     assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--analyze", "-a", "-e",
+    parser.add_argument("--analyze", "-e", "-a",
                         help="run just a single test file")
     add_options(parser)
     args = parser.parse_args()
@@ -60,7 +60,7 @@ def main():
     write_helpers()
 
     if args.analyze:
-        return main_one_file(analyze_pyfile_subproc, args.analyze_one, args)
+        return main_one_file(analyze_pyfile_subproc, args.analyze, args)
 
     return analyze_all(tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
 

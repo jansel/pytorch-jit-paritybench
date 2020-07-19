@@ -426,3 +426,25 @@ class Flatten(ast.NodeTransformer):
     visit_With = flatten_statement
     visit_AsyncWith = flatten_statement
     visit_Try = flatten_statement
+
+
+class Replace(ast.NodeTransformer):
+    def __init__(self, replacements: dict):
+        super().__init__()
+        self.replacements = replacements
+
+    def visit_Name(self, node: ast.Name):
+        if node.id in self.replacements:
+            assert isinstance(node.ctx, ast.Load), f"{self.replacements} {ast.dump(node)}"
+            return copy_locations_recursive(self.replacements[node.id], node)
+        return node
+
+
+class Rename(ast.NodeTransformer):
+    def __init__(self, renames: dict):
+        super().__init__()
+        self.renames = renames
+
+    def visit_Name(self, node: ast.Name):
+        node.id = self.renames.get(node.id, node.id)
+        return node
