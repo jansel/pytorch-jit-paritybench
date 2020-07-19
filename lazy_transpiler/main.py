@@ -6,7 +6,8 @@ from copy import deepcopy
 from functools import partial
 
 from paritybench import evaluate
-from lazy_transpiler.ltvm import LTVMCallable, LazyTranspilerVirtualMachine, log
+from lazy_transpiler.ltvm import LazyTranspilerVirtualMachine, log
+from lazy_transpiler.callable_decoder import CallableDecoder
 from paritybench.evaluate import init_module, run_eager, JitFailed, check_output
 from paritybench.generate import write_helpers
 from paritybench.main import main_one_file, add_options
@@ -18,7 +19,7 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     args, kwargs, result1, result2 = run_eager(record_error, nn, get_forward_args)
 
     try:
-        result3 = LTVMCallable(nn).debug_call(args, kwargs)
+        result3 = CallableDecoder(nn).debug_call(args, kwargs)
     except Exception as e:
         record_error('flatten', e)
         raise JitFailed()
