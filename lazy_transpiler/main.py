@@ -49,12 +49,17 @@ analyze_all = partial(evaluate.evaluate_all, fn=analyze_pyfile)
 
 def main():
     assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
-    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("--analyze", "-e", "-a",
                         help="run just a single test file")
+    parser.add_argument("--debug", "-d", action="store_true")
     add_options(parser)
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     os.environ["RLIMIT_AS_GB"] = str(args.memory_limit_gb)
 

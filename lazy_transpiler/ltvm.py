@@ -10,7 +10,7 @@ from typing import List
 
 import torch
 
-from lazy_transpiler.callable_decoder import CallableDecoder
+from lazy_transpiler.callable_decoder import CallableDecoder, is_callable_whitelist
 from lazy_transpiler.dynamic_analysis import TrackingState, Flag, DeferredGraph
 from paritybench.module_extractor import to_source
 from paritybench.static_analysis import ExtractReadsWrites
@@ -185,6 +185,9 @@ class LTVMStatement(object):
 
         return self.node
 
+    def __str__(self):
+        return to_source(self.node).strip()
+
 
 class LTVMBlock(object):
     """
@@ -354,7 +357,7 @@ class LTVMBlockTranspiler(object):
         self._execute_node(node)
 
     def _execute_node(self, node: ast.AST):
-        # log.info("RUN: %s", to_source(node).strip())
+        log.debug("RUN: %s", to_source(node).strip())
         self.output_statements.append(node)
         exec(compile(ast.Interactive([node]),
                      node.filename,
@@ -403,7 +406,9 @@ class LTVMBlockTranspiler(object):
     def run_all(self):
         while self.hopper:
             stmt = self.hopper.popleft()
-            getattr(self, f"run_{stmt.node_name}")(stmt)
+            stmt = self.handle_calls(stmt)
+            if stmt:
+                getattr(self, f"run_{stmt.node_name}")(stmt)
 
     def run_Return(self, stmt):
         self.unwind_deferred()
@@ -441,14 +446,30 @@ class LTVMBlockTranspiler(object):
         self.execute_or_defer(stmt.derived(node))
 
     def run_For(self, stmt):
+        # node = stmt.node
+        # reads, _ = ExtractReadsWrites.run(node.iter)
+        # iter_value = self.ltvm.get_value(node.iter)
+        # if self.tracking.is_constants(reads) and not node.orelse:
+        #     self._for_fully_unrolled(stmt)
+        # else:
+        self._for_naive(stmt)
+
+    def _for_fully_unrolled(self, stmt):
+        """ Completely unroll a loop an replace it with flat code """
+        raise NotImplementedError()
+
+    def _for_naive(self, stmt):
+        """ Simple loop implementation with barrier each iteration """
+        node = deepcopy(stmt.node)
+
         self.unwind_deferred()
 
-        node = deepcopy(stmt.node)
         # TODO(jansel): double check dynamic analyis handling
         # TODO(jansel): add support for break/continue
         # TODO(jansel): run tracking to a fixed point
         node.body = self.make_jump(stmt.block(node.body, self.tracking), node)
-        node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking), node)
+        if node.orelse:
+            node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking), node)
         self.execute_or_defer(stmt.derived(node))
 
     run_Import = execute_or_defer
@@ -475,6 +496,24 @@ class LTVMBlockTranspiler(object):
     run_With = _unimplemented
     run_Try = _unimplemented
     run_Raise = _unimplemented
+
+    def handle_calls(self, stmt):
+        if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr"}:
+            value = stmt.node.value
+            # TODO(jansel): inline params / magic methods
+            # TODO(jansel): method calls should read+write their object
+            if isinstance(value, ast.Call):
+                var = value.func.id
+                if self.tracking.has_flags([var], Flag.deferred) or self.tracking.is_builtin(var):
+                    return stmt
+                fn = self.ltvm.get_value(var)
+                if is_callable_whitelist(fn):
+                    return stmt
+                return self.inline_call(stmt)
+        return stmt
+
+    def inline_call(self, stmt):
+        raise NotImplementedError()
 
 
 class LTVMSpecializedBlock(object):

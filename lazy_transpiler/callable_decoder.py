@@ -14,6 +14,14 @@ from paritybench.static_analysis import ExtractReadsWrites
 log = logging.getLogger(__name__)
 
 
+def is_callable_whitelist(fn):
+    """
+    :param fn: a callable function
+    :return: True if it is ok to call this
+    """
+    return True
+
+
 class CallableDecoder(object):
     """
     Wrapper around a callable the parses it into python AST.
@@ -84,10 +92,10 @@ class CallableDecoder(object):
         self.reads, self.writes = ExtractReadsWrites.run(tree.body[0].body)
 
         rw = set.intersection(self.reads, self.writes)
-        log.info("\nREAD+WRITE: %s \nREADS: %s, \nWRITES %s\n\n",
-                 ','.join(rw),
-                 ','.join(self.reads - rw),
-                 ','.join(self.writes - rw))
+        log.debug("\nREAD+WRITE: %s \nREADS: %s, \nWRITES %s\n\n",
+                  ','.join(rw),
+                  ','.join(self.reads - rw),
+                  ','.join(self.writes - rw))
 
     def debug_call(self, args, kwargs):
         def _staticmethod(fn):

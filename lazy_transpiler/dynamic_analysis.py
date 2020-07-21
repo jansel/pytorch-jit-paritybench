@@ -1,6 +1,9 @@
 import builtins
 import enum
 from functools import reduce
+import logging
+
+log = logging.getLogger(__name__)
 
 
 class DeferredGraph(list):
@@ -97,9 +100,10 @@ class TrackingState(object):
 
     def propogate_flags(self, stmt):
         # TODO(jansel): double check this handles ast.AugAssign correctly
-        self.set_flags(stmt.writes,
-                       FlagSet.combine(map(self.var_flags.__getitem__, stmt.reads)))
+        flags = FlagSet.combine(map(self.var_flags.__getitem__, stmt.reads))
+        self.set_flags(stmt.writes, flags)
         self.add_flags(stmt.writes, Flag.computed)
+        log.debug(f"propogate_flags %s  # %s=%s", stmt, stmt.writes, flags)
 
     def __str__(self):
         return "TrackingState({})".format(", ".join(
@@ -110,6 +114,15 @@ class TrackingState(object):
 
     def combined_flags(self, vars):
         return FlagSet.combine(map(self.var_flags.__getitem__, vars))
+
+    def is_constants(self, vars):
+        log.debug("is_constants %s", vars)
+        return not self.has_flags(vars, {
+            Flag.from_args, Flag.from_global, Flag.from_self, Flag.deferred})
+
+    def is_builtin(self, var):
+        # TODO(jansel): handle shadowing builtins with locals
+        return var in self.builtins
 
 
 @enum.unique
