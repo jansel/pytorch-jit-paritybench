@@ -1,5 +1,6 @@
 import builtins
 import enum
+from copy import deepcopy
 from functools import reduce
 import logging
 
@@ -43,6 +44,7 @@ class TrackingState(object):
         super().__init__()
         self.var_flags = {k: FlagSet() for k in self.builtins}
         self.deferred_graph = DeferredGraph()
+        self.return_stack = []
         self.global_vars = set()
 
     def clone(self):
@@ -50,6 +52,7 @@ class TrackingState(object):
         copy.var_flags = dict(self.var_flags)
         copy.global_vars = set(self.global_vars)
         copy.deferred_graph = self.deferred_graph.clone()
+        copy.return_stack = list(self.return_stack)
         return copy
 
     def pop_deferred(self):
@@ -70,9 +73,9 @@ class TrackingState(object):
         self.deferred_graph.append(stmt)
         self.add_flags(stmt.writes, Flag.deferred)
 
-    def execute(self, stmt):
+    def execute(self, stmt, mutates=None):
         assert not self.has_flags(stmt.reads, Flag.deferred)
-        self.propogate_flags(stmt)
+        self.propogate_flags(stmt, mutates)
 
     def init_args(self, vars):
         for var in vars:
@@ -98,12 +101,28 @@ class TrackingState(object):
                 return True
         return False
 
-    def propogate_flags(self, stmt):
-        # TODO(jansel): double check this handles ast.AugAssign correctly
-        flags = FlagSet.combine(map(self.var_flags.__getitem__, stmt.reads))
-        self.set_flags(stmt.writes, flags)
-        self.add_flags(stmt.writes, Flag.computed)
+    def propogate_flags(self, stmt, mutates=None):
+        mutates = mutates or []
+        reads = list(stmt.reads) + mutates
+        writes = list(stmt.writes) + mutates
+        flags = self.propogate_flags_(reads, writes)
         log.debug(f"propogate_flags %s  # %s=%s", stmt, stmt.writes, flags)
+
+    def run_to_fixed_point(self, statements):
+        for _ in range(64):
+            before = dict(self.var_flags)
+            for stmt in statements:
+                self.propogate_flags(stmt)
+            after = {k: v | before.get(k, {}) for k, v in self.var_flags.items()}
+            if before == after:
+                return
+            self.var_flags = after
+
+    def propogate_flags_(self, reads, writes):
+        flags = FlagSet.combine(map(self.var_flags.__getitem__, reads))
+        self.set_flags(writes, flags)
+        self.add_flags(writes, Flag.computed)
+        return flags
 
     def __str__(self):
         return "TrackingState({})".format(", ".join(
@@ -127,16 +146,16 @@ class TrackingState(object):
 
 @enum.unique
 class Flag(enum.IntEnum):
-    # Where did a variable come from? """
+    # Where did a variable come from?
     from_global = 1
     from_self = 2
     from_args = 4
 
     # Other things to track:
     computed = 8
-    pytorch = 16  # points to a pytorch object
+    pytorch = 16  # points to torch.*
     deferred = 32  # not yet executed
-    special = 64
+    special = 64  # __ltvm__
 
 
 # could optimize this to a bitmask
@@ -145,6 +164,7 @@ class FlagSet(frozenset):
         if isinstance(other, Flag):
             other = {other}
         else:
+            other = other or set()
             assert isinstance(other, (frozenset, set))
         return self.__class__(self.union(other))
 
@@ -152,6 +172,7 @@ class FlagSet(frozenset):
         if isinstance(other, Flag):
             other = {other}
         else:
+            other = other or set()
             assert isinstance(other, (frozenset, set))
         return self.__class__(self.intersection(other))
 

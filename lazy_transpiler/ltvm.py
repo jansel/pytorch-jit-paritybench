@@ -10,10 +10,10 @@ from typing import List
 
 import torch
 
-from lazy_transpiler.callable_decoder import CallableDecoder, is_callable_whitelist
+from lazy_transpiler.callable_decoder import CallableDecoder, is_callable_allowlist, is_self_mutating
 from lazy_transpiler.dynamic_analysis import TrackingState, Flag, DeferredGraph
 from paritybench.module_extractor import to_source
-from paritybench.static_analysis import ExtractReadsWrites
+from paritybench.static_analysis import ExtractReadsWrites, copy_locations_recursive
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +59,10 @@ class LazyTranspilerVirtualMachine(ModuleType):
         self.local_vars = set(self.root_callable.writes)
         self.scope = {}
         self.modules = {self.root_callable.module.__name__: self.root_callable.module}
+        self.signatures = []
         self.break_ex = LTVMBreak
         self.continue_ex = LTVMContinue
+        self.return_ex = LTVMReturnValue
         self.unique_name_counter = 0
 
     def unique_name(self, code='d'):
@@ -76,7 +78,8 @@ class LazyTranspilerVirtualMachine(ModuleType):
                            for i, v in enumerate(self.blocks))
         graphs = "\n".join(f"__ltvm__.graphs[{i}]:\n{textwrap.indent(str(v), '    ')}"
                            for i, v in enumerate(self.graphs))
-        return f"LazyTranspilerVirtualMachine:\n__ltvm__.root_block:\n{root_block}\n{blocks}\n{graphs}"
+        return (f"LazyTranspilerVirtualMachine:\n__ltvm__.root_block:"
+                f"{self.root_callable}\n{root_block}\n{blocks}\n{graphs}")
 
     def init_scope(self, args):
         self.scope = {"__ltvm__": self}
@@ -135,6 +138,12 @@ class LazyTranspilerVirtualMachine(ModuleType):
         """ Called from generated user code to implement `continue` """
         raise LTVMContinue()
 
+    def unpack_(self, index, *args, **kwargs):
+        """ Called from generated code bind args for method call """
+        binding = self.signatures[index].bind(*args, **kwargs)
+        binding.apply_defaults()
+        return tuple(binding.arguments.values())
+
 
 class LTVMStatement(object):
     """
@@ -184,6 +193,17 @@ class LTVMStatement(object):
         #     return Replace(replacements).visit(deepcopy(self.node))
 
         return self.node
+
+    def get_target_var(self):
+        stmt = self.node
+        if hasattr(stmt, "targets"):
+            assert len(stmt.targets) == 1
+            return stmt.targets[0].id
+        if hasattr(stmt, "target"):
+            return stmt.target.id
+        if isinstance(stmt, ast.Expr):
+            return None
+        assert False, f"what is target? {stmt}"
 
     def __str__(self):
         return to_source(self.node).strip()
@@ -267,6 +287,7 @@ class LTVMBlockTranspiler(object):
         self.hopper = deque(block.statements)
         self.ltvm = ltvm
         self.tracking = block.tracking.clone()
+        self.read_log = []
 
     def finalize(self):
         """
@@ -302,7 +323,7 @@ class LTVMBlockTranspiler(object):
             self.unwind_deferred()
             return False
 
-        if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr"}:
+        if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr", "Return"}:
             # defer pytorch stuff, run non-pytorch stuff
             return write_clash or Flag.deferred in input_flags or Flag.pytorch in input_flags
 
@@ -352,7 +373,8 @@ class LTVMBlockTranspiler(object):
         self.tracking.defer(stmt)
 
     def execute_statement(self, stmt: LTVMStatement):
-        self.tracking.execute(stmt)
+        self.tracking.execute(stmt, self.get_mutates_vars(stmt))
+        self.read_log.extend(stmt.reads)
         node = stmt.before_execute(self.tracking, self.ltvm)
         self._execute_node(node)
 
@@ -396,13 +418,6 @@ class LTVMBlockTranspiler(object):
         )
         return node
 
-    def load_globals(self, module_name):
-        """ copy globals into local variables """
-        for var in self.tracking.global_vars:
-            node = ast.parse(f"{var} = __ltvm__.modules['{module_name}'].{var}").body[0]
-            node.filename = "<load_globals>"
-            self._execute_node(node)
-
     def run_all(self):
         while self.hopper:
             stmt = self.hopper.popleft()
@@ -411,8 +426,15 @@ class LTVMBlockTranspiler(object):
                 getattr(self, f"run_{stmt.node_name}")(stmt)
 
     def run_Return(self, stmt):
-        self.unwind_deferred()
-        self.execute_or_defer(stmt.derived(self.make_ltvm_call("return_", [stmt.node.value])))
+        if not self.tracking.return_stack:
+            self.unwind_deferred()
+            self.execute_or_defer(stmt.derived(self.make_ltvm_call("return_", [stmt.node.value])))
+        output_var, statements = self.tracking.return_stack.pop()
+        self.hopper = deque(statements)
+        if output_var is not None:
+            self.execute_or_defer(stmt.derived(ast.Assign(
+                [ast.Name(output_var, ast.Store())],
+                stmt.node.value)))
 
     def run_Break(self, stmt):
         self.unwind_deferred()
@@ -452,6 +474,7 @@ class LTVMBlockTranspiler(object):
         # if self.tracking.is_constants(reads) and not node.orelse:
         #     self._for_fully_unrolled(stmt)
         # else:
+
         self._for_naive(stmt)
 
     def _for_fully_unrolled(self, stmt):
@@ -463,6 +486,11 @@ class LTVMBlockTranspiler(object):
         node = deepcopy(stmt.node)
 
         self.unwind_deferred()
+        self.tracking.propogate_flags(stmt.derived(ast.Assign(
+            [node.target],
+            node.iter
+        )))
+        self.tracking.run_to_fixed_point(stmt.block(node.body, self.tracking).statements)
 
         # TODO(jansel): double check dynamic analyis handling
         # TODO(jansel): add support for break/continue
@@ -497,23 +525,127 @@ class LTVMBlockTranspiler(object):
     run_Try = _unimplemented
     run_Raise = _unimplemented
 
+    def get_mutates_vars(self, stmt):
+        """ `list1.append(...)` mutates `list1` """
+        if stmt.node_name == "AugAssign":
+            assert not isinstance(stmt.node.value, ast.Call)
+            return list(stmt.writes)
+
+        if stmt.node_name in {"Assign", "AnnAssign", "Expr"}:
+            value = stmt.node.value
+            if isinstance(value, ast.Call):
+                try:
+                    fn = self.ltvm.get_value(value.func.id)
+                except (KeyError, AttributeError):  # builtin method
+                    return []
+                if is_self_mutating(fn):
+                    return [self.value_to_varname(fn.__self__)]
+        return []
+
+    def value_to_varname(self, value):
+        """ invert self.ltvm.get_value() """
+        for var in reversed(self.read_log):
+            if self.ltvm.get_value(var) is value:
+                return var
+        assert False, "failed to lookup varname for value"
+
     def handle_calls(self, stmt):
         if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr"}:
             value = stmt.node.value
             # TODO(jansel): inline params / magic methods
             # TODO(jansel): method calls should read+write their object
             if isinstance(value, ast.Call):
+                if getattr(getattr(value.func, "value", None), "id", None) == "__ltvm__":
+                    return stmt
                 var = value.func.id
                 if self.tracking.has_flags([var], Flag.deferred) or self.tracking.is_builtin(var):
                     return stmt
                 fn = self.ltvm.get_value(var)
-                if is_callable_whitelist(fn):
+                if is_callable_allowlist(fn):
                     return stmt
-                return self.inline_call(stmt)
+
+                self.tracking.return_stack.append((
+                    stmt.get_target_var(),
+                    list(self.hopper)
+                ))
+                self.hopper = deque(self.inline_call(value))
+                return None
         return stmt
 
-    def inline_call(self, stmt):
-        raise NotImplementedError()
+    def inline_call(self, node):
+        """
+        Expand a call into a list of statements
+
+        :param node: ast.Call() to inline
+        :return: statements of the function body
+        """
+        fn = self.ltvm.get_value(node.func.id)
+        call = CallableDecoder.parse(fn)
+        args = node.args
+        kwargs = {kw.arg: kw.value for kw in node.keywords}
+        log.debug("inline_call: %s", to_source(node))
+
+        can_do_static_bind = True
+
+        if len(args) == 1 and len(kwargs) == 0 and isinstance(args[0], ast.Starred) and call.is_simple_args():
+            assert call.is_simple_args()
+            num_args_needed = len(call.signature.parameters) - int(call.is_bound_method())
+            args = [
+                copy_locations_recursive(
+                    ast.Subscript(
+                        value=deepcopy(args[0].value),
+                        slice=ast.Index(value=ast.Constant(value=index, kind=None)),
+                        ctx=ast.Load(),
+                    ),
+                    args[0]
+                )
+                for index in range(num_args_needed)
+            ]
+        else:
+            can_do_static_bind = (
+                all(isinstance(x, (ast.Name, ast.Constant)) for x in args) and
+                all(isinstance(x, str) for x in kwargs.keys()) and
+                all(isinstance(x, (ast.Name, ast.Constant)) for x in kwargs.values()))
+
+        # TODO(jansel): add guards for inlining
+        if call.is_bound_method():
+            if isinstance(fn, torch.nn.Module):
+                selfarg = node.func
+            else:
+                selfarg = ast.copy_location(ast.Attribute(
+                    node.func,
+                    "__self__",
+                    ast.Load()
+                ), node)
+            args = [selfarg] + args
+
+        prefix = self.ltvm.unique_name("s") + "_"
+
+        self.tracking.add_flags(call.variables(), set())
+
+        # preload all the needed globals
+        module_name = call.module.__name__
+        self.ltvm.modules[module_name] = call.module
+        for var in call.globals():
+            self.preload_global(prefix + var, module_name, var)
+
+        if not can_do_static_bind:
+            unpack_id = len(self.ltvm.signatures)
+            self.ltvm.signatures.append(call.signature)
+            return call.inline_runtime_binding(unpack_id, prefix, args, node.keywords)
+
+        return call.inline_static_binding(prefix, args, kwargs)
+
+    def load_globals(self, module_name):
+        """ copy globals into local variables """
+        for var in self.tracking.global_vars:
+            self.preload_global(var, module_name, var)
+
+    def preload_global(self, dst_var, module_name, src_var):
+        node = ast.parse(f"{dst_var} = __ltvm__.modules['{module_name}'].{src_var}").body[0]
+        node.filename = "<load_globals>"
+        self._execute_node(node)
+        self.tracking.add_flags([dst_var], Flag.from_global)
 
 
 class LTVMSpecializedBlock(object):

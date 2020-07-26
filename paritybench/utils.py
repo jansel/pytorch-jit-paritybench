@@ -57,6 +57,7 @@ def import_file(path):
     :return: a python module
     """
     module = types.ModuleType(re.findall(r"test_[^.]+", path)[0])
+    module.__file__ = path
     sys.modules[module.__name__] = module
     exec(compile(open(path).read(), filename=path, mode='exec'),
          module.__dict__, module.__dict__)

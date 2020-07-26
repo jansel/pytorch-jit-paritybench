@@ -93,7 +93,11 @@ def check_output(record_error, result1, result2, result3, category="check_output
         pass  # output is not deterministic, cant check it -- assuming correct
 
 
-def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None, check_module=evaluate_nn_module):
+def evaluate_pyfile_subproc(tempdir: str,
+                            path: str,
+                            name_filter=None,
+                            check_module=evaluate_nn_module,
+                            repro_fmt = "{nn_cls.__name__} # pytest {path} -k test_{index:03d}"):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -117,7 +121,7 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None, check_mod
             continue
 
         stats["tests"] += 1
-        repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
+        repro = repro_fmt.format(**locals())
         try:
             rv = check_module(
                 nn_cls,

@@ -16,13 +16,14 @@ log = logging.getLogger(__name__)
 
 
 def write_helpers():
-    src = "paritybench/_paritybench_helpers.py"
-    dst = "generated/_paritybench_helpers.py"
+    src = "./paritybench/_paritybench_helpers.py"
+    dst = "./generated/_paritybench_helpers.py"
     os.path.exists(dst) and os.unlink(dst)
     os.symlink(os.path.join("..", src), dst)
     helpers_code = open(dst).read()
     with patch('sys.argv', sys.argv[:1]):  # testcase import does annoying stuff
         helpers = types.ModuleType("_paritybench_helpers")
+        helpers.__file__ = dst
         exec(compile(helpers_code, "generated/_paritybench_helpers.py", "exec"),
              helpers.__dict__, helpers.__dict__)
         sys.modules["_paritybench_helpers"] = helpers

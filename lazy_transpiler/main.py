@@ -7,7 +7,7 @@ from functools import partial
 
 from paritybench import evaluate
 from lazy_transpiler.ltvm import LazyTranspilerVirtualMachine, log
-from lazy_transpiler.callable_decoder import CallableDecoder
+from lazy_transpiler.callable_decoder import NNModuleDecoder
 from paritybench.evaluate import init_module, run_eager, JitFailed, check_output
 from paritybench.generate import write_helpers
 from paritybench.main import main_one_file, add_options
@@ -19,7 +19,7 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     args, kwargs, result1, result2 = run_eager(record_error, nn, get_forward_args)
 
     try:
-        result3 = CallableDecoder(nn).debug_call(args, kwargs)
+        result3 = NNModuleDecoder(nn).debug_call(args, kwargs)
     except Exception as e:
         record_error('flatten', e)
         raise JitFailed()
@@ -42,7 +42,9 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     return True
 
 
-analyze_pyfile_subproc = partial(evaluate.evaluate_pyfile_subproc, check_module=analyze_nn_module)
+analyze_pyfile_subproc = partial(evaluate.evaluate_pyfile_subproc,
+                                 check_module=analyze_nn_module,
+                                 repro_fmt="{nn_cls.__name__}")
 analyze_pyfile = partial(subproc_wrapper, fn=analyze_pyfile_subproc)
 analyze_all = partial(evaluate.evaluate_all, fn=analyze_pyfile)
 
