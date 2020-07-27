@@ -5,13 +5,14 @@ import textwrap
 from collections import defaultdict
 from collections import deque
 from copy import deepcopy
+from io import StringIO
 from types import ModuleType
 from typing import List
 
 import torch
 
-from lazy_transpiler.callable_decoder import CallableDecoder, is_callable_allowlist, is_self_mutating
-from lazy_transpiler.dynamic_analysis import TrackingState, Flag, DeferredGraph
+from lazy_transpiler.callable_decoder import CallableDecoder, is_callable_allowlist
+from lazy_transpiler.dynamic_analysis import TrackingState, Flag, DeferredGraph, AttributeSource, Subblock
 from paritybench.module_extractor import to_source
 from paritybench.static_analysis import ExtractReadsWrites, copy_locations_recursive
 
@@ -23,6 +24,7 @@ def type_specialization_key(value):
     if isinstance(value, torch.nn.Module):
         # each instance of a module gets a different trace
         return id(value)
+    # TODO(jansel): handle list/set/dict/etc
     return type(value)
 
 
@@ -43,6 +45,7 @@ class LazyTranspilerVirtualMachine(ModuleType):
         # Flag.from_global,
         # Flag.from_self,
         Flag.from_args,
+        Flag.from_iter,
     }
 
     def __init__(self, root_callable):
@@ -68,11 +71,10 @@ class LazyTranspilerVirtualMachine(ModuleType):
     def unique_name(self, code='d'):
         c = self.unique_name_counter
         self.unique_name_counter += 1
-        return f"_{code}_{c:02d}"
+        return f"_{code}_{c}"
 
     def __str__(self):
         """ Debug printout """
-        # TODO(jansel): cleanup debug printouts
         root_block = textwrap.indent(str(next(iter(self.specializations.values()))), '    ')
         blocks = "\n".join(f"__ltvm__.blocks[{i}]:\n{textwrap.indent(str(v), '    ')}"
                            for i, v in enumerate(self.blocks))
@@ -138,9 +140,9 @@ class LazyTranspilerVirtualMachine(ModuleType):
         """ Called from generated user code to implement `continue` """
         raise LTVMContinue()
 
-    def unpack_(self, index, *args, **kwargs):
+    def unpack_(self, __ltvm__index, *args, **kwargs):
         """ Called from generated code bind args for method call """
-        binding = self.signatures[index].bind(*args, **kwargs)
+        binding = self.signatures[__ltvm__index].bind(*args, **kwargs)
         binding.apply_defaults()
         return tuple(binding.arguments.values())
 
@@ -172,6 +174,9 @@ class LTVMStatement(object):
             [LTVMStatement(s, self.func) for s in body] + (suffix or []),
             tracking
         )
+
+    def statements(self, body):
+        return [LTVMStatement(s, self.func) for s in body]
 
     def derived(self, node):
         """ another statement derived from this one """
@@ -208,12 +213,69 @@ class LTVMStatement(object):
     def __str__(self):
         return to_source(self.node).strip()
 
+    def is_getattr(self):
+        return (isinstance(self.node, (ast.Assign, ast.AnnAssign)) and
+                isinstance(self.node.value, ast.Attribute) and
+                isinstance(self.node.value.value, ast.Name))
+
+    def split_getattr(self):
+        assert self.is_getattr()
+        return self.get_target_var(), self.node.value.value.id, self.node.value.attr
+
+    def is_call(self):
+        return (isinstance(self.node, (ast.AugAssign, ast.Assign, ast.AnnAssign, ast.Expr)) and
+                isinstance(self.node.value, ast.Call) and
+                isinstance(self.node.value.func, ast.Name))
+
+    def get_call_var(self):
+        assert self.is_call()
+        return self.node.value.func.id
+
+    def is_loop(self):
+        return isinstance(self.node, (ast.For, ast.While, ast.AsyncFor))
+
+    _subblock_names = {
+        ast.FunctionDef: [("body", Subblock.defined)],
+        ast.AsyncFunctionDef: [("body", Subblock.defined)],
+        ast.ClassDef: [("body", Subblock.defined)],
+        ast.For: [("body", Subblock.looping), ("orelse", Subblock.maybe)],
+        ast.AsyncFor: [("body", Subblock.looping), ("orelse", Subblock.maybe)],
+        ast.While: [("body", Subblock.looping), ("orelse", Subblock.maybe)],
+        ast.If: [("body", Subblock.maybe), ("orelse", Subblock.maybe)],
+        ast.With: [("body", Subblock.once)],
+        ast.AsyncWith: [("body", Subblock.once)],
+        ast.Try: [("body", Subblock.maybe),
+                  ("handlers", Subblock._handlers),
+                  ("orelse", Subblock.maybe),
+                  ("finalbody", Subblock.once)]
+    }
+
+    def subblocks(self):
+        """ Yeild all of the blocks of statements contained in this """
+        for name, category in self._subblock_names.get(type(self.node), []):
+            if category == Subblock._handlers:
+                for handler in getattr(self.node, name):
+                    yield self.statements(handler.body), Subblock.maybe
+            else:
+                yield self.statements(getattr(self.node, name)), category
+
+    def without_subblocks(self):
+        """ A version of this with all the subblocks of statements removed """
+        node = deepcopy(self.node)
+        for name, category in self._subblock_names.get(type(node), []):
+            if category == Subblock._handlers:
+                for handler in getattr(node, name):
+                    handler.body = []
+            else:
+                setattr(node, name, [])
+        return LTVMStatement(node, self.func)
+
 
 class LTVMBlock(object):
     """
     Holds a block of code.  The first time we run this we use
-    LTVMBlockTranspiler, then subsequent calls just run the generated code
-    directly.
+    LTVMBlockTranspiler, then subsequent calls just run the
+    generated code directly.
     """
 
     def __init__(self, statements, tracking: TrackingState):
@@ -287,7 +349,6 @@ class LTVMBlockTranspiler(object):
         self.hopper = deque(block.statements)
         self.ltvm = ltvm
         self.tracking = block.tracking.clone()
-        self.read_log = []
 
     def finalize(self):
         """
@@ -373,8 +434,7 @@ class LTVMBlockTranspiler(object):
         self.tracking.defer(stmt)
 
     def execute_statement(self, stmt: LTVMStatement):
-        self.tracking.execute(stmt, self.get_mutates_vars(stmt))
-        self.read_log.extend(stmt.reads)
+        self.tracking.execute(stmt, self.ltvm)
         node = stmt.before_execute(self.tracking, self.ltvm)
         self._execute_node(node)
 
@@ -428,7 +488,10 @@ class LTVMBlockTranspiler(object):
     def run_Return(self, stmt):
         if not self.tracking.return_stack:
             self.unwind_deferred()
-            self.execute_or_defer(stmt.derived(self.make_ltvm_call("return_", [stmt.node.value])))
+            args = []
+            if stmt.node.value is not None:
+                args.append(stmt.node.value)
+            self.execute_or_defer(stmt.derived(self.make_ltvm_call("return_", args)))
         output_var, statements = self.tracking.return_stack.pop()
         self.hopper = deque(statements)
         if output_var is not None:
@@ -486,11 +549,7 @@ class LTVMBlockTranspiler(object):
         node = deepcopy(stmt.node)
 
         self.unwind_deferred()
-        self.tracking.propogate_flags(stmt.derived(ast.Assign(
-            [node.target],
-            node.iter
-        )))
-        self.tracking.run_to_fixed_point(stmt.block(node.body, self.tracking).statements)
+        self.tracking.fixed_point(stmt, self.ltvm)
 
         # TODO(jansel): double check dynamic analyis handling
         # TODO(jansel): add support for break/continue
@@ -511,7 +570,7 @@ class LTVMBlockTranspiler(object):
     run_Pass = execute_or_defer
 
     def _unimplemented(self, stmt):
-        raise NotImplementedError(stmt.node_name)
+        raise NotImplementedError(f"{stmt}")
 
     run_FunctionDef = _unimplemented
     run_AsyncFunctionDef = _unimplemented
@@ -525,29 +584,12 @@ class LTVMBlockTranspiler(object):
     run_Try = _unimplemented
     run_Raise = _unimplemented
 
-    def get_mutates_vars(self, stmt):
-        """ `list1.append(...)` mutates `list1` """
-        if stmt.node_name == "AugAssign":
-            assert not isinstance(stmt.node.value, ast.Call)
-            return list(stmt.writes)
-
-        if stmt.node_name in {"Assign", "AnnAssign", "Expr"}:
-            value = stmt.node.value
-            if isinstance(value, ast.Call):
-                try:
-                    fn = self.ltvm.get_value(value.func.id)
-                except (KeyError, AttributeError):  # builtin method
-                    return []
-                if is_self_mutating(fn):
-                    return [self.value_to_varname(fn.__self__)]
-        return []
-
-    def value_to_varname(self, value):
+    def value_to_varname(self, var, value):
         """ invert self.ltvm.get_value() """
-        for var in reversed(self.read_log):
-            if self.ltvm.get_value(var) is value:
-                return var
-        assert False, "failed to lookup varname for value"
+        source = self.tracking.var_source.get(var, None)
+        assert isinstance(source, AttributeSource)
+        assert self.ltvm.get_value(source.src) is value
+        return source.src
 
     def handle_calls(self, stmt):
         if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr"}:
@@ -603,9 +645,9 @@ class LTVMBlockTranspiler(object):
             ]
         else:
             can_do_static_bind = (
-                all(isinstance(x, (ast.Name, ast.Constant)) for x in args) and
-                all(isinstance(x, str) for x in kwargs.keys()) and
-                all(isinstance(x, (ast.Name, ast.Constant)) for x in kwargs.values()))
+                    all(isinstance(x, (ast.Name, ast.Constant)) for x in args) and
+                    all(isinstance(x, str) for x in kwargs.keys()) and
+                    all(isinstance(x, (ast.Name, ast.Constant)) for x in kwargs.values()))
 
         # TODO(jansel): add guards for inlining
         if call.is_bound_method():
@@ -632,9 +674,9 @@ class LTVMBlockTranspiler(object):
         if not can_do_static_bind:
             unpack_id = len(self.ltvm.signatures)
             self.ltvm.signatures.append(call.signature)
-            return call.inline_runtime_binding(unpack_id, prefix, args, node.keywords)
+            return call.inline_runtime_binding(unpack_id, prefix, args, node.keywords, node)
 
-        return call.inline_static_binding(prefix, args, kwargs)
+        return call.inline_static_binding(prefix, args, kwargs, node)
 
     def load_globals(self, module_name):
         """ copy globals into local variables """
@@ -663,9 +705,15 @@ class LTVMSpecializedBlock(object):
         exec(self.bytecode, ltvm.scope, ltvm.scope)
 
     def __str__(self):
-        result = "\n".join(map(str.rstrip, map(to_source, self.statements)))
-        # f"{result}\n{self.final_tracking_debug}"
-        return result
+        result = StringIO()
+        last_location = None
+        for stmt in self.statements:
+            location = f"# {stmt.filename}:{stmt.lineno}\n"
+            if location != last_location:
+                result.write(location)
+                last_location = location
+            result.write(to_source(stmt))
+        return result.getvalue().strip()
 
 
 class LTVMSpecializedGraph(LTVMSpecializedBlock):

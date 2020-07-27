@@ -10,8 +10,8 @@ from functools import wraps
 import torch
 import numpy
 
-from lazy_transpiler.dynamic_analysis import TrackingState, Flag
-from lazy_transpiler.transformations import Flatten, Rename
+from lazy_transpiler.dynamic_analysis import TrackingState, Flag, FlagSet
+from lazy_transpiler.transformations import Flatten, Rename, OffsetLineno
 from paritybench.module_extractor import to_source
 from paritybench.static_analysis import ExtractReadsWrites, copy_locations_recursive
 
@@ -44,17 +44,22 @@ def is_callable_allowlist(fn):
         return True
 
     if module is None:
+        module_name = str(getattr(fn, "__module__", None))
+
         # usually C or builtin stuff
-        if str(fn.__module__).startswith("torch._C."):
+        if module_name.startswith("torch._C."):
             return True
 
-        if str(fn.__module__) in {"torch", "numpy"}:
+        if module_name in {"torch", "numpy"}:
             return True
 
         if type(self_ptr) in ALLOWED_BUILTIN_COLLECTIONS:
             return True
 
         if getattr(torch, fn.__name__, None) is fn:
+            return True
+
+        if isinstance(fn, numpy.ufunc):
             return True
 
         if isinstance(self_ptr, (torch.Tensor, str, numpy.ndarray)):
@@ -129,14 +134,16 @@ class CallableDecoder(object):
 
     def initial_tracking(self):
         tracking = TrackingState()
-        args = set(self.signature.parameters.keys())
-        tracking.add_flags(next(iter(self.signature.parameters.keys())), Flag.from_self)
+        args = list(self.signature.parameters.keys())
         tracking.add_flags(self.writes, set())  # locals
         tracking.add_flags(["__ltvm__"], Flag.special)
-        tracking.add_globals(self.reads - self.writes - args)
+        tracking.add_globals(self.globals())
+        tracking.set_flags(args, FlagSet({Flag.from_args}))
+        if self.is_bound_method():
+            tracking.set_flags(args[:1], FlagSet({Flag.from_self}))
         return tracking
 
-    def inline_static_binding(self, prefix: str, args: list, kwargs: dict):
+    def inline_static_binding(self, prefix: str, args: list, kwargs: dict, locations_from):
         """
         Return te statements needed to inline this method inside another
 
@@ -165,10 +172,10 @@ class CallableDecoder(object):
                     [ast.Name(prefix + name, ast.Store())],
                     value
                 ),
-                self.tree))
+                locations_from))
         return self.inline_statements(prefix, bindings)
 
-    def inline_runtime_binding(self, index: int, prefix: str, args: list, keywords: dict):
+    def inline_runtime_binding(self, index: int, prefix: str, args: list, keywords: dict, locations_from):
         """ Inline more complex calls that do things with **kwargs """
         args = [ast.Constant(index, None)] + args
         unpack = ast.Assign(
@@ -179,7 +186,7 @@ class CallableDecoder(object):
                      args=args,
                      keywords=keywords)
         )
-        copy_locations_recursive(unpack, self.tree)
+        copy_locations_recursive(unpack, locations_from)
         return self.inline_statements(prefix, [unpack])
 
     def inline_statements(self, prefix, bindings):
@@ -236,9 +243,11 @@ class CallableDecoder(object):
         log.info(f"{fn.__class__.__name__}:\n{source1}")
 
         tree = ast.parse(source1)
+        lineno = getattr(fn, "__func__", fn).__code__.co_firstlineno
+        tree = OffsetLineno(lineno - 1).visit(tree)
         tree = Flatten.run(tree)
 
-        assert len(tree.body) == 1
+        assert len(tree.body) == 1, to_source(tree)
         assert isinstance(tree.body[0], ast.FunctionDef)
 
         tree.body[0].name = self.name = f"_v_{tree.body[0].name}"
@@ -252,6 +261,9 @@ class CallableDecoder(object):
         if not isinstance(self.tree.body[-1], ast.Return):
             # add an explict return at the end
             self.tree.body = self.tree.body + [ast.copy_location(ast.Return(None), self.tree)]
+
+        assert not self.tree.decorator_list, (
+            f"function decorators not yet supported {to_source(self.tree.decorator_list[0]).strip()}")
 
 
 class MethodDecoder(CallableDecoder):

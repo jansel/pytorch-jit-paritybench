@@ -170,7 +170,6 @@ class ExtractReadsWrites(ast.NodeVisitor):
 
     def visit_AugAssign(self, node):
         self.generic_visit(node)
-
         reads, _ = self.context[-1]
         _, target_writes = ExtractReadsWrites.run(node.target)
         reads.update(target_writes)

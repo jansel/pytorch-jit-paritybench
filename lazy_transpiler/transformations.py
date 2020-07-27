@@ -1,8 +1,9 @@
 import ast
 import copy
+import warnings
 import logging
 
-from paritybench.static_analysis import copy_locations_recursive, split_import
+from paritybench.static_analysis import copy_locations_recursive, split_import, ExtractReadsWrites
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +106,6 @@ class FlattenStatement(ast.NodeTransformer):
         # TODO(jansel): should we convert this to regular Assign?
         node.value = self.to_tmp_visit(node.value)
         node.target = self.to_tmp(self.visit(node.target), aug_assign=True)
-        log.info(ast.dump(node))
         return node
 
     def visit_Delete(self, node: ast.Delete):
@@ -126,6 +126,17 @@ class FlattenStatement(ast.NodeTransformer):
     # TODO(jansel): handle: a = b = c
 
     def visit_Assign(self, node):
+        if (isinstance(node.value, ast.Lambda) and
+                len(node.targets) == 1 and
+                isinstance(node.targets[0], ast.Name)):
+            # unwrap x=lambda:...
+            return copy_locations_recursive(ast.FunctionDef(
+                node.targets[0].id,
+                node.value.args,
+                body=FlattenStatement(self)(ast.Return(node.value.body)),
+                decorator_list=[],
+            ), node)
+
         node.targets = self.to_tmp_visit(node.targets)
         node.value = self.visit(node.value)
         return node
@@ -183,7 +194,7 @@ class FlattenStatement(ast.NodeTransformer):
         fn = ast.FunctionDef(
             name,
             node.args,  # TODO(jansel): flatten these?
-            body=[rv],
+            body=FlattenStatement(self)(rv),
             decorator_list=[],
         )
         ast.copy_location(fn, node)
@@ -215,37 +226,35 @@ class FlattenStatement(ast.NodeTransformer):
 
     def _comprehension(self, node, add_name, init, add_args):
         assert len(node.generators) == 1, "expected 1 generator " + ast.dump(node)
+
         data = self.unique_name()
-        add = f"{data}_{add_name}"
-        # TODO(jansel): name mangle targets
+
+        # Name mangling:
+        _, target_writes = ExtractReadsWrites.run(node.generators[0].target)
+        node = Rename({var: f"{data}_{var}" for var in target_writes}).visit(node)
+
         statements = [
-            ast.Assign(
+            copy_locations_recursive(ast.Assign(
                 targets=[ast.Name(data, ast.Store())],
                 value=init
-            ),
-            ast.Assign(
-                targets=[ast.Name(add, ast.Store())],
-                value=ast.Attribute(
-                    value=ast.Name(data, ast.Load()),
-                    attr=add_name,
-                    ctx=ast.Load())
-            )]
-
-        for s in statements:
-            copy_locations_recursive(s, node)
+            ), node)
+        ]
 
         statements.extend(
             FlattenStatement(self)(copy_locations_recursive(
                 new_node=ast.For(
                     target=node.generators[0].target,
                     iter=node.generators[0].iter,
-                    body=[self._comprehension_if(
+                    body=self._comprehension_if(
                         node.generators[0].ifs,
-                        ast.Expr(value=ast.Call(
-                            func=ast.Name(add, ast.Load()),
+                        FlattenStatement(self)(ast.Expr(value=ast.Call(
+                            func=ast.Attribute(
+                                value=ast.Name(data, ast.Load()),
+                                attr=add_name,
+                                ctx=ast.Load()),
                             args=add_args,
                             keywords=[],
-                        )))],
+                        )))),
                     orelse=[]
                 ),
                 old_old=node)
@@ -259,8 +268,7 @@ class FlattenStatement(ast.NodeTransformer):
 
     def _comprehension_if(self, conds, inner):
         for cond in reversed(conds):
-            log.info(f"COND: {ast.dump(cond)}")
-            inner = ast.If(cond, [inner], [])
+            inner = [ast.If(cond, inner, [])]
         return inner
 
     def visit_If(self, node):
@@ -296,6 +304,12 @@ class FlattenStatement(ast.NodeTransformer):
             ast.Dict([], [], ctx=ast.Load()),
             [node.key, node.value])
 
+    def visit_GeneratorExp(self, node):
+        warnings.warn("GeneratorExp not yet supported, converting to ListComp")
+        return self.visit_ListComp(node)
+
+    """
+    # This works, but creates a FunctionDef+Yield, which we don't support yet
     def visit_GeneratorExp(self, node):
         assert len(node.generators) == 1, "expected 1 generator " + ast.dump(node)
         fn_name = self.unique_name()
@@ -333,6 +347,7 @@ class FlattenStatement(ast.NodeTransformer):
         load = ast.Name(iter_name, ast.Load())
         ast.copy_location(load, node)
         return load
+    """
 
     def visit_For(self, node):
         node.iter = self.to_tmp_visit(node.iter)
@@ -448,3 +463,15 @@ class Rename(ast.NodeTransformer):
     def visit_Name(self, node: ast.Name):
         node.id = self.renames.get(node.id, node.id)
         return node
+
+
+class OffsetLineno(ast.NodeTransformer):
+    def __init__(self, offset):
+        super(OffsetLineno, self).__init__()
+        self.offset = offset
+
+    def generic_visit(self, node: ast.AST):
+        if hasattr(node, "lineno"):
+            node.lineno = node.lineno + self.offset
+            node.end_lineno = node.lineno + self.offset
+        return super().generic_visit(node)

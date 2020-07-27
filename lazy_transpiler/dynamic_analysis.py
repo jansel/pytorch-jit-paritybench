@@ -1,6 +1,7 @@
+import ast
 import builtins
 import enum
-from copy import deepcopy
+from collections import namedtuple
 from functools import reduce
 import logging
 
@@ -33,6 +34,9 @@ class DeferredGraph(list):
         return copy
 
 
+AttributeSource = namedtuple("AttributeSource", ["src", "attr"])
+
+
 class TrackingState(object):
     """
     Dynamically computed metadata about variables in an LTVM function
@@ -43,6 +47,7 @@ class TrackingState(object):
     def __init__(self):
         super().__init__()
         self.var_flags = {k: FlagSet() for k in self.builtins}
+        self.var_source = dict()
         self.deferred_graph = DeferredGraph()
         self.return_stack = []
         self.global_vars = set()
@@ -50,6 +55,7 @@ class TrackingState(object):
     def clone(self):
         copy = TrackingState()
         copy.var_flags = dict(self.var_flags)
+        copy.var_source = dict(self.var_source)
         copy.global_vars = set(self.global_vars)
         copy.deferred_graph = self.deferred_graph.clone()
         copy.return_stack = list(self.return_stack)
@@ -59,7 +65,7 @@ class TrackingState(object):
         graph = self.deferred_graph
         self.deferred_graph = DeferredGraph()
         for stmt in graph:
-            self.propogate_flags(stmt)
+            self.propogate_flags(stmt.reads, stmt.writes)
         self.remove_flags(graph.writes, Flag.deferred)
         assert not self.has_flags(graph.vars, Flag.deferred), f"{self}"
         return graph
@@ -73,56 +79,96 @@ class TrackingState(object):
         self.deferred_graph.append(stmt)
         self.add_flags(stmt.writes, Flag.deferred)
 
-    def execute(self, stmt, mutates=None):
+    def execute(self, stmt, ltvm, allow_missing=False):
         assert not self.has_flags(stmt.reads, Flag.deferred)
-        self.propogate_flags(stmt, mutates)
+        flags = self.propogate_flags(stmt.reads, stmt.writes, allow_missing=allow_missing)
+        log.debug(f"propogate_flags %s  # %s=%s", stmt, stmt.writes, flags)
+        if stmt.is_getattr():
+            dst, src, attr = stmt.split_getattr()
+            self.var_source[dst] = AttributeSource(src, attr)
+        if stmt.is_call():
+            func_var = stmt.get_call_var()
+            source = self.var_source.get(func_var)
+            if (isinstance(source, AttributeSource) and (allow_missing or
+                    getattr(ltvm.get_value(func_var), "__self__", None) is not None)):
+                self.add_flags([source.src], flags)
 
     def init_args(self, vars):
+        assert not isinstance(vars, str)
         for var in vars:
             old = self.var_flags.get(var, FlagSet())
             if Flag.from_self not in old:
                 self.var_flags[var] = old | {Flag.from_args}
 
     def set_flags(self, vars, flags):
+        assert not isinstance(vars, str)
+        assert isinstance(flags, FlagSet)
         for var in vars:
             self.var_flags[var] = flags
 
     def add_flags(self, vars, flags):
+        assert not isinstance(vars, str)
         for var in vars:
             self.var_flags[var] = self.var_flags.get(var, FlagSet()) | flags
 
     def remove_flags(self, vars, flags):
+        assert not isinstance(vars, str)
         for var in vars:
             self.var_flags[var] = self.var_flags[var] - flags
 
     def has_flags(self, vars, flags):
+        assert not isinstance(vars, str)
         for var in vars:
             if self.var_flags[var] & flags:
                 return True
         return False
 
-    def propogate_flags(self, stmt, mutates=None):
-        mutates = mutates or []
-        reads = list(stmt.reads) + mutates
-        writes = list(stmt.writes) + mutates
-        flags = self.propogate_flags_(reads, writes)
-        log.debug(f"propogate_flags %s  # %s=%s", stmt, stmt.writes, flags)
-
-    def run_to_fixed_point(self, statements):
-        for _ in range(64):
-            before = dict(self.var_flags)
-            for stmt in statements:
-                self.propogate_flags(stmt)
-            after = {k: v | before.get(k, {}) for k, v in self.var_flags.items()}
-            if before == after:
-                return
-            self.var_flags = after
-
-    def propogate_flags_(self, reads, writes):
-        flags = FlagSet.combine(map(self.var_flags.__getitem__, reads))
+    def propogate_flags(self, reads, writes, allow_missing=False):
+        if allow_missing:
+            flags = FlagSet.combine([self.var_flags.get(x, FlagSet()) for x in reads])
+        else:
+            flags = FlagSet.combine(map(self.var_flags.__getitem__, reads))
         self.set_flags(writes, flags)
         self.add_flags(writes, Flag.computed)
+        for var in writes:
+            self.var_source.pop(var, None)
         return flags
+
+    def fixed_point(self, stmt, ltvm):
+        """ Don't know how many times we will go around a loop, need to find a fixed point """
+        subblocks = list(stmt.subblocks())
+        if subblocks:
+            bare = stmt.without_subblocks()
+            self.execute(bare, ltvm, allow_missing=True)
+            if stmt.is_loop():
+                self.add_flags(bare.writes, Flag.from_iter)
+            for statements, category in subblocks:
+                getattr(self, f"fixed_point_{category.name}")(statements, ltvm)
+        else:
+            self.execute(stmt, ltvm, allow_missing=True)
+
+    def fixed_point_looping(self, statements, ltvm):
+        """ for code that could run many times, like loops """
+        for _ in range(16):
+            if self.fixed_point_maybe(statements, ltvm):
+                return
+
+    def fixed_point_maybe(self, statements, ltvm):
+        """ for code that might run, like conditionals """
+        before = dict(self.var_flags)
+        for stmt in statements:
+            self.fixed_point(stmt, ltvm)
+        after = {k: v | before.get(k, FlagSet()) for k, v in self.var_flags.items()}
+        self.var_flags = after
+        return before == after
+
+    def fixed_point_once(self, statements, ltvm):
+        """ for code that might run, like conditionals """
+        for stmt in statements:
+            self.fixed_point(stmt, ltvm)
+
+    def fixed_point_define(self, statements, ltvm):
+        pass
 
     def __str__(self):
         return "TrackingState({})".format(", ".join(
@@ -135,9 +181,8 @@ class TrackingState(object):
         return FlagSet.combine(map(self.var_flags.__getitem__, vars))
 
     def is_constants(self, vars):
-        log.debug("is_constants %s", vars)
-        return not self.has_flags(vars, {
-            Flag.from_args, Flag.from_global, Flag.from_self, Flag.deferred})
+        return not self.has_flags(vars, {Flag.from_args, Flag.from_global, Flag.from_self,
+                                         Flag.from_iter, Flag.deferred})
 
     def is_builtin(self, var):
         # TODO(jansel): handle shadowing builtins with locals
@@ -150,12 +195,13 @@ class Flag(enum.IntEnum):
     from_global = 1
     from_self = 2
     from_args = 4
+    from_iter = 8
 
     # Other things to track:
-    computed = 8
-    pytorch = 16  # points to torch.*
-    deferred = 32  # not yet executed
-    special = 64  # __ltvm__
+    computed = 16
+    pytorch = 32  # points to torch.*
+    deferred = 64  # not yet executed
+    special = 128  # __ltvm__
 
 
 # could optimize this to a bitmask
@@ -194,3 +240,12 @@ class FlagSet(frozenset):
 
     def __str__(self):
         return "+".join(f.name for f in sorted(self))
+
+
+@enum.unique
+class Subblock(enum.Enum):
+    maybe = 0  # runs 0 or 1 times
+    once = 1  # runs 1 time
+    looping = 2  # runs 0 or more times
+    defined = 3  # runs 0 times
+    _handlers = 4  # ast.Try(...).handlers

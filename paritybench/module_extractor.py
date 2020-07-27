@@ -58,10 +58,11 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 '''
 
 
-def to_source(node):
+def to_source(node, **kwargs):
     return astor.to_source(node,
                            pretty_source=''.join,
-                           pretty_string=partial(astor.string_repr.pretty_string, max_line=8192))
+                           pretty_string=partial(astor.string_repr.pretty_string, max_line=8192),
+                           **kwargs)
 
 
 class PyTorchModuleExtractor(object):
