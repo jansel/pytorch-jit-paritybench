@@ -14,7 +14,7 @@ from paritybench.main import main_one_file, add_options
 from paritybench.utils import subproc_wrapper
 
 
-def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
+def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error, stats):
     nn = init_module(record_error, nn_cls, get_init_args)
     args, kwargs, result1, result2 = run_eager(record_error, nn, get_forward_args)
 
@@ -38,6 +38,14 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
 
     check_output(record_error, result1, result2, result3, 'ltvm_output')
     check_output(record_error, result1, result2, result4, 'ltvm_rerun')
+
+    stats["onegraph"] += int(len(ltvm.graphs) <= 1)
+
+    # try:
+    #     assert len(ltvm.graphs) <= 1
+    # except Exception as e:
+    #     record_error('graphsize', e)
+    #     raise JitFailed()
 
     return True
 

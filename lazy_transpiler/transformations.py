@@ -22,9 +22,11 @@ class FlattenStatement(ast.NodeTransformer):
 
     def __init__(self, flattener):
         super().__init__()
-        self.unique_name = flattener.unique_name
         self.prefix = []
         self.suffix = []
+        self.unique_name = flattener.unique_name
+        self.class_var = flattener.class_var
+        self.self_var = flattener.self_var
 
     def __call__(self, node):
         node = self.visit(node)
@@ -52,9 +54,11 @@ class FlattenStatement(ast.NodeTransformer):
         assert False, f"Unknown ctx: {ast.dump(node)}"
 
     def visit_Call(self, node):
-        if getattr(node.func, "id", "") == "super" and not node.args and not node.keywords:
-            node.args = [ast.Name("__t_class", ast.Load()),
-                         ast.Name("__t_self", ast.Load())]
+        if (getattr(node.func, "id", "") == "super" and
+                not node.args and not node.keywords and
+                self.self_var and self.class_var):
+            node.args = [ast.Name(self.class_var, ast.Load()),
+                         ast.Name(self.self_var, ast.Load())]
             ast.fix_missing_locations(node)
         return self.generic_visit(node)
 
@@ -400,14 +404,16 @@ class Flatten(ast.NodeTransformer):
     """
 
     @classmethod
-    def run(cls, tree):
-        return cls().visit(tree)
+    def run(cls, tree, class_var=None, self_var=None):
+        return cls(class_var, self_var).visit(tree)
 
-    def __init__(self):
+    def __init__(self, class_var=None, self_var=None):
         super().__init__()
         self._cnt = 0
         self.prefix = None
         self.suffix = None
+        self.class_var = class_var
+        self.self_var = self_var
 
     def unique_name(self):
         """ Create a name for a new local variable """

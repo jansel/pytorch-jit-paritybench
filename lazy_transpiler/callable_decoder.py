@@ -3,6 +3,7 @@ import inspect
 import logging
 import math
 import os
+import re
 import textwrap
 from collections import OrderedDict
 from functools import wraps
@@ -227,17 +228,23 @@ class CallableDecoder(object):
             return _fn
 
         scope = {
-            'staticmethod': _staticmethod,
-            'classmethod': _classmethod,
+            "staticmethod": _staticmethod,
+            "classmethod": _classmethod,
         }
         exec(compile(ast.Interactive([self.tree]), self.filename, "single"), self.module.__dict__, scope)
         fn = scope[self.tree.name]
         return fn(self.self_ptr, *args, **kwargs)
 
     def read_source_from(self, fn):
-        self.signature = inspect.signature(getattr(fn, "__func__", fn))
+        func = getattr(fn, "__func__", fn)
+        self.signature = inspect.signature(func)
         self.filename = inspect.getfile(fn)
         self.module = inspect.getmodule(fn)
+        self.class_var = re.sub(r"\..*", "", func.__qualname__) or None
+        if self.self_ptr and self.signature.parameters:
+            self.self_var = next(iter(self.signature.parameters.keys()))
+        else:
+            self.self_var = None
 
         source1 = textwrap.dedent(inspect.getsource(fn)).lstrip()
         log.info(f"{fn.__class__.__name__}:\n{source1}")
@@ -245,7 +252,7 @@ class CallableDecoder(object):
         tree = ast.parse(source1)
         lineno = getattr(fn, "__func__", fn).__code__.co_firstlineno
         tree = OffsetLineno(lineno - 1).visit(tree)
-        tree = Flatten.run(tree)
+        tree = Flatten.run(tree, self.class_var, self.self_var)
 
         assert len(tree.body) == 1, to_source(tree)
         assert isinstance(tree.body[0], ast.FunctionDef)
@@ -262,8 +269,16 @@ class CallableDecoder(object):
             # add an explict return at the end
             self.tree.body = self.tree.body + [ast.copy_location(ast.Return(None), self.tree)]
 
-        assert not self.tree.decorator_list, (
-            f"function decorators not yet supported {to_source(self.tree.decorator_list[0]).strip()}")
+        if self.tree.decorator_list:
+            if len(self.tree.decorator_list) == 1:
+                name = to_source(self.tree.decorator_list[0]).strip()
+                if name == "staticmethod":
+                    self.self_ptr = None
+                    self.self_var = None
+                    return
+                raise NotImplementedError(f"decorator {name} not yet supported")
+            else:
+                raise NotImplementedError("more than 1 decorator is not yet supported")
 
 
 class MethodDecoder(CallableDecoder):
@@ -283,7 +298,6 @@ class FunctionDecoder(CallableDecoder):
 class NNModuleDecoder(CallableDecoder):
     def __init__(self, nn):
         super().__init__()
-
         self.self_ptr = nn
 
         forward = nn.forward

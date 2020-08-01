@@ -117,9 +117,6 @@ class LazyTranspilerVirtualMachine(ModuleType):
     def get_value(self, key):
         return self.scope[self.nameof(key)]
 
-    def set_value(self, key, value, derived_from):
-        self.scope[self.nameof(key)] = value
-
     def block_(self, index):
         """ Called from generated user code to implement switching blocks of code """
         self.blocks[index].run(self)
@@ -227,9 +224,25 @@ class LTVMStatement(object):
                 isinstance(self.node.value, ast.Call) and
                 isinstance(self.node.value.func, ast.Name))
 
+    def is_compare(self):
+        return (isinstance(self.node, (ast.AugAssign, ast.Assign, ast.AnnAssign, ast.Expr)) and
+                isinstance(self.node.value, ast.Compare))
+
     def get_call_var(self):
         assert self.is_call()
         return self.node.value.func.id
+
+    def is_copy(self):
+        return (isinstance(self.node, ast.Assign) and
+                isinstance(self.node.value, ast.Name) and
+                len(self.node.targets) == 1 and
+                isinstance(self.node.targets[0], ast.Name))
+
+    def is_copy(self):
+        return (isinstance(self.node, ast.Assign) and
+                isinstance(self.node.value, ast.Name) and
+                len(self.node.targets) == 1 and
+                isinstance(self.node.targets[0], ast.Name))
 
     def is_loop(self):
         return isinstance(self.node, (ast.For, ast.While, ast.AsyncFor))
@@ -383,6 +396,22 @@ class LTVMBlockTranspiler(object):
         if Flag.special in input_flags:
             self.unwind_deferred()
             return False
+
+        if not write_clash and Flag.deferred not in input_flags and Flag.pytorch in input_flags:
+            # Allow reading shape outside of graph
+            allowed = {"size", "shape", "ndim", "dim", "dtype"}
+            if stmt.is_getattr():
+                _, src, attr = stmt.split_getattr()
+                if attr in allowed:
+                    return False
+            if stmt.is_call():
+                try:
+                    fn = self.ltvm.get_value(stmt.get_call_var())
+                    return getattr(fn, "__name__", "") in allowed
+                except KeyError:
+                    pass  # builtins
+            if stmt.is_copy() or stmt.is_compare():
+                return False
 
         if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr", "Return"}:
             # defer pytorch stuff, run non-pytorch stuff

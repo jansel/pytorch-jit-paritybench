@@ -24,7 +24,7 @@ class JitFailed(RuntimeError):
     pass
 
 
-def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, jit_script=torch.jit.script):
+def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, stats=None):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
     as eager.
@@ -38,7 +38,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ji
     nn = init_module(record_error, nn_cls, get_init_args)
 
     try:
-        nn_script = jit_script(nn)
+        nn_script = torch.jit.script(nn)
     except Exception as e:
         record_error('compile', e)
         raise JitFailed()
@@ -127,7 +127,9 @@ def evaluate_pyfile_subproc(tempdir: str,
                 nn_cls,
                 get_init_args,
                 get_forward_args,
-                partial(errors.record, module=repro))
+                partial(errors.record, module=repro),
+                stats
+            )
             stats["tests_passed"] += int(rv)
         except JitFailed:
             pass
