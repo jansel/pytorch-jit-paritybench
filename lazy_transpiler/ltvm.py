@@ -1,6 +1,9 @@
 import ast
+import builtins
 import inspect
+import itertools
 import logging
+import re
 import textwrap
 from collections import defaultdict
 from collections import deque
@@ -52,7 +55,8 @@ class LazyTranspilerVirtualMachine(ModuleType):
         super().__init__("__ltvm__")
         self.root_callable = CallableDecoder.parse(root_callable)
         self.root_block = LTVMBlock(self.root_callable.statements(),
-                                    self.root_callable.initial_tracking())
+                                    self.root_callable.initial_tracking(),
+                                    set())
         # contains a copy of the root block specific to input types
         self.specializations = defaultdict(self.root_block.clone)
         # generated blocks the root block can jump to
@@ -115,7 +119,12 @@ class LazyTranspilerVirtualMachine(ModuleType):
         assert False, f"don't know how to get the value of {key}"
 
     def get_value(self, key):
-        return self.scope[self.nameof(key)]
+        try:
+            return self.scope[self.nameof(key)]
+        except:
+            if key in builtins.__dict__:
+                return getattr(builtins, key)
+            raise
 
     def block_(self, index):
         """ Called from generated user code to implement switching blocks of code """
@@ -166,19 +175,16 @@ class LTVMStatement(object):
     def node_name(self):
         return self.node.__class__.__name__
 
-    def block(self, body, tracking, suffix=None):
-        return LTVMBlock(
-            [LTVMStatement(s, self.func) for s in body] + (suffix or []),
-            tracking
-        )
-
     def statements(self, body):
         return [LTVMStatement(s, self.func) for s in body]
 
     def derived(self, node):
         """ another statement derived from this one """
+        if isinstance(node, LTVMStatement):
+            return node
         if isinstance(node, str):
             node = ast.parse(node).body[0]
+        assert isinstance(node, ast.AST)
         ast.fix_missing_locations(ast.copy_location(node, self.node))
         return LTVMStatement(node, self.func)
 
@@ -233,12 +239,7 @@ class LTVMStatement(object):
         return self.node.value.func.id
 
     def is_copy(self):
-        return (isinstance(self.node, ast.Assign) and
-                isinstance(self.node.value, ast.Name) and
-                len(self.node.targets) == 1 and
-                isinstance(self.node.targets[0], ast.Name))
-
-    def is_copy(self):
+        """ a = b """
         return (isinstance(self.node, ast.Assign) and
                 isinstance(self.node.value, ast.Name) and
                 len(self.node.targets) == 1 and
@@ -291,14 +292,18 @@ class LTVMBlock(object):
     generated code directly.
     """
 
-    def __init__(self, statements, tracking: TrackingState):
+    def __init__(self,
+                 statements: list,
+                 tracking: TrackingState,
+                 output_vars: set):
         super(LTVMBlock, self).__init__()
         self.statements = statements
         self.specializations = []
         self.tracking = tracking.clone()
+        self.output_vars = set(output_vars)
 
     def clone(self):
-        return self.__class__(self.statements, self.tracking)
+        return self.__class__(self.statements, self.tracking, self.output_vars)
 
     def __str__(self):
         if self.specializations:
@@ -321,30 +326,122 @@ class LTVMBlock(object):
 
 
 class LTVMGraph(LTVMBlock):
-    def __init__(self, statements: DeferredGraph, tracking: TrackingState, ltvm: LazyTranspilerVirtualMachine):
-        self.specialize_on_vars = []
+    def __init__(self,
+                 statements: DeferredGraph,
+                 tracking: TrackingState,
+                 ltvm: LazyTranspilerVirtualMachine,
+                 output_vars: set):
+        log.info(f"LTVMGraph {output_vars}")
+        self.input_vars = []
+        self.param_vars = []
+        self.import_vars = dict()
         for var in statements.inputs:
             if tracking.var_flags[var] & ltvm.guard_sources:
-                self.specialize_on_vars.append(var)
+                self.input_vars.append(var)
+            else:
+                value = ltvm.get_value(var)
+                if isinstance(value, ModuleType) and re.match(r"^torch\b", value.__name__):
+                    self.import_vars[var] = value.__name__
+                else:
+                    self.param_vars.append(var)
+        output_vars = set.intersection(output_vars, statements.writes)
 
         self.nodes = []
         for stmt in statements:
             self.nodes.append(stmt.before_execute(tracking, ltvm))
 
-        super().__init__(statements, tracking)
+        super().__init__(statements, tracking, output_vars)
         self.specializations = dict()
+
+        self.output_vars = list(sorted(self.output_vars))
+        self.input_vars = list(sorted(self.input_vars))
+        self.param_vars = list(sorted(self.param_vars))
+
+        self.params = {var: ltvm.get_value(var) for var in self.param_vars}
+
+        for name in ("torch", "typing"):
+            self.import_vars.setdefault(name, name)
+            assert self.import_vars[name] == name
+
+        self.name = "_graph"
 
     def __str__(self):
         if not self.specializations:
             return "<not yet compiled>"
         code = str(next(iter(self.specializations.values())))
-        return f"specialized_on: {', '.join(self.specialize_on_vars)}\n{code}"
+        return f"{code}"
+
+    def codegen(self, ltvm: LazyTranspilerVirtualMachine):
+        ps = lambda s: ast.parse(s).body[0]  # statement
+        return ast.fix_missing_locations(ast.Module(
+            [ps(f"import {v} as {k}") for k, v in self.import_vars.items()] +
+            [ast.ClassDef(
+                name=self.name,
+                bases=[ps("torch.nn.Module").value],
+                keywords=[],
+                body=[
+                    ast.FunctionDef(
+                        name='__init__',
+                        args=ast.arguments(
+                            posonlyargs=[],
+                            args=[ast.arg('_self', None, None)] +
+                                 [ast.arg(var, None, None) for var in self.param_vars],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[]),
+                        body=[ps("super().__init__()")] +
+                             [ps(f"_self.{var} = {var}") for var in self.param_vars],
+                        decorator_list=[],
+                        returns=None,
+                        type_comment=None),
+                    ast.FunctionDef(
+                        name='forward',
+                        args=ast.arguments(
+                            posonlyargs=[],
+                            args=[ast.arg('_self', None, None)] +
+                                 [ast.arg(var, ps(self.typehint(ltvm.get_value(var))).value, None)
+                                  for var in self.input_vars],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[]),
+                        body=self.codegen_body(),
+                        decorator_list=[],
+                        returns=None,
+                        type_comment=None)],
+                decorator_list=[])], []))
+
+    def codegen_body(self):
+        ps = lambda s: ast.parse(s).body[0]
+        rv = []
+        rv.extend(ps(f"{var} = _self.{var}") for var in self.param_vars)
+        rv.extend(s.node for s in self.statements)
+        if self.output_vars:
+            rv.append(ps(f"return ({','.join(self.output_vars)},)"))
+        else:
+            rv.append(ps(f"return tuple()"))
+        return rv
+
+    def typehint(self, value):
+        if isinstance(value, torch.Tensor):
+            return "torch.Tensor"
+        if isinstance(value, (int, float, bool, str, complex)):
+            return type(value).__name__
+        if isinstance(value, list) and value:
+            return f"typing.List[{self.typehint(value[0])}]"
+        if isinstance(value, list):
+            return "typing.List"
+        return "typing.Any"
+        assert False, f"need type hint for {type(value)} {value}"
 
     def run(self, ltvm: LazyTranspilerVirtualMachine):
-        key = tuple(type_specialization_key(ltvm.get_value(var)) for var in self.specialize_on_vars)
+        key = tuple(type_specialization_key(ltvm.get_value(var)) for var in self.input_vars)
         specialized = self.specializations.get(key)
         if not specialized:
-            self.specializations[key] = specialized = LTVMSpecializedGraph(self.nodes, self.tracking)
+            self.specializations[key] = specialized = LTVMSpecializedGraph(self, ltvm)
         return specialized.run(ltvm)
 
 
@@ -362,18 +459,19 @@ class LTVMBlockTranspiler(object):
         self.hopper = deque(block.statements)
         self.ltvm = ltvm
         self.tracking = block.tracking.clone()
+        self.output_vars = set(block.output_vars)
 
     def finalize(self):
         """
         End the transpilation and produce compiled specialized code
         """
         self.hopper.clear()
-        self.unwind_deferred()
+        self.unwind_deferred([])
         return LTVMSpecializedBlock(self.output_statements, self.tracking)
 
     def is_pytorch(self, var: str):
         """ Check if we should defer a statement consuming the given variable name """
-        if self.tracking.has_flags([var], Flag.deferred) or var in TrackingState.builtins:
+        if self.tracking.has_flags([var], Flag.deferred):
             return False  # can't tell yet
         value = self.ltvm.get_value(var)
         try:
@@ -384,6 +482,8 @@ class LTVMBlockTranspiler(object):
             return False
         # log.info(f"{var} {type(var)} {module}")
         module_name = module.__name__
+        if var == "_s_0_self":
+            log.info(f"YYY {var} {module_name}")
         return module_name == "torch" or module_name.startswith("torch.")
 
     def should_defer(self, stmt: LTVMStatement):
@@ -394,7 +494,7 @@ class LTVMBlockTranspiler(object):
         input_flags = self.tracking.combined_flags(stmt.reads)
         write_clash = bool(stmt.writes.intersection(self.tracking.deferred_graph.vars))
         if Flag.special in input_flags:
-            self.unwind_deferred()
+            self.unwind_deferred([stmt])
             return False
 
         if not write_clash and Flag.deferred not in input_flags and Flag.pytorch in input_flags:
@@ -412,6 +512,7 @@ class LTVMBlockTranspiler(object):
                     pass  # builtins
             if stmt.is_copy() or stmt.is_compare():
                 return False
+            log.info(f"SHOULD_DEFER {stmt} {stmt.reads} {input_flags}")
 
         if stmt.node_name in {"Assign", "AugAssign", "AnnAssign", "Expr", "Return"}:
             # defer pytorch stuff, run non-pytorch stuff
@@ -419,7 +520,7 @@ class LTVMBlockTranspiler(object):
 
         if write_clash:
             # TODO(jansel): introduce a temporary variable to avoid the clash
-            self.unwind_deferred()
+            self.unwind_deferred([stmt])
 
         if stmt.node_name in {"Delete", "Import", "ImportFrom", "Global", "Nonlocal", "Pass", "If"}:
             # These don't trigger an unwind of our deferrals
@@ -427,7 +528,7 @@ class LTVMBlockTranspiler(object):
 
         # TODO(jansel): support defer past other statements
         # Default behavior is to unwind the deferred graph
-        self.unwind_deferred()
+        self.unwind_deferred([stmt])
         return False
 
     def execute_or_defer(self, stmt: LTVMStatement):
@@ -437,8 +538,8 @@ class LTVMBlockTranspiler(object):
         else:
             self.execute_statement(stmt)
 
-    def unwind_deferred_call(self):
-        graph = LTVMGraph(self.tracking.pop_deferred(), self.tracking, self.ltvm)
+    def unwind_deferred_call(self, current):
+        graph = LTVMGraph(self.tracking.pop_deferred(), self.tracking, self.ltvm, self.live_vars(current))
         index = len(self.ltvm.graphs)
         self.ltvm.graphs.append(graph)
         call = ast.fix_missing_locations(ast.copy_location(
@@ -447,17 +548,26 @@ class LTVMBlockTranspiler(object):
         call.filename = graph.statements[0].filename
         return call
 
-    def unwind_deferred(self):
+    def unwind_deferred(self, current):
         """ Run all deferred statements """
         if not self.tracking.deferred_graph:
             return
-        call = self.unwind_deferred_call()
+        call = self.unwind_deferred_call(current)
         self.output_statements.append(call)
         exec(compile(ast.Interactive([call]),
                      call.filename,
                      "single"),
              self.ltvm.scope,
              self.ltvm.scope)
+
+    def live_vars(self, current):
+        live = set()
+        written = set()
+        for stmt in itertools.chain(self.hopper, current):
+            live.update(stmt.reads - written)
+            written.update(stmt.writes)
+        live.update(set(self.output_vars) - written)
+        return live
 
     def defer_statement(self, stmt: LTVMStatement):
         self.tracking.defer(stmt)
@@ -468,7 +578,6 @@ class LTVMBlockTranspiler(object):
         self._execute_node(node)
 
     def _execute_node(self, node: ast.AST):
-        log.debug("RUN: %s", to_source(node).strip())
         self.output_statements.append(node)
         exec(compile(ast.Interactive([node]),
                      node.filename,
@@ -516,7 +625,7 @@ class LTVMBlockTranspiler(object):
 
     def run_Return(self, stmt):
         if not self.tracking.return_stack:
-            self.unwind_deferred()
+            self.unwind_deferred([stmt])
             args = []
             if stmt.node.value is not None:
                 args.append(stmt.node.value)
@@ -536,13 +645,18 @@ class LTVMBlockTranspiler(object):
         self.unwind_deferred()
         self.execute_or_defer(stmt.derived(self.make_ltvm_call("continue_", [])))
 
+    def block(self, body: list, source: LTVMStatement):
+        body = list(map(source.derived, body))
+        return LTVMBlock(body, self.tracking, self.live_vars([]))
+
     def run_If(self, stmt):
         node = deepcopy(stmt.node)
         suffix = list(self.hopper)
+        self.hopper.clear()  # pending work is moved inside the if
 
         reads, _ = ExtractReadsWrites.run(node.test)
         if self.tracking.has_flags(reads, Flag.deferred):
-            self.unwind_deferred()
+            self.unwind_deferred([stmt])
 
         # value = self.ltvm.get_value(node.test)
         # if value:
@@ -550,13 +664,10 @@ class LTVMBlockTranspiler(object):
         #    node.body, node.orelse = node.orelse, node.body
         #    node.test = ast.copy_location(ast.UnaryOp(ast.Not(), node.test), node)
 
-        node.body = self.make_jump(stmt.block(node.body, self.tracking, suffix=suffix), node)
-        node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking, suffix=suffix), node)
+        node.body = self.make_jump(self.block(node.body + suffix, stmt), node)
+        node.orelse = self.make_jump(self.block(node.orelse + suffix, stmt), node)
 
-        # pending work is moved inside the if
-        self.hopper.clear()
         self.tracking.deferred_graph.clear()
-
         self.execute_or_defer(stmt.derived(node))
 
     def run_For(self, stmt):
@@ -577,15 +688,13 @@ class LTVMBlockTranspiler(object):
         """ Simple loop implementation with barrier each iteration """
         node = deepcopy(stmt.node)
 
-        self.unwind_deferred()
+        self.unwind_deferred([stmt])
         self.tracking.fixed_point(stmt, self.ltvm)
 
-        # TODO(jansel): double check dynamic analyis handling
         # TODO(jansel): add support for break/continue
-        # TODO(jansel): run tracking to a fixed point
-        node.body = self.make_jump(stmt.block(node.body, self.tracking), node)
+        node.body = self.make_jump(self.block(node.body, stmt), node)
         if node.orelse:
-            node.orelse = self.make_jump(stmt.block(node.orelse, self.tracking), node)
+            node.orelse = self.make_jump(self.block(node.orelse, stmt), node)
         self.execute_or_defer(stmt.derived(node))
 
     run_Import = execute_or_defer
@@ -724,11 +833,11 @@ class LTVMSpecializedBlock(object):
     Contains a block that has been specialized based on input types
     """
 
-    def __init__(self, statements, final_tracking_debug):
+    def __init__(self, statements, final_tracking_debug=None):
         super().__init__()
-        self.statements = statements
-        self.bytecode = compile(ast.Module(statements, []), "<ltvm>", "exec")
-        self.final_tracking_debug = final_tracking_debug
+        if statements:
+            self.statements = statements
+            self.bytecode = compile(ast.Module(statements, []), "<ltvm>", "exec")
 
     def run(self, ltvm):
         exec(self.bytecode, ltvm.scope, ltvm.scope)
@@ -746,7 +855,25 @@ class LTVMSpecializedBlock(object):
 
 
 class LTVMSpecializedGraph(LTVMSpecializedBlock):
-    pass
+    def __init__(self, graph: LTVMGraph, ltvm: LazyTranspilerVirtualMachine):
+        super(LTVMSpecializedGraph, self).__init__(None)
+        tree = graph.codegen(ltvm)
+        self.source = to_source(tree)
+        log.info(f"SOURCE:\n{self.source}")
+        bytecode = compile(tree, "<ltvm>", "exec")
+        scope = dict()
+        exec(bytecode, scope, scope)
+        self.nn_module = scope[graph.name](**graph.params)
+        self.input_vars = graph.input_vars
+        self.output_vars = graph.output_vars
+
+    def __str__(self):
+        return self.source
+
+    def run(self, ltvm):
+        result = self.nn_module(*list(map(ltvm.get_value, self.input_vars)))
+        assert len(result) == len(self.output_vars)
+        ltvm.scope.update(dict(zip(self.output_vars, result)))
 
 
 class LTVMException(Exception):

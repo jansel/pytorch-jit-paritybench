@@ -1,15 +1,16 @@
 import ast
+import collections
 import inspect
 import logging
 import math
 import os
 import re
 import textwrap
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from functools import wraps
 
-import torch
 import numpy
+import torch
 
 from lazy_transpiler.dynamic_analysis import TrackingState, Flag, FlagSet
 from lazy_transpiler.transformations import Flatten, Rename, OffsetLineno
@@ -18,8 +19,8 @@ from paritybench.static_analysis import ExtractReadsWrites, copy_locations_recur
 
 log = logging.getLogger(__name__)
 
-ALLOWED_BUILTIN_COLLECTIONS = {list, set, dict, OrderedDict}
-ALLOWED_BUILTIN_MODULES = {math, numpy, logging}
+ALLOWED_BUILTIN_COLLECTIONS = {list, set, dict, OrderedDict, namedtuple}
+ALLOWED_BUILTIN_MODULES = {math, numpy, logging, collections}
 ALLOWED_BUILTIN_FUNCTIONS = {str, repr, int, float, range}
 
 
@@ -157,10 +158,13 @@ class CallableDecoder(object):
         bound.apply_defaults()
         bindings = []
         for name, value in bound.arguments.items():
-            assert isinstance(value, (ast.AST, dict, list, str, int, float, bool, type(None))), str(value)
+            assert isinstance(value, (ast.AST, dict, tuple, list, str, int, float, bool, type(None))), str(value)
             if isinstance(value, list):  # *args
                 assert all(isinstance(x, ast.AST) for x in value)
                 value = ast.List(value, ast.Load())
+            if isinstance(value, tuple):  # *args
+                assert all(isinstance(x, ast.AST) for x in value)
+                value = ast.Tuple(list(value), ast.Load())
             if isinstance(value, dict):  # **kwargs
                 assert all(isinstance(x, ast.AST) for x in value.values())
                 items = list(value.items())

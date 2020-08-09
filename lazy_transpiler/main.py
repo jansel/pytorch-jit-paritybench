@@ -5,9 +5,9 @@ import sys
 from copy import deepcopy
 from functools import partial
 
-from paritybench import evaluate
-from lazy_transpiler.ltvm import LazyTranspilerVirtualMachine, log
 from lazy_transpiler.callable_decoder import NNModuleDecoder
+from lazy_transpiler.ltvm import LazyTranspilerVirtualMachine, log
+from paritybench import evaluate
 from paritybench.evaluate import init_module, run_eager, JitFailed, check_output
 from paritybench.generate import write_helpers
 from paritybench.main import main_one_file, add_options
@@ -40,6 +40,7 @@ def analyze_nn_module(nn_cls, get_init_args, get_forward_args, record_error, sta
     check_output(record_error, result1, result2, result4, 'ltvm_rerun')
 
     stats["onegraph"] += int(len(ltvm.graphs) <= 1)
+    stats["zerograph"] += int(len(ltvm.graphs) == 0)
 
     # try:
     #     assert len(ltvm.graphs) <= 1
@@ -68,6 +69,7 @@ def main():
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger("matplotlib").setLevel(logging.INFO)
     else:
         logging.basicConfig(level=logging.INFO)
 
@@ -79,5 +81,3 @@ def main():
         return main_one_file(analyze_pyfile_subproc, args.analyze, args)
 
     return analyze_all(tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
-
-

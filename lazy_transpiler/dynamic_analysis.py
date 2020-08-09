@@ -1,9 +1,10 @@
-import ast
 import builtins
 import enum
+import logging
 from collections import namedtuple
 from functools import reduce
-import logging
+
+import torch
 
 log = logging.getLogger(__name__)
 
@@ -17,11 +18,11 @@ class DeferredGraph(list):
         self.inputs = set()
 
     def append(self, val):
+        self.inputs.update(val.reads - self.writes)
         self.reads.update(val.reads)
         self.writes.update(val.writes)
         self.vars.update(val.reads)
         self.vars.update(val.writes)
-        self.inputs.update(val.reads - self.writes)
         super().append(val)
 
     def clone(self):
@@ -51,6 +52,7 @@ class TrackingState(object):
         self.deferred_graph = DeferredGraph()
         self.return_stack = []
         self.global_vars = set()
+        self.fixed_point_depth = 0
 
     def clone(self):
         copy = TrackingState()
@@ -83,15 +85,23 @@ class TrackingState(object):
         assert not self.has_flags(stmt.reads, Flag.deferred)
         flags = self.propogate_flags(stmt.reads, stmt.writes, allow_missing=allow_missing)
         log.debug(f"propogate_flags %s  # %s=%s", stmt, stmt.writes, flags)
+        if not stmt.is_copy():
+            self.add_flags(stmt.writes, Flag.computed)
         if stmt.is_getattr():
             dst, src, attr = stmt.split_getattr()
             self.var_source[dst] = AttributeSource(src, attr)
         if stmt.is_call():
             func_var = stmt.get_call_var()
             source = self.var_source.get(func_var)
-            if (isinstance(source, AttributeSource) and (allow_missing or
-                    getattr(ltvm.get_value(func_var), "__self__", None) is not None)):
-                self.add_flags([source.src], flags)
+            if isinstance(source, AttributeSource):
+                if self.has_flags([func_var], {Flag.deferred, Flag.loop_carry}):
+                    if not self.has_flags([source.src], {Flag.deferred, Flag.loop_carry}):
+                        obj = ltvm.get_value(source.src)
+                        if source.attr in getattr(obj, "__dict__", []) or isinstance(obj, torch.nn.Module):
+                            return
+                    self.add_flags([source.src], flags)
+                elif getattr(ltvm.get_value(func_var), "__self__", None) is not None:
+                    self.add_flags([source.src], flags)
 
     def init_args(self, vars):
         assert not isinstance(vars, str)
@@ -108,6 +118,8 @@ class TrackingState(object):
 
     def add_flags(self, vars, flags):
         assert not isinstance(vars, str)
+        if isinstance(flags, Flag):
+            flags = FlagSet({flags})
         for var in vars:
             self.var_flags[var] = self.var_flags.get(var, FlagSet()) | flags
 
@@ -129,23 +141,28 @@ class TrackingState(object):
         else:
             flags = FlagSet.combine(map(self.var_flags.__getitem__, reads))
         self.set_flags(writes, flags)
-        self.add_flags(writes, Flag.computed)
+        if self.fixed_point_depth > 0:
+            self.add_flags(writes, Flag.loop_carry)
         for var in writes:
             self.var_source.pop(var, None)
         return flags
 
     def fixed_point(self, stmt, ltvm):
         """ Don't know how many times we will go around a loop, need to find a fixed point """
-        subblocks = list(stmt.subblocks())
-        if subblocks:
-            bare = stmt.without_subblocks()
-            self.execute(bare, ltvm, allow_missing=True)
-            if stmt.is_loop():
-                self.add_flags(bare.writes, Flag.from_iter)
-            for statements, category in subblocks:
-                getattr(self, f"fixed_point_{category.name}")(statements, ltvm)
-        else:
-            self.execute(stmt, ltvm, allow_missing=True)
+        self.fixed_point_depth += 1
+        try:
+            subblocks = list(stmt.subblocks())
+            if subblocks:
+                bare = stmt.without_subblocks()
+                self.execute(bare, ltvm, allow_missing=True)
+                if stmt.is_loop():
+                    self.add_flags(bare.writes, Flag.from_iter)
+                for statements, category in subblocks:
+                    getattr(self, f"fixed_point_{category.name}")(statements, ltvm)
+            else:
+                self.execute(stmt, ltvm, allow_missing=True)
+        finally:
+            self.fixed_point_depth -= 1
 
     def fixed_point_looping(self, statements, ltvm):
         """ for code that could run many times, like loops """
@@ -202,6 +219,7 @@ class Flag(enum.IntEnum):
     pytorch = 32  # points to torch.*
     deferred = 64  # not yet executed
     special = 128  # __ltvm__
+    loop_carry = 256
 
 
 # could optimize this to a bitmask
