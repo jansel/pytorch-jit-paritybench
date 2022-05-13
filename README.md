@@ -37,6 +37,19 @@ python main.py --download
 python main.py --generate-all
 ```
 
+### Download, generate, evaluate 
+You can limit number of github projects to download for testing and running on a smaller set of github repos
+```
+python main.py --download --download-dir <folder path> --limit 10
+```
+You can generate tests for one project folder `-g`. This will extract nn modules from that project and generate a test script `--tests-dir`
+```
+python main.py -g <folder path> --tests-dir <folder path>
+```
+You can evaluate one generated test script `-e` and try export the module to onnx `--onnxdir` 
+```
+python main.py -e <test.py file> --onnxdir <folder path>
+```
 
 
 

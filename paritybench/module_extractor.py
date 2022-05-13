@@ -70,7 +70,7 @@ class PyTorchModuleExtractor(object):
     then test if they function correctly with the JIT.
     """
 
-    def __init__(self, tempdir: str, errors: ErrorAggregatorDict, stats: Stats, output_py: TextIO, name_filter=None):
+    def __init__(self, tempdir: str, errors: ErrorAggregatorDict, stats: Stats, output_py: TextIO, args):
         super(PyTorchModuleExtractor, self).__init__()
         self.errors = errors
         self.stats = stats
@@ -79,16 +79,16 @@ class PyTorchModuleExtractor(object):
 
         self.imports = dict()
         self.constants = []
-        self.nn_module_names = []
+        self.nn_module_names = [] # list of nn modules in the input project
 
         self.available_symbols = dict()
         self.global_config = None
 
         self.testcases = []
-
-        self.name_filter = name_filter
+        self.args = args
 
     def search_file(self, filename: str, open_fn=open):
+        """ get module from filename .py file """
         if not filename.endswith(".py") or '.#' in filename:
             return
 
@@ -97,7 +97,7 @@ class PyTorchModuleExtractor(object):
             if isinstance(source, bytes):
                 source = source.decode('utf-8')
 
-        has_match = bool(NN_MODULE_RE.search(source))
+        has_match = bool(NN_MODULE_RE.search(source)) # there is torch in .py
 
         try:
             tree = self.ast_parse(source, filename)
@@ -115,7 +115,7 @@ class PyTorchModuleExtractor(object):
     @staticmethod
     def ast_parse(source, filename):
         try:
-            return ast.parse(source, filename)
+            return ast.parse(source, filename) # get ast nodes from code
         except SyntaxError:
             # perhaps python2?
             with tempfile.NamedTemporaryFile(mode="wb", suffix=".py") as tmp:
@@ -128,6 +128,7 @@ class PyTorchModuleExtractor(object):
                 return ast.parse(open(tmp.name).read(), filename)
 
     def search_ast(self, tree: ast.AST, overwrite: bool):
+        """get torch classes, import and functions"""
         scope = types.ModuleType("_scope")
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.ClassDef):
@@ -207,14 +208,14 @@ class PyTorchModuleExtractor(object):
         for name in self.nn_module_names:
             statement = self.available_symbols.pop(name, None)
             if statement:
-                self.add_requirements(statement)
+                self.add_requirements(statement) # add what is needed for module
                 try:
                     self.run_statement(statement)
                 except Exception as e:
                     self.errors.record("define", e, getattr(statement, "name", ""))
 
     def run_statement(self, statement):
-        statement = ast.fix_missing_locations(ASTCleanup().visit(statement))
+        statement = ast.fix_missing_locations(ASTCleanup().visit(statement)) # clean ast
         self.output.run_statement(statement, source_required=True)
         name = getattr(statement, "name", None)
         if name:
@@ -261,20 +262,21 @@ class PyTorchModuleExtractor(object):
                 self.test_nn_module(name, value)
 
     def should_test_cls(self, cls):
-        if not isinstance(cls, type):
+        if not isinstance(cls, type): # check if is class
             return False
-        if not issubclass(cls, torch.nn.Module):
+        if not issubclass(cls, torch.nn.Module): # check if is torch module
             return False
         if issubclass(cls, DistributedDataParallel):
             return False
         return self.output.same_module(cls)
 
     def test_nn_module(self, name: str, nn_cls: type):
-        if self.name_filter and self.name_filter not in name:
+        if self.args.filter and self.args.filter not in name:
             return
 
         self.stats["total"] += 1
-        checker = CheckCallableMembers.run(self.name_to_ast.get(name))
+        checker = CheckCallableMembers.run(self.name_to_ast.get(name)) # get modules inside module
+
         try:
             stats, errors, testcases = call_with_timeout(
                 extract_nn_module,
@@ -283,7 +285,8 @@ class PyTorchModuleExtractor(object):
             self.errors.update(errors)
             self.stats.update(stats)
             self.testcases.extend(testcases)
-        except OSError:
+        except OSError as os:
+            log.exception("test_nn_module OS error: {}".format(os))
             self.stats["module_crash"] += 1
         except TimeoutError:
             self.stats["module_timeout"] += 1
@@ -297,11 +300,11 @@ class PyTorchModuleExtractor(object):
             "del sys\n"])
 
         if os.path.isdir(filename):
-            self.search_directory(filename)
+            self.search_directory(filename) # find nn modules, imports, symbols
         else:
             self.search_zipfile(filename)
 
-        self.construct_module()
+        self.construct_module() # run and write ast nodes
         self.test_modules()
         self.write_testcases(basename)
 
@@ -335,7 +338,13 @@ def extract_nn_module(name: str, nn_cls: type, checker, context):
 
 
 def extract_nn_module_inner(name: str, nn_cls: type, checker, stats, errors, testcases):
-    init_signature = inspect.signature(nn_cls)
+    """
+        name: name of the module
+        nn_cls: module class type
+        checker: modules inside nn_cls module
+        mode: what to test module with: ts, onnx, etc
+    """
+    init_signature = inspect.signature(nn_cls) # get args for init of module
     try:
         init_deducer = DeduceParameters(
             nn_cls,
@@ -353,7 +362,7 @@ def extract_nn_module_inner(name: str, nn_cls: type, checker, stats, errors, tes
 
     stats["init_ok"] += 1
 
-    forward_signature = inspect.signature(nn_module.forward)
+    forward_signature = inspect.signature(nn_module.forward) # get args for forward of module
     try:
         forward_deducer = DeduceParameters(
             nn_module,
@@ -366,6 +375,7 @@ def extract_nn_module_inner(name: str, nn_cls: type, checker, stats, errors, tes
 
     try:
         torch.jit.script(nn_module)
+
     except Exception as e:
         testcases.append((
             name,
@@ -422,6 +432,9 @@ class IncrementalModule(object):
         self.output_py.writelines(data)
 
     def run_statement(self, statement, source_required=False):
+        """
+        Runs a ast statement node and writes code into output_py
+        """
         source = to_source(statement)
         if not source_required:
             code = compile(ast.Module([statement], []), "<string>", "exec")

@@ -19,12 +19,14 @@ log = logging.getLogger(__name__)
 class EagerFailed(RuntimeError):
     pass
 
+class OnnxFailed(RuntimeError):
+    pass
 
 class JitFailed(RuntimeError):
     pass
 
 
-def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
+def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, main_args):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
     as eager.
@@ -61,8 +63,16 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
         record_error('run_eager', e)
         raise EagerFailed()
 
+    if main_args.onnxdir:
+        try:
+            onnx_path = "{}/{}.onnx".format(main_args.onnxdir, nn_cls.__name__)
+            torch.onnx.export(nn, *copy.deepcopy(tuple(args)), onnx_path)
+        except Exception as e:
+            record_error('export_onnx', e)
+            raise OnnxFailed()
     try:
         result3 = nn_script(*args, **kwargs)
+
     except Exception as e:
         record_error('run_jit', e)
         raise JitFailed()
@@ -80,7 +90,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error):
     return True
 
 
-def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
+def evaluate_pyfile_subproc(tempdir: str, path: str, args):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -100,7 +110,7 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
     for nn_cls, get_init_args, get_forward_args, compiles in module.TESTCASES:
         index += 1
 
-        if name_filter and name_filter not in nn_cls.__name__:
+        if args.filter and args.filter not in nn_cls.__name__:
             continue
 
         stats["tests"] += 1
@@ -110,12 +120,15 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, name_filter=None):
                 nn_cls,
                 get_init_args,
                 get_forward_args,
-                partial(errors.record, module=repro))
+                partial(errors.record, module=repro),
+                main_args=args)
             stats["tests_passed"] += int(rv)
         except JitFailed:
             pass
         except EagerFailed:
             stats["eager_failed"] += 1
+        except OnnxFailed:
+            pass
 
     stats["tests"] = stats["tests"] - stats["eager_failed"]
     stats["tests_failed"] = stats["tests"] - stats["tests_passed"]
