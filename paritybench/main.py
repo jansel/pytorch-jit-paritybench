@@ -71,7 +71,7 @@ def main():
         return main_one_file(generate_zipfile_subproc, args.generate_one, args)
 
     if args.generate_all:
-        return generate_all(download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
+        return generate_all(args, download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
 
     # args.evaluate_all is the default:
-    return evaluate_all(tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
+    return evaluate_all(args, tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)

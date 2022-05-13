@@ -144,10 +144,9 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
     return errors, stats
 
 
-evaluate_pyfile = partial(subproc_wrapper, fn=evaluate_pyfile_subproc)
 
 
-def evaluate_all(tests_dir: str = './generated', limit: int = None, fn: callable = evaluate_pyfile,
+def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
                  jobs=4):
     """
     Generate a paritybench score, main entrypoint for this module.
@@ -157,6 +156,8 @@ def evaluate_all(tests_dir: str = './generated', limit: int = None, fn: callable
     :param fn: inner function to run the tests
     :param jobs: how many processes to run at once
     """
+    feval = partial(evaluate_pyfile_subproc, args=args)
+    fn = partial(subproc_wrapper, fn=feval)
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()

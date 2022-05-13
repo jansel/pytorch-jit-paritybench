@@ -43,10 +43,9 @@ def generate_zipfile_subproc(tempdir: str, path: str, args):
     return errors, stats
 
 
-generate_zipfile = partial(subproc_wrapper, fn=generate_zipfile_subproc)
 
 
-def generate_all(download_dir, limit=None, jobs=4):
+def generate_all(args, download_dir, limit=None, jobs=4):
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()
@@ -54,6 +53,9 @@ def generate_all(download_dir, limit=None, jobs=4):
                 for f in os.listdir(download_dir)
                 if f.endswith(".zip")]
     zipfiles.sort()
+
+    fgen = partial(generate_zipfile_subproc, args=args)
+    generate_zipfile = partial(subproc_wrapper, fn=fgen)
 
     if limit:
         zipfiles = zipfiles[:limit]
