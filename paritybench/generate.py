@@ -28,19 +28,24 @@ def write_helpers():
         sys.modules["_paritybench_helpers"] = helpers
 
 
-def generate_zipfile_subproc(tempdir: str, path: str, name_filter=None):
+def generate_zipfile_subproc(tempdir: str, path: str, args):
+    '''
+    Args:
+        tempdir: temporary dir
+        path: input path process a .zip file from a github download
+    '''
     errors = ErrorAggregatorDict(path)
     stats = Stats()
-    with open("generated/test_{}.py".format(re.sub(r"([.]zip|/)$", "", os.path.basename(path))), "w") as output_py:
-        extractor = PyTorchModuleExtractor(tempdir, errors, stats, output_py=output_py, name_filter=name_filter)
+    test_path = "{}/test_{}.py".format(args.tests_dir, re.sub(r"([.]zip|/)$", "", os.path.basename(path)))
+    with open(test_path, "w") as output_py:
+        extractor = PyTorchModuleExtractor(tempdir, errors, stats, output_py=output_py, args=args)
         extractor.main(path)
     return errors, stats
 
 
-generate_zipfile = partial(subproc_wrapper, fn=generate_zipfile_subproc)
 
 
-def generate_all(download_dir, limit=None, jobs=4):
+def generate_all(args, download_dir, limit=None, jobs=4):
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()
@@ -48,6 +53,9 @@ def generate_all(download_dir, limit=None, jobs=4):
                 for f in os.listdir(download_dir)
                 if f.endswith(".zip")]
     zipfiles.sort()
+
+    fgen = partial(generate_zipfile_subproc, args=args)
+    generate_zipfile = partial(subproc_wrapper, fn=fgen)
 
     if limit:
         zipfiles = zipfiles[:limit]

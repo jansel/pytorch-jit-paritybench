@@ -12,14 +12,12 @@ from paritybench.utils import subproc_wrapper, tempdir_wrapper
 
 log = logging.getLogger(__name__)
 
-
 def main_one_file(fn, path, args):
     if ':' in path and not args.filter:
         path, args.filter = path.split(':', 2)
-    assert os.path.isfile(path)
+    assert os.path.isfile(path) or os.path.isdir(path)
 
-    if args.filter:
-        fn = partial(fn, name_filter=args.filter)
+    fn = partial(fn, args=args)
 
     if not args.no_fork:
         wrapper = subproc_wrapper
@@ -32,10 +30,7 @@ def main_one_file(fn, path, args):
     log.info(f"Stats: {stats}")
     return
 
-
-def main():
-    assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
-    logging.basicConfig(level=logging.INFO)
+def get_args():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--download", action="store_true", help="[SLOW:days] crawl and download top github projects")
@@ -51,14 +46,21 @@ def main():
     parser.add_argument("--no-fork", action="store_true", help="don't run *-one test in a subprocess")
     parser.add_argument("--memory-limit-gb", type=int, default=10)
 
-    parser.add_argument("--download-dir", default="./paritybench_download", help="./paritybench_download")
-    parser.add_argument("--tests-dir", default="./generated", help="./generated")
+    parser.add_argument("--onnxdir", type=str, help="dir where to export modules to onnx during evaluate")
+    parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
+    parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
     args = parser.parse_args()
+    return args
+
+def main():
+    assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
+    logging.basicConfig(level=logging.INFO)
+    args = get_args()
 
     os.environ["RLIMIT_AS_GB"] = str(args.memory_limit_gb)
 
     if args.download:
-        return CrawlGitHub(args.download_dir).download()
+        return CrawlGitHub(args.download_dir, max_count=args.limit).download()
 
     write_helpers()
 
@@ -69,7 +71,7 @@ def main():
         return main_one_file(generate_zipfile_subproc, args.generate_one, args)
 
     if args.generate_all:
-        return generate_all(download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
+        return generate_all(args, download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
 
     # args.evaluate_all is the default:
-    return evaluate_all(tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
+    return evaluate_all(args, tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)

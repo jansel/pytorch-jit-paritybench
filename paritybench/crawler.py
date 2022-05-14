@@ -14,9 +14,10 @@ class CrawlGitHub(object):
     Download projects from github with 100+ stars and the word "pytorch"
     """
 
-    def __init__(self, download_dir):
+    def __init__(self, download_dir, max_count=None):
         super(CrawlGitHub, self).__init__()
         self.download_dir = download_dir
+        self.max_count = max_count # max number of projects to download
 
     def github_search(self):
         base = "https://api.github.com/search/repositories?per_page=100&sort=stars"
@@ -33,13 +34,15 @@ class CrawlGitHub(object):
                 assert not result['incomplete_results']
                 for project in result["items"]:
                     name = project["full_name"]
+                    if self.max_count and len(seen) >= self.max_count:
+                        return
                     if name not in seen:
                         seen.add(name)
                         yield project
                 total_count = result['total_count']
                 log.info(f"total_count={total_count} seen={len(seen)} page={page} {order}")
                 page += 1
-                if len(result["items"]) == 0 or len(seen) >= total_count:
+                if len(result["items"]) == 0 or len(seen) >= total_count or (self.max_count and len(seen) >= self.max_count):
                     return
                 if page == 11:
                     break  # not allowed by API
