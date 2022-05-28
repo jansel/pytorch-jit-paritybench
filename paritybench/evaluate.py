@@ -13,6 +13,12 @@ from torch.testing._internal.jit_utils import JitTestCase
 from paritybench.reporting import ErrorAggregatorDict, Stats
 from paritybench.utils import import_file, subproc_wrapper
 
+try:
+    import torchdynamo
+    from paritybench.compile import compile_functions, torchdynamo_en
+except:
+    pass
+
 log = logging.getLogger(__name__)
 
 
@@ -49,11 +55,13 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     except Exception:
         pass
 
-    try:
-        nn_script = torch.jit.script(nn)
-    except Exception as e:
-        record_error('compile', e)
-        raise JitFailed()
+    nn_script = None
+    if not torchdynamo_en or main_args.compile_mode == 'torchscript':
+        try:
+            nn_script = torch.jit.script(nn)
+        except Exception as e:
+            record_error('compile', e)
+            raise JitFailed()
 
     try:
         args, kwargs = get_forward_args()
@@ -70,11 +78,20 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         except Exception as e:
             record_error('export_onnx', e)
             raise OnnxFailed()
+
     try:
-        result3 = nn_script(*args, **kwargs)
+        if nn_script:
+            result3 = nn_script(*args, **kwargs)
+        elif main_args.compile_mode == 'fxgraph_draw':
+            graph_path = "{}/{}".format(main_args.tests_dir, nn_cls.__name__)
+            with torchdynamo.optimize(compile_functions[main_args.compile_mode](graph_path)):
+                result3 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        else:
+            with torchdynamo.optimize(compile_functions[main_args.compile_mode]):
+                result3 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
 
     except Exception as e:
-        record_error('run_jit', e)
+        record_error('run_jit {} '.format(main_args.compile_mode), e)
         raise JitFailed()
 
     try:

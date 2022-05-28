@@ -9,6 +9,7 @@ from paritybench.evaluate import evaluate_all, evaluate_pyfile_subproc
 from paritybench.generate import generate_all, generate_zipfile_subproc
 from paritybench.generate import write_helpers
 from paritybench.utils import subproc_wrapper, tempdir_wrapper
+from paritybench.compile import compile_functions
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def main_one_file(fn, path, args):
     log.info(f"Stats: {stats}")
     return
 
-def get_args():
+def get_args(raw_args=None):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--download", action="store_true", help="[SLOW:days] crawl and download top github projects")
@@ -47,15 +48,19 @@ def get_args():
     parser.add_argument("--memory-limit-gb", type=int, default=10)
 
     parser.add_argument("--onnxdir", type=str, help="dir where to export modules to onnx during evaluate")
+    parser.add_argument("--compile_mode", default="torchscript", type=str, help="choose a mode of compilation: {}".format(list(compile_functions.keys())))
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
     parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
+    if not args.compile_mode in compile_functions.keys():
+        parser.print_help()
+        exit(1)
     return args
 
-def main():
+def main(raw_args=None):
     assert sys.version_info >= (3, 8), "Python 3.8+ required, got: {}".format(sys.version)
     logging.basicConfig(level=logging.INFO)
-    args = get_args()
+    args = get_args(raw_args)
 
     os.environ["RLIMIT_AS_GB"] = str(args.memory_limit_gb)
 

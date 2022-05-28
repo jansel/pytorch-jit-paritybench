@@ -14,14 +14,18 @@ class CrawlGitHub(object):
     Download projects from github with 100+ stars and the word "pytorch"
     """
 
-    def __init__(self, download_dir, max_count=None):
+    def __init__(self, download_dir, max_count=None, query=""):
         super(CrawlGitHub, self).__init__()
         self.download_dir = download_dir
         self.max_count = max_count # max number of projects to download
+        self.usr_query = query
 
     def github_search(self):
         base = "https://api.github.com/search/repositories?per_page=100&sort=stars"
         query = "pytorch+language:Python+stars:>100+size:<100000"
+        if self.usr_query != "":
+            query = self.usr_query
+
         seen = set()
         # both orders gets us 20 pages (past 10 limit), need 12 for current query
         for order in ("desc", "asc"):
