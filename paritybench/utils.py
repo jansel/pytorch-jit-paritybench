@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import re
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import time
 import types
+import torch
 
 from torch import multiprocessing
 
@@ -97,3 +99,19 @@ def tempdir_wrapper(path: str, fn: callable):
     log.info(f"Running {path}")
     with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
         return fn(tempdir, path)
+
+
+def wrap_args(args, device="cuda"):
+    device = torch.device(device)
+    return [x.to(device) if isinstance(x, torch.Tensor) else x for x in copy.deepcopy(args)]
+
+
+def wrap_kwargs(kwargs, device="cuda"):
+    device = torch.device(device)
+    wrapped_kwargs = {}
+    for k, v in kwargs.items():
+        if isinstance(v, torch.Tensor):
+            wrapped_kwargs.update({k: v.clone().to(device)})
+        else:
+            wrapped_kwargs.update({k: copy.deepcopy(v)})
+    return wrapped_kwargs
