@@ -183,7 +183,6 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
                  if re.search(r"test_.*[.]py$", f)]
     testfiles.sort()
 
-    torch.multiprocessing.set_start_method('spawn')
     if limit:
         testfiles = testfiles[:limit]
 
