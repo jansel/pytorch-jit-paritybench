@@ -11,7 +11,7 @@ import torch._dynamo
 from torch.testing._internal.jit_utils import JitTestCase
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
-from paritybench.utils import import_file, subproc_wrapper, wrap_args, wrap_kwargs
+from paritybench.utils import import_file, subproc_wrapper, wrap_args, wrap_kwargs, SKIP
 
 
 log = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     return True
 
 
-def evaluate_pyfile_subproc(tempdir: str, path: str, args):
+def evaluate_pyfile_subproc(tempdir: str, path: str, args, skiplist):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -125,6 +125,9 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
         index += 1
 
         if args.filter and args.filter not in nn_cls.__name__:
+            continue
+
+        if f"{path}:{nn_cls.__name__}" in skiplist:
             continue
 
         stats["tests"] += 1
@@ -170,7 +173,7 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
     :param fn: inner function to run the tests
     :param jobs: how many processes to run at once
     """
-    feval = partial(evaluate_pyfile_subproc, args=args)
+    feval = partial(evaluate_pyfile_subproc, args=args, skiplist=SKIP)
     fn = partial(subproc_wrapper, fn=feval)
     start = time.time()
     stats = Stats()
@@ -179,8 +182,8 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
                  for f in os.listdir(tests_dir)
                  if re.search(r"test_.*[.]py$", f)]
     testfiles.sort()
-    torch.multiprocessing.set_start_method('spawn')
 
+    torch.multiprocessing.set_start_method('spawn')
     if limit:
         testfiles = testfiles[:limit]
 

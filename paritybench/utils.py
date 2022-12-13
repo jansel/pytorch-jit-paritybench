@@ -115,3 +115,19 @@ def wrap_kwargs(kwargs, device="cuda"):
         else:
             wrapped_kwargs.update({k: copy.deepcopy(v)})
     return wrapped_kwargs
+
+
+SKIP_DYNAMO_EAGER = [
+    "./generated/test_lyakaap_pytorch_template.py:ASP_OC_Module",  # legacy torch.autograd.Variable
+    "./generated/test_Ha0Tang_GestureGAN.py:GANLoss",  # nn.module.__call__, no plan to support yet
+    "./generated/test_Luodian_MADAN.py:GANLoss",
+    "./generated/test_Yijunmaverick_CartoonGAN_Test_Pytorch_Torch.py:InstanceNormalization",
+    "./generated/test_amjltc295_Free_Form_Video_Inpainting.py:AdversarialLoss",
+    "./generated/test_knazeri_edge_connect.py:AdversarialLoss",
+    "./generated/test_mrzhu_cool_pix2pix_pytorch.py:GANLoss",
+    "./generated/test_richzhang_colorization_pytorch.py:GANLoss",
+    "./generated/test_yiranran_APDrawingGAN.py:GANLoss",
+    "./generated/test_youyuge34_Anime_InPainting.py:AdversarialLoss",
+]
+SKIP_INDUCTOR = []
+SKIP = SKIP_DYNAMO_EAGER + SKIP_INDUCTOR
