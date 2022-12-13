@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import re
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import time
 import types
+import torch
 
 from torch import multiprocessing
 
@@ -97,3 +99,35 @@ def tempdir_wrapper(path: str, fn: callable):
     log.info(f"Running {path}")
     with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
         return fn(tempdir, path)
+
+
+def wrap_args(args, device="cuda"):
+    device = torch.device(device)
+    return [x.to(device) if isinstance(x, torch.Tensor) else x for x in copy.deepcopy(args)]
+
+
+def wrap_kwargs(kwargs, device="cuda"):
+    device = torch.device(device)
+    wrapped_kwargs = {}
+    for k, v in kwargs.items():
+        if isinstance(v, torch.Tensor):
+            wrapped_kwargs.update({k: v.clone().to(device)})
+        else:
+            wrapped_kwargs.update({k: copy.deepcopy(v)})
+    return wrapped_kwargs
+
+
+SKIP_DYNAMO_EAGER = [
+    "./generated/test_lyakaap_pytorch_template.py:ASP_OC_Module",  # legacy torch.autograd.Variable
+    "./generated/test_Ha0Tang_GestureGAN.py:GANLoss",  # nn.module.__call__, no plan to support yet
+    "./generated/test_Luodian_MADAN.py:GANLoss",
+    "./generated/test_Yijunmaverick_CartoonGAN_Test_Pytorch_Torch.py:InstanceNormalization",
+    "./generated/test_amjltc295_Free_Form_Video_Inpainting.py:AdversarialLoss",
+    "./generated/test_knazeri_edge_connect.py:AdversarialLoss",
+    "./generated/test_mrzhu_cool_pix2pix_pytorch.py:GANLoss",
+    "./generated/test_richzhang_colorization_pytorch.py:GANLoss",
+    "./generated/test_yiranran_APDrawingGAN.py:GANLoss",
+    "./generated/test_youyuge34_Anime_InPainting.py:AdversarialLoss",
+]
+SKIP_INDUCTOR = []
+SKIP = SKIP_DYNAMO_EAGER + SKIP_INDUCTOR

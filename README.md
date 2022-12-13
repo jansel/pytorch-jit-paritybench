@@ -50,12 +50,17 @@ You can evaluate one generated test script `-e` and try export the module to onn
 ```
 python main.py -e <test.py file> --onnxdir <folder path>
 ```
-You can evaluate using different compiler backends provided in [torchdynamo](https://github.com/pytorch/torchdynamo) or add your own backend in [compile.py](paritybench/compile.py)
-
-You will have to install [torchdynamo](https://github.com/pytorch/torchdynamo), [functorch](https://github.com/pytorch/functorch) and the packages related to the backend you want to use. e.g: tvm, onnxruntime, etc.
-
+You can evaluate using different compile mode, e.g, `dynamo`(default) or `torchscript`.
 ```
-python main.py -e <test.py file> --compile_mode "mode"
+python main.py -e <test.py file> --compile_mode dynamo
+```
+You can evaluate using different dynamo backends provided in `torch._dynamo`, please refer `torch._dynamo.list_backends()`.
+```
+python main.py -e <test.py file> --backend eager
+```
+You can evaluate using `cuda`(default) or `cpu`.
+```
+python main.py -e <test.py file> --device cuda
 ```
 
 

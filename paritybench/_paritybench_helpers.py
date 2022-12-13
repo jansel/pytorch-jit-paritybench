@@ -5,7 +5,10 @@ import unittest
 from functools import lru_cache
 
 import torch
+import torch._dynamo
 from torch.testing._internal.jit_utils import JitTestCase
+
+from paritybench.utils import wrap_args, wrap_kwargs
 
 
 class DummyBlock(torch.nn.ReLU):
@@ -54,26 +57,35 @@ class _paritybench_base(JitTestCase):
         args, kwargs = init_args()
         script = module(*args, **kwargs)
 
+        device = torch.device("cuda")
         try:
             script.eval()
+            script.to(device)
         except:
             pass
 
         args, kwargs = forward_args()
-        result1 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-        result2 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        args = wrap_args(args, device)
+        kwargs = wrap_kwargs(kwargs, device)
+
+        result1 = script(*args, **kwargs)
+        result2 = script(*args, **kwargs)
         if os.environ.get('TEST_PY_ONLY'):
             return
 
         if os.environ.get('TEST_WORKING_ONLY') and not compiles:
             raise unittest.SkipTest("jit compile fails")
 
-        jit_script = torch.jit.script(script)
+        if not os.environ.get('TEST_TORCHSCRIPT'):  # test dynamo by default
+            torch._dynamo.reset()
+            compiled_model = torch._dynamo.optimize("inductor")(script)
+        else:
+            compiled_model = torch.jit.script(script)
 
         if os.environ.get('TEST_COMPILE_ONLY'):
             return
 
-        result3 = jit_script(*args, **kwargs)
+        result3 = compiled_model(*args, **kwargs)
 
         if os.environ.get('TEST_RUN_ONLY'):
             return

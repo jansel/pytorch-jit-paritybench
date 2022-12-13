@@ -2,14 +2,15 @@ import argparse
 import logging
 import os
 import sys
+import torch
+import torch._dynamo
 from functools import partial
 
 from paritybench.crawler import CrawlGitHub
 from paritybench.evaluate import evaluate_all, evaluate_pyfile_subproc
 from paritybench.generate import generate_all, generate_zipfile_subproc
 from paritybench.generate import write_helpers
-from paritybench.utils import subproc_wrapper, tempdir_wrapper
-from paritybench.compile import compile_functions
+from paritybench.utils import subproc_wrapper, tempdir_wrapper, SKIP
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def main_one_file(fn, path, args):
         path, args.filter = path.split(':', 2)
     assert os.path.isfile(path) or os.path.isdir(path)
 
-    fn = partial(fn, args=args)
+    fn = partial(fn, args=args, skiplist=SKIP)
 
     if not args.no_fork:
         wrapper = subproc_wrapper
@@ -48,13 +49,12 @@ def get_args(raw_args=None):
     parser.add_argument("--memory-limit-gb", type=int, default=10)
 
     parser.add_argument("--onnxdir", type=str, help="dir where to export modules to onnx during evaluate")
-    parser.add_argument("--compile_mode", default="torchscript", type=str, help="choose a mode of compilation: {}".format(list(compile_functions.keys())))
+    parser.add_argument("--compile_mode", default="dynamo", type=str, help="choose a mode of compilation: dynamo or torchscript")
+    parser.add_argument("--backend", default="inductor", type=str, help="dynamo backends: {}".format(torch._dynamo.list_backends()))
+    parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu")
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
     parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
     args = parser.parse_args(raw_args)
-    if not args.compile_mode in compile_functions.keys():
-        parser.print_help()
-        exit(1)
     return args
 
 def main(raw_args=None):
@@ -68,6 +68,7 @@ def main(raw_args=None):
         return CrawlGitHub(args.download_dir, max_count=args.limit).download()
 
     write_helpers()
+    torch.multiprocessing.set_start_method('spawn')
 
     if args.evaluate_one:
         return main_one_file(evaluate_pyfile_subproc, args.evaluate_one, args)

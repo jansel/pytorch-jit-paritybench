@@ -1,4 +1,3 @@
-import copy
 import logging
 import os
 import re
@@ -8,16 +7,12 @@ from multiprocessing.pool import ThreadPool
 
 import pandas as pd
 import torch
+import torch._dynamo
 from torch.testing._internal.jit_utils import JitTestCase
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
-from paritybench.utils import import_file, subproc_wrapper
+from paritybench.utils import import_file, subproc_wrapper, wrap_args, wrap_kwargs, SKIP
 
-try:
-    import torchdynamo
-    from paritybench.compile import compile_functions, torchdynamo_en
-except:
-    pass
 
 log = logging.getLogger(__name__)
 
@@ -50,23 +45,28 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         record_error('init', e)
         raise EagerFailed()
 
+    device = torch.device(main_args.device)
+
     try:
         nn.eval()
+        nn.to(device)
     except Exception:
         pass
 
     nn_script = None
-    if not torchdynamo_en or main_args.compile_mode == 'torchscript':
+    if main_args.compile_mode == 'torchscript':
         try:
             nn_script = torch.jit.script(nn)
         except Exception as e:
-            record_error('compile', e)
+            record_error('compile {}'.format(main_args.compile_mode), e)
             raise JitFailed()
 
     try:
         args, kwargs = get_forward_args()
-        result1 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-        result2 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        args = wrap_args(args, device)
+        kwargs = wrap_kwargs(kwargs, device)
+        result1 = nn(*args, **kwargs)
+        result2 = nn(*args, **kwargs)
     except Exception as e:
         record_error('run_eager', e)
         raise EagerFailed()
@@ -74,7 +74,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     if main_args.onnxdir:
         try:
             onnx_path = "{}/{}.onnx".format(main_args.onnxdir, nn_cls.__name__)
-            torch.onnx.export(nn, *copy.deepcopy(tuple(args)), onnx_path)
+            torch.onnx.export(nn, *args, onnx_path)
         except Exception as e:
             record_error('export_onnx', e)
             raise OnnxFailed()
@@ -82,13 +82,10 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
-        elif main_args.compile_mode == 'fxgraph_draw':
-            graph_path = "{}/{}".format(main_args.tests_dir, nn_cls.__name__)
-            with torchdynamo.optimize(compile_functions[main_args.compile_mode](graph_path)):
-                result3 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
         else:
-            with torchdynamo.optimize(compile_functions[main_args.compile_mode]):
-                result3 = nn(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+            torch._dynamo.reset()
+            compiled_model = torch._dynamo.optimize(main_args.backend)(nn)
+            result3 = compiled_model(*args, **kwargs)
 
     except Exception as e:
         record_error('run_jit {} '.format(main_args.compile_mode), e)
@@ -107,7 +104,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     return True
 
 
-def evaluate_pyfile_subproc(tempdir: str, path: str, args):
+def evaluate_pyfile_subproc(tempdir: str, path: str, args, skiplist):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -128,6 +125,9 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
         index += 1
 
         if args.filter and args.filter not in nn_cls.__name__:
+            continue
+
+        if f"{path}:{nn_cls.__name__}" in skiplist:
             continue
 
         stats["tests"] += 1
@@ -173,7 +173,7 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
     :param fn: inner function to run the tests
     :param jobs: how many processes to run at once
     """
-    feval = partial(evaluate_pyfile_subproc, args=args)
+    feval = partial(evaluate_pyfile_subproc, args=args, skiplist=SKIP)
     fn = partial(subproc_wrapper, fn=feval)
     start = time.time()
     stats = Stats()
