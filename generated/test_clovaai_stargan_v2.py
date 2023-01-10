@@ -205,7 +205,7 @@ class HighPass(nn.Module):
 
     def __init__(self, w_hpf, device):
         super(HighPass, self).__init__()
-        self.filter = torch.tensor([[-1, -1, -1], [-1, 8.0, -1], [-1, -1, -1]]) / w_hpf
+        self.register_buffer('filter', torch.tensor([[-1, -1, -1], [-1, 8.0, -1], [-1, -1, -1]]) / w_hpf)
 
     def forward(self, x):
         filter = self.filter.unsqueeze(0).unsqueeze(1).repeat(x.size(1), 1, 1, 1)
@@ -339,10 +339,11 @@ class Discriminator(nn.Module):
 
 class CheckpointIO(object):
 
-    def __init__(self, fname_template, **kwargs):
+    def __init__(self, fname_template, data_parallel=False, **kwargs):
         os.makedirs(os.path.dirname(fname_template), exist_ok=True)
         self.fname_template = fname_template
         self.module_dict = kwargs
+        self.data_parallel = data_parallel
 
     def register(self, **kwargs):
         self.module_dict.update(kwargs)
@@ -352,7 +353,10 @@ class CheckpointIO(object):
         None
         outdict = {}
         for name, module in self.module_dict.items():
-            outdict[name] = module.state_dict()
+            if self.data_parallel:
+                outdict[name] = module.module.state_dict()
+            else:
+                outdict[name] = module.state_dict()
         torch.save(outdict, fname)
 
     def load(self, step):
@@ -364,7 +368,10 @@ class CheckpointIO(object):
         else:
             module_dict = torch.load(fname, map_location=torch.device('cpu'))
         for name, module in self.module_dict.items():
-            module.load_state_dict(module_dict[name])
+            if self.data_parallel:
+                module.module.load_state_dict(module_dict[name])
+            else:
+                module.load_state_dict(module_dict[name])
 
 
 class InputFetcher:
@@ -545,7 +552,7 @@ def get_preds_fromhm(hm):
     preds[..., 1].add_(-1).div_(hm.size(2)).floor_().add_(1)
     for i in range(preds.size(0)):
         for j in range(preds.size(1)):
-            hm_ = hm[(i), (j), :]
+            hm_ = hm[i, j, :]
             pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
             if pX > 0 and pX < 63 and pY > 0 and pY < 63:
                 diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1], hm_[pY + 1, pX] - hm_[pY - 1, pX]])
@@ -583,7 +590,7 @@ def shift(x, N):
         head = torch.arange(N) + (H - N)
         tail = torch.arange(H - N)
     perm = torch.cat([head, tail])
-    out = x[:, :, (perm), :]
+    out = x[:, :, perm, :]
     return out
 
 
@@ -603,7 +610,7 @@ def preprocess(x):
         start, end = index_map[part]
         x[:, start:end] = resize(shift(x[:, start:end], ops.shift), ops.resize)
     zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.arange(index_map.chin.end, 33), torch.LongTensor([index_map.eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.lipedges.start, index_map.lipedges.end])])
-    x[:, (zero_out)] = 0
+    x[:, zero_out] = 0
     start, end = index_map.nose
     x[:, start + 1:end] = shift(x[:, start + 1:end], 4 * sw)
     x[:, start:end] = resize(x[:, start:end], 1)
@@ -695,17 +702,18 @@ class FAN(nn.Module):
 
 
 def build_model(args):
-    generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
-    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
-    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
-    discriminator = Discriminator(args.img_size, args.num_domains)
+    generator = nn.DataParallel(Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf))
+    mapping_network = nn.DataParallel(MappingNetwork(args.latent_dim, args.style_dim, args.num_domains))
+    style_encoder = nn.DataParallel(StyleEncoder(args.img_size, args.style_dim, args.num_domains))
+    discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains))
     generator_ema = copy.deepcopy(generator)
     mapping_network_ema = copy.deepcopy(mapping_network)
     style_encoder_ema = copy.deepcopy(style_encoder)
     nets = Munch(generator=generator, mapping_network=mapping_network, style_encoder=style_encoder, discriminator=discriminator)
     nets_ema = Munch(generator=generator_ema, mapping_network=mapping_network_ema, style_encoder=style_encoder_ema)
     if args.w_hpf > 0:
-        fan = FAN(fname_pretrained=args.wing_path).eval()
+        fan = nn.DataParallel(FAN(fname_pretrained=args.wing_path).eval())
+        fan.get_heatmap = fan.module.get_heatmap
         nets.fan = fan
         nets_ema.fan = fan
     return nets, nets_ema
@@ -1042,9 +1050,9 @@ class Solver(nn.Module):
                 if net == 'fan':
                     continue
                 self.optims[net] = torch.optim.Adam(params=self.nets[net].parameters(), lr=args.f_lr if net == 'mapping_network' else args.lr, betas=[args.beta1, args.beta2], weight_decay=args.weight_decay)
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets.ckpt'), **self.nets), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'), **self.optims)]
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets.ckpt'), data_parallel=True, **self.nets), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), data_parallel=True, **self.nets_ema), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'), **self.optims)]
         else:
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema)]
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), data_parallel=True, **self.nets_ema)]
         self
         for name, network in self.named_children():
             if 'ema' not in name and 'fan' not in name:
@@ -1161,10 +1169,6 @@ TESTCASES = [
      lambda: ([], {'style_dim': 4, 'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
      True),
-    (AddCoordsTh,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
     (AlexNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1177,26 +1181,14 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CoordConvTh,
-     lambda: ([], {'height': 4, 'width': 4, 'with_r': 4, 'with_boundary': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 6, 4, 4])], {}),
-     False),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256]), torch.ones([4], dtype=torch.int64)], {}),
-     False),
-    (FAN,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
      False),
     (HighPass,
      lambda: ([], {'w_hpf': 4, 'device': 0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (HourGlass,
-     lambda: ([], {'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}),
-     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 64, 64])], {}),
-     False),
     (InceptionV3,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 128, 128])], {}),
@@ -1238,16 +1230,4 @@ class Test_clovaai_stargan_v2(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

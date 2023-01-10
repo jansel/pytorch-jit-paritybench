@@ -97,7 +97,7 @@ class CharBiGRU(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
+            pretrain_emb[index, :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -162,7 +162,7 @@ class CharBiLSTM(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
+            pretrain_emb[index, :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -225,7 +225,7 @@ class CharCNN(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
+            pretrain_emb[index, :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -291,10 +291,10 @@ class CRF(nn.Module):
         self.gpu = gpu
         self.tagset_size = tagset_size
         init_transitions = torch.zeros(self.tagset_size + 2, self.tagset_size + 2)
-        init_transitions[:, (START_TAG)] = -10000.0
-        init_transitions[(STOP_TAG), :] = -10000.0
-        init_transitions[:, (0)] = -10000.0
-        init_transitions[(0), :] = -10000.0
+        init_transitions[:, START_TAG] = -10000.0
+        init_transitions[STOP_TAG, :] = -10000.0
+        init_transitions[:, 0] = -10000.0
+        init_transitions[0, :] = -10000.0
         if self.gpu:
             init_transitions = init_transitions
         self.transitions = nn.Parameter(init_transitions)
@@ -316,17 +316,17 @@ class CRF(nn.Module):
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (START_TAG), :].clone().view(batch_size, tag_size, 1)
+        partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size, 1)
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
-            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size, tag_size)
+            mask_idx = mask[idx, :].view(batch_size, 1).expand(batch_size, tag_size)
             masked_cur_partition = cur_partition.masked_select(mask_idx)
             mask_idx = mask_idx.contiguous().view(batch_size, tag_size, 1)
             partition.masked_scatter_(mask_idx, masked_cur_partition)
         cur_values = self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
-        final_partition = cur_partition[:, (STOP_TAG)]
+        final_partition = cur_partition[:, STOP_TAG]
         return final_partition.sum(), scores
 
     def _viterbi_decode(self, feats, mask):
@@ -351,9 +351,9 @@ class CRF(nn.Module):
         seq_iter = enumerate(scores)
         back_points = list()
         partition_history = list()
-        mask = (1 - mask.long()).byte()
+        mask = (1 - mask.long()).bool()
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (START_TAG), :].clone().view(batch_size, tag_size)
+        partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size)
         partition_history.append(partition)
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
@@ -371,7 +371,7 @@ class CRF(nn.Module):
             pad_zero = pad_zero
         back_points.append(pad_zero)
         back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size)
-        pointer = last_bp[:, (STOP_TAG)]
+        pointer = last_bp[:, STOP_TAG]
         insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(batch_size, 1, tag_size)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
@@ -408,10 +408,10 @@ class CRF(nn.Module):
             new_tags = new_tags
         for idx in range(seq_len):
             if idx == 0:
-                new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
+                new_tags[:, 0] = (tag_size - 2) * tag_size + tags[:, 0]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
-        end_transition = self.transitions[:, (STOP_TAG)].contiguous().view(1, tag_size).expand(batch_size, tag_size)
+                new_tags[:, idx] = tags[:, idx - 1] * tag_size + tags[:, idx]
+        end_transition = self.transitions[:, STOP_TAG].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         end_ids = torch.gather(tags, 1, length_mask - 1)
         end_energy = torch.gather(end_transition, 1, end_ids)
@@ -450,9 +450,9 @@ class CRF(nn.Module):
         seq_iter = enumerate(scores)
         back_points = list()
         partition_history = list()
-        mask = (1 - mask.long()).byte()
+        mask = (1 - mask.long()).bool()
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (START_TAG), :].clone()
+        partition = inivalues[:, START_TAG, :].clone()
         partition_history.append(partition.view(batch_size, tag_size, 1).expand(batch_size, tag_size, nbest))
         for idx, cur_values in seq_iter:
             if idx == 1:
@@ -480,7 +480,7 @@ class CRF(nn.Module):
             pad_zero = pad_zero
         back_points.append(pad_zero)
         back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size, nbest)
-        pointer = end_bp[:, (STOP_TAG), :]
+        pointer = end_bp[:, STOP_TAG, :]
         insert_last = pointer.contiguous().view(batch_size, 1, 1, nbest).expand(batch_size, 1, tag_size, nbest)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
@@ -501,7 +501,7 @@ class CRF(nn.Module):
             pointer = new_pointer + pointer.contiguous().view(batch_size, nbest) * mask[idx].view(batch_size, 1).expand(batch_size, nbest).long()
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)
-        scores = end_partition[:, :, (STOP_TAG)]
+        scores = end_partition[:, :, STOP_TAG]
         max_scores, _ = torch.max(scores, 1)
         minus_scores = scores - max_scores.view(batch_size, 1).expand(batch_size, nbest)
         path_score = F.softmax(minus_scores, 1)
@@ -562,7 +562,7 @@ class WordRep(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
+            pretrain_emb[index, :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover):

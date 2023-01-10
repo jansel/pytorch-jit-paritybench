@@ -84,7 +84,7 @@ class SpeechEmbedder(nn.Module):
         mels = mel.unfold(1, self.hp.embedder.window, self.hp.embedder.stride)
         mels = mels.permute(1, 2, 0)
         x, _ = self.lstm(mels)
-        x = x[:, (-1), :]
+        x = x[:, -1, :]
         x = self.proj(x)
         x = x / torch.norm(x, p=2, dim=1, keepdim=True)
         x = x.sum(0) / x.size(0)

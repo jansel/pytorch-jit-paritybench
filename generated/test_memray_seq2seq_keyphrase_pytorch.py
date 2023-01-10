@@ -566,7 +566,7 @@ class Seq2SeqLSTMAttention(nn.Module):
             Word Sampling
             (1) Feedforwarding RNN
             """
-            trg_input = trg_inputs[:, (0)].unsqueeze(1)
+            trg_input = trg_inputs[:, 0].unsqueeze(1)
             decoder_log_probs = []
             decoder_outputs = []
             attn_weights = []
@@ -599,7 +599,7 @@ class Seq2SeqLSTMAttention(nn.Module):
                 Prepare for the next iteration
                 """
                 if self.do_teacher_forcing():
-                    trg_input = trg_inputs[:, (di + 1)].unsqueeze(1)
+                    trg_input = trg_inputs[:, di + 1].unsqueeze(1)
                 else:
                     top_v, top_idx = decoder_log_prob.data.topk(1, dim=-1)
                     top_idx[top_idx >= self.vocab_size] = self.unk_word
@@ -807,7 +807,7 @@ class Seq2SeqLSTMAttention(nn.Module):
             decoder_log_probs = torch.nn.functional.log_softmax(decoder_logits, dim=-1).view(batch_size, max_length, self.vocab_size)
             decoder_outputs = decoder_outputs.permute(1, 0, 2)
         else:
-            trg_input = trg_inputs[:, (0)].unsqueeze(1)
+            trg_input = trg_inputs[:, 0].unsqueeze(1)
             decoder_log_probs = []
             decoder_outputs = []
             attn_weights = []

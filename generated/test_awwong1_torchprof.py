@@ -6,6 +6,7 @@ tests = _module
 test_profile = _module
 test_set_paths = _module
 torchprof = _module
+display = _module
 profile = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -37,17 +38,20 @@ import torch
 import torchvision
 
 
-import functools
-
-
-import torch.autograd.profiler as tprofiler
+from collections import OrderedDict
 
 
 from collections import namedtuple
 
 
+import torch.autograd.profiler as torch_profiler
+
+
+import functools
+
+
+import warnings
+
+
 from collections import defaultdict
-
-
-from collections import OrderedDict
 

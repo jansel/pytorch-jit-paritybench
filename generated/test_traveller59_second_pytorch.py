@@ -703,8 +703,8 @@ class PillarFeatureNetOld(nn.Module):
         points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
         f_cluster = features[:, :, :3] - points_mean
         f_center = features[:, :, :2]
-        f_center[:, :, (0)] = f_center[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
-        f_center[:, :, (1)] = f_center[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        f_center[:, :, 0] = f_center[:, :, 0] - (coors[:, 3].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, 1] = f_center[:, :, 1] - (coors[:, 2].unsqueeze(1) * self.vy + self.y_offset)
         features_ls = [features, f_cluster, f_center]
         if self._with_distance:
             points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
@@ -762,8 +762,8 @@ class PillarFeatureNet(nn.Module):
         points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
         f_cluster = features[:, :, :3] - points_mean
         f_center = torch.zeros_like(features[:, :, :2])
-        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
-        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        f_center[:, :, 0] = features[:, :, 0] - (coors[:, 3].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, 1] = features[:, :, 1] - (coors[:, 2].unsqueeze(1) * self.vy + self.y_offset)
         features_ls = [features, f_cluster, f_center]
         if self._with_distance:
             points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
@@ -822,8 +822,8 @@ class PillarFeatureNetRadius(nn.Module):
         points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
         f_cluster = features[:, :, :3] - points_mean
         f_center = torch.zeros_like(features[:, :, :2])
-        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
-        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        f_center[:, :, 0] = features[:, :, 0] - (coors[:, 3].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, 1] = features[:, :, 1] - (coors[:, 2].unsqueeze(1) * self.vy + self.y_offset)
         features_radius = torch.norm(features[:, :, :2], p=2, dim=2, keepdim=True)
         features_radius = torch.cat([features_radius, features[:, :, 2:]], dim=2)
         features_ls = [features_radius, f_cluster, f_center]
@@ -889,8 +889,8 @@ class PillarFeatureNetRadiusHeight(nn.Module):
         f_height = torch.zeros_like(features[:, :, :1])
         f_height[:] = pp_height
         f_center = torch.zeros_like(features[:, :, :2])
-        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
-        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        f_center[:, :, 0] = features[:, :, 0] - (coors[:, 3].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, 1] = features[:, :, 1] - (coors[:, 2].unsqueeze(1) * self.vy + self.y_offset)
         features_radius = torch.norm(features[:, :, :2], p=2, dim=2, keepdim=True)
         features_radius = torch.cat([features_radius, features[:, :, 2:]], dim=2)
         features_ls = [features_radius, f_cluster, f_center, f_height]
@@ -928,13 +928,13 @@ class PointPillarsScatter(nn.Module):
         batch_canvas = []
         for batch_itt in range(batch_size):
             canvas = torch.zeros(self.nchannels, self.nx * self.ny, dtype=voxel_features.dtype, device=voxel_features.device)
-            batch_mask = coords[:, (0)] == batch_itt
-            this_coords = coords[(batch_mask), :]
-            indices = this_coords[:, (2)] * self.nx + this_coords[:, (3)]
+            batch_mask = coords[:, 0] == batch_itt
+            this_coords = coords[batch_mask, :]
+            indices = this_coords[:, 2] * self.nx + this_coords[:, 3]
             indices = indices.type(torch.long)
-            voxels = voxel_features[(batch_mask), :]
+            voxels = voxel_features[batch_mask, :]
             voxels = voxels.t()
-            canvas[:, (indices)] = voxels
+            canvas[:, indices] = voxels
             batch_canvas.append(canvas)
         batch_canvas = torch.stack(batch_canvas, 0)
         batch_canvas = batch_canvas.view(batch_size, self.nchannels, self.ny, self.nx)
@@ -1615,7 +1615,7 @@ def _get_pos_neg_loss(cls_loss, labels):
         cls_pos_loss = cls_pos_loss.sum() / batch_size
         cls_neg_loss = cls_neg_loss.sum() / batch_size
     else:
-        cls_pos_loss = cls_loss[(...), 1:].sum() / batch_size
+        cls_pos_loss = cls_loss[..., 1:].sum() / batch_size
         cls_neg_loss = cls_loss[..., 0].sum() / batch_size
     return cls_pos_loss, cls_neg_loss
 
@@ -1626,8 +1626,8 @@ def add_sin_difference(boxes1, boxes2, boxes1_rot, boxes2_rot, factor=1.0):
         boxes2_rot = factor * boxes2_rot
     rad_pred_encoding = torch.sin(boxes1_rot) * torch.cos(boxes2_rot)
     rad_tg_encoding = torch.cos(boxes1_rot) * torch.sin(boxes2_rot)
-    boxes1 = torch.cat([boxes1[(...), :6], rad_pred_encoding, boxes1[(...), 7:]], dim=-1)
-    boxes2 = torch.cat([boxes2[(...), :6], rad_tg_encoding, boxes2[(...), 7:]], dim=-1)
+    boxes1 = torch.cat([boxes1[..., :6], rad_pred_encoding, boxes1[..., 7:]], dim=-1)
+    boxes2 = torch.cat([boxes2[..., :6], rad_tg_encoding, boxes2[..., 7:]], dim=-1)
     return boxes1, boxes2
 
 
@@ -1641,9 +1641,9 @@ def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds, cls_targets,
     cls_targets = cls_targets.squeeze(-1)
     one_hot_targets = torchplus.nn.one_hot(cls_targets, depth=num_class + 1, dtype=box_preds.dtype)
     if encode_background_as_zeros:
-        one_hot_targets = one_hot_targets[(...), 1:]
+        one_hot_targets = one_hot_targets[..., 1:]
     if encode_rad_error_by_sin:
-        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets, box_preds[(...), 6:7], reg_targets[(...), 6:7], sin_error_factor)
+        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets, box_preds[..., 6:7], reg_targets[..., 6:7], sin_error_factor)
     loc_losses = loc_loss_ftor(box_preds, reg_targets, weights=reg_weights)
     cls_losses = cls_loss_ftor(cls_preds, one_hot_targets, weights=cls_weights)
     return loc_losses, cls_losses
@@ -1686,7 +1686,7 @@ def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0, loss_no
         cls_normalizer = (pos_neg * normalizer).sum(-1)
         cls_normalizer = torch.clamp(cls_normalizer, min=1.0)
         normalizer = torch.clamp(normalizer, min=1.0)
-        reg_weights /= normalizer[:, 0:1, (0)]
+        reg_weights /= normalizer[:, 0:1, 0]
         cls_weights /= cls_normalizer
     elif loss_norm_type == LossNormType.DontNorm:
         pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
@@ -1897,9 +1897,9 @@ class PrecisionRecall(nn.Module):
             assert self._use_sigmoid_score is True
             total_scores = torch.sigmoid(preds)
         elif self._use_sigmoid_score:
-            total_scores = torch.sigmoid(preds)[(...), 1:]
+            total_scores = torch.sigmoid(preds)[..., 1:]
         else:
-            total_scores = F.softmax(preds, dim=-1)[(...), 1:]
+            total_scores = F.softmax(preds, dim=-1)[..., 1:]
         """
         if preds.shape[self._dim] == 1:  # BCE
             scores = torch.sigmoid(preds)
@@ -1970,14 +1970,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
-    (RPNNoHead,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     False),
-    (RPNV2,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     False),
     (ResNetRPN,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 128, 64, 64])], {}),
@@ -2034,10 +2026,4 @@ class Test_traveller59_second_pytorch(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

@@ -3,7 +3,9 @@ _module = sys.modules[__name__]
 del sys
 custom_transforms = _module
 cityscapes_loader = _module
+kitti_odometry_loader = _module
 kitti_raw_loader = _module
+kitti_util = _module
 prepare_train_data = _module
 sequence_folders = _module
 shifted_sequence_folders = _module
@@ -74,7 +76,7 @@ from torch.nn.init import zeros_
 from torch import sigmoid
 
 
-from scipy.ndimage.interpolation import zoom
+from scipy.ndimage import zoom
 
 
 from torch.autograd import Variable

@@ -1093,7 +1093,7 @@ class PCB(nn.Module):
         part = {}
         predict = {}
         for i in range(self.part):
-            part[i] = x[:, :, (i)].contiguous()
+            part[i] = x[:, :, i].contiguous()
             part[i] = part[i].view(x.size(0), x.size(1))
             name = 'classifier' + str(i)
             c = getattr(self, name)
@@ -1163,11 +1163,11 @@ class RandomErasing(object):
                 x1 = random.randint(0, img.size()[1] - h)
                 y1 = random.randint(0, img.size()[2] - w)
                 if img.size()[0] == 3:
-                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
-                    img[(1), x1:x1 + h, y1:y1 + w] = self.mean[1]
-                    img[(2), x1:x1 + h, y1:y1 + w] = self.mean[2]
+                    img[0, x1:x1 + h, y1:y1 + w] = self.mean[0]
+                    img[1, x1:x1 + h, y1:y1 + w] = self.mean[1]
+                    img[2, x1:x1 + h, y1:y1 + w] = self.mean[2]
                 else:
-                    img[(0), x1:x1 + h, y1:y1 + w] = self.mean[0]
+                    img[0, x1:x1 + h, y1:y1 + w] = self.mean[0]
                 return img.detach()
         return img.detach()
 
@@ -1328,13 +1328,13 @@ def to_edge(x):
     x = x.data.cpu()
     out = torch.FloatTensor(x.size(0), x.size(2), x.size(3))
     for i in range(x.size(0)):
-        xx = recover(x[(i), :, :, :])
+        xx = recover(x[i, :, :, :])
         xx = cv2.cvtColor(xx, cv2.COLOR_RGB2GRAY)
         xx = cv2.Canny(xx, 10, 200)
         xx = xx / 255.0 - 0.5
         xx += np.random.randn(xx.shape[0], xx.shape[1]) * 0.1
         xx = torch.from_numpy(xx.astype(np.float32))
-        out[(i), :, :] = xx
+        out[i, :, :] = xx
     out = out.unsqueeze(1)
     return out
 
@@ -1361,9 +1361,9 @@ def vgg_preprocess(batch):
     batch = torch.cat((b, g, r), dim=1)
     batch = (batch + 1) * 255 * 0.5
     mean = tensortype(batch.data.size())
-    mean[:, (0), :, :] = 103.939
-    mean[:, (1), :, :] = 116.779
-    mean[:, (2), :, :] = 123.68
+    mean[:, 0, :, :] = 103.939
+    mean[:, 1, :, :] = 116.779
+    mean[:, 2, :, :] = 123.68
     batch = batch.sub(Variable(mean))
     return batch
 
@@ -1474,7 +1474,7 @@ class DGNet_Trainer(nn.Module):
         out = torch.FloatTensor(x.size(0), x.size(1), x.size(2), x.size(3))
         out = out
         for i in range(x.size(0)):
-            out[(i), :, :, :] = self.single_re(x[(i), :, :, :])
+            out[i, :, :, :] = self.single_re(x[i, :, :, :])
         return out
 
     def recon_criterion(self, input, target):
@@ -1763,10 +1763,6 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4, 'output_dim': 4, 'dim': 4, 'n_blk': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
-    (NonlocalBlock,
-     lambda: ([], {'in_dim': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (PCB,
      lambda: ([], {'class_num': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1842,7 +1838,4 @@ class Test_NVlabs_DG_Net(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

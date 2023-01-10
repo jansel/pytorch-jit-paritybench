@@ -422,7 +422,7 @@ TESTCASES = [
     (GroupAll,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_erikwijmans_Pointnet2_PyTorch(_paritybench_base):

@@ -214,9 +214,6 @@ import re
 from torch._six import string_classes
 
 
-from torch._six import int_classes
-
-
 import numpy.random as npr
 
 
@@ -227,9 +224,6 @@ import torch.utils.data.sampler as torch_sampler
 
 
 from torch.utils.data.dataloader import default_collate
-
-
-from torch._six import int_classes as _int_classes
 
 
 from collections import Iterable
@@ -324,9 +318,9 @@ class AffineGridGenFunction(Function):
         self.lr = lr
         self.height, self.width = height, width
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -366,9 +360,9 @@ class AffineGridGenV2(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -389,15 +383,15 @@ class CylinderGridGenV2(Module):
         self.height, self.width = height, width
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input):
         self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.grid.size())
         for i in range(input.size(0)):
-            self.batchgrid[(i), :, :, :] = self.grid
+            self.batchgrid[i, :, :, :] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         input_u = input.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output0 = self.batchgrid[:, :, :, 0:1]
@@ -414,9 +408,9 @@ class DenseAffineGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -438,20 +432,20 @@ class DenseAffine3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, input1):
         self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
@@ -477,20 +471,20 @@ class DenseAffine3DGridGen_rotate(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, input1, input2):
         self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
@@ -523,20 +517,20 @@ class Depth3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, depth, trans0, trans1, rotate):
         self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
@@ -570,20 +564,20 @@ class Depth3DGridGen_with_mask(Module):
         self.lr = lr
         self.ray_tracing = ray_tracing
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, depth, trans0, trans1, rotate):
         self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
@@ -864,7 +858,7 @@ def collect(inputs, is_training):
     rois = np.concatenate(roi_inputs)
     scores = np.concatenate(score_inputs).squeeze()
     inds = np.argsort(-scores)[:post_nms_topN]
-    rois = rois[(inds), :]
+    rois = rois[inds, :]
     return rois
 
 
@@ -881,7 +875,7 @@ def distribute(rois, label_blobs):
     rois_idx_order = np.empty((0,))
     for output_idx, lvl in enumerate(range(lvl_min, lvl_max + 1)):
         idx_lvl = np.where(lvls == lvl)[0]
-        blob_roi_level = rois[(idx_lvl), :]
+        blob_roi_level = rois[idx_lvl, :]
         outputs[output_idx + 1] = blob_roi_level
         rois_idx_order = np.concatenate((rois_idx_order, idx_lvl))
     rois_idx_restore = np.argsort(rois_idx_order)
@@ -930,7 +924,7 @@ class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
         """
         rois = collect(inputs, self.training)
         if self.training:
-            im_scales = im_info.data.numpy()[:, (2)]
+            im_scales = im_info.data.numpy()[:, 2]
             json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
             output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
             blobs = {k: [] for k in output_blob_names}
@@ -944,10 +938,10 @@ def _filter_boxes(boxes, min_size, im_info):
     """Only keep boxes with both sides >= min_size and center within the image.
   """
     min_size *= im_info[2]
-    ws = boxes[:, (2)] - boxes[:, (0)] + 1
-    hs = boxes[:, (3)] - boxes[:, (1)] + 1
-    x_ctr = boxes[:, (0)] + ws / 2.0
-    y_ctr = boxes[:, (1)] + hs / 2.0
+    ws = boxes[:, 2] - boxes[:, 0] + 1
+    hs = boxes[:, 3] - boxes[:, 1] + 1
+    x_ctr = boxes[:, 0] + ws / 2.0
+    y_ctr = boxes[:, 1] + hs / 2.0
     keep = np.where((ws >= min_size) & (hs >= min_size) & (x_ctr < im_info[1]) & (y_ctr < im_info[0]))[0]
     return keep
 
@@ -998,12 +992,12 @@ class GenerateProposalsOp(nn.Module):
         num_images = scores.shape[0]
         A = self._num_anchors
         K = shifts.shape[0]
-        all_anchors = self._anchors[(np.newaxis), :, :] + shifts[:, (np.newaxis), :]
+        all_anchors = self._anchors[np.newaxis, :, :] + shifts[:, np.newaxis, :]
         all_anchors = all_anchors.reshape((K * A, 4))
         rois = np.empty((0, 5), dtype=np.float32)
         roi_probs = np.empty((0, 1), dtype=np.float32)
         for im_i in range(num_images):
-            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[(im_i), :], all_anchors, bbox_deltas[(im_i), :, :, :], scores[(im_i), :, :, :])
+            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[im_i, :], all_anchors, bbox_deltas[im_i, :, :, :], scores[im_i, :, :, :])
             batch_inds = im_i * np.ones((im_i_boxes.shape[0], 1), dtype=np.float32)
             im_i_rois = np.hstack((batch_inds, im_i_boxes))
             rois = np.append(rois, im_i_rois, axis=0)
@@ -1024,19 +1018,19 @@ class GenerateProposalsOp(nn.Module):
             inds = np.argpartition(-scores.squeeze(), pre_nms_topN)[:pre_nms_topN]
             order = np.argsort(-scores[inds].squeeze())
             order = inds[order]
-        bbox_deltas = bbox_deltas[(order), :]
-        all_anchors = all_anchors[(order), :]
+        bbox_deltas = bbox_deltas[order, :]
+        all_anchors = all_anchors[order, :]
         scores = scores[order]
         proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0, 1.0, 1.0, 1.0))
         proposals = box_utils.clip_tiled_boxes(proposals, im_info[:2])
         keep = _filter_boxes(proposals, min_size, im_info)
-        proposals = proposals[(keep), :]
+        proposals = proposals[keep, :]
         scores = scores[keep]
         if nms_thresh > 0:
             keep = box_utils.nms(np.hstack((proposals, scores)), nms_thresh)
             if post_nms_topN > 0:
                 keep = keep[:post_nms_topN]
-            proposals = proposals[(keep), :]
+            proposals = proposals[keep, :]
             scores = scores[keep]
         return proposals, scores
 
@@ -1045,8 +1039,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
     """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -1086,7 +1080,7 @@ def _generate_anchors(base_size, scales, aspect_ratios):
     """
     anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
     anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(anchors[i, :], scales) for i in range(anchors.shape[0])])
     return anchors
 
 
@@ -1153,7 +1147,7 @@ class fpn_rpn_outputs(nn.Module):
                 if cfg.RPN.CLS_ACTIVATION == 'softmax':
                     B, C, H, W = fpn_rpn_cls_score.size()
                     fpn_rpn_cls_probs = F.softmax(fpn_rpn_cls_score.view(B, 2, C // 2, H, W), dim=1)
-                    fpn_rpn_cls_probs = fpn_rpn_cls_probs[:, (1)].squeeze(dim=1)
+                    fpn_rpn_cls_probs = fpn_rpn_cls_probs[:, 1].squeeze(dim=1)
                 else:
                     fpn_rpn_cls_probs = F.sigmoid(fpn_rpn_cls_score)
                 fpn_rpn_rois, fpn_rpn_roi_probs = self.GenerateProposals_modules[lvl - k_min](fpn_rpn_cls_probs, fpn_rpn_bbox_pred, im_info)
@@ -1551,7 +1545,7 @@ class GenerateProposalLabelsOp(nn.Module):
             training the model. It does this by querying the data loader for
             the list of blobs that are needed.
         """
-        im_scales = im_info.data.numpy()[:, (2)]
+        im_scales = im_info.data.numpy()[:, 2]
         output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
         json_dataset.add_proposals(roidb, rpn_rois, im_scales, crowd_thresh=0)
         blobs = {k: [] for k in output_blob_names}
@@ -2064,7 +2058,7 @@ class Generalized_RCNN(nn.Module):
                         xform_out = RoIPoolFunction(resolution, resolution, sc)(bl_in, rois)
                     elif method == 'RoICrop':
                         grid_xy = net_utils.affine_grid_gen(rois, bl_in.size()[2:], self.grid_size)
-                        grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+                        grid_yx = torch.stack([grid_xy.data[:, :, :, 1], grid_xy.data[:, :, :, 0]], 3).contiguous()
                         xform_out = RoICropFunction()(bl_in, Variable(grid_yx).detach())
                         if cfg.CROP_RESIZE_WITH_MAX_POOL:
                             xform_out = F.max_pool2d(xform_out, 2, 2)
@@ -2083,7 +2077,7 @@ class Generalized_RCNN(nn.Module):
                 xform_out = RoIPoolFunction(resolution, resolution, spatial_scale)(blobs_in, rois)
             elif method == 'RoICrop':
                 grid_xy = net_utils.affine_grid_gen(rois, blobs_in.size()[2:], self.grid_size)
-                grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+                grid_yx = torch.stack([grid_xy.data[:, :, :, 1], grid_xy.data[:, :, :, 0]], 3).contiguous()
                 xform_out = RoICropFunction()(blobs_in, Variable(grid_yx).detach())
                 if cfg.CROP_RESIZE_WITH_MAX_POOL:
                     xform_out = F.max_pool2d(xform_out, 2, 2)
@@ -2178,7 +2172,7 @@ class single_scale_rpn_outputs(nn.Module):
             if cfg.RPN.CLS_ACTIVATION == 'softmax':
                 B, C, H, W = rpn_cls_logits.size()
                 rpn_cls_prob = F.softmax(rpn_cls_logits.view(B, 2, C // 2, H, W), dim=1)
-                rpn_cls_prob = rpn_cls_prob[:, (1)].squeeze(dim=1)
+                rpn_cls_prob = rpn_cls_prob[:, 1].squeeze(dim=1)
             else:
                 rpn_cls_prob = F.sigmoid(rpn_cls_logits)
             rpn_rois, rpn_rois_prob = self.RPN_GenerateProposals(rpn_cls_prob, rpn_bbox_pred, im_info)
@@ -2265,7 +2259,7 @@ class BilinearInterpolation2d(nn.Module):
         kernel_size = up_scale * 2
         bil_filt = upsample_filt(kernel_size)
         kernel = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float32)
-        kernel[(range(in_channels)), (range(out_channels)), :, :] = bil_filt
+        kernel[range(in_channels), range(out_channels), :, :] = bil_filt
         self.upconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=self.up_scale, padding=self.padding)
         self.upconv.weight.data.copy_(torch.from_numpy(kernel))
         self.upconv.bias.data.fill_(0)
@@ -2299,7 +2293,7 @@ def _get_stream(device):
     if _streams is None:
         _streams = [None] * torch.cuda.device_count()
     if _streams[device] is None:
-        _streams[device] = torch.cuda.Stream(device)
+        _streams[device] = torch.Stream(device)
     return _streams[device]
 
 
@@ -2502,10 +2496,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (Depth3DGridGen,
      lambda: ([], {'height': 4, 'width': 4}),
      lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -2525,7 +2515,4 @@ class Test_roytseng_tw_Detectron_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

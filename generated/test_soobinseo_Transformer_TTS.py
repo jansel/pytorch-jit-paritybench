@@ -559,14 +559,10 @@ TESTCASES = [
     (Attention,
      lambda: ([], {'num_hidden': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-    (CBHG,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([4, 256, 64])], {}),
-     False),
+     True),
     (Conv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
     (FFN,
      lambda: ([], {'num_hidden': 4}),
@@ -583,7 +579,7 @@ TESTCASES = [
     (MultiheadAttention,
      lambda: ([], {'num_hidden_k': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (Prenet,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -611,7 +607,4 @@ class Test_soobinseo_Transformer_TTS(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

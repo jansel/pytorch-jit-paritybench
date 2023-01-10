@@ -73,8 +73,8 @@ class BiLSTM_CRF(nn.Module):
         self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1, bidirectional=True)
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
         self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.tagset_size))
-        self.transitions.data[(tag_to_ix[START_TAG]), :] = -10000
-        self.transitions.data[:, (tag_to_ix[STOP_TAG])] = -10000
+        self.transitions.data[tag_to_ix[START_TAG], :] = -10000
+        self.transitions.data[:, tag_to_ix[STOP_TAG]] = -10000
         self.hidden = self.init_hidden()
 
     def init_hidden(self):

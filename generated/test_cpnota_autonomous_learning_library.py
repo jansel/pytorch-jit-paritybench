@@ -4,11 +4,14 @@ del sys
 all = _module
 agents = _module
 _agent = _module
+_multiagent = _module
+_parallel_agent = _module
 a2c = _module
 c51 = _module
 ddpg = _module
 ddqn = _module
 dqn = _module
+independent = _module
 ppo = _module
 rainbow = _module
 sac = _module
@@ -21,6 +24,8 @@ approximation = _module
 checkpointer = _module
 feature_network = _module
 feature_network_test = _module
+identity = _module
+identity_test = _module
 q_continuous = _module
 q_dist = _module
 q_dist_test = _module
@@ -40,15 +45,32 @@ rewards = _module
 time = _module
 time_test = _module
 vision = _module
-environments = _module
-abstract = _module
-atari = _module
-atari_wrappers = _module
-gym = _module
+core = _module
 state = _module
 state_test = _module
+environments = _module
+_environment = _module
+_multiagent_environment = _module
+_vector_environment = _module
+atari = _module
+atari_test = _module
+atari_wrappers = _module
+duplicate_env = _module
+duplicate_env_test = _module
+gym = _module
+gym_test = _module
+multiagent_atari = _module
+multiagent_atari_test = _module
+multiagent_pettingzoo = _module
+multiagent_pettingzoo_test = _module
+pybullet = _module
+pybullet_test = _module
+vector_env = _module
+vector_env_test = _module
 experiments = _module
 experiment = _module
+multiagent_env_experiment = _module
+multiagent_env_experiment_test = _module
 parallel_env_experiment = _module
 parallel_env_experiment_test = _module
 plots = _module
@@ -57,8 +79,10 @@ single_env_experiment = _module
 single_env_experiment_test = _module
 slurm = _module
 watch = _module
-writer = _module
 logging = _module
+_logger = _module
+dummy = _module
+experiment = _module
 memory = _module
 advantage = _module
 advantage_test = _module
@@ -79,6 +103,7 @@ gaussian = _module
 gaussian_test = _module
 greedy = _module
 soft_deterministic = _module
+soft_deterministic_test = _module
 softmax = _module
 softmax_test = _module
 presets = _module
@@ -95,6 +120,7 @@ vpg = _module
 vqn = _module
 vsarsa = _module
 atari_test = _module
+builder = _module
 classic_control = _module
 a2c = _module
 c51 = _module
@@ -109,15 +135,20 @@ vsarsa = _module
 classic_control_test = _module
 continuous = _module
 ddpg = _module
+models = _module
 ppo = _module
 sac = _module
 continuous_test = _module
-validate_agent = _module
+independent_multiagent = _module
+multiagent_atari_test = _module
+preset = _module
 atari40 = _module
-pybullet = _module
 conf = _module
 examples = _module
 slurm_experiment = _module
+atari_test = _module
+multiagent_atari_test = _module
+validate_agent = _module
 scripts = _module
 classic = _module
 plot = _module
@@ -125,6 +156,7 @@ release = _module
 watch_atari = _module
 watch_classic = _module
 watch_continuous = _module
+watch_multiagent_atari = _module
 setup = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -153,10 +185,10 @@ from abc import ABC
 from abc import abstractmethod
 
 
-from torch.nn.functional import mse_loss
-
-
 import torch
+
+
+from torch.nn.functional import mse_loss
 
 
 import numpy as np
@@ -186,6 +218,9 @@ import copy
 import time
 
 
+from torch.utils.tensorboard import SummaryWriter
+
+
 import random
 
 
@@ -198,74 +233,13 @@ from torch.distributions.independent import Independent
 from torch.nn import functional
 
 
+import math
+
+
 from torch.optim import Adam
 
 
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
-
-DONE = torch.tensor([0], dtype=torch.uint8)
-
-
-NOT_DONE = torch.tensor([1], dtype=torch.uint8)
-
-
-class State:
-
-    def __init__(self, raw, mask=None, info=None):
-        self._raw = raw
-        if mask is None:
-            self._mask = torch.ones(len(raw), dtype=torch.uint8, device=raw.device)
-        else:
-            self._mask = mask
-        self._info = info or [None] * len(raw)
-
-    @classmethod
-    def from_list(cls, states):
-        raw = torch.cat([state.features for state in states])
-        done = torch.cat([state.mask for state in states])
-        info = sum([state.info for state in states], [])
-        return cls(raw, done, info)
-
-    @classmethod
-    def from_gym(cls, numpy_arr, done, info, device='cpu', dtype=np.float32):
-        raw = torch.from_numpy(np.array(numpy_arr, dtype=dtype)).unsqueeze(0)
-        mask = DONE if done else NOT_DONE
-        return cls(raw, mask=mask, info=[info])
-
-    @property
-    def features(self):
-        """
-        Default features are the raw state.
-        Override this method for other types of features.
-        """
-        return self._raw
-
-    @property
-    def mask(self):
-        return self._mask
-
-    @property
-    def info(self):
-        return self._info
-
-    @property
-    def raw(self):
-        return self._raw
-
-    @property
-    def done(self):
-        return not self._mask
-
-    def __getitem__(self, idx):
-        if isinstance(idx, slice):
-            return State(self._raw[idx], self._mask[idx], self._info[idx])
-        if isinstance(idx, torch.Tensor):
-            return State(self._raw[idx], self._mask[idx])
-        return State(self._raw[idx].unsqueeze(0), self._mask[idx].unsqueeze(0), [self._info[idx]])
-
-    def __len__(self):
-        return len(self._raw)
 
 
 class FeatureModule(torch.nn.Module):
@@ -275,8 +249,8 @@ class FeatureModule(torch.nn.Module):
         self.model = model
 
     def forward(self, states):
-        features = self.model(states.features.float())
-        return State(features, mask=states.mask, info=states.info)
+        features = states.as_output(self.model(states.as_input('observation')))
+        return states.update('observation', features)
 
 
 class QDistModule(torch.nn.Module):
@@ -295,7 +269,11 @@ class QDistModule(torch.nn.Module):
     def forward(self, states, actions=None):
         values = self.model(states).view((len(states), self.n_actions, self.n_atoms))
         values = F.softmax(values, dim=2)
-        values = (values - self.terminal) * states.mask.view((-1, 1, 1)).float() + self.terminal
+        mask = states.mask
+        if torch.is_tensor(mask):
+            values = (values - self.terminal) * states.mask.view((-1, 1, 1)).float() + self.terminal
+        else:
+            values = (values - self.terminal) * mask + self.terminal
         if actions is None:
             return values
         if isinstance(actions, list):
@@ -320,18 +298,18 @@ class RLNetwork(nn.Module):
         self.device = next(model.parameters()).device
 
     def forward(self, state):
-        return self.model(state.features.float()) * state.mask.float().unsqueeze(-1)
+        return state.apply(self.model, 'observation')
 
 
 class Aggregation(nn.Module):
-    """len()
+    """
     Aggregation layer for the Dueling architecture.
 
     https://arxiv.org/abs/1511.06581
     This layer computes a Q function by combining
     an estimate of V with an estimate of the advantage.
-    The advantage is normalized by substracting the average
-    advantage so that we can propertly
+    The advantage is normalized by subtracting the average
+    advantage so that we can properly
     """
 
     def forward(self, value, advantages):
@@ -349,7 +327,7 @@ class Dueling(nn.Module):
     """
 
     def __init__(self, value_model, advantage_model):
-        super(Dueling, self).__init__()
+        super().__init__()
         self.value_model = value_model
         self.advantage_model = advantage_model
         self.aggregation = Aggregation()
@@ -364,7 +342,7 @@ class CategoricalDueling(nn.Module):
     """Dueling architecture for C51/Rainbow"""
 
     def __init__(self, value_model, advantage_model):
-        super(CategoricalDueling, self).__init__()
+        super().__init__()
         self.value_model = value_model
         self.advantage_model = advantage_model
 
@@ -401,7 +379,7 @@ class NoisyLinear(nn.Linear):
     """
 
     def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
-        super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
+        super().__init__(in_features, out_features, bias=bias)
         self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
         self.register_buffer('epsilon_weight', torch.zeros(out_features, in_features))
         if bias:
@@ -520,16 +498,11 @@ class GaussianPolicyNetwork(RLNetwork):
 
     def forward(self, state):
         outputs = super().forward(state)
-        action_dim = outputs.shape[1] // 2
-        means = self._squash(torch.tanh(outputs[:, 0:action_dim]))
-        if not self.training:
-            return means
-        logvars = outputs[:, action_dim:] * self._scale
-        std = logvars.exp_()
-        return Independent(Normal(means, std), 1)
-
-    def _squash(self, x):
-        return torch.tanh(x) * self._scale + self._center
+        action_dim = outputs.shape[-1] // 2
+        means = outputs[..., 0:action_dim]
+        logvars = outputs[..., action_dim:]
+        std = (0.5 * logvars).exp_()
+        return Independent(Normal(means + self._center, std * self._scale), 1)
 
     def to(self, device):
         self._center = self._center
@@ -554,18 +527,35 @@ class SoftDeterministicPolicyNetwork(RLNetwork):
         return self._squash(normal.loc)
 
     def _normal(self, outputs):
-        means = outputs[:, 0:self._action_dim]
-        logvars = outputs[:, self._action_dim:]
+        means = outputs[..., 0:self._action_dim]
+        logvars = outputs[..., self._action_dim:]
         std = logvars.mul(0.5).exp_()
         return torch.distributions.normal.Normal(means, std)
 
     def _sample(self, normal):
         raw = normal.rsample()
-        action = self._squash(raw)
+        log_prob = self._log_prob(normal, raw)
+        return self._squash(raw), log_prob
+
+    def _log_prob(self, normal, raw):
+        """
+        Compute the log probability of a raw action after the action is squashed.
+        Both inputs act on the raw underlying distribution.
+        Because tanh_mean does not affect the density, we can ignore it.
+        However, tanh_scale will affect the relative contribution of each component.'
+        See Appendix C in the Soft Actor-Critic paper
+
+        Args:
+            normal (torch.distributions.normal.Normal): The "raw" normal distribution.
+            raw (torch.Tensor): The "raw" action.
+
+        Returns:
+            torch.Tensor: The probability of the raw action, accounting for the affects of tanh.
+        """
         log_prob = normal.log_prob(raw)
-        log_prob -= torch.log(1 - action.pow(2) + 1e-06)
-        log_prob = log_prob.sum(1)
-        return action, log_prob
+        log_prob -= torch.log(1 - torch.tanh(raw).pow(2) + 1e-06)
+        log_prob -= torch.log(self._tanh_scale)
+        return log_prob.sum(-1)
 
     def _squash(self, x):
         return torch.tanh(x) * self._tanh_scale + self._tanh_mean
@@ -584,9 +574,20 @@ class SoftmaxPolicyNetwork(RLNetwork):
     def forward(self, state):
         outputs = super().forward(state)
         probs = functional.softmax(outputs, dim=-1)
-        if self.training:
-            return torch.distributions.Categorical(probs)
-        return torch.argmax(probs, dim=1)
+        return torch.distributions.Categorical(probs)
+
+
+class fc_policy(nn.Module):
+
+    def __init__(self, env, hidden1=400, hidden2=300):
+        super().__init__()
+        self.model = nn.Sequential(nn.Linear(env.state_space.shape[0] + 1, hidden1), nn.Tanh(), nn.Linear(hidden1, hidden2), nn.Tanh(), nn.Linear(hidden2, env.action_space.shape[0]))
+        self.log_stds = nn.Parameter(torch.zeros(env.action_space.shape[0]))
+
+    def forward(self, x):
+        means = self.model(x)
+        stds = self.log_stds.expand(*means.shape)
+        return torch.cat((means, stds), 1)
 
 
 import torch

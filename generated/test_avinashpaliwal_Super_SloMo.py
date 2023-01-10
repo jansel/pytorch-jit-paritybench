@@ -303,8 +303,8 @@ class backWarp(nn.Module):
             tensor
                 frame I0.
         """
-        u = flow[:, (0), :, :]
-        v = flow[:, (1), :, :]
+        u = flow[:, 0, :, :]
+        v = flow[:, 1, :, :]
         x = self.gridX.unsqueeze(0).expand_as(u).float() + u
         y = self.gridY.unsqueeze(0).expand_as(v).float() + v
         x = 2 * (x / self.W - 0.5)
@@ -329,10 +329,6 @@ TESTCASES = [
      lambda: ([], {'inChannels': 4, 'outChannels': 4, 'filterSize': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
-    (up,
-     lambda: ([], {'inChannels': 4, 'outChannels': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
-     False),
 ]
 
 class Test_avinashpaliwal_Super_SloMo(_paritybench_base):
@@ -341,7 +337,4 @@ class Test_avinashpaliwal_Super_SloMo(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

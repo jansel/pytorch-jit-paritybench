@@ -618,20 +618,12 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (BasicBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 18}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (Block,
      lambda: ([], {'in_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Inception,
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (PreActBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 18}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (PreActBottleneck,
@@ -656,10 +648,4 @@ class Test_leehomyc_mixup_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

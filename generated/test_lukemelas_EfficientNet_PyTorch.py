@@ -7,12 +7,15 @@ utils = _module
 main = _module
 hubconf = _module
 setup = _module
+sotabench = _module
 test_model = _module
 load_tf_weights = _module
+load_tf_weights_tf1 = _module
 original_tf = _module
 efficientnet_builder = _module
 efficientnet_model = _module
 eval_ckpt_main = _module
+eval_ckpt_main_tf1 = _module
 preprocessing = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -101,10 +104,16 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 
 
-from collections import OrderedDict
-
-
 import numpy as np
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.datasets import ImageNet
+
+
+from collections import OrderedDict
 
 
 import tensorflow as tf
@@ -120,7 +129,7 @@ class SwishImplementation(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        i = ctx.saved_variables[0]
+        i = ctx.saved_tensors[0]
         sigmoid_i = torch.sigmoid(i)
         return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
 
@@ -129,12 +138,6 @@ class MemoryEfficientSwish(nn.Module):
 
     def forward(self, x):
         return SwishImplementation.apply(x)
-
-
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
 
 
 def get_width_and_height_from_size(x):
@@ -176,7 +179,7 @@ def calculate_output_image_size(input_image_size, stride):
 
 def drop_connect(inputs, p, training):
     """Drop connect.
-       
+
     Args:
         input (tensor: BCWH): Input of this structure.
         p (float: 0.0~1.0): Probability of drop connection.
@@ -185,7 +188,7 @@ def drop_connect(inputs, p, training):
     Returns:
         output: Output after drop connection.
     """
-    assert p >= 0 and p <= 1, 'p must be in range of [0,1]'
+    assert 0 <= p <= 1, 'p must be in range of [0,1]'
     if not training:
         return inputs
     batch_size = inputs.shape[0]
@@ -218,18 +221,6 @@ class Conv2dDynamicSamePadding(nn.Conv2d):
         return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
-class Identity(nn.Module):
-    """Identity mapping.
-       Send input to output directly.
-    """
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, input):
-        return input
-
-
 class Conv2dStaticSamePadding(nn.Conv2d):
     """2D Convolutions like TensorFlow's 'SAME' mode, with the given input image size.
        The padding mudule is calculated in construction function, then used in forward.
@@ -248,7 +239,7 @@ class Conv2dStaticSamePadding(nn.Conv2d):
         if pad_h > 0 or pad_w > 0:
             self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
         else:
-            self.static_padding = Identity()
+            self.static_padding = nn.Identity()
 
     def forward(self, x):
         x = self.static_padding(x)
@@ -358,6 +349,9 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
+VALID_MODELS = 'efficientnet-b0', 'efficientnet-b1', 'efficientnet-b2', 'efficientnet-b3', 'efficientnet-b4', 'efficientnet-b5', 'efficientnet-b6', 'efficientnet-b7', 'efficientnet-b8', 'efficientnet-l2'
+
+
 def efficientnet_params(model_name):
     """Map EfficientNet model name to parameter coefficients.
 
@@ -450,10 +444,10 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient', 'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes', 'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate', 'depth_divisor', 'min_depth'])
+GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient', 'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes', 'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate', 'depth_divisor', 'min_depth', 'include_top'])
 
 
-def efficientnet(width_coefficient=None, depth_coefficient=None, image_size=None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
+def efficientnet(width_coefficient=None, depth_coefficient=None, image_size=None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000, include_top=True):
     """Create BlockArgs and GlobalParams for efficientnet model.
 
     Args:
@@ -471,7 +465,7 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, image_size=None
     """
     blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25', 'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25', 'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25', 'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
     blocks_args = BlockDecoder.decode(blocks_args)
-    global_params = GlobalParams(width_coefficient=width_coefficient, depth_coefficient=depth_coefficient, image_size=image_size, dropout_rate=dropout_rate, num_classes=num_classes, batch_norm_momentum=0.99, batch_norm_epsilon=0.001, drop_connect_rate=drop_connect_rate, depth_divisor=8, min_depth=None)
+    global_params = GlobalParams(width_coefficient=width_coefficient, depth_coefficient=depth_coefficient, image_size=image_size, dropout_rate=dropout_rate, num_classes=num_classes, batch_norm_momentum=0.99, batch_norm_epsilon=0.001, drop_connect_rate=drop_connect_rate, depth_divisor=8, min_depth=None, include_top=include_top)
     return blocks_args, global_params
 
 
@@ -489,7 +483,7 @@ def get_model_params(model_name, override_params):
         w, d, s, p = efficientnet_params(model_name)
         blocks_args, global_params = efficientnet(width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)
     else:
-        raise NotImplementedError('model name is not pre-defined: %s' % model_name)
+        raise NotImplementedError('model name is not pre-defined: {}'.format(model_name))
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
@@ -501,13 +495,13 @@ url_map = {'efficientnet-b0': 'https://github.com/lukemelas/EfficientNet-PyTorch
 url_map_advprop = {'efficientnet-b0': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b0-b64d5a18.pth', 'efficientnet-b1': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b1-0f3ce85a.pth', 'efficientnet-b2': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b2-6e9d97e5.pth', 'efficientnet-b3': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b3-cdd7c0f4.pth', 'efficientnet-b4': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b4-44fb3a87.pth', 'efficientnet-b5': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b5-86493f6b.pth', 'efficientnet-b6': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b6-ac80338e.pth', 'efficientnet-b7': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b7-4652b6dd.pth', 'efficientnet-b8': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b8-22a8fe65.pth'}
 
 
-def load_pretrained_weights(model, model_name, weights_path=None, load_fc=True, advprop=False):
+def load_pretrained_weights(model, model_name, weights_path=None, load_fc=True, advprop=False, verbose=True):
     """Loads pretrained weights from weights path or download using url.
 
     Args:
         model (Module): The whole model of efficientnet.
         model_name (str): Model name of efficientnet.
-        weights_path (None or str): 
+        weights_path (None or str):
             str: path to pretrained weights file on the local disk.
             None: use pretrained weights downloaded from the Internet.
         load_fc (bool): Whether to load pretrained weights for fc layer at the end of the model.
@@ -521,14 +515,15 @@ def load_pretrained_weights(model, model_name, weights_path=None, load_fc=True, 
         state_dict = model_zoo.load_url(url_map_[model_name])
     if load_fc:
         ret = model.load_state_dict(state_dict, strict=False)
-        assert not ret.missing_keys, f'Missing keys when loading pretrained weights: {ret.missing_keys}'
+        assert not ret.missing_keys, 'Missing keys when loading pretrained weights: {}'.format(ret.missing_keys)
     else:
         state_dict.pop('_fc.weight')
         state_dict.pop('_fc.bias')
         ret = model.load_state_dict(state_dict, strict=False)
-        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']), f'Missing keys when loading pretrained weights: {ret.missing_keys}'
-    assert not ret.unexpected_keys, f'Missing keys when loading pretrained weights: {ret.unexpected_keys}'
-    None
+        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']), 'Missing keys when loading pretrained weights: {}'.format(ret.missing_keys)
+    assert not ret.unexpected_keys, 'Missing keys when loading pretrained weights: {}'.format(ret.unexpected_keys)
+    if verbose:
+        None
 
 
 def round_filters(filters, global_params):
@@ -579,7 +574,7 @@ class EfficientNet(nn.Module):
     Args:
         blocks_args (list[namedtuple]): A list of BlockArgs to construct blocks.
         global_params (namedtuple): A set of GlobalParams shared between blocks.
-    
+
     References:
         [1] https://arxiv.org/abs/1905.11946 (EfficientNet)
 
@@ -622,8 +617,9 @@ class EfficientNet(nn.Module):
         self._conv_head = Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
         self._avg_pooling = nn.AdaptiveAvgPool2d(1)
-        self._dropout = nn.Dropout(self._global_params.dropout_rate)
-        self._fc = nn.Linear(out_channels, self._global_params.num_classes)
+        if self._global_params.include_top:
+            self._dropout = nn.Dropout(self._global_params.dropout_rate)
+            self._fc = nn.Linear(out_channels, self._global_params.num_classes)
         self._swish = MemoryEfficientSwish()
 
     def set_swish(self, memory_efficient=True):
@@ -631,11 +627,50 @@ class EfficientNet(nn.Module):
 
         Args:
             memory_efficient (bool): Whether to use memory-efficient version of swish.
-
         """
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
         for block in self._blocks:
             block.set_swish(memory_efficient)
+
+    def extract_endpoints(self, inputs):
+        """Use convolution layer to extract features
+        from reduction levels i in [1, 2, 3, 4, 5].
+
+        Args:
+            inputs (tensor): Input tensor.
+
+        Returns:
+            Dictionary of last intermediate features
+            with reduction levels i in [1, 2, 3, 4, 5].
+            Example:
+                >>> import torch
+                >>> from efficientnet.model import EfficientNet
+                >>> inputs = torch.rand(1, 3, 224, 224)
+                >>> model = EfficientNet.from_pretrained('efficientnet-b0')
+                >>> endpoints = model.extract_endpoints(inputs)
+                >>> print(endpoints['reduction_1'].shape)  # torch.Size([1, 16, 112, 112])
+                >>> print(endpoints['reduction_2'].shape)  # torch.Size([1, 24, 56, 56])
+                >>> print(endpoints['reduction_3'].shape)  # torch.Size([1, 40, 28, 28])
+                >>> print(endpoints['reduction_4'].shape)  # torch.Size([1, 112, 14, 14])
+                >>> print(endpoints['reduction_5'].shape)  # torch.Size([1, 320, 7, 7])
+                >>> print(endpoints['reduction_6'].shape)  # torch.Size([1, 1280, 7, 7])
+        """
+        endpoints = dict()
+        x = self._swish(self._bn0(self._conv_stem(inputs)))
+        prev_x = x
+        for idx, block in enumerate(self._blocks):
+            drop_connect_rate = self._global_params.drop_connect_rate
+            if drop_connect_rate:
+                drop_connect_rate *= float(idx) / len(self._blocks)
+            x = block(x, drop_connect_rate=drop_connect_rate)
+            if prev_x.size(2) > x.size(2):
+                endpoints['reduction_{}'.format(len(endpoints) + 1)] = prev_x
+            elif idx == len(self._blocks) - 1:
+                endpoints['reduction_{}'.format(len(endpoints) + 1)] = x
+            prev_x = x
+        x = self._swish(self._bn1(self._conv_head(x)))
+        endpoints['reduction_{}'.format(len(endpoints) + 1)] = x
+        return endpoints
 
     def extract_features(self, inputs):
         """use convolution layer to extract feature .
@@ -644,7 +679,7 @@ class EfficientNet(nn.Module):
             inputs (tensor): Input tensor.
 
         Returns:
-            Output of the final convolution 
+            Output of the final convolution
             layer in the efficientnet model.
         """
         x = self._swish(self._bn0(self._conv_stem(inputs)))
@@ -666,22 +701,22 @@ class EfficientNet(nn.Module):
         Returns:
             Output of this model after processing.
         """
-        bs = inputs.size(0)
         x = self.extract_features(inputs)
         x = self._avg_pooling(x)
-        x = x.view(bs, -1)
-        x = self._dropout(x)
-        x = self._fc(x)
+        if self._global_params.include_top:
+            x = x.flatten(start_dim=1)
+            x = self._dropout(x)
+            x = self._fc(x)
         return x
 
     @classmethod
     def from_name(cls, model_name, in_channels=3, **override_params):
-        """create an efficientnet model according to name.
+        """Create an efficientnet model according to name.
 
         Args:
             model_name (str): Name for efficientnet.
             in_channels (int): Input data's channel number.
-            override_params (other key word params): 
+            override_params (other key word params):
                 Params to override model's global_params.
                 Optional key:
                     'width_coefficient', 'depth_coefficient',
@@ -701,26 +736,26 @@ class EfficientNet(nn.Module):
 
     @classmethod
     def from_pretrained(cls, model_name, weights_path=None, advprop=False, in_channels=3, num_classes=1000, **override_params):
-        """create an efficientnet model according to name.
+        """Create an efficientnet model according to name.
 
         Args:
             model_name (str): Name for efficientnet.
-            weights_path (None or str): 
+            weights_path (None or str):
                 str: path to pretrained weights file on the local disk.
                 None: use pretrained weights downloaded from the Internet.
-            advprop (bool): 
+            advprop (bool):
                 Whether to load pretrained weights
                 trained with advprop (valid when weights_path is None).
             in_channels (int): Input data's channel number.
-            num_classes (int): 
+            num_classes (int):
                 Number of categories for classification.
                 It controls the output size for final linear layer.
-            override_params (other key word params): 
+            override_params (other key word params):
                 Params to override model's global_params.
                 Optional key:
                     'width_coefficient', 'depth_coefficient',
                     'image_size', 'dropout_rate',
-                    'num_classes', 'batch_norm_momentum',
+                    'batch_norm_momentum',
                     'batch_norm_epsilon', 'drop_connect_rate',
                     'depth_divisor', 'min_depth'
 
@@ -748,7 +783,7 @@ class EfficientNet(nn.Module):
 
     @classmethod
     def _check_model_name_is_valid(cls, model_name):
-        """Validates model name. 
+        """Validates model name.
 
         Args:
             model_name (str): Name for efficientnet.
@@ -756,10 +791,8 @@ class EfficientNet(nn.Module):
         Returns:
             bool: Is a valid name or not.
         """
-        valid_models = [('efficientnet-b' + str(i)) for i in range(9)]
-        valid_models += ['efficientnet-l2']
-        if model_name not in valid_models:
-            raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
+        if model_name not in VALID_MODELS:
+            raise ValueError('model_name should be one of: ' + ', '.join(VALID_MODELS))
 
     def _change_in_channels(self, in_channels):
         """Adjust model's first convolution layer to in_channels, if in_channels not equals 3.
@@ -816,7 +849,7 @@ class MaxPool2dStaticSamePadding(nn.MaxPool2d):
         if pad_h > 0 or pad_w > 0:
             self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
         else:
-            self.static_padding = Identity()
+            self.static_padding = nn.Identity()
 
     def forward(self, x):
         x = self.static_padding(x)
@@ -835,10 +868,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Identity,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (MaxPool2dDynamicSamePadding,
      lambda: ([], {'kernel_size': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -847,10 +876,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Swish,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
 ]
 
 class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
@@ -862,10 +887,4 @@ class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

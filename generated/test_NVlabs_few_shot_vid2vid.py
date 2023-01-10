@@ -669,15 +669,15 @@ class FaceRefineModel(BaseModel):
         if pose.dim() == 3:
             pose = pose.unsqueeze(0)
         elif pose.dim() == 5:
-            pose = pose[(-1), -1:]
+            pose = pose[-1, -1:]
         _, _, h, w = pose.size()
         use_openpose = not self.opt.basic_point_only and not self.opt.remove_face_labels
         if use_openpose:
-            face = ((pose[:, (-3)] > 0) & (pose[:, (-2)] > 0) & (pose[:, (-1)] > 0)).nonzero()
+            face = ((pose[:, -3] > 0) & (pose[:, -2] > 0) & (pose[:, -1] > 0)).nonzero()
         else:
-            face = (pose[:, (2)] > 0.9).nonzero()
+            face = (pose[:, 2] > 0.9).nonzero()
         if face.size(0):
-            y, x = face[:, (1)], face[:, (2)]
+            y, x = face[:, 1], face[:, 2]
             ys, ye, xs, xe = y.min().item(), y.max().item(), x.min().item(), x.max().item()
             if use_openpose:
                 xc, yc = (xs + xe) // 2, (ys * 3 + ye * 2) // 5
@@ -814,7 +814,7 @@ def get_fg_mask(opt, input_label, has_fg):
     if not has_fg:
         return None
     if len(input_label.size()) == 5:
-        input_label = input_label[:, (0)]
+        input_label = input_label[:, 0]
     mask = input_label[:, 2:3] if opt.label_nc == 0 else -input_label[:, 0:1]
     mask = torch.nn.MaxPool2d(15, padding=7, stride=1)(mask)
     mask = (mask > -1).float()
@@ -833,7 +833,7 @@ def get_part_mask(pose):
     mask = torch.ByteTensor(b, n_parts, h, w).fill_(0)
     for i in range(n_parts):
         for j in part_groups[i]:
-            mask[:, (i)] = mask[:, (i)] | ((part > j - 0.1) & (part < j + 0.1)).byte()
+            mask[:, i] = mask[:, i] | ((part > j - 0.1) & (part < j + 0.1)).byte()
     if need_reshape:
         mask = mask.view(bo, t, -1, h, w)
     return mask.float()
@@ -880,10 +880,10 @@ def use_valid_labels(opt, pose):
             pose = pose[:, :, 3:]
     elif opt.remove_face_labels:
         if pose.dim() == 4:
-            face_mask = get_face_mask(pose[:, (2)])
+            face_mask = get_face_mask(pose[:, 2])
             pose = torch.cat([pose[:, :3] * (1 - face_mask) - face_mask, pose[:, 3:]], dim=1)
         else:
-            face_mask = get_face_mask(pose[:, :, (2)]).unsqueeze(2)
+            face_mask = get_face_mask(pose[:, :, 2]).unsqueeze(2)
             pose = torch.cat([pose[:, :, :3] * (1 - face_mask) - face_mask, pose[:, :, 3:]], dim=2)
     return pose
 
@@ -995,8 +995,8 @@ class LossCollector(BaseModel):
         lambda_flow = self.opt.lambda_flow
         body_mask_diff = None
         if self.opt.isTrain and self.pose and flow[0] is not None:
-            body_mask = get_part_mask(tgt_label[:, :, (2)])
-            ref_body_mask = get_part_mask(ref_label[:, (2)].unsqueeze(1)).expand_as(body_mask)
+            body_mask = get_part_mask(tgt_label[:, :, 2])
+            ref_body_mask = get_part_mask(ref_label[:, 2].unsqueeze(1)).expand_as(body_mask)
             body_mask, ref_body_mask = self.reshape([body_mask, ref_body_mask])
             ref_body_mask_warp = resample(ref_body_mask, flow[0])
             loss_F_Warp += self.criterionFeat(ref_body_mask_warp, body_mask)
@@ -1016,20 +1016,20 @@ class LossCollector(BaseModel):
         return loss_F_Flow, loss_F_Warp
 
     def compute_mask_losses(self, flow_mask, fake_image, warped_image, tgt_label, tgt_image, fake_raw_image, fg_mask, ref_fg_mask, body_mask_diff):
-        fake_raw_image = fake_raw_image[:, (-1)] if fake_raw_image is not None else None
+        fake_raw_image = fake_raw_image[:, -1] if fake_raw_image is not None else None
         loss_mask = self.Tensor(1).fill_(0)
-        loss_mask += self.compute_mask_loss(flow_mask[0], warped_image[0], tgt_image, fake_image[:, (-1)], fake_raw_image)
-        loss_mask += self.compute_mask_loss(flow_mask[1], warped_image[1], tgt_image, fake_image[:, (-1)], fake_raw_image)
+        loss_mask += self.compute_mask_loss(flow_mask[0], warped_image[0], tgt_image, fake_image[:, -1], fake_raw_image)
+        loss_mask += self.compute_mask_loss(flow_mask[1], warped_image[1], tgt_image, fake_image[:, -1], fake_raw_image)
         opt = self.opt
         if opt.isTrain and self.pose and self.warp_ref:
             flow_mask_ref = flow_mask[0]
             b, t, _, h, w = tgt_label.size()
             dummy0, dummy1 = torch.zeros_like(flow_mask_ref), torch.ones_like(flow_mask_ref)
-            face_mask = get_face_mask(tgt_label[:, :, (2)]).view(-1, 1, h, w)
+            face_mask = get_face_mask(tgt_label[:, :, 2]).view(-1, 1, h, w)
             face_mask = torch.nn.AvgPool2d(15, padding=7, stride=1)(face_mask)
             loss_mask += self.criterionFlow(flow_mask_ref, dummy0, face_mask)
             if opt.spade_combine:
-                loss_mask += self.criterionFlow(fake_image[:, (-1)], warped_image[0].detach(), face_mask)
+                loss_mask += self.criterionFlow(fake_image[:, -1], warped_image[0].detach(), face_mask)
             fg_mask_diff = (ref_fg_mask - fg_mask > 0).float()
             loss_mask += self.criterionFlow(flow_mask_ref, dummy1, fg_mask_diff)
             loss_mask += self.criterionFlow(flow_mask_ref, dummy1, body_mask_diff)
@@ -1433,7 +1433,7 @@ def batch_conv(x, weight, bias=None, stride=1, group_size=-1):
         if stride >= 1:
             yi = F.conv2d(x[i:i + 1], weight=weight[i], bias=bias[i], padding=padding, stride=stride, groups=groups)
         else:
-            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias[(i), :weight.size(2)], padding=padding, stride=int(1 / stride), output_padding=1, groups=groups)
+            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias[i, :weight.size(2)], padding=padding, stride=int(1 / stride), output_padding=1, groups=groups)
         y = concat(y, yi)
     return y
 
@@ -1455,7 +1455,7 @@ class SPADE(nn.Module):
         if 'batch' in norm:
             self.norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         else:
-            self.norm = nn.InstanceNorm2d(norm_nc, affine=False)
+            self.norm = nn.InstanceNorm2d(norm_nc, affine=False, eps=0.1)
 
     def forward(self, x, maps, weights=None):
         if not isinstance(maps, list):
@@ -2466,14 +2466,14 @@ class FlowNet2(nn.Module):
         min_dim = min(f_shape[0], f_shape[1])
         weight.data.fill_(0.0)
         for i in range(min_dim):
-            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
+            weight.data[i, i, :, :] = torch.from_numpy(bilinear)
         return
 
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -2532,8 +2532,8 @@ class FlowNet2CS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -2582,8 +2582,8 @@ class FlowNet2CSS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -2624,7 +2624,7 @@ def get_nonspade_norm_layer(opt, norm_type='instance'):
         elif subnorm_type == 'syncbatch':
             norm_layer = SynchronizedBatchNorm2d(get_out_channel(layer), affine=True)
         elif subnorm_type == 'instance':
-            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True)
+            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True, eps=0.1)
         else:
             raise ValueError('normalization layer %s is not recognized' % subnorm_type)
         return nn.Sequential(layer, norm_layer)
@@ -2742,9 +2742,9 @@ def pick_ref(refs, ref_idx):
     if type(refs) == list:
         return [pick_ref(r, ref_idx) for r in refs]
     if ref_idx is None:
-        return refs[:, (0)]
+        return refs[:, 0]
     ref_idx = ref_idx.long().view(-1, 1, 1, 1, 1)
-    ref = refs.gather(1, ref_idx.expand_as(refs)[:, 0:1])[:, (0)]
+    ref = refs.gather(1, ref_idx.expand_as(refs)[:, 0:1])[:, 0]
     return ref
 
 
@@ -3580,8 +3580,8 @@ class Vid2VidModel(BaseModel):
 
     def get_input_t(self, tgt_labels, tgt_images, prevs, t):
         b, _, _, h, w = tgt_labels.shape
-        tgt_label = tgt_labels[:, (t)]
-        tgt_image = tgt_images[:, (t)]
+        tgt_label = tgt_labels[:, t]
+        tgt_image = tgt_images[:, t]
         tgt_label_valid = use_valid_labels(self.opt, tgt_label)
         prevs = [prevs[0], prevs[2]]
         prevs = [(prev.contiguous().view(b, -1, h, w) if prev is not None else None) for prev in prevs]
@@ -3606,14 +3606,14 @@ class Vid2VidModel(BaseModel):
             b, _, _, h, w = tgt_label.shape
             prevs = [prev.view(b, -1, h, w) for prev in self.prevs]
             self.t += 1
-        tgt_label_valid, ref_labels_valid = use_valid_labels(opt, [tgt_label[:, (-1)], ref_labels])
+        tgt_label_valid, ref_labels_valid = use_valid_labels(opt, [tgt_label[:, -1], ref_labels])
         if opt.finetune and self.t == 0:
             self.finetune(ref_labels, ref_images)
         with torch.no_grad():
             fake_image, flow, flow_mask, fake_raw_image, warped_image, _, _, atn_score, ref_idx = self.netG(tgt_label_valid, ref_labels_valid, ref_images, prevs, t=self.t)
             ref_label_valid, ref_label, ref_image = pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
             if self.refine_face:
-                fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label[:, (-1)], ref_label_valid, ref_image, ref_label)
+                fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label[:, -1], ref_label_valid, ref_image, ref_label)
             self.prevs = self.concat_prev(self.prevs, [tgt_label_valid, fake_image])
         return fake_image, fake_raw_image, warped_image, flow, flow_mask, atn_score
 
@@ -3630,7 +3630,7 @@ class Vid2VidModel(BaseModel):
         iterations = 100
         for it in range(1, iterations + 1):
             idx = random.randrange(ref_labels.size(1))
-            tgt_label, tgt_image = random_roll([ref_labels[:, (idx)], ref_images[:, (idx)]])
+            tgt_label, tgt_image = random_roll([ref_labels[:, idx], ref_images[:, idx]])
             tgt_label, tgt_image = tgt_label.unsqueeze(1), tgt_image.unsqueeze(1)
             g_losses, generated, prev = self.forward_generator(tgt_label, tgt_image, ref_labels, ref_images)
             g_losses = loss_backward(self.opt, g_losses, self.optimizer_G, 0)
@@ -3658,14 +3658,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([], {}),
      True),
-    (DataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (FaceRefineModel,
      lambda: ([], {}),
      lambda: ([], {}),
@@ -3832,10 +3824,4 @@ class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
-
-    def test_025(self):
-        self._check(*TESTCASES[25])
 

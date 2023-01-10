@@ -1,9 +1,6 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-compute_dists = _module
-compute_dists_dirs = _module
-compute_dists_pair = _module
 data = _module
 base_data_loader = _module
 custom_dataset_data_loader = _module
@@ -13,12 +10,15 @@ base_dataset = _module
 jnd_dataset = _module
 twoafc_dataset = _module
 image_folder = _module
-models = _module
-base_model = _module
-dist_model = _module
-networks_basic = _module
+lpips = _module
+lpips = _module
 pretrained_networks = _module
-perceptual_loss = _module
+trainer = _module
+lpips_1dir_allpairs = _module
+lpips_2dirs = _module
+lpips_2imgs = _module
+lpips_loss = _module
+setup = _module
 test_dataset_model = _module
 test_network = _module
 train = _module
@@ -62,28 +62,16 @@ import numpy as np
 import torch
 
 
-from torch.autograd import Variable
-
-
-from torch import nn
-
-
-from collections import OrderedDict
-
-
-import itertools
-
-
-from scipy.ndimage import zoom
-
-
-import functools
-
-
 import torch.nn as nn
 
 
 import torch.nn.init as init
+
+
+from torch.autograd import Variable
+
+
+import torch.nn
 
 
 from collections import namedtuple
@@ -92,10 +80,13 @@ from collections import namedtuple
 from torchvision import models as tv
 
 
-import scipy
+from torch import nn
 
 
-import scipy.misc
+from collections import OrderedDict
+
+
+from scipy.ndimage import zoom
 
 
 import matplotlib.pyplot as plt
@@ -107,34 +98,6 @@ import torch.backends.cudnn as cudnn
 import time
 
 
-class PerceptualLoss(torch.nn.Module):
-
-    def __init__(self, model='net-lin', net='alex', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0], version='0.1'):
-        super(PerceptualLoss, self).__init__()
-        None
-        self.use_gpu = use_gpu
-        self.spatial = spatial
-        self.gpu_ids = gpu_ids
-        self.model = dist_model.DistModel()
-        self.model.initialize(model=model, net=net, use_gpu=use_gpu, colorspace=colorspace, spatial=self.spatial, gpu_ids=gpu_ids, version=version)
-        None
-        None
-
-    def forward(self, pred, target, normalize=False):
-        """
-        Pred and target are Variables.
-        If normalize is True, assumes the images are between [0,1] and then scales them between [-1,+1]
-        If normalize is False, assumes the images are already between [-1,+1]
-
-        Inputs pred and target are Nx3xHxW
-        Output pytorch Variable N long
-        """
-        if normalize:
-            target = 2 * target - 1
-            pred = 2 * pred - 1
-        return self.model.forward(target, pred)
-
-
 class NetLinLayer(nn.Module):
     """ A single linear layer which does a 1x1 conv """
 
@@ -144,13 +107,16 @@ class NetLinLayer(nn.Module):
         layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
         self.model = nn.Sequential(*layers)
 
+    def forward(self, x):
+        return self.model(x)
+
 
 class ScalingLayer(nn.Module):
 
     def __init__(self):
         super(ScalingLayer, self).__init__()
-        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
-        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
+        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[None, :, None, None])
+        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[None, :, None, None])
 
     def forward(self, inp):
         return (inp - self.shift) / self.scale
@@ -160,17 +126,52 @@ def spatial_average(in_tens, keepdim=True):
     return in_tens.mean([2, 3], keepdim=keepdim)
 
 
-def upsample(in_tens, out_H=64):
-    in_H = in_tens.shape[2]
-    scale_factor = 1.0 * out_H / in_H
-    return nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False)(in_tens)
+def upsample(in_tens, out_HW=(64, 64)):
+    in_H, in_W = in_tens.shape[2], in_tens.shape[3]
+    return nn.Upsample(size=out_HW, mode='bilinear', align_corners=False)(in_tens)
 
 
-class PNetLin(nn.Module):
+class LPIPS(nn.Module):
 
-    def __init__(self, pnet_type='vgg', pnet_rand=False, pnet_tune=False, use_dropout=True, spatial=False, version='0.1', lpips=True):
-        super(PNetLin, self).__init__()
-        self.pnet_type = pnet_type
+    def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, pnet_rand=False, pnet_tune=False, use_dropout=True, model_path=None, eval_mode=True, verbose=True):
+        """ Initializes a perceptual loss torch.nn.Module
+
+        Parameters (default listed first)
+        ---------------------------------
+        lpips : bool
+            [True] use linear layers on top of base/trunk network
+            [False] means no linear layers; each layer is averaged together
+        pretrained : bool
+            This flag controls the linear layers, which are only in effect when lpips=True above
+            [True] means linear layers are calibrated with human perceptual judgments
+            [False] means linear layers are randomly initialized
+        pnet_rand : bool
+            [False] means trunk loaded with ImageNet classification weights
+            [True] means randomly initialized trunk
+        net : str
+            ['alex','vgg','squeeze'] are the base/trunk networks available
+        version : str
+            ['v0.1'] is the default and latest
+            ['v0.0'] contained a normalization bug; corresponds to old arxiv v1 (https://arxiv.org/abs/1801.03924v1)
+        model_path : 'str'
+            [None] is default and loads the pretrained weights from paper https://arxiv.org/abs/1801.03924v1
+
+        The following parameters should only be changed if training the network
+
+        eval_mode : bool
+            [True] is for test mode (default)
+            [False] is for training mode
+        pnet_tune
+            [False] keep base/trunk frozen
+            [True] tune the base/trunk network
+        use_dropout : bool
+            [True] to use dropout when training linear layers
+            [False] for no dropout when training linear layers
+        """
+        super(LPIPS, self).__init__()
+        if verbose:
+            None
+        self.pnet_type = net
         self.pnet_tune = pnet_tune
         self.pnet_rand = pnet_rand
         self.spatial = spatial
@@ -199,25 +200,38 @@ class PNetLin(nn.Module):
                 self.lin5 = NetLinLayer(self.chns[5], use_dropout=use_dropout)
                 self.lin6 = NetLinLayer(self.chns[6], use_dropout=use_dropout)
                 self.lins += [self.lin5, self.lin6]
+            self.lins = nn.ModuleList(self.lins)
+            if pretrained:
+                if model_path is None:
+                    import inspect
+                    model_path = os.path.abspath(os.path.join(inspect.getfile(self.__init__), '..', 'weights/v%s/%s.pth' % (version, net)))
+                if verbose:
+                    None
+                self.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
+        if eval_mode:
+            self.eval()
 
-    def forward(self, in0, in1, retPerLayer=False):
+    def forward(self, in0, in1, retPerLayer=False, normalize=False):
+        if normalize:
+            in0 = 2 * in0 - 1
+            in1 = 2 * in1 - 1
         in0_input, in1_input = (self.scaling_layer(in0), self.scaling_layer(in1)) if self.version == '0.1' else (in0, in1)
         outs0, outs1 = self.net.forward(in0_input), self.net.forward(in1_input)
         feats0, feats1, diffs = {}, {}, {}
         for kk in range(self.L):
-            feats0[kk], feats1[kk] = util.normalize_tensor(outs0[kk]), util.normalize_tensor(outs1[kk])
+            feats0[kk], feats1[kk] = lpips.normalize_tensor(outs0[kk]), lpips.normalize_tensor(outs1[kk])
             diffs[kk] = (feats0[kk] - feats1[kk]) ** 2
         if self.lpips:
             if self.spatial:
-                res = [upsample(self.lins[kk].model(diffs[kk]), out_H=in0.shape[2]) for kk in range(self.L)]
+                res = [upsample(self.lins[kk](diffs[kk]), out_HW=in0.shape[2:]) for kk in range(self.L)]
             else:
-                res = [spatial_average(self.lins[kk].model(diffs[kk]), keepdim=True) for kk in range(self.L)]
+                res = [spatial_average(self.lins[kk](diffs[kk]), keepdim=True) for kk in range(self.L)]
         elif self.spatial:
-            res = [upsample(diffs[kk].sum(dim=1, keepdim=True), out_H=in0.shape[2]) for kk in range(self.L)]
+            res = [upsample(diffs[kk].sum(dim=1, keepdim=True), out_HW=in0.shape[2:]) for kk in range(self.L)]
         else:
             res = [spatial_average(diffs[kk].sum(dim=1, keepdim=True), keepdim=True) for kk in range(self.L)]
-        val = res[0]
-        for l in range(1, self.L):
+        val = 0
+        for l in range(self.L):
             val += res[l]
         if retPerLayer:
             return val, res
@@ -273,7 +287,7 @@ class L2(FakeNet):
             value = torch.mean(torch.mean(torch.mean((in0 - in1) ** 2, dim=1).view(N, 1, X, Y), dim=2).view(N, 1, 1, Y), dim=3).view(N)
             return value
         elif self.colorspace == 'Lab':
-            value = util.l2(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+            value = lpips.l2(lpips.tensor2np(lpips.tensor2tensorlab(in0.data, to_norm=False)), lpips.tensor2np(lpips.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
             ret_var = Variable(torch.Tensor((value,)))
             if self.use_gpu:
                 ret_var = ret_var
@@ -285,9 +299,9 @@ class DSSIM(FakeNet):
     def forward(self, in0, in1, retPerLayer=None):
         assert in0.size()[0] == 1
         if self.colorspace == 'RGB':
-            value = util.dssim(1.0 * util.tensor2im(in0.data), 1.0 * util.tensor2im(in1.data), range=255.0).astype('float')
+            value = lpips.dssim(1.0 * lpips.tensor2im(in0.data), 1.0 * lpips.tensor2im(in1.data), range=255.0).astype('float')
         elif self.colorspace == 'Lab':
-            value = util.dssim(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+            value = lpips.dssim(lpips.tensor2np(lpips.tensor2tensorlab(in0.data, to_norm=False)), lpips.tensor2np(lpips.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
         ret_var = Variable(torch.Tensor((value,)))
         if self.use_gpu:
             ret_var = ret_var
@@ -481,6 +495,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {}),
      False),
+    (NetLinLayer,
+     lambda: ([], {'chn_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ScalingLayer,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 4, 4])], {}),
@@ -521,4 +539,7 @@ class Test_richzhang_PerceptualSimilarity(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

@@ -47,13 +47,16 @@ import torchtext.data
 import torchtext.datasets
 
 
-from torchtext.datasets import TranslationDataset
-
-
 import math
 
 
 import time
+
+
+import numpy as np
+
+
+import random
 
 
 import torch.nn.functional as F
@@ -62,19 +65,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-from torchtext.data import Field
-
-
-from torchtext.data import Dataset
-
-
-from torchtext.data import BucketIterator
-
-
 import torch.nn as nn
-
-
-import numpy as np
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -114,7 +105,6 @@ class MultiHeadAttention(nn.Module):
         d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
         sz_b, len_q, len_k, len_v = q.size(0), q.size(1), k.size(1), v.size(1)
         residual = q
-        q = self.layer_norm(q)
         q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
         k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
         v = self.w_vs(v).view(sz_b, len_v, n_head, d_v)
@@ -125,6 +115,7 @@ class MultiHeadAttention(nn.Module):
         q = q.transpose(1, 2).contiguous().view(sz_b, len_q, -1)
         q = self.dropout(self.fc(q))
         q += residual
+        q = self.layer_norm(q)
         return q, attn
 
 
@@ -140,10 +131,10 @@ class PositionwiseFeedForward(nn.Module):
 
     def forward(self, x):
         residual = x
-        x = self.layer_norm(x)
         x = self.w_2(F.relu(self.w_1(x)))
         x = self.dropout(x)
         x += residual
+        x = self.layer_norm(x)
         return x
 
 
@@ -200,21 +191,26 @@ class PositionalEncoding(nn.Module):
 class Encoder(nn.Module):
     """ A encoder model with self attention mechanism. """
 
-    def __init__(self, n_src_vocab, d_word_vec, n_layers, n_head, d_k, d_v, d_model, d_inner, pad_idx, dropout=0.1, n_position=200):
+    def __init__(self, n_src_vocab, d_word_vec, n_layers, n_head, d_k, d_v, d_model, d_inner, pad_idx, dropout=0.1, n_position=200, scale_emb=False):
         super().__init__()
         self.src_word_emb = nn.Embedding(n_src_vocab, d_word_vec, padding_idx=pad_idx)
         self.position_enc = PositionalEncoding(d_word_vec, n_position=n_position)
         self.dropout = nn.Dropout(p=dropout)
         self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-06)
+        self.scale_emb = scale_emb
+        self.d_model = d_model
 
     def forward(self, src_seq, src_mask, return_attns=False):
         enc_slf_attn_list = []
-        enc_output = self.dropout(self.position_enc(self.src_word_emb(src_seq)))
+        enc_output = self.src_word_emb(src_seq)
+        if self.scale_emb:
+            enc_output *= self.d_model ** 0.5
+        enc_output = self.dropout(self.position_enc(enc_output))
+        enc_output = self.layer_norm(enc_output)
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(enc_output, slf_attn_mask=src_mask)
             enc_slf_attn_list += [enc_slf_attn] if return_attns else []
-        enc_output = self.layer_norm(enc_output)
         if return_attns:
             return enc_output, enc_slf_attn_list
         return enc_output,
@@ -223,22 +219,27 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     """ A decoder model with self attention mechanism. """
 
-    def __init__(self, n_trg_vocab, d_word_vec, n_layers, n_head, d_k, d_v, d_model, d_inner, pad_idx, n_position=200, dropout=0.1):
+    def __init__(self, n_trg_vocab, d_word_vec, n_layers, n_head, d_k, d_v, d_model, d_inner, pad_idx, n_position=200, dropout=0.1, scale_emb=False):
         super().__init__()
         self.trg_word_emb = nn.Embedding(n_trg_vocab, d_word_vec, padding_idx=pad_idx)
         self.position_enc = PositionalEncoding(d_word_vec, n_position=n_position)
         self.dropout = nn.Dropout(p=dropout)
         self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-06)
+        self.scale_emb = scale_emb
+        self.d_model = d_model
 
     def forward(self, trg_seq, trg_mask, enc_output, src_mask, return_attns=False):
         dec_slf_attn_list, dec_enc_attn_list = [], []
-        dec_output = self.dropout(self.position_enc(self.trg_word_emb(trg_seq)))
+        dec_output = self.trg_word_emb(trg_seq)
+        if self.scale_emb:
+            dec_output *= self.d_model ** 0.5
+        dec_output = self.dropout(self.position_enc(dec_output))
+        dec_output = self.layer_norm(dec_output)
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn, dec_enc_attn = dec_layer(dec_output, enc_output, slf_attn_mask=trg_mask, dec_enc_attn_mask=src_mask)
             dec_slf_attn_list += [dec_slf_attn] if return_attns else []
             dec_enc_attn_list += [dec_enc_attn] if return_attns else []
-        dec_output = self.layer_norm(dec_output)
         if return_attns:
             return dec_output, dec_slf_attn_list, dec_enc_attn_list
         return dec_output,
@@ -258,20 +259,22 @@ def get_subsequent_mask(seq):
 class Transformer(nn.Module):
     """ A sequence to sequence model with attention mechanism. """
 
-    def __init__(self, n_src_vocab, n_trg_vocab, src_pad_idx, trg_pad_idx, d_word_vec=512, d_model=512, d_inner=2048, n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1, n_position=200, trg_emb_prj_weight_sharing=True, emb_src_trg_weight_sharing=True):
+    def __init__(self, n_src_vocab, n_trg_vocab, src_pad_idx, trg_pad_idx, d_word_vec=512, d_model=512, d_inner=2048, n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1, n_position=200, trg_emb_prj_weight_sharing=True, emb_src_trg_weight_sharing=True, scale_emb_or_prj='prj'):
         super().__init__()
         self.src_pad_idx, self.trg_pad_idx = src_pad_idx, trg_pad_idx
-        self.encoder = Encoder(n_src_vocab=n_src_vocab, n_position=n_position, d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v, pad_idx=src_pad_idx, dropout=dropout)
-        self.decoder = Decoder(n_trg_vocab=n_trg_vocab, n_position=n_position, d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v, pad_idx=trg_pad_idx, dropout=dropout)
+        assert scale_emb_or_prj in ['emb', 'prj', 'none']
+        scale_emb = scale_emb_or_prj == 'emb' if trg_emb_prj_weight_sharing else False
+        self.scale_prj = scale_emb_or_prj == 'prj' if trg_emb_prj_weight_sharing else False
+        self.d_model = d_model
+        self.encoder = Encoder(n_src_vocab=n_src_vocab, n_position=n_position, d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v, pad_idx=src_pad_idx, dropout=dropout, scale_emb=scale_emb)
+        self.decoder = Decoder(n_trg_vocab=n_trg_vocab, n_position=n_position, d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v, pad_idx=trg_pad_idx, dropout=dropout, scale_emb=scale_emb)
         self.trg_word_prj = nn.Linear(d_model, n_trg_vocab, bias=False)
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
         assert d_model == d_word_vec, 'To facilitate the residual connections,          the dimensions of all module outputs shall be the same.'
-        self.x_logit_scale = 1.0
         if trg_emb_prj_weight_sharing:
             self.trg_word_prj.weight = self.decoder.trg_word_emb.weight
-            self.x_logit_scale = d_model ** -0.5
         if emb_src_trg_weight_sharing:
             self.encoder.src_word_emb.weight = self.decoder.trg_word_emb.weight
 
@@ -280,7 +283,9 @@ class Transformer(nn.Module):
         trg_mask = get_pad_mask(trg_seq, self.trg_pad_idx) & get_subsequent_mask(trg_seq)
         enc_output, *_ = self.encoder(src_seq, src_mask)
         dec_output, *_ = self.decoder(trg_seq, trg_mask, enc_output, src_mask)
-        seq_logit = self.trg_word_prj(dec_output) * self.x_logit_scale
+        seq_logit = self.trg_word_prj(dec_output)
+        if self.scale_prj:
+            seq_logit *= self.d_model ** -0.5
         return seq_logit.view(-1, seq_logit.size(2))
 
 
@@ -299,7 +304,7 @@ class Translator(nn.Module):
         self.model.eval()
         self.register_buffer('init_seq', torch.LongTensor([[trg_bos_idx]]))
         self.register_buffer('blank_seqs', torch.full((beam_size, max_seq_len), trg_pad_idx, dtype=torch.long))
-        self.blank_seqs[:, (0)] = self.trg_bos_idx
+        self.blank_seqs[:, 0] = self.trg_bos_idx
         self.register_buffer('len_map', torch.arange(1, max_seq_len + 1, dtype=torch.long).unsqueeze(0))
 
     def _model_decode(self, trg_seq, enc_output, src_mask):
@@ -311,23 +316,23 @@ class Translator(nn.Module):
         beam_size = self.beam_size
         enc_output, *_ = self.model.encoder(src_seq, src_mask)
         dec_output = self._model_decode(self.init_seq, enc_output, src_mask)
-        best_k_probs, best_k_idx = dec_output[:, (-1), :].topk(beam_size)
+        best_k_probs, best_k_idx = dec_output[:, -1, :].topk(beam_size)
         scores = torch.log(best_k_probs).view(beam_size)
         gen_seq = self.blank_seqs.clone().detach()
-        gen_seq[:, (1)] = best_k_idx[0]
+        gen_seq[:, 1] = best_k_idx[0]
         enc_output = enc_output.repeat(beam_size, 1, 1)
         return enc_output, gen_seq, scores
 
     def _get_the_best_score_and_idx(self, gen_seq, dec_output, scores, step):
         assert len(scores.size()) == 1
         beam_size = self.beam_size
-        best_k2_probs, best_k2_idx = dec_output[:, (-1), :].topk(beam_size)
+        best_k2_probs, best_k2_idx = dec_output[:, -1, :].topk(beam_size)
         scores = torch.log(best_k2_probs).view(beam_size, -1) + scores.view(beam_size, 1)
         scores, best_k_idx_in_k2 = scores.view(-1).topk(beam_size)
         best_k_r_idxs, best_k_c_idxs = best_k_idx_in_k2 // beam_size, best_k_idx_in_k2 % beam_size
         best_k_idx = best_k2_idx[best_k_r_idxs, best_k_c_idxs]
-        gen_seq[:, :step] = gen_seq[(best_k_r_idxs), :step]
-        gen_seq[:, (step)] = best_k_idx
+        gen_seq[:, :step] = gen_seq[best_k_r_idxs, :step]
+        gen_seq[:, step] = best_k_idx
         return gen_seq, scores
 
     def translate_sentence(self, src_seq):
@@ -360,15 +365,15 @@ TESTCASES = [
     (DecoderLayer,
      lambda: ([], {'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (EncoderLayer,
      lambda: ([], {'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (MultiHeadAttention,
      lambda: ([], {'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (PositionalEncoding,
      lambda: ([], {'d_hid': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -380,7 +385,7 @@ TESTCASES = [
     (ScaledDotProductAttention,
      lambda: ([], {'temperature': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_jadore801120_attention_is_all_you_need_pytorch(_paritybench_base):

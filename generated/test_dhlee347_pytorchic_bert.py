@@ -94,7 +94,7 @@ class Classifier(nn.Module):
 
     def forward(self, input_ids, segment_ids, input_mask):
         h = self.transformer(input_ids, segment_ids, input_mask)
-        pooled_h = self.activ(self.fc(h[:, (0)]))
+        pooled_h = self.activ(self.fc(h[:, 0]))
         logits = self.classifier(self.drop(pooled_h))
         return logits
 
@@ -172,7 +172,7 @@ class MultiHeadedSelfAttention(nn.Module):
         q, k, v = (split_last(x, (self.n_heads, -1)).transpose(1, 2) for x in [q, k, v])
         scores = q @ k.transpose(-2, -1) / np.sqrt(k.size(-1))
         if mask is not None:
-            mask = mask[:, (None), (None), :].float()
+            mask = mask[:, None, None, :].float()
             scores -= 10000.0 * (1.0 - mask)
         scores = self.drop(F.softmax(scores, dim=-1))
         h = (scores @ v).transpose(1, 2).contiguous()
@@ -252,8 +252,8 @@ class BertModel4Pretrain(nn.Module):
 
     def forward(self, input_ids, segment_ids, input_mask, masked_pos):
         h = self.transformer(input_ids, segment_ids, input_mask)
-        pooled_h = self.activ1(self.fc(h[:, (0)]))
-        masked_pos = masked_pos[:, :, (None)].expand(-1, -1, h.size(-1))
+        pooled_h = self.activ1(self.fc(h[:, 0]))
+        masked_pos = masked_pos[:, :, None].expand(-1, -1, h.size(-1))
         h_masked = torch.gather(h, 1, masked_pos)
         h_masked = self.norm(self.activ2(self.linear(h_masked)))
         logits_lm = self.decoder(h_masked) + self.decoder_bias
@@ -268,18 +268,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (BertModel4Pretrain,
-     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64), torch.ones([4, 4, 4], dtype=torch.int64), torch.rand([4, 4, 4]), torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (Classifier,
-     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4), 'n_labels': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
-     False),
-    (Embeddings,
-     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (LayerNorm,
      lambda: ([], {'cfg': _mock_config(dim=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -288,10 +276,6 @@ TESTCASES = [
      lambda: ([], {'cfg': _mock_config(dim=4, dim_ff=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Transformer,
-     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
-     False),
 ]
 
 class Test_dhlee347_pytorchic_bert(_paritybench_base):
@@ -300,16 +284,4 @@ class Test_dhlee347_pytorchic_bert(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

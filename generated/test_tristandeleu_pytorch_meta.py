@@ -12,10 +12,13 @@ train = _module
 utils = _module
 model = _module
 train = _module
+model = _module
+train = _module
 utils = _module
 setup = _module
 torchmeta = _module
 datasets = _module
+bach = _module
 cifar100 = _module
 base = _module
 cifar_fs = _module
@@ -23,13 +26,19 @@ fc100 = _module
 cub = _module
 doublemnist = _module
 helpers = _module
+helpers_tabular = _module
+letter = _module
 miniimagenet = _module
 omniglot = _module
+one_hundred_plants_margin = _module
+one_hundred_plants_shape = _module
+one_hundred_plants_texture = _module
 pascal5i = _module
 tcga = _module
 tieredimagenet = _module
 triplemnist = _module
 modules = _module
+activation = _module
 batchnorm = _module
 container = _module
 conv = _module
@@ -37,34 +46,46 @@ linear = _module
 module = _module
 normalization = _module
 parallel = _module
+sparse = _module
 tests = _module
 test_datasets_helpers = _module
+test_datasets_helpers_tabular = _module
+test_activation = _module
 test_container = _module
 test_conv = _module
-test_dataparallel = _module
 test_linear = _module
+test_module = _module
+test_parallel = _module
+test_sparse = _module
 toy = _module
 test_toy = _module
 transforms = _module
 test_splitters = _module
 test_dataloaders = _module
 test_gradient_based = _module
+test_matching = _module
 test_prototype = _module
+test_r2d2 = _module
+test_wrappers = _module
 harmonic = _module
 sinusoid = _module
 sinusoid_line = _module
 augmentations = _module
 categorical = _module
 splitters = _module
+tabular_transforms = _module
 target_transforms = _module
 data = _module
 dataloader = _module
 dataset = _module
 sampler = _module
 task = _module
+wrappers = _module
 gradient_based = _module
+matching = _module
 metrics = _module
 prototype = _module
+r2d2 = _module
 version = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -126,6 +147,9 @@ from torch.nn.modules.utils import _pair
 from torch.nn.modules.utils import _triple
 
 
+import warnings
+
+
 from torch.nn import DataParallel as DataParallel_
 
 
@@ -139,6 +163,9 @@ from torch.nn.parallel.replicate import _broadcast_coalesced_reshape
 
 
 from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
 
 
 from collections import defaultdict
@@ -174,6 +201,12 @@ from torch.utils.data import Dataset as Dataset_
 from torchvision.transforms import Compose
 
 
+from collections import namedtuple
+
+
+from math import sqrt
+
+
 class MetaModule(nn.Module):
     """
     Base class for PyTorch meta-learning modules. These modules accept an
@@ -186,6 +219,10 @@ class MetaModule(nn.Module):
     tensors, with full support of the computation graph (for differentiation).
     """
 
+    def __init__(self):
+        super(MetaModule, self).__init__()
+        self._children_modules_parameters_cache = dict()
+
     def meta_named_parameters(self, prefix='', recurse=True):
         gen = self._named_members(lambda module: module._parameters.items() if isinstance(module, MetaModule) else [], prefix=prefix, recurse=recurse)
         for elem in gen:
@@ -194,6 +231,23 @@ class MetaModule(nn.Module):
     def meta_parameters(self, recurse=True):
         for name, param in self.meta_named_parameters(recurse=recurse):
             yield param
+
+    def get_subdict(self, params, key=None):
+        if params is None:
+            return None
+        all_names = tuple(params.keys())
+        if (key, all_names) not in self._children_modules_parameters_cache:
+            if key is None:
+                self._children_modules_parameters_cache[key, all_names] = all_names
+            else:
+                key_escape = re.escape(key)
+                key_re = re.compile('^{0}\\.(.+)'.format(key_escape))
+                self._children_modules_parameters_cache[key, all_names] = [key_re.sub('\\1', k) for k in all_names if key_re.match(k) is not None]
+        names = self._children_modules_parameters_cache[key, all_names]
+        if not names:
+            warnings.warn('Module `{0}` has no parameter corresponding to the submodule named `{1}` in the dictionary `params` provided as an argument to `forward()`. Using the default parameters for this submodule. The list of the parameters in `params`: [{2}].'.format(self.__class__.__name__, key, ', '.join(all_names)), stacklevel=2)
+            return None
+        return OrderedDict([(name, params[f'{key}.{name}']) for name in names])
 
 
 class MetaLinear(nn.Linear, MetaModule):
@@ -206,24 +260,13 @@ class MetaLinear(nn.Linear, MetaModule):
         return F.linear(input, params['weight'], bias)
 
 
-def get_subdict(dictionary, key=None):
-    if dictionary is None:
-        return None
-    if key is None or key == '':
-        return dictionary
-    key_re = re.compile('^{0}\\.(.+)'.format(re.escape(key)))
-    if not any(filter(key_re.match, dictionary.keys())):
-        key_re = re.compile('^module\\.{0}\\.(.+)'.format(re.escape(key)))
-    return OrderedDict((key_re.sub('\\1', k), value) for k, value in dictionary.items() if key_re.match(k) is not None)
-
-
 class MetaSequential(nn.Sequential, MetaModule):
     __doc__ = nn.Sequential.__doc__
 
     def forward(self, input, params=None):
         for name, module in self._modules.items():
             if isinstance(module, MetaModule):
-                input = module(input, params=get_subdict(params, name))
+                input = module(input, params=self.get_subdict(params, name))
             elif isinstance(module, nn.Module):
                 input = module(input)
             else:
@@ -246,10 +289,24 @@ class ConvolutionalNeuralNetwork(MetaModule):
         self.classifier = MetaLinear(hidden_size, out_features)
 
     def forward(self, inputs, params=None):
-        features = self.features(inputs, params=get_subdict(params, 'features'))
+        features = self.features(inputs, params=self.get_subdict(params, 'features'))
         features = features.view((features.size(0), -1))
-        logits = self.classifier(features, params=get_subdict(params, 'classifier'))
+        logits = self.classifier(features, params=self.get_subdict(params, 'classifier'))
         return logits
+
+
+class MatchingNetwork(nn.Module):
+
+    def __init__(self, in_channels, out_channels, hidden_size=64):
+        super(MatchingNetwork, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.hidden_size = hidden_size
+        self.encoder = nn.Sequential(conv3x3(in_channels, hidden_size), conv3x3(hidden_size, hidden_size), conv3x3(hidden_size, hidden_size), conv3x3(hidden_size, out_channels))
+
+    def forward(self, inputs):
+        embeddings = self.encoder(inputs.view(-1, *inputs.shape[2:]))
+        return embeddings.view(*inputs.shape[:2], -1)
 
 
 class PrototypicalNetwork(nn.Module):
@@ -264,6 +321,33 @@ class PrototypicalNetwork(nn.Module):
     def forward(self, inputs):
         embeddings = self.encoder(inputs.view(-1, *inputs.shape[2:]))
         return embeddings.view(*inputs.shape[:2], -1)
+
+
+class MetaMultiheadAttention(nn.MultiheadAttention, MetaModule):
+    __doc__ = nn.MultiheadAttention.__doc__
+
+    def __init__(self, *args, **kwargs):
+        super(MetaMultiheadAttention, self).__init__(*args, **kwargs)
+        factory_kwargs = {'device': kwargs.get('device', None), 'dtype': kwargs.get('dtype', None)}
+        bias = kwargs.get('bias', True)
+        self.out_proj = MetaLinear(self.embed_dim, self.embed_dim, bias=bias, **factory_kwargs)
+
+    def forward(self, query, key, value, key_padding_mask=None, need_weights=True, attn_mask=None, params=None):
+        if params is None:
+            params = OrderedDict(self.named_parameters())
+        in_proj_weight = params.get('in_proj_weight', None)
+        in_proj_bias = params.get('in_proj_bias', None)
+        out_proj_bias = params.get('out_proj.bias', None)
+        bias_k = params.get('bias_k', None)
+        bias_v = params.get('bias_v', None)
+        if not self._qkv_same_embed_dim:
+            attn_output, attn_output_weights = F.multi_head_attention_forward(query, key, value, self.embed_dim, self.num_heads, in_proj_weight, in_proj_bias, bias_k, bias_v, self.add_zero_attn, self.dropout, params['out_proj.weight'], out_proj_bias, training=self.training, key_padding_mask=key_padding_mask, need_weights=need_weights, attn_mask=attn_mask, use_separate_proj_weight=True, q_proj_weight=params['q_proj_weight'], k_proj_weight=params['k_proj_weight'], v_proj_weight=params['v_proj_weight'])
+        else:
+            attn_output, attn_output_weights = F.multi_head_attention_forward(query, key, value, self.embed_dim, self.num_heads, in_proj_weight, in_proj_bias, bias_k, bias_v, self.add_zero_attn, self.dropout, params['out_proj.weight'], out_proj_bias, training=self.training, key_padding_mask=key_padding_mask, need_weights=need_weights, attn_mask=attn_mask)
+        if self.batch_first:
+            return attn_output.transpose(1, 0), attn_output_weights
+        else:
+            return attn_output, attn_output_weights
 
 
 class _MetaBatchNorm(_BatchNorm, MetaModule):
@@ -319,10 +403,7 @@ class MetaConv1d(nn.Conv1d, MetaModule):
         if params is None:
             params = OrderedDict(self.named_parameters())
         bias = params.get('bias', None)
-        if self.padding_mode == 'circular':
-            expanded_padding = (self.padding[0] + 1) // 2, self.padding[0] // 2
-            return F.conv1d(F.pad(input, expanded_padding, mode='circular'), params['weight'], bias, self.stride, _single(0), self.dilation, self.groups)
-        return F.conv1d(input, params['weight'], bias, self.stride, self.padding, self.dilation, self.groups)
+        return self._conv_forward(input, params['weight'], bias)
 
 
 class MetaConv2d(nn.Conv2d, MetaModule):
@@ -332,10 +413,7 @@ class MetaConv2d(nn.Conv2d, MetaModule):
         if params is None:
             params = OrderedDict(self.named_parameters())
         bias = params.get('bias', None)
-        if self.padding_mode == 'circular':
-            expanded_padding = (self.padding[1] + 1) // 2, self.padding[1] // 2, (self.padding[0] + 1) // 2, self.padding[0] // 2
-            return F.conv2d(F.pad(input, expanded_padding, mode='circular'), params['weight'], bias, self.stride, _pair(0), self.dilation, self.groups)
-        return F.conv2d(input, params['weight'], bias, self.stride, self.padding, self.dilation, self.groups)
+        return self._conv_forward(input, params['weight'], bias)
 
 
 class MetaConv3d(nn.Conv3d, MetaModule):
@@ -345,10 +423,7 @@ class MetaConv3d(nn.Conv3d, MetaModule):
         if params is None:
             params = OrderedDict(self.named_parameters())
         bias = params.get('bias', None)
-        if self.padding_mode == 'circular':
-            expanded_padding = (self.padding[2] + 1) // 2, self.padding[2] // 2, (self.padding[1] + 1) // 2, self.padding[1] // 2, (self.padding[0] + 1) // 2, self.padding[0] // 2
-            return F.conv3d(F.pad(input, expanded_padding, mode='circular'), params['weight'], bias, self.stride, _triple(0), self.dilation, self.groups)
-        return F.conv3d(input, params['weight'], bias, self.stride, self.padding, self.dilation, self.groups)
+        return self._conv_forward(input, params['weight'], bias)
 
 
 class MetaBilinear(nn.Bilinear, MetaModule):
@@ -376,10 +451,9 @@ class DataParallel(DataParallel_, MetaModule):
     __doc__ = DataParallel_.__doc__
 
     def scatter(self, inputs, kwargs, device_ids):
-        try:
-            params = kwargs.pop('params')
-        except KeyError:
+        if not isinstance(self.module, MetaModule):
             return super(DataParallel, self).scatter(inputs, kwargs, device_ids)
+        params = kwargs.pop('params', None)
         inputs_, kwargs_ = scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
         replicas = self._replicate_params(params, inputs_, device_ids, detach=not torch.is_grad_enabled())
         kwargs_ = tuple(dict(params=replica, **kwarg) for kwarg, replica in zip(kwargs_, replicas))
@@ -387,10 +461,46 @@ class DataParallel(DataParallel_, MetaModule):
 
     def _replicate_params(self, params, inputs, device_ids, detach=False):
         if params is None:
-            return tuple(None for _ in inputs)
-        replicas = _broadcast_coalesced_reshape(list(params.values()), device_ids[:len(inputs)], detach)
-        replicas = tuple(OrderedDict(zip(params.keys(), replica)) for replica in replicas)
+            module_params = OrderedDict(self.module.named_parameters())
+        else:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                module_params = self.get_subdict(params, key='module')
+            if module_params is None:
+                module_params = params
+        replicas = _broadcast_coalesced_reshape(list(module_params.values()), device_ids[:len(inputs)], detach)
+        replicas = tuple(OrderedDict(zip(module_params.keys(), replica)) for replica in replicas)
         return replicas
+
+
+class MetaEmbedding(nn.Embedding, MetaModule):
+    __doc__ = nn.Embedding.__doc__
+
+    def forward(self, input, params=None):
+        if params is None:
+            params = OrderedDict(self.named_parameters())
+        return F.embedding(input, params['weight'], self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
+
+
+class MetaEmbeddingBag(nn.EmbeddingBag, MetaModule):
+    __doc__ = nn.EmbeddingBag.__doc__
+
+    def forward(self, input, offsets=None, per_sample_weights=None, params=None):
+        if params is None:
+            params = OrderedDict(self.named_parameters())
+        return F.embedding_bag(input, params['weight'], offsets, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.mode, self.sparse, per_sample_weights, self.include_last_offset)
+
+
+class MetaModel(MetaModule):
+
+    def __init__(self):
+        super(MetaModel, self).__init__()
+        self.features = MetaSequential(OrderedDict([('linear1', nn.Linear(2, 3)), ('relu1', nn.ReLU()), ('linear2', nn.Linear(3, 5)), ('relu2', nn.ReLU())]))
+        self.classifier = MetaLinear(5, 7, bias=False)
+
+    def forward(self, inputs, params=None):
+        features = self.features(inputs, params=self.get_subdict(params, 'features'))
+        return self.classifier(features, params=self.get_subdict(params, 'classifier'))
 
 
 import torch
@@ -400,10 +510,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (DataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (MetaBatchNorm1d,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -422,7 +528,7 @@ TESTCASES = [
      False),
     (MetaConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (MetaConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -430,7 +536,7 @@ TESTCASES = [
      False),
     (MetaConv3d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (MetaLayerNorm,
      lambda: ([], {'normalized_shape': 4}),
@@ -440,13 +546,13 @@ TESTCASES = [
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (MetaMultiheadAttention,
+     lambda: ([], {'embed_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
     (MetaSequential,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (PrototypicalNetwork,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
      False),
 ]
 
@@ -483,7 +589,4 @@ class Test_tristandeleu_pytorch_meta(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 conf = _module
+ifbpy = _module
 setup = _module
 test = _module
 test_batching = _module
@@ -47,9 +48,11 @@ filtered_eval = _module
 graph_storages = _module
 losses = _module
 model = _module
+operators = _module
 parameter_sharing = _module
 partitionserver = _module
 plugin = _module
+regularizers = _module
 row_adagrad = _module
 rpc = _module
 schema = _module
@@ -168,6 +171,18 @@ import torch.distributed as td
 import torch.multiprocessing
 
 
+import uuid
+
+
+from enum import Enum
+
+
+from itertools import chain
+
+
+from typing import ClassVar
+
+
 from typing import Counter
 
 
@@ -189,13 +204,13 @@ from torch import nn as nn
 from torch.nn import functional as F
 
 
-from enum import Enum
-
-
 import torch.nn.functional as F
 
 
 import queue
+
+
+from functools import lru_cache
 
 
 from torch.optim import Optimizer
@@ -230,7 +245,7 @@ class AbstractLossFunction(nn.Module, ABC):
         super().__init__()
 
     @abstractmethod
-    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType, weight: Optional[FloatTensorType]) ->FloatTensorType:
         pass
 
 
@@ -301,12 +316,14 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)
 
 class LogisticLossFunction(AbstractLossFunction):
 
-    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType, weight: Optional[FloatTensorType]) ->FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
         neg_weight = 1 / num_neg if num_neg > 0 else 0
-        pos_loss = F.binary_cross_entropy_with_logits(pos_scores, pos_scores.new_ones(()).expand(num_pos), reduction='sum')
-        neg_loss = F.binary_cross_entropy_with_logits(neg_scores, neg_scores.new_zeros(()).expand(num_pos, num_neg), reduction='sum')
+        if weight is not None:
+            match_shape(weight, num_pos)
+        pos_loss = F.binary_cross_entropy_with_logits(pos_scores, pos_scores.new_ones(()).expand(num_pos), reduction='sum', weight=weight)
+        neg_loss = F.binary_cross_entropy_with_logits(neg_scores, neg_scores.new_zeros(()).expand(num_pos, num_neg), reduction='sum', weight=weight.unsqueeze(-1) if weight is not None else None)
         loss = pos_loss + neg_weight * neg_loss
         return loss
 
@@ -317,25 +334,35 @@ class RankingLossFunction(AbstractLossFunction):
         super().__init__()
         self.margin = margin
 
-    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType, weight: Optional[FloatTensorType]) ->FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
         if num_pos == 0 or num_neg == 0:
             return torch.zeros((), device=pos_scores.device, requires_grad=True)
-        loss = F.margin_ranking_loss(neg_scores, pos_scores.unsqueeze(1), target=pos_scores.new_full((1, 1), -1, dtype=torch.float), margin=self.margin, reduction='sum')
+        if weight is not None:
+            match_shape(weight, num_pos)
+            loss_per_sample = F.margin_ranking_loss(neg_scores, pos_scores.unsqueeze(1), target=pos_scores.new_full((1, 1), -1, dtype=torch.float), margin=self.margin, reduction='none')
+            loss = (loss_per_sample * weight.unsqueeze(-1)).sum()
+        else:
+            loss = F.margin_ranking_loss(neg_scores, pos_scores.unsqueeze(1), target=pos_scores.new_full((1, 1), -1, dtype=torch.float), margin=self.margin, reduction='sum')
         return loss
 
 
 class SoftmaxLossFunction(AbstractLossFunction):
 
-    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType, weight: Optional[FloatTensorType]) ->FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
         if num_pos == 0 or num_neg == 0:
             return torch.zeros((), device=pos_scores.device, requires_grad=True)
         scores = torch.cat([pos_scores.unsqueeze(1), neg_scores.logsumexp(dim=1, keepdim=True)], dim=1)
-        loss = F.cross_entropy(scores, pos_scores.new_zeros((), dtype=torch.long).expand(num_pos), reduction='sum')
-        return loss
+        if weight is not None:
+            loss_per_sample = F.cross_entropy(scores, pos_scores.new_zeros((num_pos,), dtype=torch.long), reduction='none')
+            match_shape(weight, num_pos)
+            loss_per_sample = loss_per_sample * weight
+        else:
+            loss_per_sample = F.cross_entropy(scores, pos_scores.new_zeros((num_pos,), dtype=torch.long), reduction='sum')
+        return loss_per_sample.sum()
 
 
 LongTensorType = torch.Tensor
@@ -402,9 +429,6 @@ class TensorList(object):
         assert offsets.ndimension() == 1
         assert offsets[0] == 0
         assert offsets[-1] == (data.size(0) if data.ndimension() > 0 else 0)
-        if data.numel() == 0 and data.storage().size() == 0:
-            storage = data.storage()
-            storage.resize_(storage.size() + 1)
         self.offsets = offsets
         self.data = data
 
@@ -659,217 +683,6 @@ class FeaturizedEmbedding(AbstractEmbedding):
         raise NotImplementedError('Cannot sample entities for featurized entities.')
 
 
-class AbstractOperator(nn.Module, ABC):
-    """Perform the same operation on many vectors.
-
-    Given a tensor containing a set of vectors, perform the same operation on
-    all of them, with a common set of parameters. The dimension of these vectors
-    will be given at initialization (so that any parameter can be initialized).
-    The input will be a tensor with at least one dimension. The last dimension
-    will contain the vectors. The output is a tensor that will have the same
-    size as the input.
-
-    """
-
-    def __init__(self, dim: int):
-        super().__init__()
-        self.dim = dim
-
-    @abstractmethod
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        pass
-
-
-class IdentityOperator(AbstractOperator):
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        return embeddings
-
-
-class DiagonalOperator(AbstractOperator):
-
-    def __init__(self, dim: int):
-        super().__init__(dim)
-        self.diagonal = nn.Parameter(torch.ones((self.dim,)))
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        return self.diagonal * embeddings
-
-
-class TranslationOperator(AbstractOperator):
-
-    def __init__(self, dim: int):
-        super().__init__(dim)
-        self.translation = nn.Parameter(torch.zeros((self.dim,)))
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        return embeddings + self.translation
-
-
-class LinearOperator(AbstractOperator):
-
-    def __init__(self, dim: int):
-        super().__init__(dim)
-        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1)
-
-
-class AffineOperator(AbstractOperator):
-
-    def __init__(self, dim: int):
-        super().__init__(dim)
-        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
-        self.translation = nn.Parameter(torch.zeros((self.dim,)))
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1) + self.translation
-
-    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
-        param_key = '%slinear_transformation' % prefix
-        old_param_key = '%srotation' % prefix
-        if old_param_key in state_dict:
-            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
-        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
-
-
-class ComplexDiagonalOperator(AbstractOperator):
-
-    def __init__(self, dim: int):
-        super().__init__(dim)
-        if dim % 2 != 0:
-            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
-        self.real = nn.Parameter(torch.ones((self.dim // 2,)))
-        self.imag = nn.Parameter(torch.zeros((self.dim // 2,)))
-
-    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        real_a = embeddings[(...), :self.dim // 2]
-        imag_a = embeddings[(...), self.dim // 2:]
-        real_b = self.real
-        imag_b = self.imag
-        prod = torch.empty_like(embeddings)
-        prod[(...), :self.dim // 2] = real_a * real_b - imag_a * imag_b
-        prod[(...), self.dim // 2:] = real_a * imag_b + imag_a * real_b
-        return prod
-
-
-class AbstractDynamicOperator(nn.Module, ABC):
-    """Perform different operations on many vectors.
-
-    The inputs are a tensor containing a set of vectors and another tensor
-    specifying, for each vector, which operation to apply to it. The output has
-    the same size as the first input and contains the outputs of the operations
-    applied to the input vectors. The different operations are identified by
-    integers in a [0, N) range. They are all of the same type (say, translation)
-    but each one has its own set of parameters. The dimension of the vectors and
-    the total number of operations that need to be supported are provided at
-    initialization. The first tensor can have any number of dimensions (>= 1).
-
-    """
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__()
-        self.dim = dim
-        self.num_operations = num_operations
-
-    @abstractmethod
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        pass
-
-
-class IdentityDynamicOperator(AbstractDynamicOperator):
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        return embeddings
-
-
-class DiagonalDynamicOperator(AbstractDynamicOperator):
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__(dim, num_operations)
-        self.diagonals = nn.Parameter(torch.ones((self.num_operations, self.dim)))
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        return self.diagonals[operator_idxs] * embeddings
-
-
-class TranslationDynamicOperator(AbstractDynamicOperator):
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__(dim, num_operations)
-        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        return embeddings + self.translations[operator_idxs]
-
-
-class LinearDynamicOperator(AbstractDynamicOperator):
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__(dim, num_operations)
-        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1)
-
-
-class AffineDynamicOperator(AbstractDynamicOperator):
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__(dim, num_operations)
-        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
-        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1) + self.translations[operator_idxs]
-
-    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
-        param_key = '%slinear_transformations' % prefix
-        old_param_key = '%srotations' % prefix
-        if old_param_key in state_dict:
-            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
-        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
-
-
-class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
-
-    def __init__(self, dim: int, num_operations: int):
-        super().__init__(dim, num_operations)
-        if dim % 2 != 0:
-            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
-        self.real = nn.Parameter(torch.ones((self.num_operations, self.dim // 2)))
-        self.imag = nn.Parameter(torch.zeros((self.num_operations, self.dim // 2)))
-
-    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
-        match_shape(embeddings, ..., self.dim)
-        match_shape(operator_idxs, *embeddings.size()[:-1])
-        real_a = embeddings[(...), :self.dim // 2]
-        imag_a = embeddings[(...), self.dim // 2:]
-        real_b = self.real[operator_idxs]
-        imag_b = self.imag[operator_idxs]
-        prod = torch.empty_like(embeddings)
-        prod[(...), :self.dim // 2] = real_a * real_b - imag_a * imag_b
-        prod[(...), self.dim // 2:] = real_a * imag_b + imag_a * real_b
-        return prod
-
-
 class AbstractComparator(nn.Module, ABC):
     """Calculate scores between pairs of given vectors in a certain space.
 
@@ -1011,14 +824,14 @@ class BiasedComparator(AbstractComparator):
         self.base_comparator = base_comparator
 
     def prepare(self, embs: FloatTensorType) ->FloatTensorType:
-        return torch.cat([embs[(...), :1], self.base_comparator.prepare(embs[(...), 1:])], dim=-1)
+        return torch.cat([embs[..., :1], self.base_comparator.prepare(embs[..., 1:])], dim=-1)
 
     def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
         match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
         match_shape(lhs_neg, num_chunks, -1, dim)
         match_shape(rhs_neg, num_chunks, -1, dim)
-        pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_comparator.forward(lhs_pos[(...), 1:], rhs_pos[(...), 1:], lhs_neg[(...), 1:], rhs_neg[(...), 1:])
+        pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_comparator.forward(lhs_pos[..., 1:], rhs_pos[..., 1:], lhs_neg[..., 1:], rhs_neg[..., 1:])
         lhs_pos_bias = lhs_pos[..., 0]
         rhs_pos_bias = rhs_pos[..., 0]
         pos_scores += lhs_pos_bias
@@ -1028,6 +841,80 @@ class BiasedComparator(AbstractComparator):
         rhs_neg_scores += lhs_pos_bias.unsqueeze(-1)
         rhs_neg_scores += rhs_neg[..., 0].unsqueeze(-2)
         return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+class AbstractDynamicOperator(nn.Module, ABC):
+    """Perform different operations on many vectors.
+
+    The inputs are a tensor containing a set of vectors and another tensor
+    specifying, for each vector, which operation to apply to it. The output has
+    the same size as the first input and contains the outputs of the operations
+    applied to the input vectors. The different operations are identified by
+    integers in a [0, N) range. They are all of the same type (say, translation)
+    but each one has its own set of parameters. The dimension of the vectors and
+    the total number of operations that need to be supported are provided at
+    initialization. The first tensor can have any number of dimensions (>= 1).
+
+    """
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__()
+        self.dim = dim
+        self.num_operations = num_operations
+
+    @abstractmethod
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        pass
+
+    def get_operator_params_for_reg(self, operator_idxs: LongTensorType) ->Optional[FloatTensorType]:
+        raise NotImplementedError('Regularizer not implemented for this operator')
+
+    def prepare_embs_for_reg(self, embs: FloatTensorType) ->FloatTensorType:
+        return embs.abs()
+
+
+class AbstractOperator(nn.Module, ABC):
+    """Perform the same operation on many vectors.
+
+    Given a tensor containing a set of vectors, perform the same operation on
+    all of them, with a common set of parameters. The dimension of these vectors
+    will be given at initialization (so that any parameter can be initialized).
+    The input will be a tensor with at least one dimension. The last dimension
+    will contain the vectors. The output is a tensor that will have the same
+    size as the input.
+
+    """
+
+    def __init__(self, dim: int):
+        super().__init__()
+        self.dim = dim
+
+    @abstractmethod
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        pass
+
+    def get_operator_params_for_reg(self) ->Optional[FloatTensorType]:
+        raise NotImplementedError('Regularizer not implemented for this operator')
+
+    def prepare_embs_for_reg(self, embs: FloatTensorType) ->FloatTensorType:
+        return embs.abs()
+
+
+class AbstractRegularizer(ABC):
+    """
+    Computes a weighted penalty for embeddings involved in score computations.
+    """
+
+    def __init__(self, weight):
+        self.weight = weight
+
+    @abstractmethod
+    def forward_dynamic(self, src_pos: FloatTensorType, dst_pos: FloatTensorType, src_operators: Optional[FloatTensorType], dst_operators: Optional[FloatTensorType]) ->FloatTensorType:
+        pass
+
+    @abstractmethod
+    def forward(self, src_pos: FloatTensorType, dst_pos: FloatTensorType, src_operators: Optional[FloatTensorType], dst_operators: Optional[FloatTensorType]) ->FloatTensorType:
+        pass
 
 
 Partition = int
@@ -1067,15 +954,21 @@ class EdgeList:
     def cat(cls, edge_lists: Sequence['EdgeList']) ->'EdgeList':
         cat_lhs = EntityList.cat([el.lhs for el in edge_lists])
         cat_rhs = EntityList.cat([el.rhs for el in edge_lists])
+        if any(el.has_weight() for el in edge_lists):
+            if not all(el.has_weight() for el in edge_lists):
+                raise RuntimeError("Can't concatenate edgelists with and without weight field.")
+            cat_weight = torch.cat([el.weight.expand((len(el),)) for el in edge_lists])
+        else:
+            cat_weight = None
         if all(el.has_scalar_relation_type() for el in edge_lists):
             rel_types = {el.get_relation_type_as_scalar() for el in edge_lists}
             if len(rel_types) == 1:
                 rel_type, = rel_types
-                return cls(cat_lhs, cat_rhs, torch.tensor(rel_type, dtype=torch.long))
+                return cls(cat_lhs, cat_rhs, torch.tensor(rel_type, dtype=torch.long), cat_weight)
         cat_rel = torch.cat([el.rel.expand((len(el),)) for el in edge_lists])
-        return EdgeList(cat_lhs, cat_rhs, cat_rel)
+        return cls(cat_lhs, cat_rhs, cat_rel, cat_weight)
 
-    def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType) ->None:
+    def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType, weight: Optional[FloatTensorType]=None) ->None:
         if not isinstance(lhs, EntityList) or not isinstance(rhs, EntityList):
             raise TypeError('Expected left- and right-hand side to be entity lists, got %s and %s instead' % (type(lhs), type(rhs)))
         if not isinstance(rel, (torch.LongTensor, torch.LongTensor)):
@@ -1086,9 +979,17 @@ class EdgeList:
             raise ValueError('The relation can be either a scalar or a 1-dimensional tensor, got a %d-dimensional tensor' % rel.dim())
         if rel.dim() == 1 and rel.shape[0] != len(lhs):
             raise ValueError('The relation has a different length than the entity lists: %d != %d' % (rel.shape[0], len(lhs)))
+        if weight is not None and weight.nelement() == 0:
+            weight = None
+        if weight is not None:
+            if weight.dim() > 1:
+                raise ValueError('The weight can be either a scalar or a 1-dimensional tensor, got a %d-dimensional tensor' % weight.dim())
+            if weight.dim() == 1 and weight.shape[0] != len(lhs):
+                raise ValueError('The weight has a different length than the entity lists: %d != %d' % (weight.shape[0], len(lhs)))
         self.lhs = lhs
         self.rhs = rhs
         self.rel = rel
+        self.weight = weight
 
     def has_scalar_relation_type(self) ->bool:
         return self.rel.dim() == 0
@@ -1109,6 +1010,15 @@ class EdgeList:
         else:
             return self.get_relation_type_as_vector()
 
+    def has_weight(self) ->bool:
+        return self.weight is not None
+
+    def get_weight(self) ->Union[float, torch.Tensor]:
+        if self.has_weight():
+            return self.weight
+        else:
+            return 1
+
     def __eq__(self, other: Any) ->bool:
         if not isinstance(other, EdgeList):
             return NotImplemented
@@ -1118,7 +1028,7 @@ class EdgeList:
         return repr(self)
 
     def __repr__(self) ->str:
-        return 'EdgeList(%r, %r, %r)' % (self.lhs, self.rhs, self.rel)
+        return 'EdgeList(%r, %r, %r, %r)' % (self.lhs, self.rhs, self.rel, self.weight)
 
     def __getitem__(self, index: Union[int, slice, LongTensorType]) ->'EdgeList':
         if not isinstance(index, (int, slice, (torch.LongTensor, torch.LongTensor))):
@@ -1131,7 +1041,11 @@ class EdgeList:
             sub_rel = self.rel
         else:
             sub_rel = self.rel[index]
-        return type(self)(sub_lhs, sub_rhs, sub_rel)
+        if self.has_weight():
+            sub_weight = self.weight[index]
+        else:
+            sub_weight = None
+        return type(self)(sub_lhs, sub_rhs, sub_rel, sub_weight)
 
     def __len__(self) ->int:
         return len(self.lhs)
@@ -1390,6 +1304,206 @@ class Scores(NamedTuple):
 
 def ceil_of_ratio(num: int, den: int) ->int:
     return (num - 1) // den + 1
+
+
+class IdentityOperator(AbstractOperator):
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return embeddings
+
+    def get_operator_params_for_reg(self) ->Optional[FloatTensorType]:
+        return None
+
+
+class DiagonalOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.diagonal = nn.Parameter(torch.ones((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return self.diagonal * embeddings
+
+    def get_operator_params_for_reg(self) ->Optional[FloatTensorType]:
+        return self.diagonal.abs()
+
+
+class TranslationOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return embeddings + self.translation
+
+    def get_operator_params_for_reg(self) ->Optional[FloatTensorType]:
+        return self.translation.abs()
+
+
+class LinearOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1)
+
+
+class AffineOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1) + self.translation
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = '%slinear_transformation' % prefix
+        old_param_key = '%srotation' % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ComplexDiagonalOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        if dim % 2 != 0:
+            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
+        self.real = nn.Parameter(torch.ones((self.dim // 2,)))
+        self.imag = nn.Parameter(torch.zeros((self.dim // 2,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        real_a = embeddings[..., :self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2:]
+        real_b = self.real
+        imag_b = self.imag
+        prod = torch.empty_like(embeddings)
+        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        return prod
+
+    def get_operator_params_for_reg(self) ->Optional[FloatTensorType]:
+        return torch.sqrt(self.real ** 2 + self.imag ** 2)
+
+    def prepare_embs_for_reg(self, embs: FloatTensorType) ->FloatTensorType:
+        assert embs.shape[-1] == self.dim
+        real, imag = embs[..., :self.dim // 2], embs[..., self.dim // 2:]
+        return torch.sqrt(real ** 2 + imag ** 2)
+
+
+class IdentityDynamicOperator(AbstractDynamicOperator):
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return embeddings
+
+    def get_operator_params_for_reg(self, operator_idxs: LongTensorType) ->Optional[FloatTensorType]:
+        return None
+
+
+class DiagonalDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.diagonals = nn.Parameter(torch.ones((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return self.diagonals[operator_idxs] * embeddings
+
+    def get_operator_params_for_reg(self, operator_idxs: LongTensorType) ->Optional[FloatTensorType]:
+        return self.diagonals[operator_idxs].abs()
+
+
+class TranslationDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return embeddings + self.translations[operator_idxs]
+
+    def get_operator_params_for_reg(self, operator_idxs: LongTensorType) ->Optional[FloatTensorType]:
+        return self.translations[operator_idxs].abs()
+
+
+class LinearDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1)
+
+
+class AffineDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1) + self.translations[operator_idxs]
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = '%slinear_transformations' % prefix
+        old_param_key = '%srotations' % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        if dim % 2 != 0:
+            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
+        self.real = nn.Parameter(torch.ones((self.num_operations, self.dim // 2)))
+        self.imag = nn.Parameter(torch.zeros((self.num_operations, self.dim // 2)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        real_a = embeddings[..., :self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2:]
+        real_b = self.real[operator_idxs]
+        imag_b = self.imag[operator_idxs]
+        prod = torch.empty_like(embeddings)
+        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        return prod
+
+    def get_operator_params_for_reg(self, operator_idxs) ->Optional[FloatTensorType]:
+        return torch.sqrt(self.real[operator_idxs] ** 2 + self.imag[operator_idxs] ** 2)
+
+    def prepare_embs_for_reg(self, embs: FloatTensorType) ->FloatTensorType:
+        assert embs.shape[-1] == self.dim
+        real, imag = embs[..., :self.dim // 2], embs[..., self.dim // 2:]
+        return torch.sqrt(real ** 2 + imag ** 2)
 
 
 import torch

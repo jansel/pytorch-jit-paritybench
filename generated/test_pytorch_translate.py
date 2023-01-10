@@ -53,8 +53,6 @@ options = _module
 preprocess = _module
 model_scorers = _module
 rescorer = _module
-test_model_scorers = _module
-test_rescorer = _module
 weights_search = _module
 research = _module
 multihead_attention = _module
@@ -76,10 +74,6 @@ multisource_decode = _module
 rescore = _module
 cloze_transformer_model = _module
 rescoring_criterion = _module
-test = _module
-test_knowledge_distillation = _module
-test_teacher_score_dataset = _module
-test_unsupervised_morphology = _module
 tune_model_weights = _module
 tune_model_weights_with_ax = _module
 rnn = _module
@@ -96,28 +90,6 @@ pytorch_translate_task = _module
 semi_supervised_task = _module
 translation_from_pretrained_xlm = _module
 translation_lev_task = _module
-gpu = _module
-test_integration_gpu = _module
-test_DecoderBatchedStepEnsemble = _module
-test_attention = _module
-test_beam_decode = _module
-test_beam_search_and_decode = _module
-test_bleu_significance = _module
-test_char_aware_hybrid = _module
-test_checkpoint = _module
-test_data = _module
-test_dictionary = _module
-test_export = _module
-test_export_beam_decode = _module
-test_integration = _module
-test_multilingual_utils = _module
-test_options = _module
-test_preprocess = _module
-test_semi_supervised_task = _module
-test_train = _module
-test_utils = _module
-test_vocab_reduction = _module
-utils = _module
 torchscript_export = _module
 train = _module
 transformer = _module
@@ -200,10 +172,10 @@ from torch.nn.utils.rnn import pack_padded_sequence
 import logging
 
 
-from collections import OrderedDict
-
-
 from collections import deque
+
+
+from collections import OrderedDict
 
 
 from typing import Any
@@ -242,16 +214,10 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
-import random
-
-
-import itertools
-
-
-import numpy.testing as npt
-
-
 import queue
+
+
+import random
 
 
 from typing import Callable
@@ -664,8 +630,8 @@ class BeamDecode(torch.jit.ScriptModule):
             prev_hypo_is_finished = hypo_is_finished
             position = position + 1
         end_states = torch.stack(end_states)
-        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
-        end_states = end_states[(sorted_end_state_indices), :]
+        _, sorted_end_state_indices = end_states[:, 0].sort(dim=0, descending=True)
+        end_states = end_states[sorted_end_state_indices, :]
         return end_states
 
     @torch.jit.script_method
@@ -705,8 +671,8 @@ class BeamDecodeWithEOS(BeamDecode):
                     end_states, min_score, min_index = self._add_to_end_states(end_states, min_score, torch.tensor([hypo_score, float(position), float(hyp_index)]), min_index)
             position = position + 1
         end_states = torch.stack(end_states)
-        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
-        end_states = end_states[(sorted_end_state_indices), :]
+        _, sorted_end_state_indices = end_states[:, 0].sort(dim=0, descending=True)
+        end_states = end_states[sorted_end_state_indices, :]
         return end_states
 
     @torch.jit.script_method
@@ -1112,7 +1078,7 @@ class DecoderBatchedStepEnsemble2BeamWithEOS(DecoderBatchedStepEnsemble):
                 cand_scores, cand_indices = torch.topk(total_scores_flat_2k, k=double_beam_size)
                 cand_tokens = cand_tokens_flat_2k.index_select(dim=0, index=cand_indices).view(-1)
                 eos_mask = cand_tokens.eq(eos_token[0])
-                cand_prev_hypos = cand_indices / double_beam_size
+                cand_prev_hypos = cand_indices // double_beam_size
                 cand_prev_hypos = cand_prev_hypos.type_as(cand_tokens)
                 cand_offsets = torch.arange(0, double_beam_size)
                 active_mask = torch.add(eos_mask.type_as(cand_offsets) * double_beam_size, cand_offsets)
@@ -1514,15 +1480,15 @@ class CharRNNModel(nn.Module):
             word_lengths_flat = word_lengths[nonzero_word_locations]
             char_inds_flat = char_inds[nonzero_word_locations].t()
             sorted_word_lengths, word_length_order = torch.sort(word_lengths_flat, descending=True)
-            char_rnn_input = self.embed_chars(char_inds_flat[:, (word_length_order)])
+            char_rnn_input = self.embed_chars(char_inds_flat[:, word_length_order])
             packed_char_input = pack_padded_sequence(char_rnn_input, sorted_word_lengths)
         _, (h_last, _) = self.char_lstm_encoder(packed_char_input)
-        char_rnn_output = torch.cat((h_last[(-2), :, :], h_last[(-1), :, :]), dim=1)
+        char_rnn_output = torch.cat((h_last[-2, :, :], h_last[-1, :, :]), dim=1)
         if self.onnx_export_model:
             x = char_rnn_output.unsqueeze(1)
         else:
             _, inverted_word_length_order = torch.sort(word_length_order)
-            unsorted_rnn_output = char_rnn_output[(inverted_word_length_order), :]
+            unsorted_rnn_output = char_rnn_output[inverted_word_length_order, :]
             x = char_rnn_output.new(bsz, seqlen, unsorted_rnn_output.shape[1])
             x[nonzero_word_locations] = unsorted_rnn_output
             x = x.transpose(0, 1)
@@ -1811,7 +1777,7 @@ class BeamSearch(torch.jit.ScriptModule):
             encoder_ens = EncoderEnsemble(self.models)
         encoder_ens.enable_precompute_reduced_weights = True
         if quantize:
-            torch.quantization.quantize_dynamic(encoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+            torch.ao.quantization.quantize_dynamic(encoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
             encoder_ens = torch.jit.quantized.quantize_rnn_cell_modules(encoder_ens)
         if isinstance(self.models[0], char_source_model.CharSourceModel) or isinstance(self.models[0], char_source_transformer_model.CharSourceTransformerModel) or isinstance(self.models[0], char_source_hybrid.CharSourceHybridModel):
             self.is_char_source = True
@@ -1828,13 +1794,13 @@ class BeamSearch(torch.jit.ScriptModule):
         decoder_ens = DecoderBatchedStepEnsemble(self.models, tgt_dict, beam_size, word_reward, unk_reward, tile_internal=False)
         decoder_ens.enable_precompute_reduced_weights = True
         if quantize:
-            torch.quantization.quantize_dynamic(decoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+            torch.ao.quantization.quantize_dynamic(decoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
             decoder_ens = torch.jit.quantized.quantize_rnn_cell_modules(decoder_ens)
             decoder_ens = torch.jit.quantized.quantize_rnn_modules(decoder_ens)
         decoder_ens_tile = DecoderBatchedStepEnsemble(self.models, tgt_dict, beam_size, word_reward, unk_reward, tile_internal=True)
         decoder_ens_tile.enable_precompute_reduced_weights = True
         if quantize:
-            torch.quantization.quantize_dynamic(decoder_ens_tile, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+            torch.ao.quantization.quantize_dynamic(decoder_ens_tile, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
             decoder_ens_tile = torch.jit.quantized.quantize_rnn_cell_modules(decoder_ens_tile)
             decoder_ens_tile = torch.jit.quantized.quantize_rnn_modules(decoder_ens_tile)
         prev_token = torch.LongTensor([0])
@@ -2169,7 +2135,7 @@ class IterativeRefinementGenerateAndDecode(torch.jit.ScriptModule):
         self.models = models
         generator = IterativeRefinementGenerator(self.models, tgt_dict, max_iter=max_iter)
         if quantize:
-            generator = torch.quantization.quantize_dynamic(generator, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+            generator = torch.ao.quantization.quantize_dynamic(generator, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
         enc_inputs = src_tokens, src_lengths
         self.generator = torch.jit.trace(generator, enc_inputs, _force_outplace=True, check_trace=check_trace)
 
@@ -2467,7 +2433,7 @@ class BaseWeightedStrategy(MultiDecoderCombinationStrategy):
         if select_single is not None:
             sz = unprojected_outs[0].size()
             ret = maybe_cuda(torch.zeros((sz[0], sz[1], len(unprojected_outs))))
-            ret[:, :, (select_single)] = 1.0
+            ret[:, :, select_single] = 1.0
             return ret
         if self.fixed_weights is not None:
             return self.fixed_weights
@@ -2711,7 +2677,7 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
                 timer.stop(s['ntokens'])
             for i, id in enumerate(s['id']):
                 src = input['src_tokens'].index_select(0, input['src_ids'][self.align_to])
-                ref = utils.strip_pad(s['target'][(i), :], self.pad)
+                ref = utils.strip_pad(s['target'][i, :], self.pad)
                 yield id, src, ref, hypos[i]
 
     def generate(self, encoder_inputs, srcs_ids, beam_size=None, maxlen=None, prefix_tokens=None, src_weights=None):
@@ -2734,7 +2700,7 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
         scores_buf = scores.clone()
         tokens = align_src_tokens.new(bsz * beam_size, maxlen + 2).fill_(self.pad)
         tokens_buf = tokens.clone()
-        tokens[:, (0)] = self.eos
+        tokens[:, 0] = self.eos
         src_encoding_len = encoder_outs[self.align_to][0][0].size(0)
         attn = scores.new(bsz * beam_size, src_encoding_len, maxlen + 2)
         attn_buf = attn.clone()
@@ -2790,10 +2756,10 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
             assert bbsz_idx.numel() == eos_scores.numel()
             tokens_clone = tokens.index_select(0, bbsz_idx)
             tokens_clone = tokens_clone[:, 1:step + 2]
-            tokens_clone[:, (step)] = self.eos
+            tokens_clone[:, step] = self.eos
             attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2]
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
-            pos_scores[:, (step)] = eos_scores
+            pos_scores[:, step] = eos_scores
             pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -2832,17 +2798,17 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
                 scores = scores.type_as(logprobs)
                 scores_buf = scores_buf.type_as(logprobs)
             else:
-                logprobs.add_(scores[:, (step - 1)].view(-1, 1))
-            logprobs[:, (self.pad)] = -math.inf
+                logprobs.add_(scores[:, step - 1].view(-1, 1))
+            logprobs[:, self.pad] = -math.inf
             if possible_translation_tokens is None:
                 unk_index = self.unk
             else:
                 unk_index = torch.nonzero(possible_translation_tokens == self.unk)[0, 0]
-            logprobs[:, (unk_index)] += self.unk_reward
-            logprobs[:, (self.lexicon_indices)] += self.lexicon_reward
+            logprobs[:, unk_index] += self.unk_reward
+            logprobs[:, self.lexicon_indices] += self.lexicon_reward
             logprobs += self.word_reward
-            logprobs[:, (self.eos)] -= self.word_reward
-            attn[:, :, (step + 1)].copy_(avg_attn)
+            logprobs[:, self.eos] -= self.word_reward
+            attn[:, :, step + 1].copy_(avg_attn)
             cand_scores = buffer('cand_scores', type_of=scores)
             cand_indices = buffer('cand_indices')
             cand_beams = buffer('cand_beams')
@@ -2850,9 +2816,9 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
             eos_scores = buffer('eos_scores', type_of=scores)
             if step < maxlen:
                 if prefix_tokens is not None and step < prefix_tokens.size(1):
-                    logprobs_slice = logprobs.view(bsz, -1, logprobs.size(-1))[:, (0), :]
-                    cand_scores = torch.gather(logprobs_slice, dim=1, index=prefix_tokens[:, (step)].view(-1, 1)).expand(-1, cand_size)
-                    cand_indices = prefix_tokens[:, (step)].view(-1, 1).expand(bsz, cand_size)
+                    logprobs_slice = logprobs.view(bsz, -1, logprobs.size(-1))[:, 0, :]
+                    cand_scores = torch.gather(logprobs_slice, dim=1, index=prefix_tokens[:, step].view(-1, 1)).expand(-1, cand_size)
+                    cand_indices = prefix_tokens[:, step].view(-1, 1).expand(bsz, cand_size)
                     cand_beams.resize_as_(cand_indices).fill_(0)
                 else:
                     torch.topk(logprobs.view(bsz, -1), k=min(cand_size, logprobs.view(bsz, -1).size(1) - 1), out=(cand_scores, cand_indices))
@@ -2865,7 +2831,7 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
                         possible_translation_tokens = possible_translation_tokens.view(1, possible_tokens_size).expand(cand_indices.size(0), possible_tokens_size)
                         cand_indices = torch.gather(possible_translation_tokens, dim=1, index=cand_indices, out=cand_indices)
             else:
-                torch.sort(logprobs[:, (self.eos)], descending=True, out=(eos_scores, eos_bbsz_idx))
+                torch.sort(logprobs[:, self.eos], descending=True, out=(eos_scores, eos_bbsz_idx))
                 num_remaining_sent -= finalize_hypos(step, eos_bbsz_idx, eos_scores)
                 assert num_remaining_sent == 0
                 break
@@ -2886,14 +2852,14 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
             torch.topk(active_mask, k=beam_size, dim=1, largest=False, out=(_ignore, active_hypos))
             active_bbsz_idx = buffer('active_bbsz_idx')
             torch.gather(cand_bbsz_idx, dim=1, index=active_hypos, out=active_bbsz_idx)
-            active_scores = torch.gather(cand_scores, dim=1, index=active_hypos, out=scores[:, (step)].view(bsz, beam_size))
+            active_scores = torch.gather(cand_scores, dim=1, index=active_hypos, out=scores[:, step].view(bsz, beam_size))
             active_bbsz_idx = active_bbsz_idx.view(-1)
             active_scores = active_scores.view(-1)
             torch.index_select(tokens[:, :step + 1], dim=0, index=active_bbsz_idx, out=tokens_buf[:, :step + 1])
-            torch.gather(cand_indices, dim=1, index=active_hypos, out=tokens_buf.view(bsz, beam_size, -1)[:, :, (step + 1)])
+            torch.gather(cand_indices, dim=1, index=active_hypos, out=tokens_buf.view(bsz, beam_size, -1)[:, :, step + 1])
             if step > 0:
                 torch.index_select(scores[:, :step], dim=0, index=active_bbsz_idx, out=scores_buf[:, :step])
-            torch.gather(cand_scores, dim=1, index=active_hypos, out=scores_buf.view(bsz, beam_size, -1)[:, :, (step)])
+            torch.gather(cand_scores, dim=1, index=active_hypos, out=scores_buf.view(bsz, beam_size, -1)[:, :, step])
             torch.index_select(attn[:, :, :step + 2], dim=0, index=active_bbsz_idx, out=attn_buf[:, :, :step + 2])
             tokens, tokens_buf = tokens_buf, tokens
             scores, scores_buf = scores_buf, scores
@@ -2945,7 +2911,7 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
                     encoder_out = encoder_outs[src_id][model_id]
                     incremental_state = incremental_states[src_id, model_id]
                     decoder_out = list(model.decoder(tokens, encoder_out, incremental_state))
-                    decoder_out[0] = decoder_out[0][:, (-1), :]
+                    decoder_out[0] = decoder_out[0][:, -1, :]
                     attn = decoder_out[1]
                     if len(decoder_out) == 3:
                         possible_translation_tokens = decoder_out[2]
@@ -2957,7 +2923,7 @@ class MultiSourceSequenceGenerator(torch.nn.Module):
                 else:
                     avg_probs.add_(probs)
                 if attn is not None and src_id == self.align_to:
-                    attn = attn[:, (-1), :]
+                    attn = attn[:, -1, :]
                     if avg_attn is None:
                         avg_attn = attn
                     else:
@@ -3002,7 +2968,7 @@ class BiLSTM(nn.Module):
 
     def forward(self, embeddings, lengths, enforce_sorted=True):
         bsz = embeddings.size()[1]
-        packed_input = pack_padded_sequence(embeddings, lengths, enforce_sorted=enforce_sorted)
+        packed_input = pack_padded_sequence(embeddings, lengths.cpu(), enforce_sorted=enforce_sorted)
         final_hiddens, final_cells = [], []
         for i, rnn_layer in enumerate(self.layers):
             if self.bidirectional and i == 0:
@@ -3013,8 +2979,8 @@ class BiLSTM(nn.Module):
                 c0 = embeddings.new(1, bsz, self.hidden_dim).zero_()
             current_output, (h_last, c_last) = rnn_layer(packed_input, (h0, c0))
             if self.bidirectional and i == 0:
-                h_last = torch.cat((h_last[(0), :, :], h_last[(1), :, :]), dim=1)
-                c_last = torch.cat((c_last[(0), :, :], c_last[(1), :, :]), dim=1)
+                h_last = torch.cat((h_last[0, :, :], h_last[1, :, :]), dim=1)
+                c_last = torch.cat((c_last[0, :, :], c_last[1, :, :]), dim=1)
             else:
                 h_last = h_last.squeeze(dim=0)
                 c_last = c_last.squeeze(dim=0)
@@ -3553,7 +3519,7 @@ TESTCASES = [
     (HighwayLayer,
      lambda: ([], {'input_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (MultiheadAttention,
      lambda: ([], {'nheads': 4, 'd_model': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),

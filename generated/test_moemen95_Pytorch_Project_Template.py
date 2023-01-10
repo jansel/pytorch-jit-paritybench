@@ -274,7 +274,7 @@ class LearnedGroupConv(nn.Module):
             wi = weight[i * d_out:(i + 1) * d_out, :]
             di = wi.sum(0).sort()[1][self.count:self.count + delta]
             for d in di.data:
-                self._mask[i::self.groups, (d), :, :].fill_(0)
+                self._mask[i::self.groups, d, :, :].fill_(0)
         self.count = self.count + delta
 
     def reach_stage(self, stage):
@@ -742,6 +742,14 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 128])], {}),
      True),
+    (CrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrossEntropyLoss2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (DenseBlock,
      lambda: ([], {'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -827,4 +835,10 @@ class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

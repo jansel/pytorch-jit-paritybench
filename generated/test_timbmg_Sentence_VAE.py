@@ -60,10 +60,10 @@ from torch.autograd import Variable
 from collections import Counter
 
 
-def to_var(x, volatile=False):
+def to_var(x):
     if torch.cuda.is_available():
         x = x
-    return Variable(x, volatile=volatile)
+    return x
 
 
 class SentenceVAE(nn.Module):
@@ -151,7 +151,7 @@ class SentenceVAE(nn.Module):
         hidden = hidden.unsqueeze(0)
         sequence_idx = torch.arange(0, batch_size, out=self.tensor()).long()
         sequence_running = torch.arange(0, batch_size, out=self.tensor()).long()
-        sequence_mask = torch.ones(batch_size, out=self.tensor()).byte()
+        sequence_mask = torch.ones(batch_size, out=self.tensor()).bool()
         running_seqs = torch.arange(0, batch_size, out=self.tensor()).long()
         generations = self.tensor(batch_size, self.max_sequence_length).fill_(self.pad_idx).long()
         t = 0
@@ -164,13 +164,13 @@ class SentenceVAE(nn.Module):
             logits = self.outputs2vocab(output)
             input_sequence = self._sample(logits)
             generations = self._save_sample(generations, input_sequence, sequence_running, t)
-            sequence_mask[sequence_running] = (input_sequence != self.eos_idx).data
+            sequence_mask[sequence_running] = input_sequence != self.eos_idx
             sequence_running = sequence_idx.masked_select(sequence_mask)
             running_mask = (input_sequence != self.eos_idx).data
             running_seqs = running_seqs.masked_select(running_mask)
             if len(running_seqs) > 0:
                 input_sequence = input_sequence[running_seqs]
-                hidden = hidden[:, (running_seqs)]
+                hidden = hidden[:, running_seqs]
                 running_seqs = torch.arange(0, len(running_seqs), out=self.tensor()).long()
             t += 1
         return generations, z
@@ -178,12 +178,12 @@ class SentenceVAE(nn.Module):
     def _sample(self, dist, mode='greedy'):
         if mode == 'greedy':
             _, sample = torch.topk(dist, 1, dim=-1)
-        sample = sample.squeeze()
+        sample = sample.reshape(-1)
         return sample
 
     def _save_sample(self, save_to, sample, running_seqs, t):
         running_latest = save_to[running_seqs]
-        running_latest[:, (t)] = sample.data
+        running_latest[:, t] = sample.data
         save_to[running_seqs] = running_latest
         return save_to
 

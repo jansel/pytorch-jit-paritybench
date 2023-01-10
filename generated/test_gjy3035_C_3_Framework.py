@@ -862,11 +862,11 @@ TESTCASES = [
     (convDU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     False),
+     True),
     (convLR,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_gjy3035_C_3_Framework(_paritybench_base):

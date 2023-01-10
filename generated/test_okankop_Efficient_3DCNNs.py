@@ -671,27 +671,23 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (Block,
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (Bottleneck,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      False),
     (Fire,
      lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (MobileNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
-     True),
-    (ResNeXtBottleneck,
-     lambda: ([], {'inplanes': 64, 'planes': 32, 'cardinality': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64, 64])], {}),
      True),
     (ShuffleNet,
      lambda: ([], {'groups': 1}),
@@ -731,7 +727,4 @@ class Test_okankop_Efficient_3DCNNs(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
 

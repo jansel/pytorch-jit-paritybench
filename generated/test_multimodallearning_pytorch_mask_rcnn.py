@@ -361,8 +361,8 @@ def pyramid_roi_align(inputs, pool_size, image_shape):
         ix = roi_level == level
         if not ix.any():
             continue
-        ix = torch.nonzero(ix)[:, (0)]
-        level_boxes = boxes[(ix.data), :]
+        ix = torch.nonzero(ix)[:, 0]
+        level_boxes = boxes[ix.data, :]
         box_to_level.append(ix.data)
         level_boxes = level_boxes.detach()
         ind = Variable(torch.zeros(level_boxes.size()[0]), requires_grad=False).int()
@@ -374,7 +374,7 @@ def pyramid_roi_align(inputs, pool_size, image_shape):
     pooled = torch.cat(pooled, dim=0)
     box_to_level = torch.cat(box_to_level, dim=0)
     _, box_to_level = torch.sort(box_to_level)
-    pooled = pooled[(box_to_level), :, :]
+    pooled = pooled[box_to_level, :, :]
     return pooled
 
 
@@ -604,11 +604,11 @@ def compute_mrcnn_bbox_loss(target_bbox, target_class_ids, pred_bbox):
     pred_bbox: [batch, num_rois, num_classes, (dy, dx, log(dh), log(dw))]
     """
     if target_class_ids.size():
-        positive_roi_ix = torch.nonzero(target_class_ids > 0)[:, (0)]
+        positive_roi_ix = torch.nonzero(target_class_ids > 0)[:, 0]
         positive_roi_class_ids = target_class_ids[positive_roi_ix.data].long()
         indices = torch.stack((positive_roi_ix, positive_roi_class_ids), dim=1)
-        target_bbox = target_bbox[(indices[:, (0)].data), :]
-        pred_bbox = pred_bbox[(indices[:, (0)].data), (indices[:, (1)].data), :]
+        target_bbox = target_bbox[indices[:, 0].data, :]
+        pred_bbox = pred_bbox[indices[:, 0].data, indices[:, 1].data, :]
         loss = F.smooth_l1_loss(pred_bbox, target_bbox)
     else:
         loss = Variable(torch.FloatTensor([0]), requires_grad=False)
@@ -643,11 +643,11 @@ def compute_mrcnn_mask_loss(target_masks, target_class_ids, pred_masks):
                 with values from 0 to 1.
     """
     if target_class_ids.size():
-        positive_ix = torch.nonzero(target_class_ids > 0)[:, (0)]
+        positive_ix = torch.nonzero(target_class_ids > 0)[:, 0]
         positive_class_ids = target_class_ids[positive_ix.data].long()
         indices = torch.stack((positive_ix, positive_class_ids), dim=1)
-        y_true = target_masks[(indices[:, (0)].data), :, :]
-        y_pred = pred_masks[(indices[:, (0)].data), (indices[:, (1)].data), :, :]
+        y_true = target_masks[indices[:, 0].data, :, :]
+        y_pred = pred_masks[indices[:, 0].data, indices[:, 1].data, :, :]
         loss = F.binary_cross_entropy(y_pred, y_true)
     else:
         loss = Variable(torch.FloatTensor([0]), requires_grad=False)
@@ -667,8 +667,8 @@ def compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox):
     """
     rpn_match = rpn_match.squeeze(2)
     indices = torch.nonzero(rpn_match == 1)
-    rpn_bbox = rpn_bbox[indices.data[:, (0)], indices.data[:, (1)]]
-    target_bbox = target_bbox[(0), :rpn_bbox.size()[0], :]
+    rpn_bbox = rpn_bbox[indices.data[:, 0], indices.data[:, 1]]
+    target_bbox = target_bbox[0, :rpn_bbox.size()[0], :]
     loss = F.smooth_l1_loss(rpn_bbox, target_bbox)
     return loss
 
@@ -683,8 +683,8 @@ def compute_rpn_class_loss(rpn_match, rpn_class_logits):
     rpn_match = rpn_match.squeeze(2)
     anchor_class = (rpn_match == 1).long()
     indices = torch.nonzero(rpn_match != 0)
-    rpn_class_logits = rpn_class_logits[(indices.data[:, (0)]), (indices.data[:, (1)]), :]
-    anchor_class = anchor_class[indices.data[:, (0)], indices.data[:, (1)]]
+    rpn_class_logits = rpn_class_logits[indices.data[:, 0], indices.data[:, 1], :]
+    anchor_class = anchor_class[indices.data[:, 0], indices.data[:, 1]]
     loss = F.cross_entropy(rpn_class_logits, anchor_class)
     return loss
 
@@ -702,7 +702,7 @@ def parse_image_meta(meta):
     """Parses an image info Numpy array to its components.
     See compose_image_meta() for more details.
     """
-    image_id = meta[:, (0)]
+    image_id = meta[:, 0]
     image_shape = meta[:, 1:4]
     window = meta[:, 4:8]
     active_class_ids = meta[:, 8:]
@@ -714,14 +714,14 @@ def apply_box_deltas(boxes, deltas):
     boxes: [N, 4] where each row is y1, x1, y2, x2
     deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
     """
-    height = boxes[:, (2)] - boxes[:, (0)]
-    width = boxes[:, (3)] - boxes[:, (1)]
-    center_y = boxes[:, (0)] + 0.5 * height
-    center_x = boxes[:, (1)] + 0.5 * width
-    center_y += deltas[:, (0)] * height
-    center_x += deltas[:, (1)] * width
-    height *= torch.exp(deltas[:, (2)])
-    width *= torch.exp(deltas[:, (3)])
+    height = boxes[:, 2] - boxes[:, 0]
+    width = boxes[:, 3] - boxes[:, 1]
+    center_y = boxes[:, 0] + 0.5 * height
+    center_x = boxes[:, 1] + 0.5 * width
+    center_y += deltas[:, 0] * height
+    center_x += deltas[:, 1] * width
+    height *= torch.exp(deltas[:, 2])
+    width *= torch.exp(deltas[:, 3])
     y1 = center_y - 0.5 * height
     x1 = center_x - 0.5 * width
     y2 = y1 + height
@@ -735,10 +735,10 @@ def clip_to_window(window, boxes):
         window: (y1, x1, y2, x2). The window in the image we want to clip to.
         boxes: [N, (y1, x1, y2, x2)]
     """
-    boxes[:, (0)] = boxes[:, (0)].clamp(float(window[0]), float(window[2]))
-    boxes[:, (1)] = boxes[:, (1)].clamp(float(window[1]), float(window[3]))
-    boxes[:, (2)] = boxes[:, (2)].clamp(float(window[0]), float(window[2]))
-    boxes[:, (3)] = boxes[:, (3)].clamp(float(window[1]), float(window[3]))
+    boxes[:, 0] = boxes[:, 0].clamp(float(window[0]), float(window[2]))
+    boxes[:, 1] = boxes[:, 1].clamp(float(window[1]), float(window[3]))
+    boxes[:, 2] = boxes[:, 2].clamp(float(window[0]), float(window[2]))
+    boxes[:, 3] = boxes[:, 3].clamp(float(window[1]), float(window[3]))
     return boxes
 
 
@@ -753,11 +753,11 @@ def pth_nms(dets, thresh):
   dets has to be a tensor
   """
     if not dets.is_cuda:
-        x1 = dets[:, (1)]
-        y1 = dets[:, (0)]
-        x2 = dets[:, (3)]
-        y2 = dets[:, (2)]
-        scores = dets[:, (4)]
+        x1 = dets[:, 1]
+        y1 = dets[:, 0]
+        x2 = dets[:, 3]
+        y2 = dets[:, 2]
+        scores = dets[:, 4]
         areas = (x2 - x1 + 1) * (y2 - y1 + 1)
         order = scores.sort(0, descending=True)[1]
         keep = torch.LongTensor(dets.size(0))
@@ -765,17 +765,17 @@ def pth_nms(dets, thresh):
         nms.cpu_nms(keep, num_out, dets, order, areas, thresh)
         return keep[:num_out[0]]
     else:
-        x1 = dets[:, (1)]
-        y1 = dets[:, (0)]
-        x2 = dets[:, (3)]
-        y2 = dets[:, (2)]
-        scores = dets[:, (4)]
+        x1 = dets[:, 1]
+        y1 = dets[:, 0]
+        x2 = dets[:, 3]
+        y2 = dets[:, 2]
+        scores = dets[:, 4]
         dets_temp = torch.FloatTensor(dets.size())
-        dets_temp[:, (0)] = dets[:, (1)]
-        dets_temp[:, (1)] = dets[:, (0)]
-        dets_temp[:, (2)] = dets[:, (3)]
-        dets_temp[:, (3)] = dets[:, (2)]
-        dets_temp[:, (4)] = dets[:, (4)]
+        dets_temp[:, 0] = dets[:, 1]
+        dets_temp[:, 1] = dets[:, 0]
+        dets_temp[:, 2] = dets[:, 3]
+        dets_temp[:, 3] = dets[:, 2]
+        dets_temp[:, 4] = dets[:, 4]
         areas = (x2 - x1 + 1) * (y2 - y1 + 1)
         order = scores.sort(0, descending=True)[1]
         dets = dets[order].contiguous()
@@ -837,16 +837,16 @@ def refine_detections(rois, probs, deltas, window, config):
     keep_bool = class_ids > 0
     if config.DETECTION_MIN_CONFIDENCE:
         keep_bool = keep_bool & (class_scores >= config.DETECTION_MIN_CONFIDENCE)
-    keep = torch.nonzero(keep_bool)[:, (0)]
+    keep = torch.nonzero(keep_bool)[:, 0]
     pre_nms_class_ids = class_ids[keep.data]
     pre_nms_scores = class_scores[keep.data]
     pre_nms_rois = refined_rois[keep.data]
     for i, class_id in enumerate(unique1d(pre_nms_class_ids)):
-        ixs = torch.nonzero(pre_nms_class_ids == class_id)[:, (0)]
+        ixs = torch.nonzero(pre_nms_class_ids == class_id)[:, 0]
         ix_rois = pre_nms_rois[ixs.data]
         ix_scores = pre_nms_scores[ixs]
         ix_scores, order = ix_scores.sort(descending=True)
-        ix_rois = ix_rois[(order.data), :]
+        ix_rois = ix_rois[order.data, :]
         class_keep = nms(torch.cat((ix_rois, ix_scores.unsqueeze(1)), dim=1).data, config.DETECTION_NMS_THRESHOLD)
         class_keep = keep[ixs[order[class_keep].data].data]
         if i == 0:
@@ -885,17 +885,17 @@ def bbox_overlaps(boxes1, boxes2):
     boxes2 = boxes2.repeat(boxes2_repeat, 1)
     b1_y1, b1_x1, b1_y2, b1_x2 = boxes1.chunk(4, dim=1)
     b2_y1, b2_x1, b2_y2, b2_x2 = boxes2.chunk(4, dim=1)
-    y1 = torch.max(b1_y1, b2_y1)[:, (0)]
-    x1 = torch.max(b1_x1, b2_x1)[:, (0)]
-    y2 = torch.min(b1_y2, b2_y2)[:, (0)]
-    x2 = torch.min(b1_x2, b2_x2)[:, (0)]
+    y1 = torch.max(b1_y1, b2_y1)[:, 0]
+    x1 = torch.max(b1_x1, b2_x1)[:, 0]
+    y2 = torch.min(b1_y2, b2_y2)[:, 0]
+    x2 = torch.min(b1_x2, b2_x2)[:, 0]
     zeros = Variable(torch.zeros(y1.size()[0]), requires_grad=False)
     if y1.is_cuda:
         zeros = zeros
     intersection = torch.max(x2 - x1, zeros) * torch.max(y2 - y1, zeros)
     b1_area = (b1_y2 - b1_y1) * (b1_x2 - b1_x1)
     b2_area = (b2_y2 - b2_y1) * (b2_x2 - b2_x1)
-    union = b1_area[:, (0)] + b2_area[:, (0)] - intersection
+    union = b1_area[:, 0] + b2_area[:, 0] - intersection
     iou = intersection / union
     overlaps = iou.view(boxes2_repeat, boxes1_repeat)
     return overlaps
@@ -930,13 +930,13 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
     gt_boxes = gt_boxes.squeeze(0)
     gt_masks = gt_masks.squeeze(0)
     if torch.nonzero(gt_class_ids < 0).size():
-        crowd_ix = torch.nonzero(gt_class_ids < 0)[:, (0)]
-        non_crowd_ix = torch.nonzero(gt_class_ids > 0)[:, (0)]
-        crowd_boxes = gt_boxes[(crowd_ix.data), :]
-        crowd_masks = gt_masks[(crowd_ix.data), :, :]
+        crowd_ix = torch.nonzero(gt_class_ids < 0)[:, 0]
+        non_crowd_ix = torch.nonzero(gt_class_ids > 0)[:, 0]
+        crowd_boxes = gt_boxes[crowd_ix.data, :]
+        crowd_masks = gt_masks[crowd_ix.data, :, :]
         gt_class_ids = gt_class_ids[non_crowd_ix.data]
-        gt_boxes = gt_boxes[(non_crowd_ix.data), :]
-        gt_masks = gt_masks[(non_crowd_ix.data), :]
+        gt_boxes = gt_boxes[non_crowd_ix.data, :]
+        gt_masks = gt_masks[non_crowd_ix.data, :]
         crowd_overlaps = bbox_overlaps(proposals, crowd_boxes)
         crowd_iou_max = torch.max(crowd_overlaps, dim=1)[0]
         no_crowd_bool = crowd_iou_max < 0.001
@@ -948,7 +948,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
     roi_iou_max = torch.max(overlaps, dim=1)[0]
     positive_roi_bool = roi_iou_max >= 0.5
     if torch.nonzero(positive_roi_bool).size():
-        positive_indices = torch.nonzero(positive_roi_bool)[:, (0)]
+        positive_indices = torch.nonzero(positive_roi_bool)[:, 0]
         positive_count = int(config.TRAIN_ROIS_PER_IMAGE * config.ROI_POSITIVE_RATIO)
         rand_idx = torch.randperm(positive_indices.size()[0])
         rand_idx = rand_idx[:positive_count]
@@ -956,17 +956,17 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
             rand_idx = rand_idx
         positive_indices = positive_indices[rand_idx]
         positive_count = positive_indices.size()[0]
-        positive_rois = proposals[(positive_indices.data), :]
-        positive_overlaps = overlaps[(positive_indices.data), :]
+        positive_rois = proposals[positive_indices.data, :]
+        positive_overlaps = overlaps[positive_indices.data, :]
         roi_gt_box_assignment = torch.max(positive_overlaps, dim=1)[1]
-        roi_gt_boxes = gt_boxes[(roi_gt_box_assignment.data), :]
+        roi_gt_boxes = gt_boxes[roi_gt_box_assignment.data, :]
         roi_gt_class_ids = gt_class_ids[roi_gt_box_assignment.data]
         deltas = Variable(utils.box_refinement(positive_rois.data, roi_gt_boxes.data), requires_grad=False)
         std_dev = Variable(torch.from_numpy(config.BBOX_STD_DEV).float(), requires_grad=False)
         if config.GPU_COUNT:
             std_dev = std_dev
         deltas /= std_dev
-        roi_masks = gt_masks[(roi_gt_box_assignment.data), :, :]
+        roi_masks = gt_masks[roi_gt_box_assignment.data, :, :]
         boxes = positive_rois
         if config.USE_MINI_MASK:
             y1, x1, y2, x2 = positive_rois.chunk(4, dim=1)
@@ -989,7 +989,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
     negative_roi_bool = roi_iou_max < 0.5
     negative_roi_bool = negative_roi_bool & no_crowd_bool
     if torch.nonzero(negative_roi_bool).size() and positive_count > 0:
-        negative_indices = torch.nonzero(negative_roi_bool)[:, (0)]
+        negative_indices = torch.nonzero(negative_roi_bool)[:, 0]
         r = 1.0 / config.ROI_POSITIVE_RATIO
         negative_count = int(r * positive_count - positive_count)
         rand_idx = torch.randperm(negative_indices.size()[0])
@@ -998,7 +998,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
             rand_idx = rand_idx
         negative_indices = negative_indices[rand_idx]
         negative_count = negative_indices.size()[0]
-        negative_rois = proposals[(negative_indices.data), :]
+        negative_rois = proposals[negative_indices.data, :]
     else:
         negative_count = 0
     if positive_count > 0 and negative_count > 0:
@@ -1087,7 +1087,7 @@ def clip_boxes(boxes, window):
     boxes: [N, 4] each col is y1, x1, y2, x2
     window: [4] in the form y1, x1, y2, x2
     """
-    boxes = torch.stack([boxes[:, (0)].clamp(float(window[0]), float(window[2])), boxes[:, (1)].clamp(float(window[1]), float(window[3])), boxes[:, (2)].clamp(float(window[0]), float(window[2])), boxes[:, (3)].clamp(float(window[1]), float(window[3]))], 1)
+    boxes = torch.stack([boxes[:, 0].clamp(float(window[0]), float(window[2])), boxes[:, 1].clamp(float(window[1]), float(window[3])), boxes[:, 2].clamp(float(window[0]), float(window[2])), boxes[:, 3].clamp(float(window[1]), float(window[3]))], 1)
     return boxes
 
 
@@ -1106,7 +1106,7 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     """
     inputs[0] = inputs[0].squeeze(0)
     inputs[1] = inputs[1].squeeze(0)
-    scores = inputs[0][:, (1)]
+    scores = inputs[0][:, 1]
     deltas = inputs[1]
     std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV, [1, 4])).float(), requires_grad=False)
     if config.GPU_COUNT:
@@ -1116,15 +1116,15 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     scores, order = scores.sort(descending=True)
     order = order[:pre_nms_limit]
     scores = scores[:pre_nms_limit]
-    deltas = deltas[(order.data), :]
-    anchors = anchors[(order.data), :]
+    deltas = deltas[order.data, :]
+    anchors = anchors[order.data, :]
     boxes = apply_box_deltas(anchors, deltas)
     height, width = config.IMAGE_SHAPE[:2]
     window = np.array([0, 0, height, width]).astype(np.float32)
     boxes = clip_boxes(boxes, window)
     keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
     keep = keep[:proposal_count]
-    boxes = boxes[(keep), :]
+    boxes = boxes[keep, :]
     norm = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
     if config.GPU_COUNT:
         norm = norm
@@ -1528,12 +1528,12 @@ class MaskRCNN(nn.Module):
         scores: [N] Float probability scores of the class_id
         masks: [height, width, num_instances] Instance masks
         """
-        zero_ix = np.where(detections[:, (4)] == 0)[0]
+        zero_ix = np.where(detections[:, 4] == 0)[0]
         N = zero_ix[0] if zero_ix.shape[0] > 0 else detections.shape[0]
         boxes = detections[:N, :4]
-        class_ids = detections[:N, (4)].astype(np.int32)
-        scores = detections[:N, (5)]
-        masks = mrcnn_mask[(np.arange(N)), :, :, (class_ids)]
+        class_ids = detections[:N, 4].astype(np.int32)
+        scores = detections[:N, 5]
+        masks = mrcnn_mask[np.arange(N), :, :, class_ids]
         h_scale = image_shape[0] / (window[2] - window[0])
         w_scale = image_shape[1] / (window[3] - window[1])
         scale = min(h_scale, w_scale)
@@ -1541,7 +1541,7 @@ class MaskRCNN(nn.Module):
         scales = np.array([scale, scale, scale, scale])
         shifts = np.array([shift[0], shift[1], shift[0], shift[1]])
         boxes = np.multiply(boxes - shifts, scales).astype(np.int32)
-        exclude_ix = np.where((boxes[:, (2)] - boxes[:, (0)]) * (boxes[:, (3)] - boxes[:, (1)]) <= 0)[0]
+        exclude_ix = np.where((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)

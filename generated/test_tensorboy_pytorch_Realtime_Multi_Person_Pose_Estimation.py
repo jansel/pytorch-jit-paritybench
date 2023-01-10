@@ -38,6 +38,7 @@ paf_to_pose = _module
 train_SH = _module
 train_ShuffleNetV2 = _module
 train_VGG19 = _module
+video_demo = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock

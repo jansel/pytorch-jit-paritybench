@@ -61,6 +61,9 @@ from torch.autograd import Variable
 import torch.optim as optim
 
 
+SBN_EPS_MODE = 'clamp'
+
+
 class FutureResult(object):
     """A thread-safe future implementation. Used only as one-to-one pipe."""
 
@@ -212,6 +215,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         if not (self._is_parallel and self.training):
             return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
+        assert input.size(1) == self.num_features, 'Channel size mismatch: got {}, expect {}.'.format(input.size(1), self.num_features)
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
@@ -264,7 +268,12 @@ class _SynchronizedBatchNorm(_BatchNorm):
         else:
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
             self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        return mean, bias_var.clamp(self.eps) ** -0.5
+        if SBN_EPS_MODE == 'clamp':
+            return mean, bias_var.clamp(self.eps) ** -0.5
+        elif SBN_EPS_MODE == 'plus':
+            return mean, (bias_var + self.eps) ** -0.5
+        else:
+            raise ValueError('Unknown EPS mode: {}.'.format(SBN_EPS_MODE))
 
 
 class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
@@ -555,16 +564,9 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
 ]
 
 class Test_vacancy_Synchronized_BatchNorm_PyTorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

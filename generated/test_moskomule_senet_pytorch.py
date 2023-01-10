@@ -379,13 +379,21 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (CifarSEBasicBlock,
-     lambda: ([], {'inplanes': 4, 'planes': 16}),
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (PreActBasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SEBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_moskomule_senet_pytorch(_paritybench_base):
@@ -397,4 +405,10 @@ class Test_moskomule_senet_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

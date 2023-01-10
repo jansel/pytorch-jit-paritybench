@@ -329,7 +329,7 @@ class MultiHeadNeRFModel(torch.nn.Module):
         self.relu = torch.nn.functional.relu
 
     def forward(self, x):
-        x, view = x[(...), :self.xyz_encoding_dims], x[(...), self.xyz_encoding_dims:]
+        x, view = x[..., :self.xyz_encoding_dims], x[..., self.xyz_encoding_dims:]
         x = self.relu(self.layer1(x))
         x = self.relu(self.layer2(x))
         sigma = self.layer3_1(x)
@@ -360,7 +360,7 @@ class ReplicateNeRFModel(torch.nn.Module):
         self.relu = torch.nn.functional.relu
 
     def forward(self, x):
-        xyz, direction = x[(...), :self.dim_xyz], x[(...), self.dim_xyz:]
+        xyz, direction = x[..., :self.dim_xyz], x[..., self.dim_xyz:]
         x_ = self.relu(self.layer1(xyz))
         x_ = self.relu(self.layer2(x_))
         feat = self.layer3(x_)
@@ -399,7 +399,7 @@ class PaperNeRFModel(torch.nn.Module):
         self.relu = torch.nn.functional.relu
 
     def forward(self, x):
-        xyz, dirs = x[(...), :self.dim_xyz], x[(...), self.dim_xyz:]
+        xyz, dirs = x[..., :self.dim_xyz], x[..., self.dim_xyz:]
         for i in range(8):
             if i == 4:
                 x = self.layers_xyz[i](torch.cat((xyz, x), -1))
@@ -451,9 +451,9 @@ class FlexibleNeRFModel(torch.nn.Module):
 
     def forward(self, x):
         if self.use_viewdirs:
-            xyz, view = x[(...), :self.dim_xyz], x[(...), self.dim_xyz:]
+            xyz, view = x[..., :self.dim_xyz], x[..., self.dim_xyz:]
         else:
-            xyz = x[(...), :self.dim_xyz]
+            xyz = x[..., :self.dim_xyz]
         x = self.layer1(xyz)
         for i in range(len(self.layers_xyz)):
             if i % self.skip_connect_every == 0 and i > 0 and i != len(self.linear_layers) - 1:

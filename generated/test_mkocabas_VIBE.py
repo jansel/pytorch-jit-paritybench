@@ -41,10 +41,13 @@ temporal_smplify = _module
 utils = _module
 demo_utils = _module
 eval_utils = _module
+fbx_output = _module
 geometry = _module
+one_euro_filter = _module
 pose_tracker = _module
 renderer = _module
 smooth_bbox = _module
+smooth_pose = _module
 utils = _module
 vis = _module
 test_2d_datasets = _module
@@ -122,9 +125,6 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 
 
-from torchvision.models.utils import load_state_dict_from_url
-
-
 import math
 
 
@@ -187,7 +187,7 @@ def quat2mat(quat):
     """
     norm_quat = quat
     norm_quat = norm_quat / norm_quat.norm(p=2, dim=1, keepdim=True)
-    w, x, y, z = norm_quat[:, (0)], norm_quat[:, (1)], norm_quat[:, (2)], norm_quat[:, (3)]
+    w, x, y, z = norm_quat[:, 0], norm_quat[:, 1], norm_quat[:, 2], norm_quat[:, 3]
     batch_size = quat.size(0)
     w2, x2, y2, z2 = w.pow(2), x.pow(2), y.pow(2), z.pow(2)
     wx, wy, wz = w * x, w * y, w * z
@@ -294,7 +294,7 @@ class VIBELoss(nn.Module):
         The loss is weighted by the confidence.
         The available keypoints are different for each dataset.
         """
-        conf = gt_keypoints_2d[:, :, (-1)].unsqueeze(-1).clone()
+        conf = gt_keypoints_2d[:, :, -1].unsqueeze(-1).clone()
         conf[:, :25] *= openpose_weight
         conf[:, 25:] *= gt_weight
         loss = (conf * self.criterion_keypoints(pred_keypoints_2d, gt_keypoints_2d[:, :, :-1])).mean()
@@ -309,10 +309,10 @@ class VIBELoss(nn.Module):
         gt_keypoints_3d = gt_keypoints_3d[:, 25:39, :]
         pred_keypoints_3d = pred_keypoints_3d
         if len(gt_keypoints_3d) > 0:
-            gt_pelvis = (gt_keypoints_3d[:, (2), :] + gt_keypoints_3d[:, (3), :]) / 2
-            gt_keypoints_3d = gt_keypoints_3d - gt_pelvis[:, (None), :]
-            pred_pelvis = (pred_keypoints_3d[:, (2), :] + pred_keypoints_3d[:, (3), :]) / 2
-            pred_keypoints_3d = pred_keypoints_3d - pred_pelvis[:, (None), :]
+            gt_pelvis = (gt_keypoints_3d[:, 2, :] + gt_keypoints_3d[:, 3, :]) / 2
+            gt_keypoints_3d = gt_keypoints_3d - gt_pelvis[:, None, :]
+            pred_pelvis = (pred_keypoints_3d[:, 2, :] + pred_keypoints_3d[:, 3, :]) / 2
+            pred_keypoints_3d = pred_keypoints_3d - pred_pelvis[:, None, :]
             return self.criterion_keypoints(pred_keypoints_3d, gt_keypoints_3d).mean()
         else:
             return torch.FloatTensor(1).fill_(0.0)
@@ -577,19 +577,19 @@ def perspective_projection(points, rotation, translation, focal_length, camera_c
     """
     batch_size = points.shape[0]
     K = torch.zeros([batch_size, 3, 3], device=points.device)
-    K[:, (0), (0)] = focal_length
-    K[:, (1), (1)] = focal_length
-    K[:, (2), (2)] = 1.0
-    K[:, :-1, (-1)] = camera_center
+    K[:, 0, 0] = focal_length
+    K[:, 1, 1] = focal_length
+    K[:, 2, 2] = 1.0
+    K[:, :-1, -1] = camera_center
     points = torch.einsum('bij,bkj->bki', rotation, points)
     points = points + translation.unsqueeze(1)
-    projected_points = points / points[:, :, (-1)].unsqueeze(-1)
+    projected_points = points / points[:, :, -1].unsqueeze(-1)
     projected_points = torch.einsum('bij,bkj->bki', K, projected_points)
     return projected_points[:, :, :-1]
 
 
 def projection(pred_joints, pred_camera):
-    pred_cam_t = torch.stack([pred_camera[:, (1)], pred_camera[:, (2)], 2 * 5000.0 / (224.0 * pred_camera[:, (0)] + 1e-09)], dim=-1)
+    pred_cam_t = torch.stack([pred_camera[:, 1], pred_camera[:, 2], 2 * 5000.0 / (224.0 * pred_camera[:, 0] + 1e-09)], dim=-1)
     batch_size = pred_joints.shape[0]
     camera_center = torch.zeros(batch_size, 2)
     pred_keypoints_2d = perspective_projection(pred_joints, rotation=torch.eye(3).unsqueeze(0).expand(batch_size, -1, -1), translation=pred_cam_t, focal_length=5000.0, camera_center=camera_center)
@@ -599,9 +599,9 @@ def projection(pred_joints, pred_camera):
 
 def rot6d_to_rotmat(x):
     x = x.view(-1, 3, 2)
-    b1 = F.normalize(x[:, :, (0)], dim=1, eps=1e-06)
-    dot_prod = torch.sum(b1 * x[:, :, (1)], dim=1, keepdim=True)
-    b2 = F.normalize(x[:, :, (1)] - dot_prod * b1, dim=-1, eps=1e-06)
+    b1 = F.normalize(x[:, :, 0], dim=1, eps=1e-06)
+    dot_prod = torch.sum(b1 * x[:, :, 1], dim=1, keepdim=True)
+    b2 = F.normalize(x[:, :, 1] - dot_prod * b1, dim=-1, eps=1e-06)
     b3 = torch.cross(b1, b2, dim=1)
     rot_mats = torch.stack([b1, b2, b3], dim=-1)
     return rot_mats
@@ -643,7 +643,7 @@ def quaternion_to_angle_axis(quaternion: torch.Tensor) ->torch.Tensor:
     k_pos: torch.Tensor = two_theta / sin_theta
     k_neg: torch.Tensor = 2.0 * torch.ones_like(sin_theta)
     k: torch.Tensor = torch.where(sin_squared_theta > 0.0, k_pos, k_neg)
-    angle_axis: torch.Tensor = torch.zeros_like(quaternion)[(...), :3]
+    angle_axis: torch.Tensor = torch.zeros_like(quaternion)[..., :3]
     angle_axis[..., 0] += q1 * k
     angle_axis[..., 1] += q2 * k
     angle_axis[..., 2] += q3 * k
@@ -680,20 +680,20 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
     if not rotation_matrix.shape[-2:] == (3, 4):
         raise ValueError('Input size must be a N x 3 x 4  tensor. Got {}'.format(rotation_matrix.shape))
     rmat_t = torch.transpose(rotation_matrix, 1, 2)
-    mask_d2 = rmat_t[:, (2), (2)] < eps
-    mask_d0_d1 = rmat_t[:, (0), (0)] > rmat_t[:, (1), (1)]
-    mask_d0_nd1 = rmat_t[:, (0), (0)] < -rmat_t[:, (1), (1)]
-    t0 = 1 + rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
-    q0 = torch.stack([rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], t0, rmat_t[:, (0), (1)] + rmat_t[:, (1), (0)], rmat_t[:, (2), (0)] + rmat_t[:, (0), (2)]], -1)
+    mask_d2 = rmat_t[:, 2, 2] < eps
+    mask_d0_d1 = rmat_t[:, 0, 0] > rmat_t[:, 1, 1]
+    mask_d0_nd1 = rmat_t[:, 0, 0] < -rmat_t[:, 1, 1]
+    t0 = 1 + rmat_t[:, 0, 0] - rmat_t[:, 1, 1] - rmat_t[:, 2, 2]
+    q0 = torch.stack([rmat_t[:, 1, 2] - rmat_t[:, 2, 1], t0, rmat_t[:, 0, 1] + rmat_t[:, 1, 0], rmat_t[:, 2, 0] + rmat_t[:, 0, 2]], -1)
     t0_rep = t0.repeat(4, 1).t()
-    t1 = 1 - rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
-    q1 = torch.stack([rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[:, (0), (1)] + rmat_t[:, (1), (0)], t1, rmat_t[:, (1), (2)] + rmat_t[:, (2), (1)]], -1)
+    t1 = 1 - rmat_t[:, 0, 0] + rmat_t[:, 1, 1] - rmat_t[:, 2, 2]
+    q1 = torch.stack([rmat_t[:, 2, 0] - rmat_t[:, 0, 2], rmat_t[:, 0, 1] + rmat_t[:, 1, 0], t1, rmat_t[:, 1, 2] + rmat_t[:, 2, 1]], -1)
     t1_rep = t1.repeat(4, 1).t()
-    t2 = 1 - rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
-    q2 = torch.stack([rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)], rmat_t[:, (2), (0)] + rmat_t[:, (0), (2)], rmat_t[:, (1), (2)] + rmat_t[:, (2), (1)], t2], -1)
+    t2 = 1 - rmat_t[:, 0, 0] - rmat_t[:, 1, 1] + rmat_t[:, 2, 2]
+    q2 = torch.stack([rmat_t[:, 0, 1] - rmat_t[:, 1, 0], rmat_t[:, 2, 0] + rmat_t[:, 0, 2], rmat_t[:, 1, 2] + rmat_t[:, 2, 1], t2], -1)
     t2_rep = t2.repeat(4, 1).t()
-    t3 = 1 + rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
-    q3 = torch.stack([t3, rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)]], -1)
+    t3 = 1 + rmat_t[:, 0, 0] + rmat_t[:, 1, 1] + rmat_t[:, 2, 2]
+    q3 = torch.stack([t3, rmat_t[:, 1, 2] - rmat_t[:, 2, 1], rmat_t[:, 2, 0] - rmat_t[:, 0, 2], rmat_t[:, 0, 1] - rmat_t[:, 1, 0]], -1)
     t3_rep = t3.repeat(4, 1).t()
     mask_c0 = mask_d2 * mask_d0_d1
     mask_c1 = mask_d2 * ~mask_d0_d1
@@ -838,7 +838,7 @@ class HMR(nn.Module):
             pred_shape = self.decshape(xc) + pred_shape
             pred_cam = self.deccam(xc) + pred_cam
         pred_rotmat = rot6d_to_rotmat(pred_pose).view(batch_size, 24, 3, 3)
-        pred_output = self.smpl(betas=pred_shape, body_pose=pred_rotmat[:, 1:], global_orient=pred_rotmat[:, (0)].unsqueeze(1), pose2rot=False)
+        pred_output = self.smpl(betas=pred_shape, body_pose=pred_rotmat[:, 1:], global_orient=pred_rotmat[:, 0].unsqueeze(1), pose2rot=False)
         pred_vertices = pred_output.vertices
         pred_joints = pred_output.joints
         pred_keypoints_2d = projection(pred_joints, pred_cam)
@@ -908,7 +908,7 @@ class SMPLifyAnglePrior(nn.Module):
             in the batch.
         """
         angle_prior_idxs = self.angle_prior_idxs - (not with_global_pose) * 3
-        return torch.exp(pose[:, (angle_prior_idxs)] * self.angle_prior_signs).pow(2)
+        return torch.exp(pose[:, angle_prior_idxs] * self.angle_prior_signs).pow(2)
 
 
 DEFAULT_DTYPE = torch.float32
@@ -1001,9 +1001,9 @@ class MaxMixturePrior(nn.Module):
             likelihoods.append(curr_loglikelihood)
         log_likelihoods = torch.stack(likelihoods, dim=1)
         min_idx = torch.argmin(log_likelihoods, dim=1)
-        weight_component = self.nll_weights[:, (min_idx)]
+        weight_component = self.nll_weights[:, min_idx]
         weight_component = -torch.log(weight_component)
-        return weight_component + log_likelihoods[:, (min_idx)]
+        return weight_component + log_likelihoods[:, min_idx]
 
     def forward(self, pose, betas):
         if self.use_merged:

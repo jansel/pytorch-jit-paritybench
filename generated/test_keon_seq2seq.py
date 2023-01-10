@@ -46,7 +46,7 @@ import torch.nn.functional as F
 from torch import optim
 
 
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 
 from torch.nn import functional as F
@@ -137,7 +137,7 @@ class Seq2Seq(nn.Module):
         outputs = Variable(torch.zeros(max_len, batch_size, vocab_size))
         encoder_output, hidden = self.encoder(src)
         hidden = hidden[:self.decoder.n_layers]
-        output = Variable(trg.data[(0), :])
+        output = Variable(trg.data[0, :])
         for t in range(1, max_len):
             output, hidden, attn_weights = self.decoder(output, hidden, encoder_output)
             outputs[t] = output
@@ -158,16 +158,9 @@ TESTCASES = [
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
      True),
-    (Encoder,
-     lambda: ([], {'input_size': 4, 'embed_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
 ]
 
 class Test_keon_seq2seq(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

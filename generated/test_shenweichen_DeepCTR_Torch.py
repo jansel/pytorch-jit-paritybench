@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 deepctr_torch = _module
+callbacks = _module
 inputs = _module
 layers = _module
 activation = _module
@@ -11,15 +12,24 @@ sequence = _module
 utils = _module
 models = _module
 afm = _module
+afn = _module
 autoint = _module
 basemodel = _module
 ccpm = _module
 dcn = _module
+dcnmix = _module
 deepfm = _module
 dien = _module
+difm = _module
 din = _module
 fibinet = _module
+ifm = _module
 mlr = _module
+multitask = _module
+esmm = _module
+mmoe = _module
+ple = _module
+sharedbottom = _module
 nfm = _module
 onn = _module
 pnn = _module
@@ -30,26 +40,36 @@ conf = _module
 run_classification_criteo = _module
 run_dien = _module
 run_din = _module
+run_multitask_learning = _module
 run_multivalue_movielens = _module
 run_regression_movielens = _module
 setup = _module
 tests = _module
 activation_test = _module
 AFM_test = _module
+AFN_test = _module
 AutoInt_test = _module
 CCPM_test = _module
+DCNMix_test = _module
 DCN_test = _module
 DIEN_test = _module
+DIFM_test = _module
 DIN_test = _module
 DeepFM_test = _module
 FiBiNET_test = _module
+IFM_test = _module
 MLR_test = _module
 NFM_test = _module
 ONN_test = _module
 PNN_test = _module
 WDL_test = _module
+ESMM_test = _module
+MMOE_test = _module
+PLE_test = _module
+SharedBottom_test = _module
 xDeepFM_test = _module
 utils = _module
+utils_mtl = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -71,6 +91,18 @@ xrange = range
 wraps = functools.wraps
 
 
+import torch
+
+
+from tensorflow.python.keras.callbacks import EarlyStopping
+
+
+from tensorflow.python.keras.callbacks import ModelCheckpoint
+
+
+from tensorflow.python.keras.callbacks import History
+
+
 from collections import OrderedDict
 
 
@@ -81,9 +113,6 @@ from collections import defaultdict
 
 
 from itertools import chain
-
-
-import torch
 
 
 import torch.nn as nn
@@ -143,9 +172,6 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import MinMaxScaler
 
 
-from tensorflow.python.keras.preprocessing.sequence import pad_sequences
-
-
 from sklearn.metrics import mean_squared_error
 
 
@@ -161,7 +187,7 @@ class Dice(nn.Module):
 
     Output shape:
         - Same shape as input.
-    
+
     References
         - [Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C]//Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. ACM, 2018: 1059-1068.](https://arxiv.org/pdf/1706.06978.pdf)
         - https://github.com/zhougr1993/DeepInterestNetwork, https://github.com/fanoping/DIN-pytorch
@@ -174,9 +200,9 @@ class Dice(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.dim = dim
         if self.dim == 2:
-            self.alpha = torch.zeros((emb_size,))
+            self.alpha = nn.Parameter(torch.zeros((emb_size,)))
         else:
-            self.alpha = torch.zeros((emb_size, 1))
+            self.alpha = nn.Parameter(torch.zeros((emb_size, 1)))
 
     def forward(self, x):
         assert x.dim() == self.dim
@@ -196,8 +222,8 @@ class Identity(nn.Module):
     def __init__(self, **kwargs):
         super(Identity, self).__init__()
 
-    def forward(self, X):
-        return X
+    def forward(self, inputs):
+        return inputs
 
 
 def activation_layer(act_name, hidden_size=None, dice_dim=2):
@@ -458,10 +484,11 @@ class BilinearInteraction(nn.Module):
       Input shape
         - A list of 3D tensor with shape: ``(batch_size,filed_size, embedding_size)``.
       Output shape
-        - 3D tensor with shape: ``(batch_size,filed_size, embedding_size)``.
+        - 3D tensor with shape: ``(batch_size,filed_size*(filed_size-1)/2, embedding_size)``.
       Arguments
         - **filed_size** : Positive integer, number of feature groups.
-        - **str** : String, types of bilinear functions used in this layer.
+        - **embedding_size** : Positive integer, embedding size of sparse features.
+        - **bilinear_type** : String, types of bilinear functions used in this layer.
         - **seed** : A Python integer to use as random seed.
       References
         - [FiBiNET: Combining Feature Importance and Bilinear feature Interaction for Click-Through Rate Prediction
@@ -476,10 +503,10 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
         if self.bilinear_type == 'all':
             self.bilinear = nn.Linear(embedding_size, embedding_size, bias=False)
         elif self.bilinear_type == 'each':
-            for i in range(filed_size):
+            for _ in range(filed_size):
                 self.bilinear.append(nn.Linear(embedding_size, embedding_size, bias=False))
         elif self.bilinear_type == 'interaction':
-            for i, j in itertools.combinations(range(filed_size), 2):
+            for _, _ in itertools.combinations(range(filed_size), 2):
                 self.bilinear.append(nn.Linear(embedding_size, embedding_size, bias=False))
         else:
             raise NotImplementedError
@@ -601,6 +628,8 @@ class AFMLayer(nn.Module):
         self.projection_p = nn.Parameter(torch.Tensor(embedding_size, 1))
         for tensor in [self.attention_W, self.projection_h, self.projection_p]:
             nn.init.xavier_normal_(tensor)
+        for tensor in [self.attention_b]:
+            nn.init.zeros_(tensor)
         self.dropout = nn.Dropout(dropout_rate)
         self
 
@@ -628,31 +657,32 @@ class InteractingLayer(nn.Module):
       Input shape
             - A 3D tensor with shape: ``(batch_size,field_size,embedding_size)``.
       Output shape
-            - 3D tensor with shape:``(batch_size,field_size,att_embedding_size * head_num)``.
+            - 3D tensor with shape:``(batch_size,field_size,embedding_size)``.
       Arguments
             - **in_features** : Positive integer, dimensionality of input features.
-            - **att_embedding_size**: int.The embedding size in multi-head self-attention network.
-            - **head_num**: int.The head number in multi-head  self-attention network.
+            - **head_num**: int.The head number in multi-head self-attention network.
             - **use_res**: bool.Whether or not use standard residual connections before output.
             - **seed**: A Python integer to use as random seed.
       References
             - [Song W, Shi C, Xiao Z, et al. AutoInt: Automatic Feature Interaction Learning via Self-Attentive Neural Networks[J]. arXiv preprint arXiv:1810.11921, 2018.](https://arxiv.org/abs/1810.11921)
     """
 
-    def __init__(self, in_features, att_embedding_size=8, head_num=2, use_res=True, seed=1024, device='cpu'):
+    def __init__(self, embedding_size, head_num=2, use_res=True, scaling=False, seed=1024, device='cpu'):
         super(InteractingLayer, self).__init__()
         if head_num <= 0:
             raise ValueError('head_num must be a int > 0')
-        self.att_embedding_size = att_embedding_size
+        if embedding_size % head_num != 0:
+            raise ValueError('embedding_size is not an integer multiple of head_num!')
+        self.att_embedding_size = embedding_size // head_num
         self.head_num = head_num
         self.use_res = use_res
+        self.scaling = scaling
         self.seed = seed
-        embedding_size = in_features
-        self.W_Query = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
-        self.W_key = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
-        self.W_Value = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
+        self.W_Query = nn.Parameter(torch.Tensor(embedding_size, embedding_size))
+        self.W_key = nn.Parameter(torch.Tensor(embedding_size, embedding_size))
+        self.W_Value = nn.Parameter(torch.Tensor(embedding_size, embedding_size))
         if self.use_res:
-            self.W_Res = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
+            self.W_Res = nn.Parameter(torch.Tensor(embedding_size, embedding_size))
         for tensor in self.parameters():
             nn.init.normal_(tensor, mean=0.0, std=0.05)
         self
@@ -667,6 +697,8 @@ class InteractingLayer(nn.Module):
         keys = torch.stack(torch.split(keys, self.att_embedding_size, dim=2))
         values = torch.stack(torch.split(values, self.att_embedding_size, dim=2))
         inner_product = torch.einsum('bnik,bnjk->bnij', querys, keys)
+        if self.scaling:
+            inner_product /= self.att_embedding_size ** 0.5
         self.normalized_att_scores = F.softmax(inner_product, dim=-1)
         result = torch.matmul(self.normalized_att_scores, values)
         result = torch.cat(torch.split(result, 1), dim=-1)
@@ -688,27 +720,105 @@ class CrossNet(nn.Module):
         - **in_features** : Positive integer, dimensionality of input features.
         - **input_feature_num**: Positive integer, shape(Input tensor)[-1]
         - **layer_num**: Positive integer, the cross layer number
+        - **parameterization**: string, ``"vector"``  or ``"matrix"`` ,  way to parameterize the cross network.
         - **l2_reg**: float between 0 and 1. L2 regularizer strength applied to the kernel weights matrix
         - **seed**: A Python integer to use as random seed.
       References
         - [Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C]//Proceedings of the ADKDD'17. ACM, 2017: 12.](https://arxiv.org/abs/1708.05123)
+        - [Wang R, Shivanna R, Cheng D Z, et al. DCN-M: Improved Deep & Cross Network for Feature Cross Learning in Web-scale Learning to Rank Systems[J]. 2020.](https://arxiv.org/abs/2008.13535)
     """
 
-    def __init__(self, in_features, layer_num=2, seed=1024, device='cpu'):
+    def __init__(self, in_features, layer_num=2, parameterization='vector', seed=1024, device='cpu'):
         super(CrossNet, self).__init__()
         self.layer_num = layer_num
-        self.kernels = torch.nn.ParameterList([nn.Parameter(nn.init.xavier_normal_(torch.empty(in_features, 1))) for i in range(self.layer_num)])
-        self.bias = torch.nn.ParameterList([nn.Parameter(nn.init.zeros_(torch.empty(in_features, 1))) for i in range(self.layer_num)])
+        self.parameterization = parameterization
+        if self.parameterization == 'vector':
+            self.kernels = nn.Parameter(torch.Tensor(self.layer_num, in_features, 1))
+        elif self.parameterization == 'matrix':
+            self.kernels = nn.Parameter(torch.Tensor(self.layer_num, in_features, in_features))
+        else:
+            raise ValueError("parameterization should be 'vector' or 'matrix'")
+        self.bias = nn.Parameter(torch.Tensor(self.layer_num, in_features, 1))
+        for i in range(self.kernels.shape[0]):
+            nn.init.xavier_normal_(self.kernels[i])
+        for i in range(self.bias.shape[0]):
+            nn.init.zeros_(self.bias[i])
         self
 
     def forward(self, inputs):
         x_0 = inputs.unsqueeze(2)
         x_l = x_0
         for i in range(self.layer_num):
-            xl_w = torch.tensordot(x_l, self.kernels[i], dims=([1], [0]))
-            dot_ = torch.matmul(x_0, xl_w)
-            x_l = dot_ + self.bias[i] + x_l
+            if self.parameterization == 'vector':
+                xl_w = torch.tensordot(x_l, self.kernels[i], dims=([1], [0]))
+                dot_ = torch.matmul(x_0, xl_w)
+                x_l = dot_ + self.bias[i] + x_l
+            elif self.parameterization == 'matrix':
+                xl_w = torch.matmul(self.kernels[i], x_l)
+                dot_ = xl_w + self.bias[i]
+                x_l = x_0 * dot_ + x_l
+            else:
+                raise ValueError("parameterization should be 'vector' or 'matrix'")
         x_l = torch.squeeze(x_l, dim=2)
+        return x_l
+
+
+class CrossNetMix(nn.Module):
+    """The Cross Network part of DCN-Mix model, which improves DCN-M by:
+      1 add MOE to learn feature interactions in different subspaces
+      2 add nonlinear transformations in low-dimensional space
+      Input shape
+        - 2D tensor with shape: ``(batch_size, units)``.
+      Output shape
+        - 2D tensor with shape: ``(batch_size, units)``.
+      Arguments
+        - **in_features** : Positive integer, dimensionality of input features.
+        - **low_rank** : Positive integer, dimensionality of low-rank sapce.
+        - **num_experts** : Positive integer, number of experts.
+        - **layer_num**: Positive integer, the cross layer number
+        - **device**: str, e.g. ``"cpu"`` or ``"cuda:0"``
+      References
+        - [Wang R, Shivanna R, Cheng D Z, et al. DCN-M: Improved Deep & Cross Network for Feature Cross Learning in Web-scale Learning to Rank Systems[J]. 2020.](https://arxiv.org/abs/2008.13535)
+    """
+
+    def __init__(self, in_features, low_rank=32, num_experts=4, layer_num=2, device='cpu'):
+        super(CrossNetMix, self).__init__()
+        self.layer_num = layer_num
+        self.num_experts = num_experts
+        self.U_list = nn.Parameter(torch.Tensor(self.layer_num, num_experts, in_features, low_rank))
+        self.V_list = nn.Parameter(torch.Tensor(self.layer_num, num_experts, in_features, low_rank))
+        self.C_list = nn.Parameter(torch.Tensor(self.layer_num, num_experts, low_rank, low_rank))
+        self.gating = nn.ModuleList([nn.Linear(in_features, 1, bias=False) for i in range(self.num_experts)])
+        self.bias = nn.Parameter(torch.Tensor(self.layer_num, in_features, 1))
+        init_para_list = [self.U_list, self.V_list, self.C_list]
+        for para in init_para_list:
+            for i in range(self.layer_num):
+                nn.init.xavier_normal_(para[i])
+        for i in range(len(self.bias)):
+            nn.init.zeros_(self.bias[i])
+        self
+
+    def forward(self, inputs):
+        x_0 = inputs.unsqueeze(2)
+        x_l = x_0
+        for i in range(self.layer_num):
+            output_of_experts = []
+            gating_score_of_experts = []
+            for expert_id in range(self.num_experts):
+                gating_score_of_experts.append(self.gating[expert_id](x_l.squeeze(2)))
+                v_x = torch.matmul(self.V_list[i][expert_id].t(), x_l)
+                v_x = torch.tanh(v_x)
+                v_x = torch.matmul(self.C_list[i][expert_id], v_x)
+                v_x = torch.tanh(v_x)
+                uv_x = torch.matmul(self.U_list[i][expert_id], v_x)
+                dot_ = uv_x + self.bias[i]
+                dot_ = x_0 * dot_
+                output_of_experts.append(dot_.squeeze(2))
+            output_of_experts = torch.stack(output_of_experts, 2)
+            gating_score_of_experts = torch.stack(gating_score_of_experts, 1)
+            moe_out = torch.matmul(output_of_experts, gating_score_of_experts.softmax(1))
+            x_l = moe_out + x_l
+        x_l = x_l.squeeze()
         return x_l
 
 
@@ -821,12 +931,12 @@ class KMaxPooling(nn.Module):
         self.axis = axis
         self
 
-    def forward(self, input):
-        if self.axis < 0 or self.axis >= len(input.shape):
-            raise ValueError('axis must be 0~%d,now is %d' % (len(input.shape) - 1, self.axis))
-        if self.k < 1 or self.k > input.shape[self.axis]:
-            raise ValueError('k must be in 1 ~ %d,now k is %d' % (input.shape[self.axis], self.k))
-        out = torch.topk(input, k=self.k, dim=self.axis, sorted=True)[0]
+    def forward(self, inputs):
+        if self.axis < 0 or self.axis >= len(inputs.shape):
+            raise ValueError('axis must be 0~%d,now is %d' % (len(inputs.shape) - 1, self.axis))
+        if self.k < 1 or self.k > inputs.shape[self.axis]:
+            raise ValueError('k must be in 1 ~ %d,now k is %d' % (inputs.shape[self.axis], self.k))
+        out = torch.topk(inputs, k=self.k, dim=self.axis, sorted=True)[0]
         return out
 
 
@@ -870,6 +980,42 @@ class ConvLayer(nn.Module):
 
     def forward(self, inputs):
         return self.conv_layer(inputs)
+
+
+class LogTransformLayer(nn.Module):
+    """Logarithmic Transformation Layer in Adaptive factorization network, which models arbitrary-order cross features.
+
+      Input shape
+        - 3D tensor with shape: ``(batch_size, field_size, embedding_size)``.
+      Output shape
+        - 2D tensor with shape: ``(batch_size, ltl_hidden_size*embedding_size)``.
+      Arguments
+        - **field_size** : positive integer, number of feature groups
+        - **embedding_size** : positive integer, embedding size of sparse features
+        - **ltl_hidden_size** : integer, the number of logarithmic neurons in AFN
+      References
+        - Cheng, W., Shen, Y. and Huang, L. 2020. Adaptive Factorization Network: Learning Adaptive-Order Feature
+         Interactions. Proceedings of the AAAI Conference on Artificial Intelligence. 34, 04 (Apr. 2020), 3609-3616.
+    """
+
+    def __init__(self, field_size, embedding_size, ltl_hidden_size):
+        super(LogTransformLayer, self).__init__()
+        self.ltl_weights = nn.Parameter(torch.Tensor(field_size, ltl_hidden_size))
+        self.ltl_biases = nn.Parameter(torch.Tensor(1, 1, ltl_hidden_size))
+        self.bn = nn.ModuleList([nn.BatchNorm1d(embedding_size) for i in range(2)])
+        nn.init.normal_(self.ltl_weights, mean=0.0, std=0.1)
+        nn.init.zeros_(self.ltl_biases)
+
+    def forward(self, inputs):
+        afn_input = torch.clamp(torch.abs(inputs), min=1e-07, max=float('Inf'))
+        afn_input_trans = torch.transpose(afn_input, 1, 2)
+        ltl_result = torch.log(afn_input_trans)
+        ltl_result = self.bn[0](ltl_result)
+        ltl_result = torch.matmul(ltl_result, self.ltl_weights) + self.ltl_biases
+        ltl_result = torch.exp(ltl_result)
+        ltl_result = self.bn[1](ltl_result)
+        ltl_result = torch.flatten(ltl_result, start_dim=1)
+        return ltl_result
 
 
 class SequencePoolingLayer(nn.Module):
@@ -928,6 +1074,7 @@ class SequencePoolingLayer(nn.Module):
         hist = uiseq_embed_list * mask.float()
         hist = torch.sum(hist, dim=1, keepdim=False)
         if self.mode == 'mean':
+            self.eps = self.eps
             hist = torch.div(hist, user_behavior_length.type(torch.float32) + self.eps)
         hist = torch.unsqueeze(hist, dim=1)
         return hist
@@ -970,7 +1117,7 @@ class AttentionSequencePoolingLayer(nn.Module):
         Output shape
           - 3D tensor with shape: ``(batch_size, 1, embedding_size)``.
         """
-        batch_size, max_length, dim = keys.size()
+        batch_size, max_length, _ = keys.size()
         if self.supports_masking:
             if mask is None:
                 raise ValueError('When supports_masking=True,input must support masking')
@@ -1014,15 +1161,17 @@ class AGRUCell(nn.Module):
             self.register_parameter('bias_ih', self.bias_ih)
             self.bias_hh = nn.Parameter(torch.Tensor(3 * hidden_size))
             self.register_parameter('bias_hh', self.bias_hh)
+            for tensor in [self.bias_ih, self.bias_hh]:
+                nn.init.zeros_(tensor)
         else:
             self.register_parameter('bias_ih', None)
             self.register_parameter('bias_hh', None)
 
-    def forward(self, input, hx, att_score):
-        gi = F.linear(input, self.weight_ih, self.bias_ih)
+    def forward(self, inputs, hx, att_score):
+        gi = F.linear(inputs, self.weight_ih, self.bias_ih)
         gh = F.linear(hx, self.weight_hh, self.bias_hh)
-        i_r, i_z, i_n = gi.chunk(3, 1)
-        h_r, h_z, h_n = gh.chunk(3, 1)
+        i_r, _, i_n = gi.chunk(3, 1)
+        h_r, _, h_n = gh.chunk(3, 1)
         reset_gate = torch.sigmoid(i_r + h_r)
         new_state = torch.tanh(i_n + reset_gate * h_n)
         att_score = att_score.view(-1, 1)
@@ -1051,12 +1200,14 @@ class AUGRUCell(nn.Module):
             self.register_parameter('bias_ih', self.bias_ih)
             self.bias_hh = nn.Parameter(torch.Tensor(3 * hidden_size))
             self.register_parameter('bias_ih', self.bias_hh)
+            for tensor in [self.bias_ih, self.bias_hh]:
+                nn.init.zeros_(tensor)
         else:
             self.register_parameter('bias_ih', None)
             self.register_parameter('bias_hh', None)
 
-    def forward(self, input, hx, att_score):
-        gi = F.linear(input, self.weight_ih, self.bias_ih)
+    def forward(self, inputs, hx, att_score):
+        gi = F.linear(inputs, self.weight_ih, self.bias_ih)
         gh = F.linear(hx, self.weight_hh, self.bias_hh)
         i_r, i_z, i_n = gi.chunk(3, 1)
         h_r, h_z, h_n = gh.chunk(3, 1)
@@ -1080,18 +1231,18 @@ class DynamicGRU(nn.Module):
         elif gru_type == 'AUGRU':
             self.rnn = AUGRUCell(input_size, hidden_size, bias)
 
-    def forward(self, input, att_scores=None, hx=None):
-        if not isinstance(input, PackedSequence) or not isinstance(att_scores, PackedSequence):
+    def forward(self, inputs, att_scores=None, hx=None):
+        if not isinstance(inputs, PackedSequence) or not isinstance(att_scores, PackedSequence):
             raise NotImplementedError('DynamicGRU only supports packed input and att_scores')
-        input, batch_sizes, sorted_indices, unsorted_indices = input
+        inputs, batch_sizes, sorted_indices, unsorted_indices = inputs
         att_scores, _, _, _ = att_scores
         max_batch_size = int(batch_sizes[0])
         if hx is None:
-            hx = torch.zeros(max_batch_size, self.hidden_size, dtype=input.dtype, device=input.device)
-        outputs = torch.zeros(input.size(0), self.hidden_size, dtype=input.dtype, device=input.device)
+            hx = torch.zeros(max_batch_size, self.hidden_size, dtype=inputs.dtype, device=inputs.device)
+        outputs = torch.zeros(inputs.size(0), self.hidden_size, dtype=inputs.dtype, device=inputs.device)
         begin = 0
         for batch in batch_sizes:
-            new_hx = self.rnn(input[begin:begin + batch], hx[0:batch], att_scores[begin:begin + batch])
+            new_hx = self.rnn(inputs[begin:begin + batch], hx[0:batch], att_scores[begin:begin + batch])
             outputs[begin:begin + batch] = new_hx
             hx = new_hx
             begin += batch
@@ -1146,6 +1297,10 @@ class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat', 'maxlen', '
         return self.sparsefeat.embedding_dim
 
     @property
+    def use_hash(self):
+        return self.sparsefeat.use_hash
+
+    @property
     def dtype(self):
         return self.sparsefeat.dtype
 
@@ -1173,7 +1328,7 @@ def create_embedding_matrix(feature_columns, init_std=0.0001, linear=False, spar
 def get_varlen_pooling_list(embedding_dict, features, feature_index, varlen_sparse_feature_columns, device):
     varlen_sparse_embedding_list = []
     for feat in varlen_sparse_feature_columns:
-        seq_emb = embedding_dict[feat.embedding_name](features[:, feature_index[feat.name][0]:feature_index[feat.name][1]].long())
+        seq_emb = embedding_dict[feat.name]
         if feat.length_name is None:
             seq_mask = features[:, feature_index[feat.name][0]:feature_index[feat.name][1]].long() != 0
             emb = SequencePoolingLayer(mode=feat.combiner, supports_masking=True, device=device)([seq_emb, seq_mask])
@@ -1182,6 +1337,19 @@ def get_varlen_pooling_list(embedding_dict, features, feature_index, varlen_spar
             emb = SequencePoolingLayer(mode=feat.combiner, supports_masking=False, device=device)([seq_emb, seq_length])
         varlen_sparse_embedding_list.append(emb)
     return varlen_sparse_embedding_list
+
+
+def varlen_embedding_lookup(X, embedding_dict, sequence_input_dict, varlen_sparse_feature_columns):
+    varlen_embedding_vec_dict = {}
+    for fc in varlen_sparse_feature_columns:
+        feature_name = fc.name
+        embedding_name = fc.embedding_name
+        if fc.use_hash:
+            lookup_idx = sequence_input_dict[feature_name]
+        else:
+            lookup_idx = sequence_input_dict[feature_name]
+        varlen_embedding_vec_dict[feature_name] = embedding_dict[embedding_name](X[:, lookup_idx[0]:lookup_idx[1]].long())
+    return varlen_embedding_vec_dict
 
 
 class Linear(nn.Module):
@@ -1200,21 +1368,22 @@ class Linear(nn.Module):
             self.weight = nn.Parameter(torch.Tensor(sum(fc.dimension for fc in self.dense_feature_columns), 1))
             torch.nn.init.normal_(self.weight, mean=0, std=init_std)
 
-    def forward(self, X):
+    def forward(self, X, sparse_feat_refine_weight=None):
         sparse_embedding_list = [self.embedding_dict[feat.embedding_name](X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]].long()) for feat in self.sparse_feature_columns]
         dense_value_list = [X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]] for feat in self.dense_feature_columns]
-        varlen_embedding_list = get_varlen_pooling_list(self.embedding_dict, X, self.feature_index, self.varlen_sparse_feature_columns, self.device)
+        sequence_embed_dict = varlen_embedding_lookup(X, self.embedding_dict, self.feature_index, self.varlen_sparse_feature_columns)
+        varlen_embedding_list = get_varlen_pooling_list(sequence_embed_dict, X, self.feature_index, self.varlen_sparse_feature_columns, self.device)
         sparse_embedding_list += varlen_embedding_list
-        if len(sparse_embedding_list) > 0 and len(dense_value_list) > 0:
-            linear_sparse_logit = torch.sum(torch.cat(sparse_embedding_list, dim=-1), dim=-1, keepdim=False)
-            linear_dense_logit = torch.cat(dense_value_list, dim=-1).matmul(self.weight)
-            linear_logit = linear_sparse_logit + linear_dense_logit
-        elif len(sparse_embedding_list) > 0:
-            linear_logit = torch.sum(torch.cat(sparse_embedding_list, dim=-1), dim=-1, keepdim=False)
-        elif len(dense_value_list) > 0:
-            linear_logit = torch.cat(dense_value_list, dim=-1).matmul(self.weight)
-        else:
-            linear_logit = torch.zeros([X.shape[0], 1])
+        linear_logit = torch.zeros([X.shape[0], 1])
+        if len(sparse_embedding_list) > 0:
+            sparse_embedding_cat = torch.cat(sparse_embedding_list, dim=-1)
+            if sparse_feat_refine_weight is not None:
+                sparse_embedding_cat = sparse_embedding_cat * sparse_feat_refine_weight.unsqueeze(1)
+            sparse_feat_logit = torch.sum(sparse_embedding_cat, dim=-1, keepdim=False)
+            linear_logit += sparse_feat_logit
+        if len(dense_value_list) > 0:
+            dense_value_logit = torch.cat(dense_value_list, dim=-1).matmul(self.weight)
+            linear_logit += dense_value_logit
         return linear_logit
 
 
@@ -1292,22 +1461,30 @@ def slice_arrays(arrays, start=None, stop=None):
 
 class BaseModel(nn.Module):
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
+    def __init__(self, linear_feature_columns, dnn_feature_columns, l2_reg_linear=1e-05, l2_reg_embedding=1e-05, init_std=0.0001, seed=1024, task='binary', device='cpu', gpus=None):
         super(BaseModel, self).__init__()
+        torch.manual_seed(seed)
         self.dnn_feature_columns = dnn_feature_columns
         self.reg_loss = torch.zeros((1,), device=device)
         self.aux_loss = torch.zeros((1,), device=device)
         self.device = device
+        self.gpus = gpus
+        if gpus and str(self.gpus[0]) not in self.device:
+            raise ValueError('`gpus[0]` should be the same gpu with `device`')
         self.feature_index = build_input_features(linear_feature_columns + dnn_feature_columns)
         self.dnn_feature_columns = dnn_feature_columns
         self.embedding_dict = create_embedding_matrix(dnn_feature_columns, init_std, sparse=False, device=device)
         self.linear_model = Linear(linear_feature_columns, self.feature_index, device=device)
-        self.add_regularization_loss(self.embedding_dict.parameters(), l2_reg_embedding)
-        self.add_regularization_loss(self.linear_model.parameters(), l2_reg_linear)
+        self.regularization_weight = []
+        self.add_regularization_weight(self.embedding_dict.parameters(), l2=l2_reg_embedding)
+        self.add_regularization_weight(self.linear_model.parameters(), l2=l2_reg_linear)
         self.out = PredictionLayer(task)
         self
+        self._is_graph_network = True
+        self._ckpt_saved_epoch = False
+        self.history = History()
 
-    def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1, initial_epoch=0, validation_split=0.0, validation_data=None, shuffle=True, use_double=False):
+    def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1, initial_epoch=0, validation_split=0.0, validation_data=None, shuffle=True, callbacks=None):
         """
 
         :param x: Numpy array of training data (if the model has a single input), or list of Numpy arrays (if the model has multiple inputs).If input layers in the model are named, you can also pass a
@@ -1320,12 +1497,15 @@ class BaseModel(nn.Module):
         :param validation_split: Float between 0 and 1. Fraction of the training data to be used as validation data. The model will set apart this fraction of the training data, will not train on it, and will evaluate the loss and any model metrics on this data at the end of each epoch. The validation data is selected from the last samples in the `x` and `y` data provided, before shuffling.
         :param validation_data: tuple `(x_val, y_val)` or tuple `(x_val, y_val, val_sample_weights)` on which to evaluate the loss and any model metrics at the end of each epoch. The model will not be trained on this data. `validation_data` will override `validation_split`.
         :param shuffle: Boolean. Whether to shuffle the order of the batches at the beginning of each epoch.
-        :param use_double: Boolean. Whether to use double precision in metric calculation.
+        :param callbacks: List of `deepctr_torch.callbacks.Callback` instances. List of callbacks to apply during training and validation (if ). See [callbacks](https://tensorflow.google.cn/api_docs/python/tf/keras/callbacks). Now available: `EarlyStopping` , `ModelCheckpoint`
 
+        :return: A `History` object. Its `History.history` attribute is a record of training loss values and metrics values at successive epochs, as well as validation loss values and validation metrics values (if applicable).
         """
         if isinstance(x, dict):
             x = [x[feature] for feature in self.feature_index]
+        do_validation = False
         if validation_data:
+            do_validation = True
             if len(validation_data) == 2:
                 val_x, val_y = validation_data
                 val_sample_weight = None
@@ -1336,6 +1516,7 @@ class BaseModel(nn.Module):
             if isinstance(val_x, dict):
                 val_x = [val_x[feature] for feature in self.feature_index]
         elif validation_split and 0.0 < validation_split < 1.0:
+            do_validation = True
             if hasattr(x[0], 'shape'):
                 split_at = int(x[0].shape[0] * (1.0 - validation_split))
             else:
@@ -1351,63 +1532,91 @@ class BaseModel(nn.Module):
         train_tensor_data = Data.TensorDataset(torch.from_numpy(np.concatenate(x, axis=-1)), torch.from_numpy(y))
         if batch_size is None:
             batch_size = 256
-        train_loader = DataLoader(dataset=train_tensor_data, shuffle=shuffle, batch_size=batch_size)
-        None
         model = self.train()
         loss_func = self.loss_func
         optim = self.optim
+        if self.gpus:
+            None
+            model = torch.nn.DataParallel(model, device_ids=self.gpus)
+            batch_size *= len(self.gpus)
+        else:
+            None
+        train_loader = DataLoader(dataset=train_tensor_data, shuffle=shuffle, batch_size=batch_size)
         sample_num = len(train_tensor_data)
         steps_per_epoch = (sample_num - 1) // batch_size + 1
+        callbacks = (callbacks or []) + [self.history]
+        callbacks = CallbackList(callbacks)
+        callbacks.set_model(self)
+        callbacks.on_train_begin()
+        callbacks.set_model(self)
+        if not hasattr(callbacks, 'model'):
+            callbacks.__setattr__('model', self)
+        callbacks.model.stop_training = False
         None
         for epoch in range(initial_epoch, epochs):
+            callbacks.on_epoch_begin(epoch)
+            epoch_logs = {}
             start_time = time.time()
             loss_epoch = 0
             total_loss_epoch = 0
             train_result = {}
             try:
                 with tqdm(enumerate(train_loader), disable=verbose != 1) as t:
-                    for index, (x_train, y_train) in t:
+                    for _, (x_train, y_train) in t:
                         x = x_train.float()
                         y = y_train.float()
                         y_pred = model(x).squeeze()
                         optim.zero_grad()
-                        loss = loss_func(y_pred, y.squeeze(), reduction='sum')
-                        total_loss = loss + self.reg_loss + self.aux_loss
+                        if isinstance(loss_func, list):
+                            assert len(loss_func) == self.num_tasks, 'the length of `loss_func` should be equal with `self.num_tasks`'
+                            loss = sum([loss_func[i](y_pred[:, i], y[:, i], reduction='sum') for i in range(self.num_tasks)])
+                        else:
+                            loss = loss_func(y_pred, y.squeeze(), reduction='sum')
+                        reg_loss = self.get_regularization_loss()
+                        total_loss = loss + reg_loss + self.aux_loss
                         loss_epoch += loss.item()
                         total_loss_epoch += total_loss.item()
-                        total_loss.backward(retain_graph=True)
+                        total_loss.backward()
                         optim.step()
                         if verbose > 0:
                             for name, metric_fun in self.metrics.items():
                                 if name not in train_result:
                                     train_result[name] = []
-                                if use_double:
-                                    train_result[name].append(metric_fun(y.cpu().data.numpy(), y_pred.cpu().data.numpy().astype('float64')))
-                                else:
-                                    train_result[name].append(metric_fun(y.cpu().data.numpy(), y_pred.cpu().data.numpy()))
+                                train_result[name].append(metric_fun(y.cpu().data.numpy(), y_pred.cpu().data.numpy().astype('float64')))
             except KeyboardInterrupt:
                 t.close()
                 raise
             t.close()
-            epoch_time = int(time.time() - start_time)
+            epoch_logs['loss'] = total_loss_epoch / sample_num
+            for name, result in train_result.items():
+                epoch_logs[name] = np.sum(result) / steps_per_epoch
+            if do_validation:
+                eval_result = self.evaluate(val_x, val_y, batch_size)
+                for name, result in eval_result.items():
+                    epoch_logs['val_' + name] = result
             if verbose > 0:
+                epoch_time = int(time.time() - start_time)
                 None
-                eval_str = '{0}s - loss: {1: .4f}'.format(epoch_time, total_loss_epoch / sample_num)
-                for name, result in train_result.items():
-                    eval_str += ' - ' + name + ': {0: .4f}'.format(np.sum(result) / steps_per_epoch)
-                if len(val_x) and len(val_y):
-                    eval_result = self.evaluate(val_x, val_y, batch_size)
-                    for name, result in eval_result.items():
-                        eval_str += ' - val_' + name + ': {0: .4f}'.format(result)
+                eval_str = '{0}s - loss: {1: .4f}'.format(epoch_time, epoch_logs['loss'])
+                for name in self.metrics:
+                    eval_str += ' - ' + name + ': {0: .4f}'.format(epoch_logs[name])
+                if do_validation:
+                    for name in self.metrics:
+                        eval_str += ' - ' + 'val_' + name + ': {0: .4f}'.format(epoch_logs['val_' + name])
                 None
+            callbacks.on_epoch_end(epoch, epoch_logs)
+            if self.stop_training:
+                break
+        callbacks.on_train_end()
+        return self.history
 
     def evaluate(self, x, y, batch_size=256):
         """
 
         :param x: Numpy array of test data (if the model has a single input), or list of Numpy arrays (if the model has multiple inputs).
         :param y: Numpy array of target (label) data (if the model has a single output), or list of Numpy arrays (if the model has multiple outputs).
-        :param batch_size:
-        :return: Integer or `None`. Number of samples per evaluation step. If unspecified, `batch_size` will default to 256.
+        :param batch_size: Integer or `None`. Number of samples per evaluation step. If unspecified, `batch_size` will default to 256.
+        :return: Dict contains metric names and metric values.
         """
         pred_ans = self.predict(x, batch_size)
         eval_result = {}
@@ -1415,7 +1624,7 @@ class BaseModel(nn.Module):
             eval_result[name] = metric_fun(y, pred_ans)
         return eval_result
 
-    def predict(self, x, batch_size=256, use_double=False):
+    def predict(self, x, batch_size=256):
         """
 
         :param x: The input data, as a Numpy array (or list of Numpy arrays if the model has multiple inputs).
@@ -1432,14 +1641,11 @@ class BaseModel(nn.Module):
         test_loader = DataLoader(dataset=tensor_data, shuffle=False, batch_size=batch_size)
         pred_ans = []
         with torch.no_grad():
-            for index, x_test in enumerate(test_loader):
+            for _, x_test in enumerate(test_loader):
                 x = x_test[0].float()
                 y_pred = model(x).cpu().data.numpy()
                 pred_ans.append(y_pred)
-        if use_double:
-            return np.concatenate(pred_ans).astype('float64')
-        else:
-            return np.concatenate(pred_ans)
+        return np.concatenate(pred_ans).astype('float64')
 
     def input_from_feature_columns(self, X, feature_columns, embedding_dict, support_dense=True):
         sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
@@ -1448,7 +1654,8 @@ class BaseModel(nn.Module):
         if not support_dense and len(dense_feature_columns) > 0:
             raise ValueError('DenseFeat is not supported in dnn_feature_columns')
         sparse_embedding_list = [embedding_dict[feat.embedding_name](X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]].long()) for feat in sparse_feature_columns]
-        varlen_sparse_embedding_list = get_varlen_pooling_list(self.embedding_dict, X, self.feature_index, varlen_sparse_feature_columns, self.device)
+        sequence_embed_dict = varlen_embedding_lookup(X, self.embedding_dict, self.feature_index, varlen_sparse_feature_columns)
+        varlen_sparse_embedding_list = get_varlen_pooling_list(sequence_embed_dict, X, self.feature_index, varlen_sparse_feature_columns, self.device)
         dense_value_list = [X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]] for feat in dense_feature_columns]
         return sparse_embedding_list + varlen_sparse_embedding_list, dense_value_list
 
@@ -1467,16 +1674,29 @@ class BaseModel(nn.Module):
             input_dim += dense_input_dim
         return input_dim
 
-    def add_regularization_loss(self, weight_list, weight_decay, p=2):
-        reg_loss = torch.zeros((1,), device=self.device)
-        for w in weight_list:
-            if isinstance(w, tuple):
-                l2_reg = torch.norm(w[1], p=p)
-            else:
-                l2_reg = torch.norm(w, p=p)
-            reg_loss = reg_loss + l2_reg
-        reg_loss = weight_decay * reg_loss
-        self.reg_loss = self.reg_loss + reg_loss
+    def add_regularization_weight(self, weight_list, l1=0.0, l2=0.0):
+        if isinstance(weight_list, torch.nn.parameter.Parameter):
+            weight_list = [weight_list]
+        else:
+            weight_list = list(weight_list)
+        self.regularization_weight.append((weight_list, l1, l2))
+
+    def get_regularization_loss(self):
+        total_reg_loss = torch.zeros((1,), device=self.device)
+        for weight_list, l1, l2 in self.regularization_weight:
+            for w in weight_list:
+                if isinstance(w, tuple):
+                    parameter = w[1]
+                else:
+                    parameter = w
+                if l1 > 0:
+                    total_reg_loss += torch.sum(l1 * torch.abs(parameter))
+                if l2 > 0:
+                    try:
+                        total_reg_loss += torch.sum(l2 * torch.square(parameter))
+                    except AttributeError:
+                        total_reg_loss += torch.sum(l2 * parameter * parameter)
+        return total_reg_loss
 
     def add_auxiliary_loss(self, aux_loss, alpha):
         self.aux_loss = aux_loss * alpha
@@ -1487,6 +1707,7 @@ class BaseModel(nn.Module):
         :param loss: String (name of objective function) or objective function. See [losses](https://pytorch.org/docs/stable/nn.functional.html#loss-functions).
         :param metrics: List of metrics to be evaluated by the model during training and testing. Typically you will use `metrics=['accuracy']`.
         """
+        self.metrics_names = ['loss']
         self.optim = self._get_optim(optimizer)
         self.loss_func = self._get_loss_func(loss)
         self.metrics = self._get_metrics(metrics)
@@ -1509,20 +1730,30 @@ class BaseModel(nn.Module):
 
     def _get_loss_func(self, loss):
         if isinstance(loss, str):
-            if loss == 'binary_crossentropy':
-                loss_func = F.binary_cross_entropy
-            elif loss == 'mse':
-                loss_func = F.mse_loss
-            elif loss == 'mae':
-                loss_func = F.l1_loss
-            else:
-                raise NotImplementedError
+            loss_func = self._get_loss_func_single(loss)
+        elif isinstance(loss, list):
+            loss_func = [self._get_loss_func_single(loss_single) for loss_single in loss]
         else:
             loss_func = loss
         return loss_func
 
+    def _get_loss_func_single(self, loss):
+        if loss == 'binary_crossentropy':
+            loss_func = F.binary_cross_entropy
+        elif loss == 'mse':
+            loss_func = F.mse_loss
+        elif loss == 'mae':
+            loss_func = F.l1_loss
+        else:
+            raise NotImplementedError
+        return loss_func
+
     def _log_loss(self, y_true, y_pred, eps=1e-07, normalize=True, sample_weight=None, labels=None):
         return log_loss(y_true, y_pred, eps, normalize, sample_weight, labels)
+
+    @staticmethod
+    def _accuracy_score(y_true, y_pred):
+        return accuracy_score(y_true, np.where(y_pred > 0.5, 1, 0))
 
     def _get_metrics(self, metrics, set_eps=False):
         metrics_ = {}
@@ -1538,8 +1769,12 @@ class BaseModel(nn.Module):
                 if metric == 'mse':
                     metrics_[metric] = mean_squared_error
                 if metric == 'accuracy' or metric == 'acc':
-                    metrics_[metric] = lambda y_true, y_pred: accuracy_score(y_true, np.where(y_pred > 0.5, 1, 0))
+                    metrics_[metric] = self._accuracy_score
+                self.metrics_names.append(metric)
         return metrics_
+
+    def _in_multi_worker_mode(self):
+        return None
 
     @property
     def embedding_size(self):
@@ -1574,12 +1809,13 @@ class CCPM(BaseModel):
     :param seed: integer ,to use as random seed.
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
 
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, conv_kernel_width=(6, 5), conv_filters=(4, 4), dnn_hidden_units=(256,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu', dnn_use_bn=False, dnn_activation='relu'):
-        super(CCPM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, conv_kernel_width=(6, 5), conv_filters=(4, 4), dnn_hidden_units=(256,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu', dnn_use_bn=False, dnn_activation='relu', gpus=None):
+        super(CCPM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         if len(conv_kernel_width) != len(conv_filters):
             raise ValueError('conv_kernel_width must have same element with conv_filters')
         filed_size = self.compute_input_dim(dnn_feature_columns, include_dense=False, feature_group=True)
@@ -1587,8 +1823,8 @@ class CCPM(BaseModel):
         self.dnn_input_dim = self.conv_layer.filed_shape * self.embedding_size * conv_filters[-1]
         self.dnn = DNN(self.dnn_input_dim, dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self
 
     def forward(self, X):
@@ -1621,7 +1857,70 @@ def combined_dnn_input(sparse_embedding_list, dense_value_list):
 
 
 class DCN(BaseModel):
-    """Instantiates the Deep&Cross Network architecture.
+    """Instantiates the Deep&Cross Network architecture. Including DCN-V (parameterization='vector')
+    and DCN-M (parameterization='matrix').
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param cross_num: positive integet,cross layer number
+    :param cross_parameterization: str, ``"vector"`` or ``"matrix"``, how to parameterize the cross network.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_cross: float. L2 regularizer strength applied to cross net
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not DNN
+    :param dnn_activation: Activation function to use in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+    :return: A PyTorch model instance.
+
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, cross_num=2, cross_parameterization='vector', dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_cross=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(DCN, self).__init__(linear_feature_columns=linear_feature_columns, dnn_feature_columns=dnn_feature_columns, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
+        self.dnn_hidden_units = dnn_hidden_units
+        self.cross_num = cross_num
+        self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, use_bn=dnn_use_bn, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, init_std=init_std, device=device)
+        if len(self.dnn_hidden_units) > 0 and self.cross_num > 0:
+            dnn_linear_in_feature = self.compute_input_dim(dnn_feature_columns) + dnn_hidden_units[-1]
+        elif len(self.dnn_hidden_units) > 0:
+            dnn_linear_in_feature = dnn_hidden_units[-1]
+        elif self.cross_num > 0:
+            dnn_linear_in_feature = self.compute_input_dim(dnn_feature_columns)
+        self.dnn_linear = nn.Linear(dnn_linear_in_feature, 1, bias=False)
+        self.crossnet = CrossNet(in_features=self.compute_input_dim(dnn_feature_columns), layer_num=cross_num, parameterization=cross_parameterization, device=device)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_linear)
+        self.add_regularization_weight(self.crossnet.kernels, l2=l2_reg_cross)
+        self
+
+    def forward(self, X):
+        logit = self.linear_model(X)
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        if len(self.dnn_hidden_units) > 0 and self.cross_num > 0:
+            deep_out = self.dnn(dnn_input)
+            cross_out = self.crossnet(dnn_input)
+            stack_out = torch.cat((cross_out, deep_out), dim=-1)
+            logit += self.dnn_linear(stack_out)
+        elif len(self.dnn_hidden_units) > 0:
+            deep_out = self.dnn(dnn_input)
+            logit += self.dnn_linear(deep_out)
+        elif self.cross_num > 0:
+            cross_out = self.crossnet(dnn_input)
+            logit += self.dnn_linear(cross_out)
+        else:
+            pass
+        y_pred = self.out(logit)
+        return y_pred
+
+
+class DCNMix(BaseModel):
+    """Instantiates the DCN-Mix model.
 
     :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
     :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
@@ -1635,14 +1934,17 @@ class DCN(BaseModel):
     :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
     :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not DNN
     :param dnn_activation: Activation function to use in DNN
+    :param low_rank: Positive integer, dimensionality of low-rank sapce.
+    :param num_experts: Positive integer, number of experts.
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, cross_num=2, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_cross=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
-        super(DCN, self).__init__(linear_feature_columns=linear_feature_columns, dnn_feature_columns=dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, cross_num=2, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_cross=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, low_rank=32, num_experts=4, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(DCNMix, self).__init__(linear_feature_columns=linear_feature_columns, dnn_feature_columns=dnn_feature_columns, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.dnn_hidden_units = dnn_hidden_units
         self.cross_num = cross_num
         self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, use_bn=dnn_use_bn, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, init_std=init_std, device=device)
@@ -1653,10 +1955,12 @@ class DCN(BaseModel):
         elif self.cross_num > 0:
             dnn_linear_in_feature = self.compute_input_dim(dnn_feature_columns)
         self.dnn_linear = nn.Linear(dnn_linear_in_feature, 1, bias=False)
-        self.crossnet = CrossNet(in_features=self.compute_input_dim(dnn_feature_columns), layer_num=cross_num, seed=1024, device=device)
-        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_linear)
-        self.add_regularization_loss(self.crossnet.kernels, l2_reg_cross)
+        self.crossnet = CrossNetMix(in_features=self.compute_input_dim(dnn_feature_columns), low_rank=low_rank, num_experts=num_experts, layer_num=cross_num, device=device)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_linear)
+        regularization_modules = [self.crossnet.U_list, self.crossnet.V_list, self.crossnet.C_list]
+        for module in regularization_modules:
+            self.add_regularization_weight(module, l2=l2_reg_cross)
         self
 
     def forward(self, X):
@@ -1697,12 +2001,13 @@ class DeepFM(BaseModel):
     :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, use_fm=True, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
-        super(DeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, use_fm=True, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(DeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.use_fm = use_fm
         self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
         if use_fm:
@@ -1710,8 +2015,8 @@ class DeepFM(BaseModel):
         if self.use_dnn:
             self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
             self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+            self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self
 
     def forward(self, X):
@@ -1753,7 +2058,7 @@ class InterestEvolving(nn.Module):
 
     @staticmethod
     def _get_last_state(states, keys_length):
-        batch_size, max_seq_length, hidden_size = states.size()
+        batch_size, max_seq_length, _ = states.size()
         mask = torch.arange(max_seq_length, device=keys_length.device).repeat(batch_size, 1) == keys_length.view(-1, 1) - 1
         return states[mask]
 
@@ -1778,7 +2083,7 @@ class InterestEvolving(nn.Module):
             return zero_outputs
         query = torch.masked_select(query, mask.view(-1, 1)).view(-1, dim).unsqueeze(1)
         if self.gru_type == 'GRU':
-            packed_keys = pack_padded_sequence(keys, lengths=keys_length, batch_first=True, enforce_sorted=False)
+            packed_keys = pack_padded_sequence(keys, lengths=keys_length.cpu(), batch_first=True, enforce_sorted=False)
             packed_interests, _ = self.interest_evolution(packed_keys)
             interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
             outputs = self.attention(query, interests, keys_length.unsqueeze(1))
@@ -1786,13 +2091,13 @@ class InterestEvolving(nn.Module):
         elif self.gru_type == 'AIGRU':
             att_scores = self.attention(query, keys, keys_length.unsqueeze(1))
             interests = keys * att_scores.transpose(1, 2)
-            packed_interests = pack_padded_sequence(interests, lengths=keys_length, batch_first=True, enforce_sorted=False)
+            packed_interests = pack_padded_sequence(interests, lengths=keys_length.cpu(), batch_first=True, enforce_sorted=False)
             _, outputs = self.interest_evolution(packed_interests)
             outputs = outputs.squeeze(0)
         elif self.gru_type == 'AGRU' or self.gru_type == 'AUGRU':
             att_scores = self.attention(query, keys, keys_length.unsqueeze(1)).squeeze(1)
-            packed_interests = pack_padded_sequence(keys, lengths=keys_length, batch_first=True, enforce_sorted=False)
-            packed_scores = pack_padded_sequence(att_scores, lengths=keys_length, batch_first=True, enforce_sorted=False)
+            packed_interests = pack_padded_sequence(keys, lengths=keys_length.cpu(), batch_first=True, enforce_sorted=False)
+            packed_scores = pack_padded_sequence(att_scores, lengths=keys_length.cpu(), batch_first=True, enforce_sorted=False)
             outputs = self.interest_evolution(packed_interests, packed_scores)
             outputs, _ = pad_packed_sequence(outputs, batch_first=True, padding_value=0.0, total_length=max_length)
             outputs = InterestEvolving._get_last_state(outputs, keys_length)
@@ -1834,7 +2139,7 @@ class InterestExtractor(nn.Module):
         if masked_keys_length.shape[0] == 0:
             return zero_outputs,
         masked_keys = torch.masked_select(keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
-        packed_keys = pack_padded_sequence(masked_keys, lengths=masked_keys_length, batch_first=True, enforce_sorted=False)
+        packed_keys = pack_padded_sequence(masked_keys, lengths=masked_keys_length.cpu(), batch_first=True, enforce_sorted=False)
         packed_interests, _ = self.gru(packed_keys)
         interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
         if self.use_neg and neg_keys is not None:
@@ -1902,7 +2207,7 @@ def get_dense_input(X, features, feature_columns):
 
 def maxlen_lookup(X, sparse_input_dict, maxlen_column):
     if maxlen_column is None or len(maxlen_column) == 0:
-        raise ValueError('please add max length column for VarLenSparseFeat of DIEN input')
+        raise ValueError('please add max length column for VarLenSparseFeat of DIN/DIEN input')
     lookup_idx = np.array(sparse_input_dict[maxlen_column[0]])
     return X[:, lookup_idx[0]:lookup_idx[1]].long()
 
@@ -1910,29 +2215,31 @@ def maxlen_lookup(X, sparse_input_dict, maxlen_column):
 class DIEN(BaseModel):
     """Instantiates the Deep Interest Evolution Network architecture.
 
-       :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
-       :param history_feature_list: list,to indicate  sequence sparse field
-       :param gru_type: str,can be GRU AIGRU AUGRU AGRU
-       :param use_negsampling: bool, whether or not use negtive sampling
-       :param alpha: float ,weight of auxiliary_loss
-       :param use_bn: bool. Whether use BatchNormalization before activation or not in deep net
-       :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
-       :param dnn_activation: Activation function to use in DNN
-       :param att_hidden_units: list,list of positive integer , the layer number and units in each layer of attention net
-       :param att_activation: Activation function to use in attention net
-       :param att_weight_normalization: bool.Whether normalize the attention score of local activation unit.
-       :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
-       :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
-       :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
-       :param init_std: float,to use as the initialize std of embedding vector
-       :param seed: integer ,to use as random seed.
-       :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
-       :param device: str, ``"cpu"`` or ``"cuda:0"``
-       :return: A PyTorch model instance.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param history_feature_list: list,to indicate  sequence sparse field
+    :param gru_type: str,can be GRU AIGRU AUGRU AGRU
+    :param use_negsampling: bool, whether or not use negtive sampling
+    :param alpha: float ,weight of auxiliary_loss
+    :param use_bn: bool. Whether use BatchNormalization before activation or not in deep net
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param dnn_activation: Activation function to use in DNN
+    :param att_hidden_units: list,list of positive integer , the layer number and units in each layer of attention net
+    :param att_activation: Activation function to use in attention net
+    :param att_weight_normalization: bool.Whether normalize the attention score of local activation unit.
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+    :return: A PyTorch model instance.
+
     """
 
-    def __init__(self, dnn_feature_columns, history_feature_list, gru_type='GRU', use_negsampling=False, alpha=1.0, use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_units=(64, 16), att_activation='relu', att_weight_normalization=True, l2_reg_dnn=0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu'):
-        super(DIEN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=0, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, dnn_feature_columns, history_feature_list, gru_type='GRU', use_negsampling=False, alpha=1.0, use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_units=(64, 16), att_activation='relu', att_weight_normalization=True, l2_reg_dnn=0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu', gpus=None):
+        super(DIEN, self).__init__([], dnn_feature_columns, l2_reg_linear=0, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.item_features = history_feature_list
         self.use_negsampling = use_negsampling
         self.alpha = alpha
@@ -2015,17 +2322,63 @@ class DIEN(BaseModel):
         return dnn_input_emb.squeeze(1)
 
 
-def varlen_embedding_lookup(X, embedding_dict, sequence_input_dict, varlen_sparse_feature_columns):
-    varlen_embedding_vec_dict = {}
-    for fc in varlen_sparse_feature_columns:
-        feature_name = fc.name
-        embedding_name = fc.embedding_name
-        if fc.use_hash:
-            lookup_idx = sequence_input_dict[feature_name]
-        else:
-            lookup_idx = sequence_input_dict[feature_name]
-        varlen_embedding_vec_dict[feature_name] = embedding_dict[embedding_name](X[:, lookup_idx[0]:lookup_idx[1]].long())
-    return varlen_embedding_vec_dict
+class DIFM(BaseModel):
+    """Instantiates the DIFM Network architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param att_head_num: int. The head number in multi-head  self-attention network.
+    :param att_res: bool. Whether or not use standard residual connections before output.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on ``device`` . ``gpus[0]`` should be the same gpu with ``device`` .
+    :return: A PyTorch model instance.
+
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, att_head_num=4, att_res=True, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(DIFM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
+        if not len(dnn_hidden_units) > 0:
+            raise ValueError('dnn_hidden_units is null!')
+        self.fm = FM()
+        self.vector_wise_net = InteractingLayer(self.embedding_size, att_head_num, att_res, scaling=True, device=device)
+        self.bit_wise_net = DNN(self.compute_input_dim(dnn_feature_columns, include_dense=False), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.sparse_feat_num = len(list(filter(lambda x: isinstance(x, SparseFeat) or isinstance(x, VarLenSparseFeat), dnn_feature_columns)))
+        self.transform_matrix_P_vec = nn.Linear(self.sparse_feat_num * self.embedding_size, self.sparse_feat_num, bias=False)
+        self.transform_matrix_P_bit = nn.Linear(dnn_hidden_units[-1], self.sparse_feat_num, bias=False)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.vector_wise_net.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.bit_wise_net.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.transform_matrix_P_vec.weight, l2=l2_reg_dnn)
+        self.add_regularization_weight(self.transform_matrix_P_bit.weight, l2=l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        if not len(sparse_embedding_list) > 0:
+            raise ValueError('there are no sparse features')
+        att_input = concat_fun(sparse_embedding_list, axis=1)
+        att_out = self.vector_wise_net(att_input)
+        att_out = att_out.reshape(att_out.shape[0], -1)
+        m_vec = self.transform_matrix_P_vec(att_out)
+        dnn_input = combined_dnn_input(sparse_embedding_list, [])
+        dnn_output = self.bit_wise_net(dnn_input)
+        m_bit = self.transform_matrix_P_bit(dnn_output)
+        m_x = m_vec + m_bit
+        logit = self.linear_model(X, sparse_feat_refine_weight=m_x)
+        fm_input = torch.cat(sparse_embedding_list, dim=1)
+        refined_fm_input = fm_input * m_x.unsqueeze(-1)
+        logit += self.fm(refined_fm_input)
+        y_pred = self.out(logit)
+        return y_pred
 
 
 class DIN(BaseModel):
@@ -2045,12 +2398,14 @@ class DIN(BaseModel):
     :param init_std: float,to use as the initialize std of embedding vector
     :param seed: integer ,to use as random seed.
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return:  A PyTorch model instance.
 
     """
 
-    def __init__(self, dnn_feature_columns, history_feature_list, dnn_use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_size=(64, 16), att_activation='Dice', att_weight_normalization=False, l2_reg_dnn=0.0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu'):
-        super(DIN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=0, l2_reg_dnn=l2_reg_dnn, init_std=init_std, l2_reg_embedding=l2_reg_embedding, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, seed=seed, task=task, device=device)
+    def __init__(self, dnn_feature_columns, history_feature_list, dnn_use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_size=(64, 16), att_activation='Dice', att_weight_normalization=False, l2_reg_dnn=0.0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu', gpus=None):
+        super(DIN, self).__init__([], dnn_feature_columns, l2_reg_linear=0, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), dnn_feature_columns)) if dnn_feature_columns else []
         self.varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), dnn_feature_columns)) if dnn_feature_columns else []
         self.history_feature_list = history_feature_list
@@ -2064,23 +2419,24 @@ class DIN(BaseModel):
             else:
                 self.sparse_varlen_feature_columns.append(fc)
         att_emb_dim = self._compute_interest_dim()
-        self.attention = AttentionSequencePoolingLayer(att_hidden_units=att_hidden_size, embedding_dim=att_emb_dim, activation=att_activation, return_score=False, supports_masking=False, weight_normalization=att_weight_normalization)
+        self.attention = AttentionSequencePoolingLayer(att_hidden_units=att_hidden_size, embedding_dim=att_emb_dim, att_activation=att_activation, return_score=False, supports_masking=False, weight_normalization=att_weight_normalization)
         self.dnn = DNN(inputs_dim=self.compute_input_dim(dnn_feature_columns), hidden_units=dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, l2_reg=l2_reg_dnn, use_bn=dnn_use_bn)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
         self
 
     def forward(self, X):
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
-        query_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, self.history_feature_list, self.history_feature_list, to_list=True)
-        keys_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.history_feature_columns, self.history_fc_names, self.history_fc_names, to_list=True)
-        dnn_input_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, mask_feat_list=self.history_feature_list, to_list=True)
+        _, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        query_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, return_feat_list=self.history_feature_list, to_list=True)
+        keys_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.history_feature_columns, return_feat_list=self.history_fc_names, to_list=True)
+        dnn_input_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, to_list=True)
         sequence_embed_dict = varlen_embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_varlen_feature_columns)
         sequence_embed_list = get_varlen_pooling_list(sequence_embed_dict, X, self.feature_index, self.sparse_varlen_feature_columns, self.device)
         dnn_input_emb_list += sequence_embed_list
+        deep_input_emb = torch.cat(dnn_input_emb_list, dim=-1)
         query_emb = torch.cat(query_emb_list, dim=-1)
         keys_emb = torch.cat(keys_emb_list, dim=-1)
-        keys_length = torch.ones((query_emb.size(0), 1))
-        deep_input_emb = torch.cat(dnn_input_emb_list, dim=-1)
+        keys_length_feature_name = [feat.length_name for feat in self.varlen_sparse_feature_columns if feat.length_name is not None]
+        keys_length = torch.squeeze(maxlen_lookup(X, self.feature_index, keys_length_feature_name), 1)
         hist = self.attention(query_emb, keys_emb, keys_length)
         deep_input_emb = torch.cat((deep_input_emb, hist), dim=-1)
         deep_input_emb = deep_input_emb.view(deep_input_emb.size(0), -1)
@@ -2115,17 +2471,18 @@ class FiBiNET(BaseModel):
     :param dnn_activation: Activation function to use in DNN
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, bilinear_type='interaction', reduction_ratio=3, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
-        super(FiBiNET, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, bilinear_type='interaction', reduction_ratio=3, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu', gpus=None):
+        super(FiBiNET, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.linear_feature_columns = linear_feature_columns
         self.dnn_feature_columns = dnn_feature_columns
-        self.filed_size = len(self.embedding_dict)
-        self.SE = SENETLayer(self.filed_size, reduction_ratio, seed, device)
-        self.Bilinear = BilinearInteraction(self.filed_size, self.embedding_size, bilinear_type, seed, device)
+        self.field_size = len(self.embedding_dict)
+        self.SE = SENETLayer(self.field_size, reduction_ratio, seed, device)
+        self.Bilinear = BilinearInteraction(self.field_size, self.embedding_size, bilinear_type, seed, device)
         self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
 
@@ -2166,6 +2523,55 @@ class FiBiNET(BaseModel):
         return y_pred
 
 
+class IFM(BaseModel):
+    """Instantiates the IFM Network architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on ``device`` .  ``gpus[0]``  should be the same gpu with ``device`` .
+    :return: A PyTorch model instance.
+
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(IFM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
+        if not len(dnn_hidden_units) > 0:
+            raise ValueError('dnn_hidden_units is null!')
+        self.fm = FM()
+        self.factor_estimating_net = DNN(self.compute_input_dim(dnn_feature_columns, include_dense=False), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.sparse_feat_num = len(list(filter(lambda x: isinstance(x, SparseFeat) or isinstance(x, VarLenSparseFeat), dnn_feature_columns)))
+        self.transform_weight_matrix_P = nn.Linear(dnn_hidden_units[-1], self.sparse_feat_num, bias=False)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.factor_estimating_net.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.transform_weight_matrix_P.weight, l2=l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        if not len(sparse_embedding_list) > 0:
+            raise ValueError('there are no sparse features')
+        dnn_input = combined_dnn_input(sparse_embedding_list, [])
+        dnn_output = self.factor_estimating_net(dnn_input)
+        dnn_output = self.transform_weight_matrix_P(dnn_output)
+        input_aware_factor = self.sparse_feat_num * dnn_output.softmax(1)
+        logit = self.linear_model(X, sparse_feat_refine_weight=input_aware_factor)
+        fm_input = torch.cat(sparse_embedding_list, dim=1)
+        refined_fm_input = fm_input * input_aware_factor.unsqueeze(-1)
+        logit += self.fm(refined_fm_input)
+        y_pred = self.out(logit)
+        return y_pred
+
+
 class MLR(BaseModel):
     """Instantiates the Mixed Logistic Regression/Piece-wise Linear Model.
 
@@ -2178,12 +2584,13 @@ class MLR(BaseModel):
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param bias_feature_columns: An iterable containing all the features used by bias part of the model.
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, region_feature_columns, base_feature_columns=None, bias_feature_columns=None, region_num=4, l2_reg_linear=1e-05, init_std=0.0001, seed=1024, task='binary', device='cpu'):
-        super(MLR, self).__init__(region_feature_columns, region_feature_columns, task=task, device=device)
+    def __init__(self, region_feature_columns, base_feature_columns=None, bias_feature_columns=None, region_num=4, l2_reg_linear=1e-05, init_std=0.0001, seed=1024, task='binary', device='cpu', gpus=None):
+        super(MLR, self).__init__(region_feature_columns, region_feature_columns, task=task, device=device, gpus=gpus)
         if region_num <= 1:
             raise ValueError('region_num must > 1')
         self.l2_reg_linear = l2_reg_linear
@@ -2225,6 +2632,342 @@ class MLR(BaseModel):
         return final_logit
 
 
+class ESMM(BaseModel):
+    """Instantiates the Entire Space Multi-Task Model architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param tower_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of task-specific DNN.
+    :param l2_reg_linear: float, L2 regularizer strength applied to linear part.
+    :param l2_reg_embedding: float, L2 regularizer strength applied to embedding vector.
+    :param l2_reg_dnn: float, L2 regularizer strength applied to DNN.
+    :param init_std: float, to use as the initialize std of embedding vector.
+    :param seed: integer, to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN.
+    :param dnn_use_bn: bool, Whether use BatchNormalization before activation or not in DNN.
+    :param task_types: list of str, indicating the loss of each tasks, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss. e.g. ['binary', 'regression'].
+    :param task_names: list of str, indicating the predict target of each tasks.
+    :param device: str, ``"cpu"`` or ``"cuda:0"``.
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+
+    :return: A PyTorch model instance.
+    """
+
+    def __init__(self, dnn_feature_columns, tower_dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task_types=('binary', 'binary'), task_names=('ctr', 'ctcvr'), device='cpu', gpus=None):
+        super(ESMM, self).__init__(linear_feature_columns=[], dnn_feature_columns=dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task='binary', device=device, gpus=gpus)
+        self.num_tasks = len(task_names)
+        if self.num_tasks != 2:
+            raise ValueError('the length of task_names must be equal to 2')
+        if len(dnn_feature_columns) == 0:
+            raise ValueError('dnn_feature_columns is null!')
+        if len(task_types) != self.num_tasks:
+            raise ValueError('num_tasks must be equal to the length of task_types')
+        for task_type in task_types:
+            if task_type != 'binary':
+                raise ValueError('task must be binary in ESMM, {} is illegal'.format(task_type))
+        input_dim = self.compute_input_dim(dnn_feature_columns)
+        self.ctr_dnn = DNN(input_dim, tower_dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.cvr_dnn = DNN(input_dim, tower_dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.ctr_dnn_final_layer = nn.Linear(tower_dnn_hidden_units[-1], 1, bias=False)
+        self.cvr_dnn_final_layer = nn.Linear(tower_dnn_hidden_units[-1], 1, bias=False)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.ctr_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.cvr_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.ctr_dnn_final_layer.weight, l2=l2_reg_dnn)
+        self.add_regularization_weight(self.cvr_dnn_final_layer.weight, l2=l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        ctr_output = self.ctr_dnn(dnn_input)
+        cvr_output = self.cvr_dnn(dnn_input)
+        ctr_logit = self.ctr_dnn_final_layer(ctr_output)
+        cvr_logit = self.cvr_dnn_final_layer(cvr_output)
+        ctr_pred = self.out(ctr_logit)
+        cvr_pred = self.out(cvr_logit)
+        ctcvr_pred = ctr_pred * cvr_pred
+        task_outs = torch.cat([ctr_pred, ctcvr_pred], -1)
+        return task_outs
+
+
+class MMOE(BaseModel):
+    """Instantiates the Multi-gate Mixture-of-Experts architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param num_experts: integer, number of experts.
+    :param expert_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of expert DNN.
+    :param gate_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of gate DNN.
+    :param tower_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of task-specific DNN.
+    :param l2_reg_linear: float, L2 regularizer strength applied to linear part.
+    :param l2_reg_embedding: float, L2 regularizer strength applied to embedding vector.
+    :param l2_reg_dnn: float, L2 regularizer strength applied to DNN.
+    :param init_std: float, to use as the initialize std of embedding vector.
+    :param seed: integer, to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN.
+    :param dnn_use_bn: bool, Whether use BatchNormalization before activation or not in DNN.
+    :param task_types: list of str, indicating the loss of each tasks, ``"binary"`` for  binary logloss, ``"regression"`` for regression loss. e.g. ['binary', 'regression'].
+    :param task_names: list of str, indicating the predict target of each tasks.
+    :param device: str, ``"cpu"`` or ``"cuda:0"``.
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+
+    :return: A PyTorch model instance.
+    """
+
+    def __init__(self, dnn_feature_columns, num_experts=3, expert_dnn_hidden_units=(256, 128), gate_dnn_hidden_units=(64,), tower_dnn_hidden_units=(64,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task_types=('binary', 'binary'), task_names=('ctr', 'ctcvr'), device='cpu', gpus=None):
+        super(MMOE, self).__init__(linear_feature_columns=[], dnn_feature_columns=dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, device=device, gpus=gpus)
+        self.num_tasks = len(task_names)
+        if self.num_tasks <= 1:
+            raise ValueError('num_tasks must be greater than 1')
+        if num_experts <= 1:
+            raise ValueError('num_experts must be greater than 1')
+        if len(dnn_feature_columns) == 0:
+            raise ValueError('dnn_feature_columns is null!')
+        if len(task_types) != self.num_tasks:
+            raise ValueError('num_tasks must be equal to the length of task_types')
+        for task_type in task_types:
+            if task_type not in ['binary', 'regression']:
+                raise ValueError('task must be binary or regression, {} is illegal'.format(task_type))
+        self.num_experts = num_experts
+        self.task_names = task_names
+        self.input_dim = self.compute_input_dim(dnn_feature_columns)
+        self.expert_dnn_hidden_units = expert_dnn_hidden_units
+        self.gate_dnn_hidden_units = gate_dnn_hidden_units
+        self.tower_dnn_hidden_units = tower_dnn_hidden_units
+        self.expert_dnn = nn.ModuleList([DNN(self.input_dim, expert_dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(self.num_experts)])
+        if len(gate_dnn_hidden_units) > 0:
+            self.gate_dnn = nn.ModuleList([DNN(self.input_dim, gate_dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(self.num_tasks)])
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.gate_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.gate_dnn_final_layer = nn.ModuleList([nn.Linear(gate_dnn_hidden_units[-1] if len(gate_dnn_hidden_units) > 0 else self.input_dim, self.num_experts, bias=False) for _ in range(self.num_tasks)])
+        if len(tower_dnn_hidden_units) > 0:
+            self.tower_dnn = nn.ModuleList([DNN(expert_dnn_hidden_units[-1], tower_dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(self.num_tasks)])
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.tower_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.tower_dnn_final_layer = nn.ModuleList([nn.Linear(tower_dnn_hidden_units[-1] if len(tower_dnn_hidden_units) > 0 else expert_dnn_hidden_units[-1], 1, bias=False) for _ in range(self.num_tasks)])
+        self.out = nn.ModuleList([PredictionLayer(task) for task in task_types])
+        regularization_modules = [self.expert_dnn, self.gate_dnn_final_layer, self.tower_dnn_final_layer]
+        for module in regularization_modules:
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], module.named_parameters()), l2=l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        expert_outs = []
+        for i in range(self.num_experts):
+            expert_out = self.expert_dnn[i](dnn_input)
+            expert_outs.append(expert_out)
+        expert_outs = torch.stack(expert_outs, 1)
+        mmoe_outs = []
+        for i in range(self.num_tasks):
+            if len(self.gate_dnn_hidden_units) > 0:
+                gate_dnn_out = self.gate_dnn[i](dnn_input)
+                gate_dnn_out = self.gate_dnn_final_layer[i](gate_dnn_out)
+            else:
+                gate_dnn_out = self.gate_dnn_final_layer[i](dnn_input)
+            gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), expert_outs)
+            mmoe_outs.append(gate_mul_expert.squeeze())
+        task_outs = []
+        for i in range(self.num_tasks):
+            if len(self.tower_dnn_hidden_units) > 0:
+                tower_dnn_out = self.tower_dnn[i](mmoe_outs[i])
+                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
+            else:
+                tower_dnn_logit = self.tower_dnn_final_layer[i](mmoe_outs[i])
+            output = self.out[i](tower_dnn_logit)
+            task_outs.append(output)
+        task_outs = torch.cat(task_outs, -1)
+        return task_outs
+
+
+class PLE(BaseModel):
+    """Instantiates the multi level of Customized Gate Control of Progressive Layered Extraction architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param shared_expert_num: integer, number of task-shared experts.
+    :param specific_expert_num: integer, number of task-specific experts.
+    :param num_levels: integer, number of CGC levels.
+    :param expert_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of expert DNN.
+    :param gate_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of gate DNN.
+    :param tower_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of task-specific DNN.
+    :param l2_reg_linear: float, L2 regularizer strength applied to linear part.
+    :param l2_reg_embedding: float, L2 regularizer strength applied to embedding vector.
+    :param l2_reg_dnn: float, L2 regularizer strength applied to DNN.
+    :param init_std: float, to use as the initialize std of embedding vector.
+    :param seed: integer, to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN.
+    :param dnn_use_bn: bool, Whether use BatchNormalization before activation or not in DNN.
+    :param task_types: list of str, indicating the loss of each tasks, ``"binary"`` for  binary logloss, ``"regression"`` for regression loss. e.g. ['binary', 'regression']
+    :param task_names: list of str, indicating the predict target of each tasks.
+    :param device: str, ``"cpu"`` or ``"cuda:0"``.
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+
+    :return: A PyTorch model instance.
+    """
+
+    def __init__(self, dnn_feature_columns, shared_expert_num=1, specific_expert_num=1, num_levels=2, expert_dnn_hidden_units=(256, 128), gate_dnn_hidden_units=(64,), tower_dnn_hidden_units=(64,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task_types=('binary', 'binary'), task_names=('ctr', 'ctcvr'), device='cpu', gpus=None):
+        super(PLE, self).__init__(linear_feature_columns=[], dnn_feature_columns=dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, device=device, gpus=gpus)
+        self.num_tasks = len(task_names)
+        if self.num_tasks <= 1:
+            raise ValueError('num_tasks must be greater than 1!')
+        if len(dnn_feature_columns) == 0:
+            raise ValueError('dnn_feature_columns is null!')
+        if len(task_types) != self.num_tasks:
+            raise ValueError('num_tasks must be equal to the length of task_types')
+        for task_type in task_types:
+            if task_type not in ['binary', 'regression']:
+                raise ValueError('task must be binary or regression, {} is illegal'.format(task_type))
+        self.specific_expert_num = specific_expert_num
+        self.shared_expert_num = shared_expert_num
+        self.num_levels = num_levels
+        self.task_names = task_names
+        self.input_dim = self.compute_input_dim(dnn_feature_columns)
+        self.expert_dnn_hidden_units = expert_dnn_hidden_units
+        self.gate_dnn_hidden_units = gate_dnn_hidden_units
+        self.tower_dnn_hidden_units = tower_dnn_hidden_units
+
+        def multi_module_list(num_level, num_tasks, expert_num, inputs_dim_level0, inputs_dim_not_level0, hidden_units):
+            return nn.ModuleList([nn.ModuleList([nn.ModuleList([DNN(inputs_dim_level0 if level_num == 0 else inputs_dim_not_level0, hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(expert_num)]) for _ in range(num_tasks)]) for level_num in range(num_level)])
+        self.specific_experts = multi_module_list(self.num_levels, self.num_tasks, self.specific_expert_num, self.input_dim, expert_dnn_hidden_units[-1], expert_dnn_hidden_units)
+        self.shared_experts = multi_module_list(self.num_levels, 1, self.specific_expert_num, self.input_dim, expert_dnn_hidden_units[-1], expert_dnn_hidden_units)
+        specific_gate_output_dim = self.specific_expert_num + self.shared_expert_num
+        if len(gate_dnn_hidden_units) > 0:
+            self.specific_gate_dnn = multi_module_list(self.num_levels, self.num_tasks, 1, self.input_dim, expert_dnn_hidden_units[-1], gate_dnn_hidden_units)
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.specific_gate_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.specific_gate_dnn_final_layer = nn.ModuleList([nn.ModuleList([nn.Linear(gate_dnn_hidden_units[-1] if len(gate_dnn_hidden_units) > 0 else self.input_dim if level_num == 0 else expert_dnn_hidden_units[-1], specific_gate_output_dim, bias=False) for _ in range(self.num_tasks)]) for level_num in range(self.num_levels)])
+        shared_gate_output_dim = self.num_tasks * self.specific_expert_num + self.shared_expert_num
+        if len(gate_dnn_hidden_units) > 0:
+            self.shared_gate_dnn = nn.ModuleList([DNN(self.input_dim if level_num == 0 else expert_dnn_hidden_units[-1], gate_dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for level_num in range(self.num_levels)])
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.shared_gate_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.shared_gate_dnn_final_layer = nn.ModuleList([nn.Linear(gate_dnn_hidden_units[-1] if len(gate_dnn_hidden_units) > 0 else self.input_dim if level_num == 0 else expert_dnn_hidden_units[-1], shared_gate_output_dim, bias=False) for level_num in range(self.num_levels)])
+        if len(tower_dnn_hidden_units) > 0:
+            self.tower_dnn = nn.ModuleList([DNN(expert_dnn_hidden_units[-1], tower_dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(self.num_tasks)])
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.tower_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.tower_dnn_final_layer = nn.ModuleList([nn.Linear(tower_dnn_hidden_units[-1] if len(tower_dnn_hidden_units) > 0 else expert_dnn_hidden_units[-1], 1, bias=False) for _ in range(self.num_tasks)])
+        self.out = nn.ModuleList([PredictionLayer(task) for task in task_types])
+        regularization_modules = [self.specific_experts, self.shared_experts, self.specific_gate_dnn_final_layer, self.shared_gate_dnn_final_layer, self.tower_dnn_final_layer]
+        for module in regularization_modules:
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], module.named_parameters()), l2=l2_reg_dnn)
+        self
+
+    def cgc_net(self, inputs, level_num):
+        specific_expert_outputs = []
+        for i in range(self.num_tasks):
+            for j in range(self.specific_expert_num):
+                specific_expert_output = self.specific_experts[level_num][i][j](inputs[i])
+                specific_expert_outputs.append(specific_expert_output)
+        shared_expert_outputs = []
+        for k in range(self.shared_expert_num):
+            shared_expert_output = self.shared_experts[level_num][0][k](inputs[-1])
+            shared_expert_outputs.append(shared_expert_output)
+        cgc_outs = []
+        for i in range(self.num_tasks):
+            cur_experts_outputs = specific_expert_outputs[i * self.specific_expert_num:(i + 1) * self.specific_expert_num] + shared_expert_outputs
+            cur_experts_outputs = torch.stack(cur_experts_outputs, 1)
+            if len(self.gate_dnn_hidden_units) > 0:
+                gate_dnn_out = self.specific_gate_dnn[level_num][i][0](inputs[i])
+                gate_dnn_out = self.specific_gate_dnn_final_layer[level_num][i](gate_dnn_out)
+            else:
+                gate_dnn_out = self.specific_gate_dnn_final_layer[level_num][i](inputs[i])
+            gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), cur_experts_outputs)
+            cgc_outs.append(gate_mul_expert.squeeze())
+        cur_experts_outputs = specific_expert_outputs + shared_expert_outputs
+        cur_experts_outputs = torch.stack(cur_experts_outputs, 1)
+        if len(self.gate_dnn_hidden_units) > 0:
+            gate_dnn_out = self.shared_gate_dnn[level_num](inputs[-1])
+            gate_dnn_out = self.shared_gate_dnn_final_layer[level_num](gate_dnn_out)
+        else:
+            gate_dnn_out = self.shared_gate_dnn_final_layer[level_num](inputs[-1])
+        gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), cur_experts_outputs)
+        cgc_outs.append(gate_mul_expert.squeeze())
+        return cgc_outs
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        ple_inputs = [dnn_input] * (self.num_tasks + 1)
+        ple_outputs = []
+        for i in range(self.num_levels):
+            ple_outputs = self.cgc_net(inputs=ple_inputs, level_num=i)
+            ple_inputs = ple_outputs
+        task_outs = []
+        for i in range(self.num_tasks):
+            if len(self.tower_dnn_hidden_units) > 0:
+                tower_dnn_out = self.tower_dnn[i](ple_outputs[i])
+                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
+            else:
+                tower_dnn_logit = self.tower_dnn_final_layer[i](ple_outputs[i])
+            output = self.out[i](tower_dnn_logit)
+            task_outs.append(output)
+        task_outs = torch.cat(task_outs, -1)
+        return task_outs
+
+
+class SharedBottom(BaseModel):
+    """Instantiates the SharedBottom multi-task learning Network architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param bottom_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of shared bottom DNN.
+    :param tower_dnn_hidden_units: list, list of positive integer or empty list, the layer number and units in each layer of task-specific DNN.
+    :param l2_reg_linear: float, L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: float, L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float, L2 regularizer strength applied to DNN
+    :param init_std: float, to use as the initialize std of embedding vector
+    :param seed: integer, to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param dnn_use_bn: bool, Whether use BatchNormalization before activation or not in DNN
+    :param task_types: list of str, indicating the loss of each tasks, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss. e.g. ['binary', 'regression']
+    :param task_names: list of str, indicating the predict target of each tasks
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
+
+    :return: A PyTorch model instance.
+    """
+
+    def __init__(self, dnn_feature_columns, bottom_dnn_hidden_units=(256, 128), tower_dnn_hidden_units=(64,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task_types=('binary', 'binary'), task_names=('ctr', 'ctcvr'), device='cpu', gpus=None):
+        super(SharedBottom, self).__init__(linear_feature_columns=[], dnn_feature_columns=dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, device=device, gpus=gpus)
+        self.num_tasks = len(task_names)
+        if self.num_tasks <= 1:
+            raise ValueError('num_tasks must be greater than 1')
+        if len(dnn_feature_columns) == 0:
+            raise ValueError('dnn_feature_columns is null!')
+        if len(task_types) != self.num_tasks:
+            raise ValueError('num_tasks must be equal to the length of task_types')
+        for task_type in task_types:
+            if task_type not in ['binary', 'regression']:
+                raise ValueError('task must be binary or regression, {} is illegal'.format(task_type))
+        self.task_names = task_names
+        self.input_dim = self.compute_input_dim(dnn_feature_columns)
+        self.bottom_dnn_hidden_units = bottom_dnn_hidden_units
+        self.tower_dnn_hidden_units = tower_dnn_hidden_units
+        self.bottom_dnn = DNN(self.input_dim, bottom_dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        if len(self.tower_dnn_hidden_units) > 0:
+            self.tower_dnn = nn.ModuleList([DNN(bottom_dnn_hidden_units[-1], tower_dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device) for _ in range(self.num_tasks)])
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.tower_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.tower_dnn_final_layer = nn.ModuleList([nn.Linear(tower_dnn_hidden_units[-1] if len(self.tower_dnn_hidden_units) > 0 else bottom_dnn_hidden_units[-1], 1, bias=False) for _ in range(self.num_tasks)])
+        self.out = nn.ModuleList([PredictionLayer(task) for task in task_types])
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.bottom_dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.tower_dnn_final_layer.named_parameters()), l2=l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        shared_bottom_output = self.bottom_dnn(dnn_input)
+        task_outs = []
+        for i in range(self.num_tasks):
+            if len(self.tower_dnn_hidden_units) > 0:
+                tower_dnn_out = self.tower_dnn[i](shared_bottom_output)
+                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
+            else:
+                tower_dnn_logit = self.tower_dnn_final_layer[i](shared_bottom_output)
+            output = self.out[i](tower_dnn_logit)
+            task_outs.append(output)
+        task_outs = torch.cat(task_outs, -1)
+        return task_outs
+
+
 class NFM(BaseModel):
     """Instantiates the NFM Network architecture.
 
@@ -2241,16 +2984,17 @@ class NFM(BaseModel):
     :param dnn_activation: Activation function to use in deep net
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, bi_dropout=0, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
-        super(NFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, bi_dropout=0, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu', gpus=None):
+        super(NFM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.dnn = DNN(self.compute_input_dim(dnn_feature_columns, include_sparse=False) + self.embedding_size, dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self.bi_pooling = BiInteractionPooling()
         self.bi_dropout = bi_dropout
         if self.bi_dropout > 0:
@@ -2312,20 +3056,21 @@ class ONN(BaseModel):
     :param reduce_sum: bool,whether apply reduce_sum on cross vector
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, dnn_use_bn=False, dnn_activation='relu', task='binary', device='cpu'):
-        super(ONN, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, dnn_use_bn=False, dnn_activation='relu', task='binary', device='cpu', gpus=None):
+        super(ONN, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         embedding_size = self.embedding_size
         self.second_order_embedding_dict = self.__create_second_order_embedding_matrix(dnn_feature_columns, embedding_size=embedding_size, sparse=False)
-        self.add_regularization_loss(self.second_order_embedding_dict.parameters(), l2_reg_embedding)
+        self.add_regularization_weight(self.second_order_embedding_dict.parameters(), l2=l2_reg_embedding)
         dim = self.__compute_nffm_dnn_dim(feature_columns=dnn_feature_columns, embedding_size=embedding_size)
         self.dnn = DNN(inputs_dim=dim, hidden_units=dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self
 
     def __compute_nffm_dnn_dim(self, feature_columns, embedding_size):
@@ -2390,12 +3135,13 @@ class PNN(BaseModel):
     :param kernel_type: str,kernel_type used in outter-product,can be ``'mat'`` , ``'vec'`` or ``'num'``
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', use_inner=True, use_outter=False, kernel_type='mat', task='binary', device='cpu'):
-        super(PNN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, l2_reg_linear=0, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', use_inner=True, use_outter=False, kernel_type='mat', task='binary', device='cpu', gpus=None):
+        super(PNN, self).__init__([], dnn_feature_columns, l2_reg_linear=0, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         if kernel_type not in ['mat', 'vec', 'num']:
             raise ValueError('kernel_type must be mat,vec or num')
         self.use_inner = use_inner
@@ -2413,8 +3159,8 @@ class PNN(BaseModel):
             self.outterproduct = OutterProductLayer(num_inputs, self.embedding_size, kernel_type=kernel_type, device=device)
         self.dnn = DNN(product_out_dim + self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
         self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+        self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self
 
     def forward(self, X):
@@ -2455,18 +3201,19 @@ class WDL(BaseModel):
     :param dnn_activation: Activation function to use in DNN
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
-        super(WDL, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(WDL, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
         if self.use_dnn:
             self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
             self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+            self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self
 
     def forward(self, X):
@@ -2501,19 +3248,20 @@ class xDeepFM(BaseModel):
     :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
     :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
     :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :param gpus: list of int or torch.device for multiple gpus. If None, run on `device`. `gpus[0]` should be the same gpu with `device`.
     :return: A PyTorch model instance.
-    
+
     """
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 256), cin_layer_size=(256, 128), cin_split_half=True, cin_activation='relu', l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, l2_reg_cin=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
-        super(xDeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 256), cin_layer_size=(256, 128), cin_split_half=True, cin_activation='relu', l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, l2_reg_cin=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu', gpus=None):
+        super(xDeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, init_std=init_std, seed=seed, task=task, device=device, gpus=gpus)
         self.dnn_hidden_units = dnn_hidden_units
         self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
         if self.use_dnn:
             self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
             self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
-            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
-            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2=l2_reg_dnn)
+            self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self.cin_layer_size = cin_layer_size
         self.use_cin = len(self.cin_layer_size) > 0 and len(dnn_feature_columns) > 0
         if self.use_cin:
@@ -2524,7 +3272,7 @@ class xDeepFM(BaseModel):
                 self.featuremap_num = sum(cin_layer_size)
             self.cin = CIN(field_num, cin_layer_size, cin_activation, cin_split_half, l2_reg_cin, seed, device=device)
             self.cin_linear = nn.Linear(self.featuremap_num, 1, bias=False)
-            self.add_regularization_loss(filter(lambda x: 'weight' in x[0], self.cin.named_parameters()), l2_reg_cin)
+            self.add_regularization_weight(filter(lambda x: 'weight' in x[0], self.cin.named_parameters()), l2=l2_reg_cin)
         self
 
     def forward(self, X):
@@ -2569,7 +3317,7 @@ TESTCASES = [
      True),
     (AUGRUCell,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {}),
+     lambda: ([torch.rand([64, 4]), torch.rand([64, 4]), torch.rand([16, 4])], {}),
      True),
     (AttentionSequencePoolingLayer,
      lambda: ([], {}),
@@ -2598,6 +3346,10 @@ TESTCASES = [
     (CrossNet,
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrossNetMix,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (DNN,
      lambda: ([], {'inputs_dim': 4, 'hidden_units': [4, 4]}),
@@ -2619,14 +3371,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Interac,
-     lambda: ([], {'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (InteractingLayer,
-     lambda: ([], {'in_features': 4}),
+     lambda: ([], {'embedding_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (Linear,
      lambda: ([], {'feature_columns': [4, 4], 'feature_index': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2635,6 +3383,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
+    (LogTransformLayer,
+     lambda: ([], {'field_size': 4, 'embedding_size': 4, 'ltl_hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
     (PredictionLayer,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2708,4 +3460,7 @@ class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

@@ -554,7 +554,7 @@ class LeastSquareTracking(nn.Module):
         """ Return a gray-scale image
         """
         B, _, H, W = img.shape
-        return (img[:, (0)] * 0.299 + img[:, (1)] * 0.587 + img[:, (2)] * 0.114).view(B, 1, H, W)
+        return (img[:, 0] * 0.299 + img[:, 1] * 0.587 + img[:, 2] * 0.114).view(B, 1, H, W)
 
 
 def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):

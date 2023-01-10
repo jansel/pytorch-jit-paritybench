@@ -2,25 +2,27 @@ import sys
 _module = sys.modules[__name__]
 del sys
 main = _module
-rename_wheel = _module
+ptr2ind = _module
 setup = _module
-test = _module
+test_add = _module
 test_cat = _module
 test_coalesce = _module
 test_convert = _module
 test_diag = _module
+test_ego_sample = _module
 test_eye = _module
 test_matmul = _module
 test_metis = _module
+test_neighbor_sample = _module
 test_overload = _module
-test_padding = _module
 test_permute = _module
 test_saint = _module
+test_sample = _module
 test_spmm = _module
 test_spspmm = _module
 test_storage = _module
+test_tensor = _module
 test_transpose = _module
-utils = _module
 torch_sparse = _module
 add = _module
 bandwidth = _module
@@ -35,17 +37,18 @@ matmul = _module
 metis = _module
 mul = _module
 narrow = _module
-padding = _module
 permute = _module
 reduce = _module
 rw = _module
 saint = _module
 sample = _module
 select = _module
+spadd = _module
 spmm = _module
 spspmm = _module
 storage = _module
 tensor = _module
+testing = _module
 transpose = _module
 utils = _module
 
@@ -81,6 +84,15 @@ import torch
 from scipy.io import loadmat
 
 
+from itertools import product
+
+
+from torch.__config__ import parallel_info
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
 from torch.utils.cpp_extension import BuildExtension
 
 
@@ -90,13 +102,10 @@ from torch.utils.cpp_extension import CppExtension
 from torch.utils.cpp_extension import CUDAExtension
 
 
-from torch.utils.cpp_extension import CUDA_HOME
-
-
-from itertools import product
-
-
 from typing import Optional
+
+
+from torch import Tensor
 
 
 import scipy.sparse as sp
@@ -117,14 +126,14 @@ import scipy.sparse
 from torch import from_numpy
 
 
-from typing import Union
-
-
 import warnings
+
+
+from typing import Any
 
 
 from typing import Dict
 
 
-from typing import Any
+from typing import Union
 

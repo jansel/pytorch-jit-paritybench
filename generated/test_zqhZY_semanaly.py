@@ -117,24 +117,6 @@ class TextLSTM(nn.Module):
         x = self.embedding(x)
         None
         lstm_out, _ = self.lstm(x)
-        out = self.linears(lstm_out[:, (-1), :])
+        out = self.linears(lstm_out[:, -1, :])
         return out
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (TextCNN,
-     lambda: ([], {'args': _mock_config(vocab_size=4, embed_dim=4, num_classes=4, kernel_num=4, kernel_sizes=[4, 4], dropout=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-]
-
-class Test_zqhZY_semanaly(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

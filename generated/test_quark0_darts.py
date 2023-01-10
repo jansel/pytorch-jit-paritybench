@@ -631,7 +631,7 @@ class DARTSCellSearch(DARTSCell):
                     continue
                 fn = self._get_activation(name)
                 unweighted = states + c * (fn(h) - states)
-                s += torch.sum(probs[offset:offset + i + 1, (k)].unsqueeze(-1).unsqueeze(-1) * unweighted, dim=0)
+                s += torch.sum(probs[offset:offset + i + 1, k].unsqueeze(-1).unsqueeze(-1) * unweighted, dim=0)
             s = self.bn(s)
             states = torch.cat([states, s.unsqueeze(0)], 0)
             offset += i + 1
@@ -701,10 +701,6 @@ TESTCASES = [
      lambda: ([], {'steps': 4, 'multiplier': 4, 'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([14, 4, 2, 2])], {}),
      False),
-    (CrossEntropyLabelSmooth,
-     lambda: ([], {'num_classes': 4, 'epsilon': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     True),
     (DilConv,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -766,7 +762,4 @@ class Test_quark0_darts(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

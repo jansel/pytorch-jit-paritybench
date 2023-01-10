@@ -20,15 +20,17 @@ nn = _module
 utils = _module
 visualize = _module
 conf = _module
-softmax_sparsemax = _module
+getting_started = _module
+iid = _module
 var_model = _module
+softmax_sparsemax = _module
+warp = _module
 zoom = _module
 setup = _module
 tests = _module
 conftest = _module
 test_benchmarks = _module
 test_callbacks = _module
-test_data = _module
 test_augment = _module
 test_load = _module
 test_synthetic = _module
@@ -136,13 +138,12 @@ class AnalyticalMarkowitz(nn.Module):
         n_samples, n_assets, _ = covmat.shape
         device = covmat.device
         dtype = covmat.dtype
-        covmat_inv = torch.inverse(covmat)
         ones = torch.ones(n_samples, n_assets, 1)
         if rets is not None:
             expected_returns = rets.view(n_samples, n_assets, 1)
         else:
             expected_returns = ones
-        w_unscaled = torch.matmul(covmat_inv, expected_returns)
+        w_unscaled = torch.linalg.solve(covmat, expected_returns)
         denominator = torch.matmul(ones.permute(0, 2, 1), w_unscaled)
         w = w_unscaled / denominator
         return w.squeeze(-1)
@@ -526,7 +527,8 @@ class CovarianceMatrix(nn.Module):
         Parameters
         ----------
         x : torch.Tensor
-            Of shape (n_samples, n_channels, n_assets).
+            Of shape (n_samples, dim, n_assets). The middle dimension `dim`
+            represents the observations we compute the covariance matrix over.
 
         shrinkage_coef : None or torch.Tensor
             If None then using the `self.shrinkage_coef` supplied at construction for each sample. Otherwise a
@@ -609,10 +611,10 @@ class CovarianceMatrix(nn.Module):
         common = components.max()
         unbalanced = common != components.min()
         if common < s.size(-1):
-            s = s[(...), :common]
-            v = v[(...), :common]
+            s = s[..., :common]
+            v = v[..., :common]
             if unbalanced:
-                good = good[(...), :common]
+                good = good[..., :common]
         if unbalanced:
             s = s.where(good, torch.zeros((), device=s.device, dtype=s.dtype))
         return v * s.sqrt().unsqueeze(-2) @ v.transpose(-2, -1)
@@ -701,7 +703,7 @@ class Resample(nn.Module):
         dist = MultivariateNormal(loc=dist_rets, covariance_matrix=covmat)
         portfolios = []
         for _ in range(self.n_portfolios):
-            draws = dist.sample((n_draws,))
+            draws = dist.rsample((n_draws,))
             rets_ = draws.mean(dim=0) if rets is not None else None
             covmat_ = CovarianceMatrix(sqrt=self.uses_sqrt)(draws.permute(1, 0, 2))
             if isinstance(self.allocator, (AnalyticalMarkowitz, NCO)):
@@ -885,6 +887,61 @@ class WeightNorm(torch.nn.Module):
         clamped = torch.clamp(self.asset_weights, min=0)
         normalized = clamped / clamped.sum()
         return torch.stack(n_samples * [normalized], dim=0)
+
+
+class NumericalRiskBudgeting(nn.Module):
+    """Convex optimization layer stylized into portfolio optimization problem.
+
+    Parameters
+    ----------
+    n_assets : int
+        Number of assets.
+
+    Attributes
+    ----------
+    cvxpylayer : CvxpyLayer
+        Custom layer used by a third party package called cvxpylayers.
+
+    References
+    ----------
+    [1] https://github.com/cvxgrp/cvxpylayers
+    [2] https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2297383
+    [3] https://mpra.ub.uni-muenchen.de/37749/2/MPRA_paper_37749.pdf
+    """
+
+    def __init__(self, n_assets, max_weight=1):
+        """Construct."""
+        super().__init__()
+        covmat_sqrt = cp.Parameter((n_assets, n_assets))
+        b = cp.Parameter(n_assets, nonneg=True)
+        w = cp.Variable(n_assets)
+        term_1 = 0.5 * cp.sum_squares(covmat_sqrt @ w)
+        term_2 = b @ cp.log(w)
+        objective = cp.Minimize(term_1 - term_2)
+        constraint = [cp.sum(w) == 1, w >= 0, w <= max_weight]
+        prob = cp.Problem(objective, constraint)
+        assert prob.is_dpp()
+        self.cvxpylayer = CvxpyLayer(prob, parameters=[covmat_sqrt, b], variables=[w])
+
+    def forward(self, covmat_sqrt, b):
+        """Perform forward pass.
+
+        Parameters
+        ----------
+        covmat : torch.Tensor
+            Of shape (n_samples, n_assets, n_assets) representing the covariance matrix.
+
+        b : torch.Tensor
+            Of shape (n_samples, n_assets) representing the budget,
+            risk contribution from each component (asset) is equal to the budget, refer [3]
+
+        Returns
+        -------
+        weights : torch.Tensor
+            Of shape (n_samples, n_assets) representing the optimal weights as determined by the convex optimizer.
+
+        """
+        return self.cvxpylayer(covmat_sqrt, b)[0]
 
 
 class AttentionCollapse(nn.Module):
@@ -1222,6 +1279,51 @@ class RNN(nn.Module):
         return torch.stack(res)
 
 
+class Warp(torch.nn.Module):
+    """Custom warping layer."""
+
+    def __init__(self, mode='bilinear', padding_mode='reflection'):
+        super().__init__()
+        self.mode = mode
+        self.padding_mode = padding_mode
+
+    def forward(self, x, tform):
+        """Warp the tensor `x` with `tform` along the time dimension.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Tensor of shape `(n_samples, n_channels, lookback, n_assets)`.
+
+        tform : torch.Tensor
+            Tensor of shape `(n_samples, lookback)` or `(n_samples, lookback, n_assets)`.
+            Note that in the first case the same transformation is going to be used over all
+            assets. To prevent folding the transformation should be increasing along the
+            time dimension. It should range from -1 (beginning of the series) to 1 (end of
+            the series).
+
+        Returns
+        -------
+        x_warped : torch.Tensor
+            Warped version of input `x` with transformation `tform`. The shape is the same
+            as the input shape - `(n_samples, n_channels, lookback, n_assets)`.
+
+        """
+        n_samples, n_channels, lookback, n_assets = x.shape
+        dtype, device = x.dtype, x.device
+        if tform.ndim == 3:
+            ty = tform
+        elif tform.ndim == 2:
+            ty = torch.stack(n_assets * [tform], dim=-1)
+        else:
+            raise ValueError('The tform tensor needs to be either 2 or 3 dimensional.')
+        tx = torch.ones(n_samples, lookback, n_assets, dtype=dtype, device=device)
+        tx *= torch.linspace(-1, 1, steps=n_assets, device=device, dtype=dtype)[None, None, :]
+        grid = torch.stack([tx, ty], dim=-1)
+        x_warped = nn.functional.grid_sample(x, grid, mode=self.mode, padding_mode=self.padding_mode, align_corners=True)
+        return x_warped
+
+
 class Zoom(torch.nn.Module):
     """Zoom in and out.
 
@@ -1271,8 +1373,8 @@ class Zoom(torch.nn.Module):
         translate = 1 - scale
         theta = torch.stack([torch.tensor([[1, 0, 0], [0, s, t]]) for s, t in zip(scale, translate)], dim=0)
         theta = theta
-        grid = nn.functional.affine_grid(theta, x.shape)
-        x_zoomed = nn.functional.grid_sample(x, grid, mode=self.mode, padding_mode=self.padding_mode, align_corners=False)
+        grid = nn.functional.affine_grid(theta, x.shape, align_corners=True)
+        x_zoomed = nn.functional.grid_sample(x, grid, mode=self.mode, padding_mode=self.padding_mode, align_corners=True)
         return x_zoomed
 
 
@@ -1423,7 +1525,7 @@ class BachelierNet(torch.nn.Module, Benchmark):
 
         """
         x = self.norm_layer(x)
-        rets = x[:, (0), :, :]
+        rets = x[:, 0, :, :]
         covmat = self.covariance_layer(rets)
         x = self.transform_layer(x)
         x = self.dropout_layer(x)
@@ -1641,7 +1743,7 @@ class MinimalNet(torch.nn.Module, Benchmark):
         Parameters
         ----------
         x : torch.Tensor
-            Tensor of shape `(n_samples, dim_1, ...., dim_N).
+            Tensor of shape `(n_samples, dim_1, ...., dim_N)`.
 
         Returns
         -------
@@ -1731,6 +1833,75 @@ class ThorpNet(torch.nn.Module, Benchmark):
         return {k: (v if isinstance(v, (int, float, str)) else str(v)) for k, v in self._hparams.items() if k != 'self'}
 
 
+class GreatNet(torch.nn.Module, Benchmark):
+
+    def __init__(self, n_assets, lookback, p=0.5):
+        super().__init__()
+        n_features = n_assets * lookback
+        self.dropout_layer = torch.nn.Dropout(p=p)
+        self.dense_layer = torch.nn.Linear(n_features, n_assets, bias=True)
+        self.allocate_layer = SoftmaxAllocator(temperature=None)
+        self.temperature = torch.nn.Parameter(torch.ones(1), requires_grad=True)
+
+    def forward(self, x):
+        """Perform forward pass.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Of shape (n_samples, 1, lookback, n_assets).
+
+        Returns
+        -------
+        weights : torch.Torch
+            Tensor of shape (n_samples, n_assets).
+
+        """
+        n_samples, _, _, _ = x.shape
+        x = x.view(n_samples, -1)
+        x = self.dropout_layer(x)
+        x = self.dense_layer(x)
+        temperatures = torch.ones(n_samples) * self.temperature
+        weights = self.allocate_layer(x, temperatures)
+        return weights
+
+
+class Net(torch.nn.Module, Benchmark):
+    """Learn covariance matrix, mean vector and gamma.
+
+    One can enforce max weight per asset.
+    """
+
+    def __init__(self, n_assets, max_weight=1.0):
+        super().__init__()
+        self.force_symmetric = True
+        self.matrix = torch.nn.Parameter(torch.eye(n_assets), requires_grad=True)
+        self.exp_returns = torch.nn.Parameter(torch.zeros(n_assets), requires_grad=True)
+        self.gamma_sqrt = torch.nn.Parameter(torch.ones(1), requires_grad=True)
+        self.portfolio_opt_layer = NumericalMarkowitz(n_assets, max_weight=max_weight)
+
+    def forward(self, x):
+        """Perform forward pass.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Tensor of shape `(n_samples, n_channels, lookback, n_assets)`.
+
+        Returns
+        -------
+        weights_filled : torch.Tensor
+            Of shape (n_samples, n_assets) representing the optimal weights as determined by the
+            convex optimizer.
+
+        """
+        n = len(x)
+        cov_sqrt = torch.mm(self.matrix, torch.t(self.matrix)) if self.force_symmetric else self.matrix
+        weights = self.portfolio_opt_layer(self.exp_returns[None, ...], cov_sqrt[None, ...], self.gamma_sqrt, torch.zeros(1))
+        weights_filled = torch.repeat_interleave(weights, n, dim=0)
+        return weights_filled
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1741,7 +1912,7 @@ TESTCASES = [
     (AnalyticalMarkowitz,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (AttentionCollapse,
      lambda: ([], {'n_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1797,10 +1968,14 @@ TESTCASES = [
     (SoftmaxAllocator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4])], {}),
-     False),
+     True),
     (SumCollapse,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Warp,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
      True),
     (WeightNorm,
      lambda: ([], {'n_assets': 4}),
@@ -1859,4 +2034,7 @@ class Test_jankrepl_deepdow(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

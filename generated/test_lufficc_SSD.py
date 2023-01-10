@@ -2,8 +2,6 @@ import sys
 _module = sys.modules[__name__]
 del sys
 demo = _module
-ext = _module
-build = _module
 setup = _module
 ssd = _module
 config = _module
@@ -36,6 +34,7 @@ efficient_net = _module
 efficient_net = _module
 utils = _module
 mobilenet = _module
+mobilenetv3 = _module
 vgg = _module
 box_head = _module
 box_head = _module
@@ -88,15 +87,6 @@ import torch
 
 
 import numpy as np
-
-
-from torch.utils.cpp_extension import CUDA_HOME
-
-
-from torch.utils.cpp_extension import CppExtension
-
-
-from torch.utils.cpp_extension import CUDAExtension
 
 
 from torch.utils.data import DataLoader
@@ -172,6 +162,15 @@ from collections import deque
 
 
 from collections import defaultdict
+
+
+from torch.hub import download_url_to_file
+
+
+from torch.hub import urlparse
+
+
+from torch.hub import HASH_REGEX
 
 
 import warnings
@@ -479,7 +478,7 @@ def cache_url(url, model_dir=None, progress=True):
             hash_prefix = hash_prefix.group(1)
             if len(hash_prefix) < 6:
                 hash_prefix = None
-        _download_url_to_file(url, cached_file, hash_prefix, progress=progress)
+        download_url_to_file(url, cached_file, hash_prefix, progress=progress)
     synchronize()
     return cached_file
 
@@ -621,22 +620,72 @@ class ConvBNReLU(nn.Sequential):
         super(ConvBNReLU, self).__init__(nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU6(inplace=True))
 
 
-class InvertedResidual(nn.Module):
+def _make_divisible(v, divisor, min_value=None):
+    """
+    This function is taken from the original tf repo.
+    It ensures that all layers have a channel number that is divisible by 8
+    It can be seen here:
+    https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet.py
+    :param v:
+    :param divisor:
+    :param min_value:
+    :return:
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        layers = []
-        if expand_ratio != 1:
-            layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
-        layers.extend([ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup)])
-        self.conv = nn.Sequential(*layers)
+
+class h_sigmoid(nn.Module):
+
+    def __init__(self, inplace=True):
+        super(h_sigmoid, self).__init__()
+        self.relu = nn.ReLU6(inplace=inplace)
 
     def forward(self, x):
-        if self.use_res_connect:
+        return self.relu(x + 3) / 6
+
+
+class SELayer(nn.Module):
+
+    def __init__(self, channel, reduction=4):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, _make_divisible(channel // reduction, 8)), nn.ReLU(inplace=True), nn.Linear(_make_divisible(channel // reduction, 8), channel), h_sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y
+
+
+class h_swish(nn.Module):
+
+    def __init__(self, inplace=True):
+        super(h_swish, self).__init__()
+        self.sigmoid = h_sigmoid(inplace=inplace)
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
+
+
+class InvertedResidual(nn.Module):
+
+    def __init__(self, inp, hidden_dim, oup, kernel_size, stride, use_se, use_hs):
+        super(InvertedResidual, self).__init__()
+        assert stride in [1, 2]
+        self.identity = stride == 1 and inp == oup
+        if inp == hidden_dim:
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, (kernel_size - 1) // 2, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), h_swish() if use_hs else nn.ReLU(inplace=True), SELayer(hidden_dim) if use_se else nn.Identity(), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+        else:
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), h_swish() if use_hs else nn.ReLU(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, (kernel_size - 1) // 2, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), SELayer(hidden_dim) if use_se else nn.Identity(), h_swish() if use_hs else nn.ReLU(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+
+    def forward(self, x):
+        if self.identity:
             return x + self.conv(x)
         else:
             return self.conv(x)
@@ -692,6 +741,62 @@ class MobileNetV2(nn.Module):
             x = self.extras[i](x)
             features.append(x)
         return tuple(features)
+
+
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), h_swish())
+
+
+def conv_3x3_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), h_swish())
+
+
+class MobileNetV3(nn.Module):
+
+    def __init__(self, mode='large', num_classes=1000, width_mult=1.0):
+        super(MobileNetV3, self).__init__()
+        self.cfgs = [[3, 1, 16, 0, 0, 1], [3, 4, 24, 0, 0, 2], [3, 3, 24, 0, 0, 1], [5, 3, 40, 1, 0, 2], [5, 3, 40, 1, 0, 1], [5, 3, 40, 1, 0, 1], [3, 6, 80, 0, 1, 2], [3, 2.5, 80, 0, 1, 1], [3, 2.3, 80, 0, 1, 1], [3, 2.3, 80, 0, 1, 1], [3, 6, 112, 1, 1, 1], [3, 6, 112, 1, 1, 1], [5, 6, 160, 1, 1, 2], [5, 6, 160, 1, 1, 1], [5, 6, 160, 1, 1, 1]]
+        assert mode in ['large', 'small']
+        input_channel = _make_divisible(16 * width_mult, 8)
+        layers = [conv_3x3_bn(3, input_channel, 2)]
+        block = InvertedResidual
+        for k, t, c, use_se, use_hs, s in self.cfgs:
+            output_channel = _make_divisible(c * width_mult, 8)
+            exp_size = _make_divisible(input_channel * t, 8)
+            layers.append(block(input_channel, exp_size, output_channel, k, s, use_se, use_hs))
+            input_channel = output_channel
+        layers.append(conv_1x1_bn(input_channel, exp_size))
+        self.features = nn.Sequential(*layers)
+        self.extras = nn.ModuleList([InvertedResidual(960, _make_divisible(960 * 0.2, 8), 512, 3, 2, True, True), InvertedResidual(512, _make_divisible(512 * 0.25, 8), 256, 3, 2, True, True), InvertedResidual(256, _make_divisible(256 * 0.5, 8), 256, 3, 2, True, True), InvertedResidual(256, _make_divisible(256 * 0.25, 8), 64, 3, 2, True, True)])
+        self.reset_parameters()
+
+    def forward(self, x):
+        features = []
+        for i in range(13):
+            x = self.features[i](x)
+        features.append(x)
+        for i in range(13, len(self.features)):
+            x = self.features[i](x)
+        features.append(x)
+        for i in range(len(self.extras)):
+            x = self.extras[i](x)
+            features.append(x)
+        return tuple(features)
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
 
 def add_vgg(cfg, batch_norm=False):
@@ -781,13 +886,13 @@ class MultiBoxLoss(nn.Module):
         """
         num_classes = confidence.size(2)
         with torch.no_grad():
-            loss = -F.log_softmax(confidence, dim=2)[:, :, (0)]
+            loss = -F.log_softmax(confidence, dim=2)[:, :, 0]
             mask = box_utils.hard_negative_mining(loss, labels, self.neg_pos_ratio)
-        confidence = confidence[(mask), :]
+        confidence = confidence[mask, :]
         classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
         pos_mask = labels > 0
-        predicted_locations = predicted_locations[(pos_mask), :].view(-1, 4)
-        gt_locations = gt_locations[(pos_mask), :].view(-1, 4)
+        predicted_locations = predicted_locations[pos_mask, :].view(-1, 4)
+        gt_locations = gt_locations[pos_mask, :].view(-1, 4)
         smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
         num_pos = gt_locations.size(0)
         return smooth_l1_loss / num_pos, classification_loss / num_pos
@@ -894,7 +999,7 @@ def batched_nms(boxes, scores, idxs, iou_threshold):
         return torch.empty((0,), dtype=torch.int64, device=boxes.device)
     max_coordinate = boxes.max()
     offsets = idxs * (max_coordinate + 1)
-    boxes_for_nms = boxes + offsets[:, (None)]
+    boxes_for_nms = boxes + offsets[:, None]
     keep = nms(boxes_for_nms, scores, iou_threshold)
     return keep
 
@@ -1121,19 +1226,31 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (InvertedResidual,
-     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([], {'inp': 4, 'hidden_dim': 4, 'oup': 4, 'kernel_size': 4, 'stride': 1, 'use_se': 4, 'use_hs': 4}),
+     lambda: ([torch.rand([4, 4, 2, 2])], {}),
      True),
     (L2Norm,
      lambda: ([], {'n_channels': 4, 'scale': 1.0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MobileNetV2,
+    (MobileNetV3,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (h_sigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (h_swish,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
 ]
@@ -1156,4 +1273,13 @@ class Test_lufficc_SSD(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

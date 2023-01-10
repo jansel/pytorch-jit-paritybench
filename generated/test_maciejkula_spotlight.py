@@ -398,7 +398,7 @@ class PoolNet(nn.Module):
         sequence_embedding_sum = torch.cumsum(sequence_embeddings, 2)
         non_padding_entries = torch.cumsum((sequence_embeddings != 0.0).float(), 2).expand_as(sequence_embedding_sum)
         user_representations = (sequence_embedding_sum / (non_padding_entries + 1)).squeeze(3)
-        return user_representations[:, :, :-1], user_representations[:, :, (-1)]
+        return user_representations[:, :, :-1], user_representations[:, :, -1]
 
     def forward(self, user_representations, targets):
         """
@@ -484,7 +484,7 @@ class LSTMNet(nn.Module):
         sequence_embeddings = sequence_embeddings.permute(0, 2, 1)
         user_representations, _ = self.lstm(sequence_embeddings)
         user_representations = user_representations.permute(0, 2, 1)
-        return user_representations[:, :, :-1], user_representations[:, :, (-1)]
+        return user_representations[:, :, :-1], user_representations[:, :, -1]
 
     def forward(self, user_representations, targets):
         """
@@ -631,7 +631,7 @@ class CNNNet(nn.Module):
             if self.residual_connections:
                 x = x + residual
         x = x.squeeze(3)
-        return x[:, :, :-1], x[:, :, (-1)]
+        return x[:, :, :-1], x[:, :, -1]
 
     def forward(self, user_representations, targets):
         """
@@ -757,43 +757,4 @@ class MixtureLSTMNet(nn.Module):
         weighted_user_representations = (mixture_weights * user_components).sum(1)
         dot = (weighted_user_representations * target_embedding).sum(1).squeeze()
         return target_bias + dot
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (BilinearNet,
-     lambda: ([], {'num_users': 4, 'num_items': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
-    (BloomEmbedding,
-     lambda: ([], {'num_embeddings': 18, 'embedding_dim': 64}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
-    (ScaledEmbedding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
-    (ZeroEmbedding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
-]
-
-class Test_maciejkula_spotlight(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

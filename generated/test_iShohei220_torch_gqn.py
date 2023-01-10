@@ -240,7 +240,7 @@ class GQN(nn.Module):
         else:
             r = x.new_zeros((B, 256, 1, 1))
         for k in range(M):
-            r_k = self.phi(x[:, (k)], v[:, (k)])
+            r_k = self.phi(x[:, k], v[:, k])
             r += r_k
         c_g = x.new_zeros((B, 128, 16, 16))
         h_g = x.new_zeros((B, 128, 16, 16))
@@ -275,7 +275,7 @@ class GQN(nn.Module):
         else:
             r = x.new_zeros((B, 256, 1, 1))
         for k in range(M):
-            r_k = self.phi(x[:, (k)], v[:, (k)])
+            r_k = self.phi(x[:, k], v[:, k])
             r += r_k
         c_g = x.new_zeros((B, 128, 16, 16))
         h_g = x.new_zeros((B, 128, 16, 16))
@@ -299,7 +299,7 @@ class GQN(nn.Module):
         else:
             r = x.new_zeros((B, 256, 1, 1))
         for k in range(M):
-            r_k = self.phi(x[:, (k)], v[:, (k)])
+            r_k = self.phi(x[:, k], v[:, k])
             r += r_k
         c_g = x.new_zeros((B, 128, 16, 16))
         h_g = x.new_zeros((B, 128, 16, 16))
@@ -333,7 +333,7 @@ class GQN(nn.Module):
         else:
             r = x.new_zeros((B, 256, 1, 1))
         for k in range(M):
-            r_k = self.phi(x[:, (k)], v[:, (k)])
+            r_k = self.phi(x[:, k], v[:, k])
             r += r_k
         c_g = x.new_zeros((B, 128, 16, 16))
         h_g = x.new_zeros((B, 128, 16, 16))
@@ -372,10 +372,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 7, 1, 1])], {}),
      True),
-    (Pyramid,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 7, 1, 1])], {}),
-     True),
     (Tower,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 7, 1, 1])], {}),
@@ -391,7 +387,4 @@ class Test_iShohei220_torch_gqn(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

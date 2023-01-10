@@ -312,7 +312,7 @@ class NextSentencePrediction(nn.Module):
         self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, x):
-        return self.softmax(self.linear(x[:, (0)]))
+        return self.softmax(self.linear(x[:, 0]))
 
 
 class BERTLM(nn.Module):
@@ -347,14 +347,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (BERT,
-     lambda: ([], {'vocab_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     False),
-    (BERTEmbedding,
-     lambda: ([], {'vocab_size': 4, 'embed_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (GELU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -383,21 +375,13 @@ TESTCASES = [
      lambda: ([], {'d_model': 4, 'd_ff': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SegmentEmbedding,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (SublayerConnection,
      lambda: ([], {'size': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
      False),
-    (TokenEmbedding,
-     lambda: ([], {'vocab_size': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (TransformerBlock,
      lambda: ([], {'hidden': 4, 'attn_heads': 4, 'feed_forward_hidden': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 1]), torch.rand([4, 1])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
 ]
 
@@ -431,16 +415,4 @@ class Test_codertimo_BERT_pytorch(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

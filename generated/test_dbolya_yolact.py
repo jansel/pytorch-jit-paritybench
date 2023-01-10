@@ -561,8 +561,8 @@ def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
         img.squeeze_(0)
         masks = F.interpolate(masks.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
         masks.squeeze_(0)
-        targets[:, ([0, 2])] *= w_prime / new_w
-        targets[:, ([1, 3])] *= h_prime / new_h
+        targets[:, [0, 2]] *= w_prime / new_w
+        targets[:, [1, 3]] *= h_prime / new_h
         pad_dims = 0, new_w - w_prime, 0, new_h - h_prime
         img = F.pad(img, pad_dims, mode='constant', value=0)
         masks = F.pad(masks, pad_dims, mode='constant', value=0)
@@ -793,8 +793,8 @@ def crop(masks, boxes, padding: int=1):
         - boxes should be a size [n, 4] tensor of bbox coords in relative point form
     """
     h, w, n = masks.size()
-    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding, cast=False)
-    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding, cast=False)
+    x1, x2 = sanitize_coordinates(boxes[:, 0], boxes[:, 2], w, padding, cast=False)
+    y1, y2 = sanitize_coordinates(boxes[:, 1], boxes[:, 3], h, padding, cast=False)
     rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1).expand(h, w, n)
     cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1).expand(h, w, n)
     masks_left = rows >= x1.view(1, 1, -1)
@@ -860,9 +860,9 @@ def elemwise_box_iou(box_a, box_b):
     max_xy = torch.min(box_a[:, 2:], box_b[:, 2:])
     min_xy = torch.max(box_a[:, :2], box_b[:, :2])
     inter = torch.clamp(max_xy - min_xy, min=0)
-    inter = inter[:, (0)] * inter[:, (1)]
-    area_a = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-    area_b = (box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
+    inter = inter[:, 0] * inter[:, 1]
+    area_a = (box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])
+    area_b = (box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])
     union = area_a + area_b - inter
     union = torch.clamp(union, min=0.1)
     return torch.clamp(inter / union, max=1)
@@ -894,15 +894,15 @@ def change(gt, priors):
     """
     num_priors = priors.size(0)
     num_gt = gt.size(0)
-    gt_w = (gt[:, (2)] - gt[:, (0)])[:, (None)].expand(num_gt, num_priors)
-    gt_h = (gt[:, (3)] - gt[:, (1)])[:, (None)].expand(num_gt, num_priors)
-    gt_mat = gt[:, (None), :].expand(num_gt, num_priors, 4)
-    pr_mat = priors[(None), :, :].expand(num_gt, num_priors, 4)
+    gt_w = (gt[:, 2] - gt[:, 0])[:, None].expand(num_gt, num_priors)
+    gt_h = (gt[:, 3] - gt[:, 1])[:, None].expand(num_gt, num_priors)
+    gt_mat = gt[:, None, :].expand(num_gt, num_priors, 4)
+    pr_mat = priors[None, :, :].expand(num_gt, num_priors, 4)
     diff = gt_mat - pr_mat
-    diff[:, :, (0)] /= gt_w
-    diff[:, :, (2)] /= gt_w
-    diff[:, :, (1)] /= gt_h
-    diff[:, :, (3)] /= gt_h
+    diff[:, :, 0] /= gt_w
+    diff[:, :, 2] /= gt_w
+    diff[:, :, 1] /= gt_h
+    diff[:, :, 3] /= gt_h
     return -torch.sqrt((diff ** 2).sum(dim=2))
 
 
@@ -936,7 +936,7 @@ def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
     inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
+    return inter[:, 0] * inter[:, 1]
 
 
 def jaccard(box_a, box_b, iscrowd=False):
@@ -952,8 +952,8 @@ def jaccard(box_a, box_b, iscrowd=False):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     if iscrowd:
         return inter / area_a
@@ -987,8 +987,8 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, co
         best_prior_overlap, best_prior_idx = overlaps.max(1)
         j = best_prior_overlap.max(0)[1]
         i = best_prior_idx[j]
-        overlaps[:, (i)] = -1
-        overlaps[(j), :] = -1
+        overlaps[:, i] = -1
+        overlaps[j, :] = -1
         best_truth_overlap[i] = 2
         best_truth_idx[i] = j
     matches = truths[best_truth_idx]
@@ -1082,9 +1082,9 @@ class MultiBoxLoss(nn.Module):
             class_existence_t = loc_data.new(batch_size, num_classes - 1)
         for idx in range(batch_size):
             truths = targets[idx][:, :-1].data
-            labels[idx] = targets[idx][:, (-1)].data.long()
+            labels[idx] = targets[idx][:, -1].data.long()
             if cfg.use_class_existence_loss:
-                class_existence_t[(idx), :] = torch.eye(num_classes - 1, device=conf_t.get_device())[labels[idx]].max(dim=0)[0]
+                class_existence_t[idx, :] = torch.eye(num_classes - 1, device=conf_t.get_device())[labels[idx]].max(dim=0)[0]
             cur_crowds = num_crowds[idx]
             if cur_crowds > 0:
                 split = lambda x: (x[-cur_crowds:], x[:-cur_crowds])
@@ -1094,7 +1094,7 @@ class MultiBoxLoss(nn.Module):
             else:
                 crowd_boxes = None
             match(self.pos_threshold, self.neg_threshold, truths, priors.data, labels[idx], crowd_boxes, loc_t, conf_t, idx_t, idx, loc_data[idx])
-            gt_box_t[(idx), :, :] = truths[idx_t[idx]]
+            gt_box_t[idx, :, :] = truths[idx_t[idx]]
         loc_t = Variable(loc_t, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
         idx_t = Variable(idx_t, requires_grad=False)
@@ -1113,7 +1113,7 @@ class MultiBoxLoss(nn.Module):
                     for idx in range(batch_size):
                         pos_masks.append(masks[idx][idx_t[idx, pos[idx]]])
                     masks_t = torch.cat(pos_masks, 0)
-                    masks_p = mask_data[(pos), :].view(-1, cfg.mask_dim)
+                    masks_p = mask_data[pos, :].view(-1, cfg.mask_dim)
                     losses['M'] = F.binary_cross_entropy(torch.clamp(masks_p, 0, 1), masks_t, reduction='sum') * cfg.mask_alpha
                 else:
                     losses['M'] = self.direct_mask_loss(pos_idx, idx_t, loc_data, mask_data, priors, masks)
@@ -1178,7 +1178,7 @@ class MultiBoxLoss(nn.Module):
             batch_conf = F.softmax(batch_conf, dim=1)
             loss_c, _ = batch_conf[:, 1:].max(dim=1)
         else:
-            loss_c = log_sum_exp(batch_conf) - batch_conf[:, (0)]
+            loss_c = log_sum_exp(batch_conf) - batch_conf[:, 0]
         loss_c = loss_c.view(num, -1)
         loss_c[pos] = 0
         loss_c[conf_t < 0] = 0
@@ -1263,7 +1263,7 @@ class MultiBoxLoss(nn.Module):
         conf_t[conf_t < 0] = 0
         background = (conf_t == 0).float()
         at = (1 - cfg.focal_loss_alpha) * background + cfg.focal_loss_alpha * (1 - background)
-        logpt = F.logsigmoid(conf_data[:, (0)]) * (1 - background) + F.logsigmoid(-conf_data[:, (0)]) * background
+        logpt = F.logsigmoid(conf_data[:, 0]) * (1 - background) + F.logsigmoid(-conf_data[:, 0]) * background
         pt = logpt.exp()
         obj_loss = -at * (1 - pt) ** cfg.focal_loss_gamma * logpt
         pos_mask = conf_t > 0
@@ -1281,12 +1281,12 @@ class MultiBoxLoss(nn.Module):
         conf_data = conf_data.view(-1, conf_data.size(-1))
         pos_mask = conf_t > 0
         neg_mask = conf_t == 0
-        obj_data = conf_data[:, (0)]
+        obj_data = conf_data[:, 0]
         obj_data_pos = obj_data[pos_mask]
         obj_data_neg = obj_data[neg_mask]
         obj_neg_loss = -F.logsigmoid(-obj_data_neg).sum()
         with torch.no_grad():
-            pos_priors = priors.unsqueeze(0).expand(batch_size, -1, -1).reshape(-1, 4)[(pos_mask), :]
+            pos_priors = priors.unsqueeze(0).expand(batch_size, -1, -1).reshape(-1, 4)[pos_mask, :]
             boxes_pred = decode(loc_p, pos_priors, cfg.use_yolo_regressors)
             boxes_targ = decode(loc_t, pos_priors, cfg.use_yolo_regressors)
             iou_targets = elemwise_box_iou(boxes_pred, boxes_targ)
@@ -1302,25 +1302,25 @@ class MultiBoxLoss(nn.Module):
         loss_m = 0
         for idx in range(mask_data.size(0)):
             with torch.no_grad():
-                cur_pos_idx = pos_idx[(idx), :, :]
-                cur_pos_idx_squeezed = cur_pos_idx[:, (1)]
-                pos_bboxes = decode(loc_data[(idx), :, :], priors.data, cfg.use_yolo_regressors)
+                cur_pos_idx = pos_idx[idx, :, :]
+                cur_pos_idx_squeezed = cur_pos_idx[:, 1]
+                pos_bboxes = decode(loc_data[idx, :, :], priors.data, cfg.use_yolo_regressors)
                 pos_bboxes = pos_bboxes[cur_pos_idx].view(-1, 4).clamp(0, 1)
                 pos_lookup = idx_t[idx, cur_pos_idx_squeezed]
                 cur_masks = masks[idx]
-                pos_masks = cur_masks[(pos_lookup), :, :]
+                pos_masks = cur_masks[pos_lookup, :, :]
                 num_pos, img_height, img_width = pos_masks.size()
-                x1, x2 = sanitize_coordinates(pos_bboxes[:, (0)], pos_bboxes[:, (2)], img_width)
-                y1, y2 = sanitize_coordinates(pos_bboxes[:, (1)], pos_bboxes[:, (3)], img_height)
+                x1, x2 = sanitize_coordinates(pos_bboxes[:, 0], pos_bboxes[:, 2], img_width)
+                y1, y2 = sanitize_coordinates(pos_bboxes[:, 1], pos_bboxes[:, 3], img_height)
                 scaled_masks = []
                 for jdx in range(num_pos):
-                    tmp_mask = pos_masks[(jdx), y1[jdx]:y2[jdx], x1[jdx]:x2[jdx]]
+                    tmp_mask = pos_masks[jdx, y1[jdx]:y2[jdx], x1[jdx]:x2[jdx]]
                     while tmp_mask.dim() < 2:
                         tmp_mask = tmp_mask.unsqueeze(0)
                     new_mask = F.adaptive_avg_pool2d(tmp_mask.unsqueeze(0), cfg.mask_size)
                     scaled_masks.append(new_mask.view(1, -1))
                 mask_t = torch.cat(scaled_masks, 0).gt(0.5).float()
-            pos_mask_data = mask_data[(idx), (cur_pos_idx_squeezed), :]
+            pos_mask_data = mask_data[idx, cur_pos_idx_squeezed, :]
             loss_m += F.binary_cross_entropy(torch.clamp(pos_mask_data, 0, 1), mask_t, reduction='sum') * cfg.mask_alpha
         return loss_m
 
@@ -1333,7 +1333,7 @@ class MultiBoxLoss(nn.Module):
         instance_t = instance_t.view(-1)
         coeffs_norm = F.normalize(coeffs, dim=1)
         cos_sim = coeffs_norm @ coeffs_norm.t()
-        inst_eq = (instance_t[:, (None)].expand_as(cos_sim) == instance_t[(None), :].expand_as(cos_sim)).float()
+        inst_eq = (instance_t[:, None].expand_as(cos_sim) == instance_t[None, :].expand_as(cos_sim)).float()
         cos_sim = (cos_sim + 1) / 2
         loss = (1 - cos_sim) * inst_eq + cos_sim * (1 - inst_eq)
         return cfg.mask_proto_coeff_diversity_alpha * loss.sum() / num_pos
@@ -1373,18 +1373,18 @@ class MultiBoxLoss(nn.Module):
             pos_idx_t = idx_t[idx, cur_pos]
             if process_gt_bboxes:
                 if cfg.mask_proto_crop_with_pred_box:
-                    pos_gt_box_t = decode(loc_data[(idx), :, :], priors.data, cfg.use_yolo_regressors)[cur_pos]
+                    pos_gt_box_t = decode(loc_data[idx, :, :], priors.data, cfg.use_yolo_regressors)[cur_pos]
                 else:
                     pos_gt_box_t = gt_box_t[idx, cur_pos]
             if pos_idx_t.size(0) == 0:
                 continue
             proto_masks = proto_data[idx]
-            proto_coef = mask_data[(idx), (cur_pos), :]
+            proto_coef = mask_data[idx, cur_pos, :]
             if cfg.use_mask_scoring:
-                mask_scores = score_data[(idx), (cur_pos), :]
+                mask_scores = score_data[idx, cur_pos, :]
             if cfg.mask_proto_coeff_diversity_loss:
                 if inst_data is not None:
-                    div_coeffs = inst_data[(idx), (cur_pos), :]
+                    div_coeffs = inst_data[idx, cur_pos, :]
                 else:
                     div_coeffs = proto_coef
                 loss_d += self.coeff_diversity_loss(div_coeffs, pos_idx_t)
@@ -1392,14 +1392,14 @@ class MultiBoxLoss(nn.Module):
             if old_num_pos > cfg.masks_to_train:
                 perm = torch.randperm(proto_coef.size(0))
                 select = perm[:cfg.masks_to_train]
-                proto_coef = proto_coef[(select), :]
+                proto_coef = proto_coef[select, :]
                 pos_idx_t = pos_idx_t[select]
                 if process_gt_bboxes:
-                    pos_gt_box_t = pos_gt_box_t[(select), :]
+                    pos_gt_box_t = pos_gt_box_t[select, :]
                 if cfg.use_mask_scoring:
-                    mask_scores = mask_scores[(select), :]
+                    mask_scores = mask_scores[select, :]
             num_pos = proto_coef.size(0)
-            mask_t = downsampled_masks[:, :, (pos_idx_t)]
+            mask_t = downsampled_masks[:, :, pos_idx_t]
             label_t = labels[idx][pos_idx_t]
             pred_masks = proto_masks @ proto_coef.t()
             pred_masks = cfg.mask_proto_mask_activation(pred_masks)
@@ -1419,12 +1419,12 @@ class MultiBoxLoss(nn.Module):
                 gt_area = torch.sum(mask_t, dim=(0, 1), keepdim=True)
                 pre_loss = pre_loss / (torch.sqrt(gt_area) + 0.0001)
             if cfg.mask_proto_reweight_mask_loss:
-                pre_loss = pre_loss * mask_reweighting[:, :, (pos_idx_t)]
+                pre_loss = pre_loss * mask_reweighting[:, :, pos_idx_t]
             if cfg.mask_proto_normalize_emulate_roi_pooling:
                 weight = mask_h * mask_w if cfg.mask_proto_crop else 1
                 pos_gt_csize = center_size(pos_gt_box_t)
-                gt_box_width = pos_gt_csize[:, (2)] * mask_w
-                gt_box_height = pos_gt_csize[:, (3)] * mask_h
+                gt_box_width = pos_gt_csize[:, 2] * mask_w
+                gt_box_height = pos_gt_csize[:, 3] * mask_h
                 pre_loss = pre_loss.sum(dim=(0, 1)) / gt_box_width / gt_box_height * weight
             if old_num_pos > num_pos:
                 pre_loss *= old_num_pos / num_pos
@@ -1435,9 +1435,9 @@ class MultiBoxLoss(nn.Module):
                     select = gt_mask_area > cfg.discard_mask_area
                     if torch.sum(select) < 1:
                         continue
-                    pos_gt_box_t = pos_gt_box_t[(select), :]
-                    pred_masks = pred_masks[:, :, (select)]
-                    mask_t = mask_t[:, :, (select)]
+                    pos_gt_box_t = pos_gt_box_t[select, :]
+                    pred_masks = pred_masks[:, :, select]
+                    mask_t = mask_t[:, :, select]
                     label_t = label_t[select]
                 maskiou_net_input = pred_masks.permute(2, 0, 1).contiguous().unsqueeze(1)
                 pred_masks = pred_masks.gt(0.5).float()
@@ -1475,7 +1475,7 @@ class MultiBoxLoss(nn.Module):
     def mask_iou_loss(self, net, maskiou_targets):
         maskiou_net_input, maskiou_t, label_t = maskiou_targets
         maskiou_p = net.maskiou_net(maskiou_net_input)
-        label_t = label_t[:, (None)]
+        label_t = label_t[:, None]
         maskiou_p = torch.gather(maskiou_p, dim=1, index=label_t).view(-1)
         loss_i = F.smooth_l1_loss(maskiou_p, maskiou_t, reduction='sum')
         return loss_i * cfg.maskiou_alpha
@@ -1540,14 +1540,14 @@ class Detect(object):
 
     def detect(self, batch_idx, conf_preds, decoded_boxes, mask_data, inst_data):
         """ Perform nms for only the max scoring class that isn't background (class 0) """
-        cur_scores = conf_preds[(batch_idx), 1:, :]
+        cur_scores = conf_preds[batch_idx, 1:, :]
         conf_scores, _ = torch.max(cur_scores, dim=0)
         keep = conf_scores > self.conf_thresh
-        scores = cur_scores[:, (keep)]
-        boxes = decoded_boxes[(keep), :]
-        masks = mask_data[(batch_idx), (keep), :]
+        scores = cur_scores[:, keep]
+        boxes = decoded_boxes[keep, :]
+        masks = mask_data[batch_idx, keep, :]
         if inst_data is not None:
-            inst = inst_data[(batch_idx), (keep), :]
+            inst = inst_data[batch_idx, keep, :]
         if scores.size(1) == 0:
             return None
         if self.use_fast_nms:
@@ -1577,15 +1577,15 @@ class Detect(object):
         idx = idx[:, :top_k].contiguous()
         scores = scores[:, :top_k]
         num_classes, num_dets = idx.size()
-        boxes = boxes[(idx.view(-1)), :].view(num_classes, num_dets, 4)
-        masks = masks[(idx.view(-1)), :].view(num_classes, num_dets, -1)
+        boxes = boxes[idx.view(-1), :].view(num_classes, num_dets, 4)
+        masks = masks[idx.view(-1), :].view(num_classes, num_dets, -1)
         iou = jaccard(boxes, boxes)
         iou.triu_(diagonal=1)
         iou_max, _ = iou.max(dim=1)
         keep = iou_max <= iou_threshold
         if second_threshold:
             keep *= scores > self.conf_thresh
-        classes = torch.arange(num_classes, device=boxes.device)[:, (None)].expand_as(keep)
+        classes = torch.arange(num_classes, device=boxes.device)[:, None].expand_as(keep)
         classes = classes[keep]
         boxes = boxes[keep]
         masks = masks[keep]
@@ -1606,14 +1606,14 @@ class Detect(object):
         scr_lst = []
         boxes = boxes * cfg.max_size
         for _cls in range(num_classes):
-            cls_scores = scores[(_cls), :]
+            cls_scores = scores[_cls, :]
             conf_mask = cls_scores > conf_thresh
             idx = torch.arange(cls_scores.size(0), device=boxes.device)
             cls_scores = cls_scores[conf_mask]
             idx = idx[conf_mask]
             if cls_scores.size(0) == 0:
                 continue
-            preds = torch.cat([boxes[conf_mask], cls_scores[:, (None)]], dim=1).cpu().numpy()
+            preds = torch.cat([boxes[conf_mask], cls_scores[:, None]], dim=1).cpu().numpy()
             keep = cnms(preds, iou_threshold)
             keep = torch.Tensor(keep, device=boxes.device).long()
             idx_lst.append(idx[keep])
@@ -1871,8 +1871,8 @@ class PredictionModule(nn.Module):
             inst = src.inst_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, cfg.num_instance_coeffs)
         if cfg.use_yolo_regressors:
             bbox[:, :, :2] = torch.sigmoid(bbox[:, :, :2]) - 0.5
-            bbox[:, :, (0)] /= conv_w
-            bbox[:, :, (1)] /= conv_h
+            bbox[:, :, 0] /= conv_w
+            bbox[:, :, 1] /= conv_h
         if cfg.eval_mask_branch:
             if cfg.mask_type == mask_type.direct:
                 mask = torch.sigmoid(mask)
@@ -2127,13 +2127,13 @@ class Yolact(nn.Module):
                     if cfg.use_mask_scoring:
                         pred_outs['conf'] *= pred_outs['score']
                 elif cfg.use_objectness_score:
-                    objectness = torch.sigmoid(pred_outs['conf'][:, :, (0)])
-                    pred_outs['conf'][:, :, 1:] = objectness[:, :, (None)] * F.softmax(pred_outs['conf'][:, :, 1:], -1)
-                    pred_outs['conf'][:, :, (0)] = 1 - objectness
+                    objectness = torch.sigmoid(pred_outs['conf'][:, :, 0])
+                    pred_outs['conf'][:, :, 1:] = objectness[:, :, None] * F.softmax(pred_outs['conf'][:, :, 1:], -1)
+                    pred_outs['conf'][:, :, 0] = 1 - objectness
                 else:
                     pred_outs['conf'] = F.softmax(pred_outs['conf'], -1)
             elif cfg.use_objectness_score:
-                objectness = torch.sigmoid(pred_outs['conf'][:, :, (0)])
+                objectness = torch.sigmoid(pred_outs['conf'][:, :, 0])
                 pred_outs['conf'][:, :, 1:] = (objectness > 0.1)[..., None] * F.softmax(pred_outs['conf'][:, :, 1:], dim=-1)
             else:
                 pred_outs['conf'] = F.softmax(pred_outs['conf'], -1)
@@ -2190,10 +2190,10 @@ class Resize(object):
                 masks = np.expand_dims(masks, 0)
             else:
                 masks = masks.transpose((2, 0, 1))
-            boxes[:, ([0, 2])] *= width / img_w
-            boxes[:, ([1, 3])] *= height / img_h
-        w = boxes[:, (2)] - boxes[:, (0)]
-        h = boxes[:, (3)] - boxes[:, (1)]
+            boxes[:, [0, 2]] *= width / img_w
+            boxes[:, [1, 3]] *= height / img_h
+        w = boxes[:, 2] - boxes[:, 0]
+        h = boxes[:, 3] - boxes[:, 1]
         keep = (w > cfg.discard_box_width) * (h > cfg.discard_box_height)
         masks = masks[keep]
         boxes = boxes[keep]
@@ -2214,8 +2214,8 @@ class FastBaseTransform(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.mean = torch.Tensor(MEANS).float()[(None), :, (None), (None)]
-        self.std = torch.Tensor(STD).float()[(None), :, (None), (None)]
+        self.mean = torch.Tensor(MEANS).float()[None, :, None, None]
+        self.std = torch.Tensor(STD).float()[None, :, None, None]
         self.transform = cfg.backbone.transform
 
     def forward(self, img):
@@ -2248,10 +2248,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CustomDataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DarkNetBackbone,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -2282,7 +2278,4 @@ class Test_dbolya_yolact(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

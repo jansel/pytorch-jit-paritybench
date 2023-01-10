@@ -16,6 +16,7 @@ env = _module
 distributed = _module
 eval_utils = _module
 train_utils = _module
+gradiodemo = _module
 lsp_model = _module
 modeling_gpt2 = _module
 optim = _module

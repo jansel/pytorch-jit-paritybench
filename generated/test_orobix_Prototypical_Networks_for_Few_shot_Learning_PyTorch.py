@@ -118,7 +118,7 @@ def prototypical_loss(input, target, n_support):
     target_inds = target_inds.expand(n_classes, n_query, 1).long()
     loss_val = -log_p_y.gather(2, target_inds).squeeze().view(-1).mean()
     _, y_hat = log_p_y.max(2)
-    acc_val = y_hat.eq(target_inds.squeeze()).float().mean()
+    acc_val = y_hat.eq(target_inds.squeeze(2)).float().mean()
     return loss_val, acc_val
 
 

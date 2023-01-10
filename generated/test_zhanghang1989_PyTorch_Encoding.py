@@ -23,9 +23,6 @@ dist_syncbn = _module
 encoding = _module
 rectify = _module
 syncbn = _module
-lib = _module
-setup = _module
-setup = _module
 models = _module
 backbone = _module
 resnest = _module
@@ -154,18 +151,6 @@ import torch.cuda.comm as comm
 from torch.autograd.function import once_differentiable
 
 
-from torch.utils.cpp_extension import load
-
-
-from torch.utils.cpp_extension import BuildExtension
-
-
-from torch.utils.cpp_extension import CppExtension
-
-
-from torch.utils.cpp_extension import CUDAExtension
-
-
 import torch.nn as nn
 
 
@@ -277,13 +262,22 @@ import copy
 import torch.backends.cudnn as cudnn
 
 
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 from torch.autograd import gradcheck
 
 
 def _act_backward(ctx, x, dx):
     if ctx.activation.lower() == 'leaky_relu':
         if x.is_cuda:
-            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
+            gpu.leaky_relu_backward(x, dx, ctx.slope)
         else:
             raise NotImplemented
     else:
@@ -293,7 +287,7 @@ def _act_backward(ctx, x, dx):
 def _act_forward(ctx, x):
     if ctx.activation.lower() == 'leaky_relu':
         if x.is_cuda:
-            lib.gpu.leaky_relu_forward(x, ctx.slope)
+            gpu.leaky_relu_forward(x, ctx.slope)
         else:
             raise NotImplemented
     else:
@@ -316,7 +310,7 @@ class inp_syncbatchnorm_(Function):
         beta = beta.contiguous()
         if ctx.training:
             if x.is_cuda:
-                _ex, _exs = lib.gpu.expectation_forward(x)
+                _ex, _exs = gpu.expectation_forward(x)
             else:
                 raise NotImplemented
             if ctx.sync:
@@ -345,21 +339,22 @@ class inp_syncbatchnorm_(Function):
             _exs = _var + _ex ** 2
             ctx.mark_dirty(x)
         if x.is_cuda:
-            lib.gpu.batchnorm_inp_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+            gpu.batchnorm_inp_forward(x, _ex, _exs, gamma, beta, ctx.eps)
         else:
             raise NotImplemented
         _act_forward(ctx, x)
         ctx.save_for_backward(x, _ex, _exs, gamma, beta)
-        return x
+        ctx.mark_non_differentiable(running_mean, running_var)
+        return x, running_mean, running_var
 
     @staticmethod
     @once_differentiable
-    def backward(ctx, dz):
+    def backward(ctx, dz, _drunning_mean, _drunning_var):
         z, _ex, _exs, gamma, beta = ctx.saved_tensors
         dz = dz.contiguous()
         _act_backward(ctx, z, dz)
         if dz.is_cuda:
-            dx, _dex, _dexs, dgamma, dbeta = lib.gpu.batchnorm_inp_backward(dz, z, _ex, _exs, gamma, beta, ctx.eps)
+            dx, _dex, _dexs, dgamma, dbeta = gpu.batchnorm_inp_backward(dz, z, _ex, _exs, gamma, beta, ctx.eps)
         else:
             raise NotImplemented
         if ctx.training:
@@ -381,7 +376,7 @@ class inp_syncbatchnorm_(Function):
                     _dex, _dexs = ctx.worker_queue.get()
                     ctx.worker_queue.task_done()
             if z.is_cuda:
-                lib.gpu.expectation_inp_backward(dx, z, _dex, _dexs, _ex, _exs, gamma, beta, ctx.eps)
+                gpu.expectation_inp_backward(dx, z, _dex, _dexs, _ex, _exs, gamma, beta, ctx.eps)
             else:
                 raise NotImplemented
         return dx, dgamma, dbeta, None, None, None, None, None, None, None, None, None
@@ -418,7 +413,7 @@ class syncbatchnorm_(Function):
         beta = beta.contiguous()
         if ctx.training:
             if x.is_cuda:
-                _ex, _exs = lib.gpu.expectation_forward(x)
+                _ex, _exs = gpu.expectation_forward(x)
             else:
                 raise NotImplemented
             if ctx.sync:
@@ -446,19 +441,20 @@ class syncbatchnorm_(Function):
             _ex, _var = running_mean.contiguous(), running_var.contiguous()
             _exs = _var + _ex ** 2
         if x.is_cuda:
-            y = lib.gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+            y = gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
         else:
-            y = lib.cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+            y = cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
         ctx.save_for_backward(x, _ex, _exs, gamma, beta)
-        return y
+        ctx.mark_non_differentiable(running_mean, running_var)
+        return y, running_mean, running_var
 
     @staticmethod
     @once_differentiable
-    def backward(ctx, dz):
+    def backward(ctx, dz, _drunning_mean, _drunning_var):
         x, _ex, _exs, gamma, beta = ctx.saved_tensors
         dz = dz.contiguous()
         if dz.is_cuda:
-            dx, _dex, _dexs, dgamma, dbeta = lib.gpu.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
+            dx, _dex, _dexs, dgamma, dbeta = gpu.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
         else:
             raise NotImplemented
         if ctx.training:
@@ -480,7 +476,7 @@ class syncbatchnorm_(Function):
                     _dex, _dexs = ctx.worker_queue.get()
                     ctx.worker_queue.task_done()
             if x.is_cuda:
-                dx_ = lib.gpu.expectation_backward(x, _dex, _dexs)
+                dx_ = gpu.expectation_backward(x, _dex, _dexs)
             else:
                 raise NotImplemented
             dx = dx + dx_
@@ -575,9 +571,11 @@ class SyncBatchNorm(_BatchNorm):
         else:
             extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
         if self.inplace:
-            return inp_syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
+            y, _, _ = inp_syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope)
+            return y.view(input_shape)
         else:
-            return syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
+            y, _, _ = syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope)
+            return y.view(input_shape)
 
     def extra_repr(self):
         if self.activation == 'none':
@@ -646,9 +644,9 @@ class _rectify(Function):
         ctx.dilation = dilation
         ctx.average = average
         if x.is_cuda:
-            lib.gpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
+            gpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
         else:
-            lib.cpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
+            cpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
         ctx.mark_dirty(y)
         return y
 
@@ -656,9 +654,9 @@ class _rectify(Function):
     def backward(ctx, grad_y):
         x, = ctx.saved_variables
         if x.is_cuda:
-            lib.gpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
+            gpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
         else:
-            lib.cpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
+            cpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
         ctx.mark_dirty(grad_y)
         return grad_y, None, None, None, None, None, None
 
@@ -1176,18 +1174,18 @@ class _aggregate(Function):
     def forward(ctx, A, X, C):
         ctx.save_for_backward(A, X, C)
         if A.is_cuda:
-            E = lib.gpu.aggregate_forward(A, X, C)
+            E = gpu.aggregate_forward(A, X, C)
         else:
-            E = lib.cpu.aggregate_forward(A, X, C)
+            E = cpu.aggregate_forward(A, X, C)
         return E
 
     @staticmethod
     def backward(ctx, gradE):
         A, X, C = ctx.saved_variables
         if A.is_cuda:
-            gradA, gradX, gradC = lib.gpu.aggregate_backward(gradE, A, X, C)
+            gradA, gradX, gradC = gpu.aggregate_backward(gradE, A, X, C)
         else:
-            gradA, gradX, gradC = lib.cpu.aggregate_backward(gradE, A, X, C)
+            gradA, gradX, gradC = cpu.aggregate_backward(gradE, A, X, C)
         return gradA, gradX, gradC
 
 
@@ -1222,9 +1220,9 @@ class _scaled_l2(Function):
     @staticmethod
     def forward(ctx, X, C, S):
         if X.is_cuda:
-            SL = lib.gpu.scaled_l2_forward(X, C, S)
+            SL = gpu.scaled_l2_forward(X, C, S)
         else:
-            SL = lib.cpu.scaled_l2_forward(X, C, S)
+            SL = cpu.scaled_l2_forward(X, C, S)
         ctx.save_for_backward(X, C, S, SL)
         return SL
 
@@ -1232,9 +1230,9 @@ class _scaled_l2(Function):
     def backward(ctx, gradSL):
         X, C, S, SL = ctx.saved_variables
         if X.is_cuda:
-            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C, S, SL)
+            gradX, gradC, gradS = gpu.scaled_l2_backward(gradSL, X, C, S, SL)
         else:
-            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C, S, SL)
+            gradX, gradC, gradS = cpu.scaled_l2_backward(gradSL, X, C, S, SL)
         return gradX, gradC, gradS
 
 
@@ -1434,7 +1432,7 @@ def download(url, path=None, overwrite=False, sha1_hash=None):
     return fname
 
 
-encoding_repo_url = 'https://hangzh.s3-us-west-1.amazonaws.com/'
+encoding_repo_url = 'https://s3.us-west-1.wasabisys.com/encoding'
 
 
 def short_hash(name):
@@ -2005,7 +2003,7 @@ def pad_image(img, mean, std, crop_size):
     pad_values = -np.array(mean) / np.array(std)
     img_pad = img.new().resize_(b, c, h + padh, w + padw)
     for i in range(c):
-        img_pad[:, (i), :, :] = F.pad(img[:, (i), :, :], (0, padw, 0, padh), value=pad_values[i])
+        img_pad[:, i, :, :] = F.pad(img[:, i, :, :], (0, padw, 0, padh), value=pad_values[i])
     assert img_pad.size(2) >= crop_size and img_pad.size(3) >= crop_size
     return img_pad
 
@@ -3065,16 +3063,16 @@ class dist_syncbatchnorm_(Function):
             _ex, _var = running_mean.contiguous(), running_var.contiguous()
             _exs = _var + _ex ** 2
             if x.is_cuda:
-                y = lib.gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+                y = gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
             else:
-                y = lib.cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+                y = cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
             ctx.save_for_backward(x, _ex, _exs, gamma, beta)
             return y
         size = x.numel() // x.size(1)
         if size == 1:
             raise ValueError('Expected more than 1 value per channel when training, got input size {}'.format(size))
         if x.is_cuda:
-            _ex, _exs = lib.gpu.expectation_forward(x)
+            _ex, _exs = gpu.expectation_forward(x)
         else:
             raise NotImplemented
         count = torch.Tensor([1])
@@ -3091,9 +3089,9 @@ class dist_syncbatchnorm_(Function):
         running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
         ctx.mark_dirty(running_mean, running_var)
         if x.is_cuda:
-            y = lib.gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+            y = gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
         else:
-            y = lib.cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+            y = cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
         ctx.save_for_backward(x, _ex, _exs, gamma, beta)
         return y
 
@@ -3102,7 +3100,7 @@ class dist_syncbatchnorm_(Function):
         x, _ex, _exs, gamma, beta = ctx.saved_tensors
         dz = dz.contiguous()
         if dz.is_cuda:
-            dx, _dex, _dexs, dgamma, dbeta = lib.gpu.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
+            dx, _dex, _dexs, dgamma, dbeta = gpu.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
         else:
             raise NotImplemented
         if ctx.training:
@@ -3117,7 +3115,7 @@ class dist_syncbatchnorm_(Function):
             _dex = _dex / count
             _dexs = _dexs / count
             if x.is_cuda:
-                dx_ = lib.gpu.expectation_backward(x, _dex, _dexs)
+                dx_ = gpu.expectation_backward(x, _dex, _dexs)
             else:
                 raise NotImplemented
             dx = dx + dx_
@@ -3378,14 +3376,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelCriterion,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DropBlock2D,
      lambda: ([], {'drop_prob': 4, 'block_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3410,18 +3400,18 @@ TESTCASES = [
      lambda: ([], {'C': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LabelSmoothing,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (Mean,
      lambda: ([], {'dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (MixtureOfSoftMaxACF,
      lambda: ([], {'n_mix': 4, 'd_k': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([16, 1, 4]), torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
+    (NLLMultiLabelSmooth,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Normalize,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3503,10 +3493,4 @@ class Test_zhanghang1989_PyTorch_Encoding(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
 

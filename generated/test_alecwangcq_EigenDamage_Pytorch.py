@@ -109,7 +109,7 @@ class channel_selection(nn.Module):
         selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().numpy()))
         if selected_index.size == 1:
             selected_index = np.resize(selected_index, (1,))
-        output = input_tensor[:, (selected_index), :, :]
+        output = input_tensor[:, selected_index, :, :]
         return output
 
 
@@ -171,8 +171,8 @@ class Bottleneck(nn.Module):
                 elif idx in indices[1]:
                     r_indices.append(i)
             res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2), residual.size(3)))
-            res[:, (r_indices), :, :] = residual
-            res[:, (o_indices), :, :] += out
+            res[:, r_indices, :, :] = residual
+            res[:, o_indices, :, :] += out
             out = res
         else:
             out += residual
@@ -446,8 +446,8 @@ class BasicBlock(nn.Module):
                 elif idx in indices[1]:
                     r_indices.append(i)
             res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2), residual.size(3)))
-            res[:, (r_indices), :, :] = residual
-            res[:, (o_indices), :, :] += out
+            res[:, r_indices, :, :] = residual
+            res[:, o_indices, :, :] += out
             out = res
         else:
             out += residual

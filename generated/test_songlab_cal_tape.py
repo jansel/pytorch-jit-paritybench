@@ -34,6 +34,7 @@ setup_utils = _module
 utils = _module
 visualization = _module
 test_basic = _module
+test_forceDownload = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -118,6 +119,9 @@ import warnings
 import inspect
 
 
+from functools import partial
+
+
 from functools import wraps
 
 
@@ -191,6 +195,9 @@ from abc import ABC
 
 
 from abc import abstractmethod
+
+
+import time
 
 
 class ProteinBertEmbeddings(nn.Module):
@@ -473,7 +480,7 @@ class ProteinBertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -564,14 +571,6 @@ def s3_etag(url):
     return s3_object.e_tag
 
 
-@s3_request
-def s3_get(url, temp_file):
-    """Pull a file directly from S3."""
-    s3_resource = boto3.resource('s3')
-    bucket_name, s3_path = split_s3_path(url)
-    s3_resource.Bucket(bucket_name).download_fileobj(s3_path, temp_file)
-
-
 def url_to_filename(url, etag=None):
     """
     Convert `url` into a hashed filename in a repeatable way.
@@ -588,7 +587,7 @@ def url_to_filename(url, etag=None):
     return filename
 
 
-def get_from_cache(url, cache_dir=None):
+def get_from_cache(url, cache_dir=None, force_download=False, resume_download=False):
     """
     Given a URL, look for the corresponding dataset in the local cache.
     If it's not there, download it. Then return the path to the cached file.
@@ -616,41 +615,88 @@ def get_from_cache(url, cache_dir=None):
         etag = etag.decode('utf-8')
     filename = url_to_filename(url, etag)
     cache_path = os.path.join(cache_dir, filename)
+    if os.path.exists(cache_path) and etag is None:
+        return cache_path
     if not os.path.exists(cache_path) and etag is None:
         matching_files = fnmatch.filter(os.listdir(cache_dir), filename + '.*')
         matching_files = list(filter(lambda s: not s.endswith('.json'), matching_files))
         if matching_files:
             cache_path = os.path.join(cache_dir, matching_files[-1])
+    if os.path.exists(cache_path) and not force_download:
+        return cache_path
+    lock_path = cache_path + '.lock'
+    with FileLock(lock_path):
+        if os.path.exists(cache_path) and not force_download:
+            return cache_path
+        if resume_download:
+            incomplete_path = cache_path + '.incomplete'
+
+            @contextmanager
+            def _resumable_file_manager():
+                with open(incomplete_path, 'a+b') as f:
+                    yield f
+            temp_file_manager = _resumable_file_manager
+        else:
+            temp_file_manager = partial(tempfile.NamedTemporaryFile, dir=cache_dir, delete=False)
+        with temp_file_manager() as temp_file:
+            logger.info('%s not in cache or force_download=True, download to %s', url, temp_file.name)
+            http_get(url, temp_file)
+        logger.info('storing %s in cache at %s', url, cache_path)
+        os.replace(temp_file.name, cache_path)
+        logger.info('creating metadata file for %s', cache_path)
+        meta = {'url': url, 'etag': etag}
+        meta_path = cache_path + '.json'
+        with open(meta_path, 'w') as meta_file:
+            json.dump(meta, meta_file)
+    """
     if not os.path.exists(cache_path):
+        # Download to temporary file, then copy to cache dir once finished.
+        # Otherwise you get corrupt cache entries if the download gets interrupted.
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
-            if url.startswith('s3://'):
+            logger.info("%s not found in cache, downloading to %s", url, temp_file.name)
+
+            # GET file object
+            if url.startswith("s3://"):
                 s3_get(url, temp_file)
             else:
                 http_get(url, temp_file)
+
+            # we are copying the file before closing it, so flush to avoid truncation
             temp_file.flush()
+            # shutil.copyfileobj() starts at the current position, so go to the start
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
+
+            logger.info("copying %s to cache at %s", temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
-            logger.info('creating metadata file for %s', cache_path)
+
+            logger.info("creating metadata file for %s", cache_path)
             meta = {'url': url, 'etag': etag}
             meta_path = cache_path + '.json'
             with open(meta_path, 'w') as meta_file:
                 output_string = json.dumps(meta)
                 if sys.version_info[0] == 2 and isinstance(output_string, str):
-                    output_string = unicode(output_string, 'utf-8')
+                    # The beauty of python 2
+                    output_string = unicode(output_string, 'utf-8')  # noqa: F821
                 meta_file.write(output_string)
-            logger.info('removing temp file %s', temp_file.name)
+
+            logger.info("removing temp file %s", temp_file.name)
+    """
     return cache_path
 
 
-def cached_path(url_or_filename, cache_dir=None):
+def cached_path(url_or_filename, force_download=False, cache_dir=None):
     """
     Given something that might be a URL (or might be a local path),
     determine which. If it's a URL, download the file and cache it, and
     return the path to the cached file. If it's already a local path,
     make sure the file exists and then return the path.
+
+    Args:
+        cache_dir: specify a cache directory to save the file to
+        (overwrite the default cache dir).
+        force_download: if True, re-dowload the file even if it's
+        already cached in the cache dir.
     """
     if cache_dir is None:
         cache_dir = PROTEIN_MODELS_CACHE
@@ -660,13 +706,14 @@ def cached_path(url_or_filename, cache_dir=None):
         cache_dir = str(cache_dir)
     parsed = urlparse(url_or_filename)
     if parsed.scheme in ('http', 'https', 's3'):
-        return get_from_cache(url_or_filename, cache_dir)
+        output_path = get_from_cache(url_or_filename, cache_dir, force_download)
     elif os.path.exists(url_or_filename):
-        return url_or_filename
+        output_path = url_or_filename
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
         raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
+    return output_path
 
 
 class ProteinConfig(object):
@@ -940,7 +987,7 @@ class ResNetEncoder(nn.Module):
         return outputs
 
 
-URL_PREFIX = 'https://s3.amazonaws.com/proteindata/pytorch-models/'
+URL_PREFIX = 'https://s3.amazonaws.com/songlabdata/proteindata/pytorch-models/'
 
 
 TRROSETTA_PRETRAINED_CONFIG_ARCHIVE_MAP = {'xaa': URL_PREFIX + 'trRosetta-xaa-config.json', 'xab': URL_PREFIX + 'trRosetta-xab-config.json', 'xac': URL_PREFIX + 'trRosetta-xac-config.json', 'xad': URL_PREFIX + 'trRosetta-xad-config.json', 'xae': URL_PREFIX + 'trRosetta-xae-config.json'}
@@ -991,11 +1038,11 @@ class MSAFeatureExtractor(nn.Module):
         return weights
 
     def extract_features_1d(self, msa1hot, weights):
-        f1d_seq = msa1hot[:, (0), :, :20]
+        f1d_seq = msa1hot[:, 0, :, :20]
         batch_size = msa1hot.size(0)
         seqlen = msa1hot.size(2)
         beff = weights.sum()
-        f_i = (weights[:, :, (None), (None)] * msa1hot).sum(1) / beff + 1e-09
+        f_i = (weights[:, :, None, None] * msa1hot).sum(1) / beff + 1e-09
         h_i = (-f_i * f_i.log()).sum(2, keepdims=True)
         f1d_pssm = torch.cat((f_i, h_i), dim=2)
         f1d = torch.cat((f1d_seq, f1d_pssm), dim=2)
@@ -1012,9 +1059,9 @@ class MSAFeatureExtractor(nn.Module):
             return f2d_dca
         x = msa1hot.view(batch_size, num_alignments, seqlen * num_symbols)
         num_points = weights.sum(1) - weights.mean(1).sqrt()
-        mean = (x * weights.unsqueeze(2)).sum(1, keepdims=True) / num_points[:, (None), (None)]
-        x = (x - mean) * weights[:, :, (None)].sqrt()
-        cov = torch.matmul(x.transpose(-1, -2), x) / num_points[:, (None), (None)]
+        mean = (x * weights.unsqueeze(2)).sum(1, keepdims=True) / num_points[:, None, None]
+        x = (x - mean) * weights[:, :, None].sqrt()
+        cov = torch.matmul(x.transpose(-1, -2), x) / num_points[:, None, None]
         reg = torch.eye(seqlen * num_symbols, device=weights.device, dtype=weights.dtype)[None]
         reg = reg * self.penalty_coeff / weights.sum(1, keepdims=True).sqrt().unsqueeze(2)
         cov_reg = cov + reg
@@ -1025,7 +1072,7 @@ class MSAFeatureExtractor(nn.Module):
         x3 = (x1[:, :, :-1, :, :-1] ** 2).sum((2, 4)).sqrt() * (1 - torch.eye(seqlen, device=weights.device, dtype=weights.dtype)[None])
         apc = x3.sum(1, keepdims=True) * x3.sum(2, keepdims=True) / x3.sum((1, 2), keepdims=True)
         contacts = (x3 - apc) * (1 - torch.eye(seqlen, device=x3.device, dtype=x3.dtype).unsqueeze(0))
-        f2d_dca = torch.cat([features, contacts[:, :, :, (None)]], axis=3)
+        f2d_dca = torch.cat([features, contacts[:, :, :, None]], axis=3)
         return f2d_dca
 
     @property
@@ -1114,9 +1161,9 @@ class mLSTM(nn.Module):
         steps = []
         for seq in range(seqlen):
             prev = state
-            seq_input = inputs[:, (seq), :]
+            seq_input = inputs[:, seq, :]
             hx, cx = self.mlstm_cell(seq_input, state)
-            seqmask = mask[:, (seq)]
+            seqmask = mask[:, seq]
             hx = seqmask * hx + (1 - seqmask) * prev[0]
             cx = seqmask * cx + (1 - seqmask) * prev[1]
             state = hx, cx
@@ -1300,6 +1347,14 @@ class ProteinModel(nn.Module):
                 Path to a directory in which a downloaded pre-trained model
                 configuration should be cached if the standard cache should not be used.
 
+            force_download: (`optional`) boolean, default False:
+                Force to (re-)download the model weights and configuration files and override
+                the cached versions if they exists.
+
+            resume_download: (`optional`) boolean, default False:
+                Do not delete incompletely recieved file. Attempt to resume the download if
+                such a file exists.
+
             output_loading_info: (`optional`) boolean:
                 Set to ``True`` to also return a dictionnary containing missing keys,
                 unexpected keys and error messages.
@@ -1309,7 +1364,7 @@ class ProteinModel(nn.Module):
                 initiate the model. (e.g. ``output_attention=True``). Behave differently
                 depending on whether a `config` is provided or automatically loaded:
 
-                - If a configuration is provided with ``config``, ``**kwargs`` will be
+                - If a configuration is provided with ``config``, ``**kwarg
                   directly passed to the underlying model's ``__init__`` method (we assume
                   all relevant updates to the configuration have already been done)
                 - If a configuration is not provided, ``kwargs`` will be first passed to the
@@ -1335,6 +1390,8 @@ class ProteinModel(nn.Module):
         state_dict = kwargs.pop('state_dict', None)
         cache_dir = kwargs.pop('cache_dir', None)
         output_loading_info = kwargs.pop('output_loading_info', False)
+        force_download = kwargs.pop('force_download', False)
+        kwargs.pop('resume_download', False)
         if config is None:
             config, model_kwargs = cls.config_class.from_pretrained(pretrained_model_name_or_path, *model_args, cache_dir=cache_dir, return_unused_kwargs=True, **kwargs)
         else:
@@ -1346,7 +1403,7 @@ class ProteinModel(nn.Module):
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir, force_download=force_download)
         except EnvironmentError:
             if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
                 logger.error("Couldn't reach server at '{}' to download pretrained weights.".format(archive_file))
@@ -1555,8 +1612,8 @@ class PairwiseContactPredictionHead(nn.Module):
         self._ignore_index = ignore_index
 
     def forward(self, inputs, sequence_lengths, targets=None):
-        prod = inputs[:, :, (None), :] * inputs[:, (None), :, :]
-        diff = inputs[:, :, (None), :] - inputs[:, (None), :, :]
+        prod = inputs[:, :, None, :] * inputs[:, None, :, :]
+        diff = inputs[:, :, None, :] - inputs[:, None, :, :]
         pairwise_features = torch.cat((prod, diff), -1)
         prediction = self.predict(pairwise_features)
         prediction = (prediction + prediction.transpose(1, 2)) / 2
@@ -1576,7 +1633,7 @@ class PairwiseContactPredictionHead(nn.Module):
             seqpos = torch.arange(valid_mask.size(1), device=sequence_lengths.device)
             x_ind, y_ind = torch.meshgrid(seqpos, seqpos)
             valid_mask &= (y_ind - x_ind >= 6).unsqueeze(0)
-            probs = F.softmax(prediction, 3)[:, :, :, (1)]
+            probs = F.softmax(prediction, 3)[:, :, :, 1]
             valid_mask = valid_mask.type_as(probs)
             correct = 0
             total = 0
@@ -1599,10 +1656,10 @@ TESTCASES = [
     (Accuracy,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (MaskedConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (PairwiseContactPredictionHead,
      lambda: ([], {'hidden_size': 4}),
@@ -1622,12 +1679,12 @@ TESTCASES = [
      False),
     (ProteinLSTMLayer,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (ProteinResNetPooler,
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (SequenceClassificationHead,
      lambda: ([], {'hidden_size': 4, 'num_labels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1639,11 +1696,11 @@ TESTCASES = [
     (SimpleConv,
      lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
+     False),
     (SimpleMLP,
      lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (ValuePredictionHead,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

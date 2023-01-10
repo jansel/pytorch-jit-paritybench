@@ -192,13 +192,13 @@ class CRFLoss(nn.Module):
         tg_energy = tg_energy.masked_select(mask).sum()
         seq_iter = enumerate(scores)
         _, inivalues = seq_iter.__next__()
-        partition = inivalues[:, (self.start_tag), :].squeeze(1).clone()
+        partition = inivalues[:, self.start_tag, :].squeeze(1).clone()
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.unsqueeze(2).expand(bat_size, self.tagset_size, self.tagset_size)
             cur_partition = utils.log_sum_exp(cur_values)
-            mask_idx = mask[(idx), :].view(bat_size, 1).expand(bat_size, self.tagset_size)
+            mask_idx = mask[idx, :].view(bat_size, 1).expand(bat_size, self.tagset_size)
             partition.masked_scatter_(mask_idx, cur_partition.masked_select(mask_idx))
-        partition = partition[:, (self.end_tag)].sum()
+        partition = partition[:, self.end_tag].sum()
         if self.average_batch:
             return (partition - tg_energy) / bat_size
         else:

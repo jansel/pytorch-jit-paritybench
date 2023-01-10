@@ -116,7 +116,7 @@ class BiRNN(nn.Module):
         h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
         c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, (-1), :])
+        out = self.fc(out[:, -1, :])
         return out
 
 
@@ -232,7 +232,7 @@ class RNN(nn.Module):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, (-1), :])
+        out = self.fc(out[:, -1, :])
         return out
 
 
@@ -349,14 +349,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
-    (DecoderRNN,
-     lambda: ([], {'embed_size': 4, 'hidden_size': 4, 'vocab_size': 4, 'num_layers': 1}),
-     lambda: ([torch.rand([4, 4]), torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (EncoderCNN,
      lambda: ([], {'embed_size': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
+     True),
     (RNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -386,7 +382,4 @@ class Test_yunjey_pytorch_tutorial(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

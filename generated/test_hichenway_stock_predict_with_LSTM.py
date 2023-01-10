@@ -74,7 +74,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Net,
      lambda: ([], {'config': _mock_config(input_size=4, hidden_size=4, lstm_layers=1, dropout_rate=0.5, output_size=4)}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
 ]
 

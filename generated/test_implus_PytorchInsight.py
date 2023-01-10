@@ -1066,11 +1066,11 @@ class AnchorGenerator(object):
         h_ratios = torch.sqrt(self.ratios)
         w_ratios = 1 / h_ratios
         if self.scale_major:
-            ws = (w * w_ratios[:, (None)] * self.scales[(None), :]).view(-1)
-            hs = (h * h_ratios[:, (None)] * self.scales[(None), :]).view(-1)
+            ws = (w * w_ratios[:, None] * self.scales[None, :]).view(-1)
+            hs = (h * h_ratios[:, None] * self.scales[None, :]).view(-1)
         else:
-            ws = (w * self.scales[:, (None)] * w_ratios[(None), :]).view(-1)
-            hs = (h * self.scales[:, (None)] * h_ratios[(None), :]).view(-1)
+            ws = (w * self.scales[:, None] * w_ratios[None, :]).view(-1)
+            hs = (h * self.scales[:, None] * h_ratios[None, :]).view(-1)
         base_anchors = torch.stack([x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)], dim=-1).round()
         return base_anchors
 
@@ -1090,7 +1090,7 @@ class AnchorGenerator(object):
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
         shifts = shifts.type_as(base_anchors)
-        all_anchors = base_anchors[(None), :, :] + shifts[:, (None), :]
+        all_anchors = base_anchors[None, :, :] + shifts[:, None, :]
         all_anchors = all_anchors.view(-1, 4)
         return all_anchors
 
@@ -1104,7 +1104,7 @@ class AnchorGenerator(object):
         valid_y[:valid_h] = 1
         valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
         valid = valid_xx & valid_yy
-        valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
+        valid = valid[:, None].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
         return valid
 
 
@@ -1121,7 +1121,7 @@ class SamplingResult(object):
         self.pos_is_gt = gt_flags[pos_inds]
         self.num_gts = gt_bboxes.shape[0]
         self.pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
-        self.pos_gt_bboxes = gt_bboxes[(self.pos_assigned_gt_inds), :]
+        self.pos_gt_bboxes = gt_bboxes[self.pos_assigned_gt_inds, :]
         if assign_result.labels is not None:
             self.pos_gt_labels = assign_result.labels[pos_inds]
         else:
@@ -1209,7 +1209,7 @@ class PseudoSampler(BaseSampler):
 def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0):
     img_h, img_w = img_shape[:2]
     if allowed_border >= 0:
-        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:, (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h + allowed_border)
+        inside_flags = valid_flags & (flat_anchors[:, 0] >= -allowed_border) & (flat_anchors[:, 1] >= -allowed_border) & (flat_anchors[:, 2] < img_w + allowed_border) & (flat_anchors[:, 3] < img_h + allowed_border)
     else:
         inside_flags = valid_flags
     return inside_flags
@@ -1282,7 +1282,7 @@ def unmap(data, count, inds, fill=0):
     else:
         new_size = (count,) + data.size()[1:]
         ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
+        ret[inds, :] = data
     return ret
 
 
@@ -1290,7 +1290,7 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
     if not inside_flags.any():
         return (None,) * 6
-    anchors = flat_anchors[(inside_flags), :]
+    anchors = flat_anchors[inside_flags, :]
     if sampling:
         assign_result, sampling_result = assign_and_sample(anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
@@ -1307,8 +1307,8 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     neg_inds = sampling_result.neg_inds
     if len(pos_inds) > 0:
         pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes, target_means, target_stds)
-        bbox_targets[(pos_inds), :] = pos_bbox_targets
-        bbox_weights[(pos_inds), :] = 1.0
+        bbox_targets[pos_inds, :] = pos_bbox_targets
+        bbox_weights[pos_inds, :] = 1.0
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
@@ -1400,10 +1400,10 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
     max_ratio = np.abs(np.log(wh_ratio_clip))
     dw = dw.clamp(min=-max_ratio, max=max_ratio)
     dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    px = ((rois[:, 0] + rois[:, 2]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, 1] + rois[:, 3]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, 2] - rois[:, 0] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, 3] - rois[:, 1] + 1.0).unsqueeze(1).expand_as(dh)
     gw = pw * dw.exp()
     gh = ph * dh.exp()
     gx = torch.addcmul(px, 1, pw, dx)
@@ -1443,15 +1443,15 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
     nms_type = nms_cfg_.pop('type', 'nms')
     nms_op = getattr(nms_wrapper, nms_type)
     for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
+        cls_inds = multi_scores[:, i] > score_thr
         if not cls_inds.any():
             continue
         if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
+            _bboxes = multi_bboxes[cls_inds, :]
         else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+            _bboxes = multi_bboxes[cls_inds, i * 4:(i + 1) * 4]
         _scores = multi_scores[cls_inds, i]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets = torch.cat([_bboxes, _scores[:, None]], dim=1)
         cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
         cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1, dtype=torch.long)
         bboxes.append(cls_dets)
@@ -1460,7 +1460,7 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
         bboxes = torch.cat(bboxes)
         labels = torch.cat(labels)
         if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
+            _, inds = bboxes[:, -1].sort(descending=True)
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             labels = labels[inds]
@@ -1696,9 +1696,9 @@ class AnchorHead(nn.Module):
                 else:
                     max_scores, _ = scores[:, 1:].max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                anchors = anchors[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
             bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
             mlvl_bboxes.append(bboxes)
             mlvl_scores.append(scores)
@@ -1781,7 +1781,7 @@ def nms(dets, iou_thr, device_id=None):
         inds = dets.new_tensor(inds, dtype=torch.long)
     else:
         inds = np.array(inds, dtype=np.int64)
-    return dets[(inds), :], inds
+    return dets[inds, :], inds
 
 
 class RPNHead(AnchorHead):
@@ -1823,19 +1823,19 @@ class RPNHead(AnchorHead):
                 scores = rpn_cls_score.sigmoid()
             else:
                 rpn_cls_score = rpn_cls_score.reshape(-1, 2)
-                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+                scores = rpn_cls_score.softmax(dim=1)[:, 1]
             rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
             if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
                 _, topk_inds = scores.topk(cfg.nms_pre)
-                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
-                anchors = anchors[(topk_inds), :]
+                rpn_bbox_pred = rpn_bbox_pred[topk_inds, :]
+                anchors = anchors[topk_inds, :]
                 scores = scores[topk_inds]
             proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
             if cfg.min_bbox_size > 0:
-                w = proposals[:, (2)] - proposals[:, (0)] + 1
-                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                w = proposals[:, 2] - proposals[:, 0] + 1
+                h = proposals[:, 3] - proposals[:, 1] + 1
                 valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
-                proposals = proposals[(valid_inds), :]
+                proposals = proposals[valid_inds, :]
                 scores = scores[valid_inds]
             proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
             proposals, _ = nms(proposals, cfg.nms_thr)
@@ -1846,10 +1846,10 @@ class RPNHead(AnchorHead):
             proposals, _ = nms(proposals, cfg.nms_thr)
             proposals = proposals[:cfg.max_num, :]
         else:
-            scores = proposals[:, (4)]
+            scores = proposals[:, 4]
             num = min(cfg.max_num, proposals.shape[0])
             _, topk_inds = scores.topk(num)
-            proposals = proposals[(topk_inds), :]
+            proposals = proposals[topk_inds, :]
         return proposals
 
 
@@ -2053,7 +2053,7 @@ class L2Norm(nn.Module):
 
     def forward(self, x):
         norm = x.pow(2).sum(1, keepdim=True).sqrt() + self.eps
-        return self.weight[(None), :, (None), (None)].expand_as(x) * x / norm
+        return self.weight[None, :, None, None].expand_as(x) * x / norm
 
 
 def accuracy(pred, target, topk=1):
@@ -2078,8 +2078,8 @@ def expand_target(bbox_targets, bbox_weights, labels, num_classes):
     bbox_weights_expand = bbox_weights.new_zeros((bbox_weights.size(0), 4 * num_classes))
     for i in torch.nonzero(labels > 0).squeeze(-1):
         start, end = labels[i] * 4, (labels[i] + 1) * 4
-        bbox_targets_expand[(i), start:end] = bbox_targets[(i), :]
-        bbox_weights_expand[(i), start:end] = bbox_weights[(i), :]
+        bbox_targets_expand[i, start:end] = bbox_targets[i, :]
+        bbox_weights_expand[i, start:end] = bbox_weights[i, :]
     return bbox_targets_expand, bbox_weights_expand
 
 
@@ -2208,13 +2208,13 @@ class BBoxHead(nn.Module):
         Returns:
             list[Tensor]: Refined bboxes of each image in a mini-batch.
         """
-        img_ids = rois[:, (0)].long().unique(sorted=True)
+        img_ids = rois[:, 0].long().unique(sorted=True)
         assert img_ids.numel() == len(img_metas)
         bboxes_list = []
         for i in range(len(img_metas)):
-            inds = torch.nonzero(rois[:, (0)] == i).squeeze()
+            inds = torch.nonzero(rois[:, 0] == i).squeeze()
             num_rois = inds.numel()
-            bboxes_ = rois[(inds), 1:]
+            bboxes_ = rois[inds, 1:]
             label_ = labels[inds]
             bbox_pred_ = bbox_preds[inds]
             img_meta_ = img_metas[i]
@@ -2248,7 +2248,7 @@ class BBoxHead(nn.Module):
             new_rois = delta2bbox(rois, bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
         else:
             bboxes = delta2bbox(rois[:, 1:], bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
-            new_rois = torch.cat((rois[:, ([0])], bboxes), dim=1)
+            new_rois = torch.cat((rois[:, [0]], bboxes), dim=1)
         return new_rois
 
 
@@ -2540,7 +2540,7 @@ class BaseDetector(nn.Module):
             bboxes = np.vstack(bbox_result)
             if segm_result is not None:
                 segms = mmcv.concat_list(segm_result)
-                inds = np.where(bboxes[:, (-1)] > score_thr)[0]
+                inds = np.where(bboxes[:, -1] > score_thr)[0]
                 for i in inds:
                     color_mask = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
                     mask = maskUtils.decode(segms[i]).astype(np.bool)
@@ -2563,8 +2563,8 @@ def bbox_flip(bboxes, img_shape):
     assert bboxes.shape[-1] % 4 == 0
     w = img_shape[1]
     flipped = bboxes.copy()
-    flipped[(...), 0::4] = w - bboxes[(...), 2::4] - 1
-    flipped[(...), 2::4] = w - bboxes[(...), 0::4] - 1
+    flipped[..., 0::4] = w - bboxes[..., 2::4] - 1
+    flipped[..., 2::4] = w - bboxes[..., 0::4] - 1
     return flipped
 
 
@@ -2598,11 +2598,11 @@ def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
         recovered_proposals.append(_proposals)
     aug_proposals = torch.cat(recovered_proposals, dim=0)
     merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
-    scores = merged_proposals[:, (4)]
+    scores = merged_proposals[:, 4]
     _, order = scores.sort(0, descending=True)
     num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
     order = order[:num]
-    merged_proposals = merged_proposals[(order), :]
+    merged_proposals = merged_proposals[order, :]
     return merged_proposals
 
 
@@ -2641,7 +2641,7 @@ def bbox2result(bboxes, labels, num_classes):
     else:
         bboxes = bboxes.cpu().numpy()
         labels = labels.cpu().numpy()
-        return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+        return [bboxes[labels == i, :] for i in range(num_classes - 1)]
 
 
 def bbox2roi(bbox_list):
@@ -2677,7 +2677,7 @@ def merge_aug_masks(aug_masks, img_metas, rcnn_test_cfg, weights=None):
     Returns:
         tuple: (bboxes, scores)
     """
-    recovered_masks = [(mask if not img_info[0]['flip'] else mask[(...), ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
+    recovered_masks = [(mask if not img_info[0]['flip'] else mask[..., ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
     if weights is None:
         merged_masks = np.mean(recovered_masks, axis=0)
     else:
@@ -3164,7 +3164,7 @@ def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
         pos_assigned_gt_inds = pos_assigned_gt_inds.cpu().numpy()
         for i in range(num_pos):
             gt_mask = gt_masks[pos_assigned_gt_inds[i]]
-            bbox = proposals_np[(i), :].astype(np.int32)
+            bbox = proposals_np[i, :].astype(np.int32)
             x1, y1, x2, y2 = bbox
             w = np.maximum(x2 - x1 + 1, 1)
             h = np.maximum(y2 - y1 + 1, 1)
@@ -3278,19 +3278,19 @@ class FCNMaskHead(nn.Module):
             img_w = np.round(ori_shape[1] * scale_factor).astype(np.int32)
             scale_factor = 1.0
         for i in range(bboxes.shape[0]):
-            bbox = (bboxes[(i), :] / scale_factor).astype(np.int32)
+            bbox = (bboxes[i, :] / scale_factor).astype(np.int32)
             label = labels[i]
             w = max(bbox[2] - bbox[0] + 1, 1)
             h = max(bbox[3] - bbox[1] + 1, 1)
             if not self.class_agnostic:
-                mask_pred_ = mask_pred[(i), (label), :, :]
+                mask_pred_ = mask_pred[i, label, :, :]
             else:
-                mask_pred_ = mask_pred[(i), (0), :, :]
+                mask_pred_ = mask_pred[i, 0, :, :]
             im_mask = np.zeros((img_h, img_w), dtype=np.uint8)
             bbox_mask = mmcv.imresize(mask_pred_, (w, h))
             bbox_mask = (bbox_mask > rcnn_test_cfg.mask_thr_binary).astype(np.uint8)
             im_mask[bbox[1]:bbox[1] + h, bbox[0]:bbox[0] + w] = bbox_mask
-            rle = mask_util.encode(np.array(im_mask[:, :, (np.newaxis)], order='F'))[0]
+            rle = mask_util.encode(np.array(im_mask[:, :, np.newaxis], order='F'))[0]
             cls_segms[label - 1].append(rle)
         return cls_segms
 
@@ -3474,7 +3474,7 @@ class SingleRoIExtractor(nn.Module):
         Returns:
             Tensor: Level index (0-based) of each RoI, shape (k, )
         """
-        scale = torch.sqrt((rois[:, (3)] - rois[:, (1)] + 1) * (rois[:, (4)] - rois[:, (2)] + 1))
+        scale = torch.sqrt((rois[:, 3] - rois[:, 1] + 1) * (rois[:, 4] - rois[:, 2] + 1))
         target_lvls = torch.floor(torch.log2(scale / self.finest_scale + 1e-06))
         target_lvls = target_lvls.clamp(min=0, max=num_levels - 1).long()
         return target_lvls
@@ -3489,7 +3489,7 @@ class SingleRoIExtractor(nn.Module):
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
-                rois_ = rois[(inds), :]
+                rois_ = rois[inds, :]
                 roi_feats_t = self.roi_layers[i](feats[i], rois_)
                 roi_feats[inds] += roi_feats_t
         return roi_feats
@@ -3748,7 +3748,7 @@ TESTCASES = [
      True),
     (AnchorHead,
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 256, 64, 64])], {}),
+     lambda: ([torch.rand([4, 256, 4, 4])], {}),
      False),
     (BaseDetector,
      lambda: ([], {}),
@@ -3762,6 +3762,14 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CBAM,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ChannelPool,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3796,12 +3804,16 @@ TESTCASES = [
      True),
     (RPNHead,
      lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (RetinaHead,
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ShuffleNetV2,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256])], {}),
@@ -3870,4 +3882,13 @@ class Test_implus_PytorchInsight(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
 

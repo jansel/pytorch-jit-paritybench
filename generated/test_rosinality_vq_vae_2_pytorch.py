@@ -2,6 +2,9 @@ import sys
 _module = sys.modules[__name__]
 del sys
 dataset = _module
+distributed = _module
+distributed = _module
+launch = _module
 extract_code = _module
 pixelsnail = _module
 pixelsnail_mnist = _module
@@ -41,6 +44,18 @@ from torch.utils.data import Dataset
 
 
 from torchvision import datasets
+
+
+import math
+
+
+from torch import distributed as dist
+
+
+from torch.utils import data
+
+
+from torch import multiprocessing as mp
 
 
 from torch.utils.data import DataLoader
@@ -130,7 +145,7 @@ class CausalConv2d(nn.Module):
     def forward(self, input):
         out = self.pad(input)
         if self.causal > 0:
-            self.conv.conv.weight_v.data[:, :, (-1), self.causal:].zero_()
+            self.conv.conv.weight_v.data[:, :, -1, self.causal:].zero_()
         out = self.conv(out)
         return out
 
@@ -145,7 +160,7 @@ class GatedResBlock(nn.Module):
             conv_module = partial(CausalConv2d, padding='downright')
         elif conv == 'causal':
             conv_module = partial(CausalConv2d, padding='causal')
-        self.activation = activation(inplace=True)
+        self.activation = activation()
         self.conv1 = conv_module(in_channel, channel, kernel_size)
         if auxiliary_channel > 0:
             self.aux_conv = WNConv2d(auxiliary_channel, channel, 1)
@@ -346,9 +361,12 @@ class Quantize(nn.Module):
         embed_ind = embed_ind.view(*input.shape[:-1])
         quantize = self.embed_code(embed_ind)
         if self.training:
-            self.cluster_size.data.mul_(self.decay).add_(1 - self.decay, embed_onehot.sum(0))
+            embed_onehot_sum = embed_onehot.sum(0)
             embed_sum = flatten.transpose(0, 1) @ embed_onehot
-            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum)
+            dist_fn.all_reduce(embed_onehot_sum)
+            dist_fn.all_reduce(embed_sum)
+            self.cluster_size.data.mul_(self.decay).add_(embed_onehot_sum, alpha=1 - self.decay)
+            self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)
             n = self.cluster_size.sum()
             cluster_size = (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
@@ -365,7 +383,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, in_channel, channel):
         super().__init__()
-        self.conv = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(in_channel, channel, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel, in_channel, 1))
+        self.conv = nn.Sequential(nn.ReLU(), nn.Conv2d(in_channel, channel, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel, in_channel, 1))
 
     def forward(self, input):
         out = self.conv(input)
@@ -467,7 +485,7 @@ TESTCASES = [
     (CausalConv2d,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (Decoder,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 4, 'n_res_channel': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -487,7 +505,7 @@ TESTCASES = [
     (WNConv2d,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
 ]
 
 class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):

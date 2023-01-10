@@ -77,13 +77,13 @@ from torch.distributions.categorical import Categorical
 import torchaudio
 
 
+from torch import nn
+
+
 from torch.utils.data import DataLoader
 
 
 from torch.nn.utils.rnn import pad_sequence
-
-
-from torch import nn
 
 
 from torch.nn.utils.rnn import pack_padded_sequence
@@ -129,7 +129,7 @@ class BaseAttention(nn.Module):
         bs, ts, _ = k.shape
         self.mask = np.zeros((bs, self.num_head, ts))
         for idx, sl in enumerate(k_len):
-            self.mask[(idx), :, sl:] = 1
+            self.mask[idx, :, sl:] = 1
         self.mask = torch.from_numpy(self.mask).view(-1, ts)
 
     def _attend(self, energy, value):
@@ -164,7 +164,7 @@ class LocationAwareAttention(BaseAttention):
         if self.prev_att is None:
             self.prev_att = torch.zeros((bs, self.num_head, ts))
             for idx, sl in enumerate(self.k_len):
-                self.prev_att[(idx), :, :sl] = 1.0 / sl
+                self.prev_att[idx, :, :sl] = 1.0 / sl
         loc_context = torch.tanh(self.loc_proj(self.loc_conv(self.prev_att).transpose(1, 2)))
         loc_context = loc_context.unsqueeze(1).repeat(1, self.num_head, 1, 1).view(-1, ts, self.dim)
         q = q.unsqueeze(1)
@@ -502,9 +502,10 @@ class ASR(nn.Module):
             self.attention = Attention(self.encoder.out_dim, query_dim, **attention)
         if init_adadelta:
             self.apply(init_weights)
-            for l in range(self.decoder.layer):
-                bias = getattr(self.decoder.layers, 'bias_ih_l{}'.format(l))
-                bias = init_gate(bias)
+            if self.enable_att:
+                for l in range(self.decoder.layer):
+                    bias = getattr(self.decoder.layers, 'bias_ih_l{}'.format(l))
+                    bias = init_gate(bias)
 
     def set_state(self, prev_state, prev_attn):
         """ Setting up all memory states for beam decoding"""
@@ -556,7 +557,7 @@ class ASR(nn.Module):
                 cur_char, d_state = self.decoder(decoder_input)
                 if teacher is not None:
                     if tf_rate == 1 or torch.rand(1).item() <= tf_rate:
-                        last_char = teacher[:, (t), :]
+                        last_char = teacher[:, t, :]
                     else:
                         with torch.no_grad():
                             if emb_decoder is not None and emb_decoder.apply_fuse:
@@ -731,6 +732,225 @@ class BertEmbeddingPredictor(nn.Module):
         return generate_embedding(self.model, labels)
 
 
+LOG_ZERO = -10000000.0
+
+
+class CTCHypothesis:
+    """ 
+        Hypothesis for pure CTC beam search decoding.
+        An implementation of Algo. 1 in http://proceedings.mlr.press/v32/graves14.pdf
+    """
+
+    def __init__(self):
+        self.y = []
+        self.Pr_y_t_blank = 0.0
+        self.Pr_y_t_nblank = LOG_ZERO
+        self.Pr_y_t_blank_bkup = 0.0
+        self.Pr_y_t_nblank_bkup = LOG_ZERO
+        self.lm_output = None
+        self.lm_hidden = None
+        self.updated_lm = False
+
+    def update_lm(self, output, hidden):
+        self.lm_output = output
+        self.lm_hidden = hidden
+        self.updated_lm = True
+
+    def get_len(self):
+        return len(self.y)
+
+    def get_string(self):
+        return ''.join([str(s) for s in self.y])
+
+    def get_score(self):
+        return np.logaddexp(self.Pr_y_t_blank, self.Pr_y_t_nblank)
+
+    def get_final_score(self):
+        if len(self.y) > 0:
+            return np.logaddexp(self.Pr_y_t_blank, self.Pr_y_t_nblank) / len(self.y)
+        else:
+            return np.logaddexp(self.Pr_y_t_blank, self.Pr_y_t_nblank)
+
+    def check_same(self, y_2):
+        if len(self.y) != len(y_2):
+            return False
+        for i in range(len(self.y)):
+            if self.y[i] != y_2[i]:
+                return False
+        return True
+
+    def update_Pr_nblank(self, ctc_y_t):
+        self.Pr_y_t_nblank += ctc_y_t
+
+    def update_Pr_nblank_prefix(self, ctc_y_t, Pr_y_t_blank_prefix, Pr_y_t_nblank_prefix, Pr_ye_y=None):
+        lm_prob = Pr_ye_y if Pr_ye_y is not None else 0.0
+        if len(self.y) == 0:
+            return
+        if len(self.y) == 1:
+            Pr_ye_y_prefix = ctc_y_t + lm_prob + np.logaddexp(Pr_y_t_blank_prefix, Pr_y_t_nblank_prefix)
+        else:
+            Pr_ye_y_prefix = ctc_y_t + lm_prob + (Pr_y_t_blank_prefix if self.y[-1] == self.y[-2] else np.logaddexp(Pr_y_t_blank_prefix, Pr_y_t_nblank_prefix))
+        self.Pr_y_t_nblank = np.logaddexp(self.Pr_y_t_nblank, Pr_ye_y_prefix)
+
+    def update_Pr_blank(self, ctc_blank_t):
+        self.Pr_y_t_blank = np.logaddexp(self.Pr_y_t_nblank_bkup, self.Pr_y_t_blank_bkup) + ctc_blank_t
+
+    def add_token(self, token, ctc_token_t, Pr_k_y=None):
+        lm_prob = Pr_k_y if Pr_k_y is not None else 0.0
+        if len(self.y) == 0:
+            Pr_y_t_nblank_new = ctc_token_t + lm_prob + np.logaddexp(self.Pr_y_t_blank_bkup, self.Pr_y_t_nblank_bkup)
+        else:
+            Pr_y_t_nblank_new = ctc_token_t + lm_prob + (self.Pr_y_t_blank_bkup if self.y[-1] == token else np.logaddexp(self.Pr_y_t_blank_bkup, self.Pr_y_t_nblank_bkup))
+        self.Pr_y_t_blank = LOG_ZERO
+        self.Pr_y_t_nblank = Pr_y_t_nblank_new
+        self.Pr_y_t_blank_bkup = self.Pr_y_t_blank
+        self.Pr_y_t_nblank_bkup = self.Pr_y_t_nblank
+        self.y.append(token)
+
+    def orig_backup(self):
+        self.Pr_y_t_blank_bkup = self.Pr_y_t_blank
+        self.Pr_y_t_nblank_bkup = self.Pr_y_t_nblank
+
+
+class RNNLM(nn.Module):
+    """ RNN Language Model """
+
+    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim, n_layers, dropout):
+        super().__init__()
+        self.dim = dim
+        self.n_layers = n_layers
+        self.emb_tying = emb_tying
+        if emb_tying:
+            assert emb_dim == dim, 'Output dim of RNN should be identical to embedding if using weight tying.'
+        self.vocab_size = vocab_size
+        self.emb = nn.Embedding(vocab_size, emb_dim)
+        self.dp1 = nn.Dropout(dropout)
+        self.dp2 = nn.Dropout(dropout)
+        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=n_layers, dropout=dropout, batch_first=True)
+        if not self.emb_tying:
+            self.trans = nn.Linear(dim, vocab_size)
+
+    def create_msg(self):
+        msg = ['Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'.format(self.emb_tying, self.n_layers, self.dim)]
+        return msg
+
+    def forward(self, x, lens, hidden=None):
+        emb_x = self.dp1(self.emb(x))
+        if not self.training:
+            self.rnn.flatten_parameters()
+        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first=True, enforce_sorted=False)
+        outputs, hidden = self.rnn(packed, hidden)
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
+        if self.emb_tying:
+            outputs = F.linear(self.dp2(outputs), self.emb.weight)
+        else:
+            outputs = self.trans(self.dp2(outputs))
+        return outputs, hidden
+
+
+class CTCBeamDecoder(nn.Module):
+    """ Beam decoder for ASR (CTC only) """
+
+    def __init__(self, asr, vocab_range, beam_size, vocab_candidate, lm_path='', lm_config='', lm_weight=0.0, device=None):
+        super().__init__()
+        self.asr = asr
+        self.vocab_range = vocab_range
+        self.beam_size = beam_size
+        self.vocab_cand = vocab_candidate
+        assert self.vocab_cand <= len(self.vocab_range)
+        assert self.asr.enable_ctc
+        self.apply_lm = lm_weight > 0
+        self.lm_w = 0
+        if self.apply_lm:
+            self.device = device
+            self.lm_w = lm_weight
+            self.lm_path = lm_path
+            lm_config = yaml.load(open(lm_config, 'r'), Loader=yaml.FullLoader)
+            self.lm = RNNLM(self.asr.vocab_size, **lm_config['model'])
+            self.lm.load_state_dict(torch.load(self.lm_path, map_location='cpu')['model'])
+            self.lm.eval()
+
+    def create_msg(self):
+        msg = ['Decode spec| CTC decoding \t| Beam size = {} \t| LM weight = {}'.format(self.beam_size, self.lm_w)]
+        return msg
+
+    def forward(self, feat, feat_len):
+        assert feat.shape[0] == 1, 'Batchsize == 1 is required for beam search'
+        ctc_output, encode_len, att_output, att_align, dec_state = self.asr(feat, feat_len, 10)
+        del encode_len, att_output, att_align, dec_state, feat_len
+        ctc_output = F.log_softmax(ctc_output[0], dim=-1).cpu().detach().numpy()
+        T = len(ctc_output)
+        B = [CTCHypothesis()]
+        if self.apply_lm:
+            output, hidden = self.lm(torch.zeros((1, 1), dtype=torch.long), torch.ones(1, dtype=torch.long), None)
+            B[0].update_lm(output.log_softmax(dim=-1).squeeze().cpu().numpy(), hidden)
+        start = True
+        for t in range(T):
+            if np.argmax(ctc_output[t]) == 0 and start:
+                continue
+            else:
+                start = False
+            B_new = []
+            for i in range(len(B)):
+                B_i_new = copy.deepcopy(B[i])
+                if B_i_new.get_len() > 0:
+                    if B_i_new.y[-1] == 1:
+                        B_new.append(B_i_new)
+                        continue
+                    B_i_new.update_Pr_nblank(ctc_output[t, B_i_new.y[-1]])
+                    for j in range(len(B)):
+                        if i != j and B[j].check_same(B_i_new.y[:-1]):
+                            lm_prob = 0.0
+                            if self.apply_lm:
+                                lm_prob = self.lm_w * B[j].lm_output[B_i_new.y[-1]]
+                            B_i_new.update_Pr_nblank_prefix(ctc_output[t, B_i_new.y[-1]], B[j].Pr_y_t_blank, B[j].Pr_y_t_nblank, lm_prob)
+                            break
+                B_i_new.update_Pr_blank(ctc_output[t, 0])
+                if self.apply_lm:
+                    lm_hidden = B_i_new.lm_hidden
+                    lm_probs = B_i_new.lm_output
+                else:
+                    lm_hidden = None
+                    lm_probs = None
+                if self.apply_lm:
+                    ctc_vocab_cand = sorted(zip(self.vocab_range, ctc_output[t, self.vocab_range] + self.lm_w * lm_probs[self.vocab_range]), reverse=True, key=lambda x: x[1])
+                else:
+                    ctc_vocab_cand = sorted(zip(self.vocab_range, ctc_output[t, self.vocab_range]), reverse=True, key=lambda x: x[1])
+                for j in range(self.vocab_cand):
+                    k = ctc_vocab_cand[j][0]
+                    hyp_yk = copy.deepcopy(B_i_new)
+                    lm_prob = 0.0 if not self.apply_lm else self.lm_w * lm_probs[k]
+                    hyp_yk.add_token(k, ctc_output[t, k], lm_prob)
+                    hyp_yk.updated_lm = False
+                    B_new.append(hyp_yk)
+                B_i_new.orig_backup()
+                B_new.append(B_i_new)
+            del B
+            B = []
+            B_new = sorted(B_new, key=lambda x: x.get_string())
+            B.append(B_new[0])
+            for i in range(1, len(B_new)):
+                if B_new[i].check_same(B[-1].y):
+                    if B_new[i].get_score() > B[-1].get_score():
+                        B[-1] = B_new[i]
+                    continue
+                else:
+                    B.append(B_new[i])
+            del B_new
+            if t == T - 1:
+                B = sorted(B, reverse=True, key=lambda x: x.get_final_score())
+            else:
+                B = sorted(B, reverse=True, key=lambda x: x.get_score())
+            if len(B) > self.beam_size:
+                B = B[:self.beam_size]
+            if self.apply_lm and t < T - 1:
+                for i in range(len(B)):
+                    if B[i].get_len() > 0 and not B[i].updated_lm:
+                        output, hidden = self.lm(B[i].y[-1] * torch.ones((1, 1), dtype=torch.long), torch.ones(1, dtype=torch.long), B[i].lm_hidden)
+                        B[i].update_lm(output.log_softmax(dim=-1).squeeze().cpu().numpy(), hidden)
+        return [b.y for b in B]
+
+
 class CTCPrefixScore:
     """ 
     CTC Prefix score calculator
@@ -761,17 +981,17 @@ class CTCPrefixScore:
         r = np.full((self.input_length, 2, self.odim), self.logzero, dtype=np.float32)
         start = max(1, prefix_length)
         if prefix_length == 0:
-            r[(0), (0), :] = self.x[(0), :]
-        psi = r[(start - 1), (0), :]
-        phi = np.logaddexp(r_prev[:, (0)], r_prev[:, (1)])
+            r[0, 0, :] = self.x[0, :]
+        psi = r[start - 1, 0, :]
+        phi = np.logaddexp(r_prev[:, 0], r_prev[:, 1])
         for t in range(start, self.input_length):
             prev_blank = np.full(self.odim, r_prev[t - 1, 1], dtype=np.float32)
             prev_nonblank = np.full(self.odim, r_prev[t - 1, 0], dtype=np.float32)
             prev_nonblank[last_char] = self.logzero
             phi = np.logaddexp(prev_nonblank, prev_blank)
-            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi) + self.x[(t), :]
-            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0), :]) + self.x[t, self.blank]
-            psi = np.logaddexp(psi, phi + self.x[(t), :])
+            r[t, 0, :] = np.logaddexp(r[t - 1, 0, :], phi) + self.x[t, :]
+            r[t, 1, :] = np.logaddexp(r[t - 1, 1, :], r[t - 1, 0, :]) + self.x[t, self.blank]
+            psi = np.logaddexp(psi, phi + self.x[t, :])
         return psi, np.rollaxis(r, 2)
 
     def cheap_compute(self, g, r_prev, candidates):
@@ -783,15 +1003,15 @@ class CTCPrefixScore:
         r = np.full((self.input_length, 2, len(candidates)), self.logzero, dtype=np.float32)
         start = max(1, prefix_length)
         if prefix_length == 0:
-            r[(0), (0), :] = self.x[0, candidates]
-        psi = r[(start - 1), (0), :]
-        sum_prev = np.logaddexp(r_prev[:, (0)], r_prev[:, (1)])
+            r[0, 0, :] = self.x[0, candidates]
+        psi = r[start - 1, 0, :]
+        sum_prev = np.logaddexp(r_prev[:, 0], r_prev[:, 1])
         phi = np.repeat(sum_prev[..., None], odim, axis=-1)
         if prefix_length > 0 and last_char in candidates:
-            phi[:, (candidates.index(last_char))] = r_prev[:, (1)]
+            phi[:, candidates.index(last_char)] = r_prev[:, 1]
         for t in range(start, self.input_length):
-            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi[t - 1]) + self.x[t, candidates]
-            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0), :]) + self.x[t, self.blank]
+            r[t, 0, :] = np.logaddexp(r[t - 1, 0, :], phi[t - 1]) + self.x[t, candidates]
+            r[t, 1, :] = np.logaddexp(r[t - 1, 1, :], r[t - 1, 0, :]) + self.x[t, self.blank]
             psi = np.logaddexp(psi, phi[t - 1,] + self.x[t, candidates])
         if self.eos in candidates:
             psi[candidates.index(self.eos)] = sum_prev[-1]
@@ -842,7 +1062,7 @@ class Hypothesis:
             scores.append(topv[i].cpu())
             if ctc_state is not None:
                 idx = ctc_candidates.index(topi[i].item())
-                ctc_s = ctc_state[(idx), :, :]
+                ctc_s = ctc_state[idx, :, :]
                 ctc_p = ctc_prob[idx]
             new_hypothesis.append(Hypothesis(decoder_state, output_seq=idxes, output_scores=scores, lm_state=lm_state, ctc_state=ctc_s, ctc_prob=ctc_p, att_map=att_map))
         if term_score is not None:
@@ -866,45 +1086,6 @@ class Hypothesis:
     @property
     def outIndex(self):
         return [i.item() for i in self.output_seq]
-
-
-LOG_ZERO = -10000000.0
-
-
-class RNNLM(nn.Module):
-    """ RNN Language Model """
-
-    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim, n_layers, dropout):
-        super().__init__()
-        self.dim = dim
-        self.n_layers = n_layers
-        self.emb_tying = emb_tying
-        if emb_tying:
-            assert emb_dim == dim, 'Output dim of RNN should be identical to embedding if using weight tying.'
-        self.vocab_size = vocab_size
-        self.emb = nn.Embedding(vocab_size, emb_dim)
-        self.dp1 = nn.Dropout(dropout)
-        self.dp2 = nn.Dropout(dropout)
-        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=n_layers, dropout=dropout, batch_first=True)
-        if not self.emb_tying:
-            self.trans = nn.Linear(emb_dim, vocab_size)
-
-    def create_msg(self):
-        msg = ['Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'.format(self.emb_tying, self.n_layers, self.dim)]
-        return msg
-
-    def forward(self, x, lens, hidden=None):
-        emb_x = self.dp1(self.emb(x))
-        if not self.training:
-            self.rnn.flatten_parameters()
-        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first=True, enforce_sorted=False)
-        outputs, hidden = self.rnn(packed, hidden)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
-        if self.emb_tying:
-            outputs = F.linear(self.dp2(outputs), self.emb.weight)
-        else:
-            outputs = self.trans(self.dp2(outputs))
-        return outputs, hidden
 
 
 class BeamDecoder(nn.Module):
@@ -1151,7 +1332,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (CNNExtractor,
      lambda: ([], {'input_dim': 4, 'out_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      True),
 ]
 

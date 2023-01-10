@@ -170,7 +170,7 @@ class Rnn(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = out[:, (-1), :]
+        out = out[:, -1, :]
         out = self.classifier(out)
         return out
 
@@ -376,21 +376,9 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CBOW,
-     lambda: ([], {'n_word': 4, 'n_dim': 4, 'context_size': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
-    (CharLSTM,
-     lambda: ([], {'n_char': 4, 'char_dim': 4, 'char_hidden': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
     (Logistic_Regression,
      lambda: ([], {'in_dim': 4, 'n_class': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (NgramModel,
-     lambda: ([], {'vocb_size': 4, 'context_size': 4, 'n_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (Rnn,
      lambda: ([], {'in_dim': 4, 'hidden_dim': 4, 'n_layer': 1, 'n_class': 4}),
@@ -411,13 +399,4 @@ class Test_L1aoXingyu_pytorch_beginner(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

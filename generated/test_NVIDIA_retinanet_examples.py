@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 generate_anchors = _module
+odtk = _module
 backbones = _module
 fpn = _module
 layers = _module
@@ -90,6 +91,9 @@ from torchvision.transforms.functional import adjust_hue
 from torchvision.transforms.functional import adjust_saturation
 
 
+from torch.nn.parallel import DistributedDataParallel
+
+
 import torch.cuda
 
 
@@ -109,6 +113,15 @@ from torch.optim import AdamW
 
 
 from torch.optim.lr_scheduler import LambdaLR
+
+
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+from torch.cuda.amp import GradScaler
+
+
+from torch.cuda.amp import autocast
 
 
 import time
@@ -131,6 +144,7 @@ class MobileNet(vmn.MobileNetV2):
         self.url = url
         super().__init__()
         self.outputs = outputs
+        self.unused_modules = ['features.18', 'classifier']
 
     def initialize(self):
         if self.url:
@@ -155,6 +169,7 @@ class ResNet(vrn.ResNet):
         self.url = url
         kwargs = {'block': bottleneck, 'layers': layers, 'groups': groups, 'width_per_group': width_per_group}
         super().__init__(**kwargs)
+        self.unused_modules = ['fc']
 
     def initialize(self):
         if self.url:
@@ -295,8 +310,8 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
     out_boxes = torch.zeros((batch_size, top_n, num_boxes), device=device)
     out_classes = torch.zeros((batch_size, top_n), device=device)
     for batch in range(batch_size):
-        cls_head = all_cls_head[(batch), :, :, :].contiguous().view(-1)
-        box_head = all_box_head[(batch), :, :, :].contiguous().view(-1, num_boxes)
+        cls_head = all_cls_head[batch, :, :, :].contiguous().view(-1)
+        box_head = all_box_head[batch, :, :, :].contiguous().view(-1, num_boxes)
         keep = (cls_head >= threshold).nonzero().view(-1)
         if keep.nelement() == 0:
             continue
@@ -309,27 +324,27 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
         y = indices / width % height
         a = indices / num_classes / height / width
         box_head = box_head.view(num_anchors, num_boxes, height, width)
-        boxes = box_head[(a), :, (y), (x)]
+        boxes = box_head[a, :, y, x]
         if anchors is not None:
-            grid = torch.stack([x, y, x, y], 1).type(all_cls_head.type()) * stride + anchors[(a), :]
+            grid = torch.stack([x, y, x, y], 1).type(all_cls_head.type()) * stride + anchors[a, :]
             boxes = delta2box(boxes, grid, [width, height], stride)
-        out_scores[(batch), :scores.size()[0]] = scores
-        out_boxes[(batch), :boxes.size()[0], :] = boxes
-        out_classes[(batch), :classes.size()[0]] = classes
+        out_scores[batch, :scores.size()[0]] = scores
+        out_boxes[batch, :boxes.size()[0], :] = boxes
+        out_classes[batch, :classes.size()[0]] = classes
     return out_scores, out_boxes, out_classes
 
 
 def order_points(pts):
     pts_reorder = []
     for idx, pt in enumerate(pts):
-        idx = torch.argsort(pt[:, (0)])
-        xSorted = pt[(idx), :]
+        idx = torch.argsort(pt[:, 0])
+        xSorted = pt[idx, :]
         leftMost = xSorted[:2, :]
         rightMost = xSorted[2:, :]
-        leftMost = leftMost[(torch.argsort(leftMost[:, (1)])), :]
+        leftMost = leftMost[torch.argsort(leftMost[:, 1]), :]
         tl, bl = leftMost
         D = torch.cdist(tl[np.newaxis], rightMost)[0]
-        br, tr = rightMost[(torch.argsort(D, descending=True)), :]
+        br, tr = rightMost[torch.argsort(D, descending=True), :]
         pts_reorder.append(torch.stack([tl, tr, br, bl]))
     return torch.stack([p for p in pts_reorder])
 
@@ -340,7 +355,7 @@ def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
     scales = scales.transpose(0, 1).contiguous().view(-1, 1)
     ratios = torch.FloatTensor(ratio_vals * len(scales_vals))
     wh = torch.FloatTensor([stride]).repeat(len(ratios), 2)
-    ws = torch.round(torch.sqrt(wh[:, (0)] * wh[:, (1)] / ratios))
+    ws = torch.round(torch.sqrt(wh[:, 0] * wh[:, 1] / ratios))
     dwh = torch.stack([ws, torch.round(ws * ratios)], dim=1)
     xy0 = 0.5 * (wh - dwh * scales)
     xy2 = 0.5 * (wh + dwh * scales) - 1
@@ -371,32 +386,32 @@ def generate_anchors_rotated(stride, ratio_vals, scales_vals, angles_vals):
 
 def rotate_boxes(boxes, points=False):
     """
-    Rotate target bounding boxes 
-    
-    Input:  
+    Rotate target bounding boxes
+
+    Input:
         Target boxes (xmin_ymin, width_height, theta)
     Output:
         boxes_axis (xmin_ymin, xmax_ymax, theta)
         boxes_rotated (xy0, xy1, xy2, xy3)
     """
-    u = torch.stack([torch.cos(boxes[:, (4)]), torch.sin(boxes[:, (4)])], dim=1)
-    l = torch.stack([-torch.sin(boxes[:, (4)]), torch.cos(boxes[:, (4)])], dim=1)
+    u = torch.stack([torch.cos(boxes[:, 4]), torch.sin(boxes[:, 4])], dim=1)
+    l = torch.stack([-torch.sin(boxes[:, 4]), torch.cos(boxes[:, 4])], dim=1)
     R = torch.stack([u, l], dim=1)
     if points:
-        cents = torch.stack([(boxes[:, (0)] + boxes[:, (2)]) / 2, (boxes[:, (1)] + boxes[:, (3)]) / 2], 1).transpose(1, 0)
-        boxes_rotated = torch.stack([boxes[:, (0)], boxes[:, (1)], boxes[:, (2)], boxes[:, (1)], boxes[:, (2)], boxes[:, (3)], boxes[:, (0)], boxes[:, (3)], boxes[:, (-2)], boxes[:, (-1)]], 1)
+        cents = torch.stack([(boxes[:, 0] + boxes[:, 2]) / 2, (boxes[:, 1] + boxes[:, 3]) / 2], 1).transpose(1, 0)
+        boxes_rotated = torch.stack([boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 1], boxes[:, 2], boxes[:, 3], boxes[:, 0], boxes[:, 3], boxes[:, -2], boxes[:, -1]], 1)
     else:
-        cents = torch.stack([boxes[:, (0)] + (boxes[:, (2)] - 1) / 2, boxes[:, (1)] + (boxes[:, (3)] - 1) / 2], 1).transpose(1, 0)
-        boxes_rotated = torch.stack([boxes[:, (0)], boxes[:, (1)], boxes[:, (0)] + boxes[:, (2)] - 1, boxes[:, (1)], boxes[:, (0)] + boxes[:, (2)] - 1, boxes[:, (1)] + boxes[:, (3)] - 1, boxes[:, (0)], boxes[:, (1)] + boxes[:, (3)] - 1, boxes[:, (-2)], boxes[:, (-1)]], 1)
+        cents = torch.stack([boxes[:, 0] + boxes[:, 2] / 2, boxes[:, 1] + boxes[:, 3] / 2], 1).transpose(1, 0)
+        boxes_rotated = torch.stack([boxes[:, 0], boxes[:, 1], boxes[:, 0] + boxes[:, 2], boxes[:, 1], boxes[:, 0] + boxes[:, 2], boxes[:, 1] + boxes[:, 3], boxes[:, 0], boxes[:, 1] + boxes[:, 3], boxes[:, -2], boxes[:, -1]], 1)
     xy0R = torch.matmul(R, boxes_rotated[:, :2].transpose(1, 0) - cents) + cents
     xy1R = torch.matmul(R, boxes_rotated[:, 2:4].transpose(1, 0) - cents) + cents
     xy2R = torch.matmul(R, boxes_rotated[:, 4:6].transpose(1, 0) - cents) + cents
     xy3R = torch.matmul(R, boxes_rotated[:, 6:8].transpose(1, 0) - cents) + cents
-    xy0R = torch.stack([xy0R[(i), :, (i)] for i in range(xy0R.size(0))])
-    xy1R = torch.stack([xy1R[(i), :, (i)] for i in range(xy1R.size(0))])
-    xy2R = torch.stack([xy2R[(i), :, (i)] for i in range(xy2R.size(0))])
-    xy3R = torch.stack([xy3R[(i), :, (i)] for i in range(xy3R.size(0))])
-    boxes_axis = torch.cat([boxes[:, :2], boxes[:, :2] + boxes[:, 2:4] - 1, torch.sin(boxes[:, (-1), (None)]), torch.cos(boxes[:, (-1), (None)])], 1)
+    xy0R = torch.stack([xy0R[i, :, i] for i in range(xy0R.size(0))])
+    xy1R = torch.stack([xy1R[i, :, i] for i in range(xy1R.size(0))])
+    xy2R = torch.stack([xy2R[i, :, i] for i in range(xy2R.size(0))])
+    xy3R = torch.stack([xy3R[i, :, i] for i in range(xy3R.size(0))])
+    boxes_axis = torch.cat([boxes[:, :2], boxes[:, :2] + boxes[:, 2:4] - 1, torch.sin(boxes[:, -1, None]), torch.cos(boxes[:, -1, None])], 1)
     boxes_rotated = order_points(torch.stack([xy0R, xy1R, xy2R, xy3R], dim=1)).view(-1, 8)
     return boxes_axis, boxes_rotated
 
@@ -411,36 +426,36 @@ def nms_rotated(all_scores, all_boxes, all_classes, nms=0.5, ndetections=100):
     out_boxes = torch.zeros((batch_size, ndetections, 6), device=device)
     out_classes = torch.zeros((batch_size, ndetections), device=device)
     for batch in range(batch_size):
-        keep = (all_scores[(batch), :].view(-1) > 0).nonzero()
+        keep = (all_scores[batch, :].view(-1) > 0).nonzero()
         scores = all_scores[batch, keep].view(-1)
-        boxes = all_boxes[(batch), (keep), :].view(-1, 6)
+        boxes = all_boxes[batch, keep, :].view(-1, 6)
         classes = all_classes[batch, keep].view(-1)
-        theta = torch.atan2(boxes[:, (-2)], boxes[:, (-1)])
-        boxes_theta = torch.cat([boxes[:, :-2], theta[:, (None)]], dim=1)
+        theta = torch.atan2(boxes[:, -2], boxes[:, -1])
+        boxes_theta = torch.cat([boxes[:, :-2], theta[:, None]], dim=1)
         if scores.nelement() == 0:
             continue
         scores, indices = torch.sort(scores, descending=True)
         boxes, boxes_theta, classes = boxes[indices], boxes_theta[indices], classes[indices]
-        areas = (boxes_theta[:, (2)] - boxes_theta[:, (0)] + 1) * (boxes_theta[:, (3)] - boxes_theta[:, (1)] + 1).view(-1)
+        areas = (boxes_theta[:, 2] - boxes_theta[:, 0] + 1) * (boxes_theta[:, 3] - boxes_theta[:, 1] + 1).view(-1)
         keep = torch.ones(scores.nelement(), device=device, dtype=torch.uint8).view(-1)
         for i in range(ndetections):
             if i >= keep.nonzero().nelement() or i >= scores.nelement():
                 i -= 1
                 break
             boxes_axis, boxes_rotated = rotate_boxes(boxes_theta, points=True)
-            overlap, inter = iou(boxes_rotated.contiguous().view(-1), boxes_rotated[(i), :].contiguous().view(-1))
+            overlap, inter = iou(boxes_rotated.contiguous().view(-1), boxes_rotated[i, :].contiguous().view(-1))
             inter = inter.squeeze()
             criterion = (scores > scores[i]) | (inter / (areas + areas[i] - inter) <= nms) | (classes != classes[i])
             criterion[i] = 1
             scores = scores[criterion.nonzero()].view(-1)
-            boxes = boxes[(criterion.nonzero()), :].view(-1, 6)
-            boxes_theta = boxes_theta[(criterion.nonzero()), :].view(-1, 5)
+            boxes = boxes[criterion.nonzero(), :].view(-1, 6)
+            boxes_theta = boxes_theta[criterion.nonzero(), :].view(-1, 5)
             classes = classes[criterion.nonzero()].view(-1)
             areas = areas[criterion.nonzero()].view(-1)
             keep[(~criterion).nonzero()] = 0
-        out_scores[(batch), :i + 1] = scores[:i + 1]
-        out_boxes[(batch), :i + 1, :] = boxes[:i + 1, :]
-        out_classes[(batch), :i + 1] = classes[:i + 1]
+        out_scores[batch, :i + 1] = scores[:i + 1]
+        out_boxes[batch, :i + 1, :] = boxes[:i + 1, :]
+        out_classes[batch, :i + 1] = classes[:i + 1]
     return out_scores, out_boxes, out_classes
 
 
@@ -450,9 +465,9 @@ def box2delta_rotated(boxes, anchors):
     anchors_ctr = anchors[:, :2] + 0.5 * anchors_wh
     boxes_wh = boxes[:, 2:4] - boxes[:, :2] + 1
     boxes_ctr = boxes[:, :2] + 0.5 * boxes_wh
-    boxes_sin = boxes[:, (4)]
-    boxes_cos = boxes[:, (5)]
-    return torch.cat([(boxes_ctr - anchors_ctr) / anchors_wh, torch.log(boxes_wh / anchors_wh), boxes_sin[:, (None)], boxes_cos[:, (None)]], 1)
+    boxes_sin = boxes[:, 4]
+    boxes_cos = boxes[:, 5]
+    return torch.cat([(boxes_ctr - anchors_ctr) / anchors_wh, torch.log(boxes_wh / anchors_wh), boxes_sin[:, None], boxes_cos[:, None]], 1)
 
 
 def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes, device, anchor_ious):
@@ -508,6 +523,9 @@ class Model(nn.Module):
             backbones = [backbones]
         self.backbones = nn.ModuleDict({b: getattr(backbones_mod, b)() for b in backbones})
         self.name = 'RetinaNet'
+        self.unused_modules = []
+        for b in backbones:
+            self.unused_modules.extend(getattr(self.backbones, b).features.unused_modules)
         self.exporting = False
         self.rotated_bbox = rotated_bbox
         self.anchor_ious = anchor_ious
@@ -597,7 +615,7 @@ class Model(nn.Module):
             stride = x.shape[-1] // cls_head.shape[-1]
             if stride not in self.anchors:
                 self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales, self.angles)
-            decoded.append(decode(cls_head, box_head, stride, self.threshold, self.top_n, self.anchors[stride], self.rotated_bbox))
+            decoded.append(decode(cls_head.contiguous(), box_head.contiguous(), stride, self.threshold, self.top_n, self.anchors[stride], self.rotated_bbox))
         decoded = [torch.cat(tensors, 1) for tensors in zip(*decoded)]
         return nms(*decoded, self.nms, self.detections)
 
@@ -608,7 +626,7 @@ class Model(nn.Module):
             snap_to_anchors = snap_to_anchors_rotated
         cls_target, box_target, depth = [], [], []
         for target in targets:
-            target = target[target[:, (-1)] > -1]
+            target = target[target[:, -1] > -1]
             if stride not in self.anchors:
                 self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales, self.angles)
             anchors = self.anchors[stride]
@@ -641,6 +659,11 @@ class Model(nn.Module):
         box_loss = torch.stack(box_losses).sum() / fg_targets
         return cls_loss, box_loss
 
+    def freeze_unused_params(self):
+        for n, p in self.named_parameters():
+            if any(i in n for i in self.unused_modules):
+                p.requires_grad = False
+
     def save(self, state):
         checkpoint = {'backbone': [k for k, _ in self.backbones.items()], 'classes': self.classes, 'state_dict': self.state_dict(), 'ratios': self.ratios, 'scales': self.scales}
         if self.rotated_bbox and self.angles:
@@ -671,18 +694,17 @@ class Model(nn.Module):
         torch.cuda.empty_cache()
         return model, state
 
-    def export(self, size, batch, precision, calibration_files, calibration_table, verbose, onnx_only=False):
-        import torch.onnx.symbolic_opset10 as onnx_symbolic
-
-        def upsample_nearest2d(g, input, output_size, *args):
-            scales = g.op('Constant', value_t=torch.tensor([1.0, 1.0, 2.0, 2.0]))
-            return g.op('Resize', input, scales, mode_s='nearest')
-        onnx_symbolic.upsample_nearest2d = upsample_nearest2d
+    def export(self, size, dynamic_batch_opts, precision, calibration_files, calibration_table, verbose, onnx_only=False):
         None
         self.exporting = True
         onnx_bytes = io.BytesIO()
         zero_input = torch.zeros([1, 3, *size])
-        extra_args = {'opset_version': 10, 'verbose': verbose}
+        input_names = ['input_1']
+        output_names = ['score_1', 'score_2', 'score_3', 'score_4', 'score_5', 'box_1', 'box_2', 'box_3', 'box_4', 'box_5']
+        dynamic_axes = {input_names[0]: {(0): 'batch'}}
+        for _, name in enumerate(output_names):
+            dynamic_axes[name] = dynamic_axes[input_names[0]]
+        extra_args = {'opset_version': 12, 'verbose': verbose, 'input_names': input_names, 'output_names': output_names, 'dynamic_axes': dynamic_axes}
         torch.onnx.export(self, zero_input, onnx_bytes, **extra_args)
         self.exporting = False
         if onnx_only:
@@ -693,8 +715,7 @@ class Model(nn.Module):
             anchors = [generate_anchors(stride, self.ratios, self.scales, self.angles).view(-1).tolist() for stride in self.strides]
         else:
             anchors = [generate_anchors_rotated(stride, self.ratios, self.scales, self.angles)[0].view(-1).tolist() for stride in self.strides]
-        batch = 1
-        return Engine(onnx_bytes.getvalue(), len(onnx_bytes.getvalue()), batch, precision, self.threshold, self.top_n, anchors, self.rotated_bbox, self.nms, self.detections, calibration_files, model_name, calibration_table, verbose)
+        return Engine(onnx_bytes.getvalue(), len(onnx_bytes.getvalue()), dynamic_batch_opts, precision, self.threshold, self.top_n, anchors, self.rotated_bbox, self.nms, self.detections, calibration_files, model_name, calibration_table, verbose)
 
 
 import torch

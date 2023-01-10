@@ -652,7 +652,7 @@ class AlbertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -809,7 +809,7 @@ class BertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -1530,7 +1530,7 @@ class PoolerEndLogits(nn.Module):
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
             slen, hsz = hidden_states.shape[-2:]
-            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
+            start_positions = start_positions[:, None, None].expand(-1, -1, hsz)
             start_states = hidden_states.gather(-2, start_positions)
             start_states = start_states.expand(-1, slen, -1)
         x = self.dense_0(torch.cat([hidden_states, start_states], dim=-1))
@@ -1571,13 +1571,13 @@ class PoolerAnswerClass(nn.Module):
         hsz = hidden_states.shape[-1]
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
-            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
+            start_positions = start_positions[:, None, None].expand(-1, -1, hsz)
             start_states = hidden_states.gather(-2, start_positions).squeeze(-2)
         if cls_index is not None:
-            cls_index = cls_index[:, (None), (None)].expand(-1, -1, hsz)
+            cls_index = cls_index[:, None, None].expand(-1, -1, hsz)
             cls_token_state = hidden_states.gather(-2, cls_index).squeeze(-2)
         else:
-            cls_token_state = hidden_states[:, (-1), :]
+            cls_token_state = hidden_states[:, -1, :]
         x = self.dense_0(torch.cat([start_states, cls_token_state], dim=-1))
         x = self.activation(x)
         x = self.dense_1(x).squeeze(-1)
@@ -1717,14 +1717,14 @@ class SequenceSummary(nn.Module):
                     we take the last token of the sequence as classification token
         """
         if self.summary_type == 'last':
-            output = hidden_states[:, (-1)]
+            output = hidden_states[:, -1]
         elif self.summary_type == 'first':
-            output = hidden_states[:, (0)]
+            output = hidden_states[:, 0]
         elif self.summary_type == 'mean':
             output = hidden_states.mean(dim=1)
         elif self.summary_type == 'cls_index':
             if cls_index is None:
-                cls_index = torch.full_like(hidden_states[(...), :1, :], hidden_states.shape[-2] - 1, dtype=torch.long)
+                cls_index = torch.full_like(hidden_states[..., :1, :], hidden_states.shape[-2] - 1, dtype=torch.long)
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
@@ -1749,10 +1749,6 @@ TESTCASES = [
      lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, output_attentions=4, attention_probs_dropout_prob=0.5, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (AlbertEmbeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, embedding_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (AlbertOnlyNSPHead,
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1776,10 +1772,6 @@ TESTCASES = [
     (BertAttention,
      lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, output_attentions=4, attention_probs_dropout_prob=0.5, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
-    (BertEmbeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (BertIntermediate,
      lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
@@ -1812,7 +1804,7 @@ TESTCASES = [
     (PoolerStartLogits,
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (SQuADHead,
      lambda: ([], {'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -1867,10 +1859,4 @@ class Test_lonePatient_Bert_Multi_Label_Text_Classification(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
 

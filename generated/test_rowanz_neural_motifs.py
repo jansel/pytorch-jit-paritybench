@@ -220,10 +220,10 @@ class RoIAlignFunction(Function):
         batch_size, num_channels, data_height, data_width = self.feature_size
         height = (data_height - 1) / self.spatial_scale
         width = (data_width - 1) / self.spatial_scale
-        rois_normalized[:, (1)] /= width
-        rois_normalized[:, (2)] /= height
-        rois_normalized[:, (3)] /= width
-        rois_normalized[:, (4)] /= height
+        rois_normalized[:, 1] /= width
+        rois_normalized[:, 2] /= height
+        rois_normalized[:, 3] /= width
+        rois_normalized[:, 4] /= height
         num_rois = rois.size(0)
         output = features.new(num_rois, num_channels, self.aligned_height, self.aligned_width).zero_()
         if features.is_cuda:
@@ -239,10 +239,10 @@ class RoIAlignFunction(Function):
         batch_size, num_channels, data_height, data_width = self.feature_size
         height = (data_height - 1) / self.spatial_scale
         width = (data_width - 1) / self.spatial_scale
-        rois_normalized[:, (1)] /= width
-        rois_normalized[:, (2)] /= height
-        rois_normalized[:, (3)] /= width
-        rois_normalized[:, (4)] /= height
+        rois_normalized[:, 1] /= width
+        rois_normalized[:, 2] /= height
+        rois_normalized[:, 3] /= width
+        rois_normalized[:, 4] /= height
         grad_input = rois_normalized.new(batch_size, num_channels, data_height, data_width).zero_()
         res = roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, grad_output, rois_normalized, grad_input)
         assert res == 1
@@ -300,9 +300,9 @@ def union_boxes(fmap, rois, union_inds, pooling_size=14, stride=16):
     :return:
     """
     assert union_inds.size(1) == 2
-    im_inds = rois[:, (0)][union_inds[:, (0)]]
-    assert (im_inds.data == rois.data[:, (0)][union_inds[:, (1)]]).sum() == union_inds.size(0)
-    union_rois = torch.cat((im_inds[:, (None)], torch.min(rois[:, 1:3][union_inds[:, (0)]], rois[:, 1:3][union_inds[:, (1)]]), torch.max(rois[:, 3:5][union_inds[:, (0)]], rois[:, 3:5][union_inds[:, (1)]])), 1)
+    im_inds = rois[:, 0][union_inds[:, 0]]
+    assert (im_inds.data == rois.data[:, 0][union_inds[:, 1]]).sum() == union_inds.size(0)
+    union_rois = torch.cat((im_inds[:, None], torch.min(rois[:, 1:3][union_inds[:, 0]], rois[:, 1:3][union_inds[:, 1]]), torch.max(rois[:, 3:5][union_inds[:, 0]], rois[:, 3:5][union_inds[:, 1]])), 1)
     union_pools = RoIAlignFunction(pooling_size, pooling_size, spatial_scale=1 / stride)(fmap, union_rois)
     return union_pools
 
@@ -328,7 +328,7 @@ class UnionBoxesAndFeats(Module):
         union_pools = union_boxes(fmap, rois, union_inds, pooling_size=self.pooling_size, stride=self.stride)
         if not self.use_feats:
             return union_pools.detach()
-        pair_rois = torch.cat((rois[:, 1:][union_inds[:, (0)]], rois[:, 1:][union_inds[:, (1)]]), 1).data.cpu().numpy()
+        pair_rois = torch.cat((rois[:, 1:][union_inds[:, 0]], rois[:, 1:][union_inds[:, 1]]), 1).data.cpu().numpy()
         rects_np = draw_union_boxes(pair_rois, self.pooling_size * 4 - 1) - 0.5
         rects = Variable(torch.FloatTensor(rects_np), volatile=fmap.volatile)
         if self.concat:
@@ -402,14 +402,14 @@ def nms_overlaps(boxes):
     assert boxes.dim() == 3
     N = boxes.size(0)
     nc = boxes.size(1)
-    max_xy = torch.min(boxes[:, (None), :, 2:].expand(N, N, nc, 2), boxes[(None), :, :, 2:].expand(N, N, nc, 2))
-    min_xy = torch.max(boxes[:, (None), :, :2].expand(N, N, nc, 2), boxes[(None), :, :, :2].expand(N, N, nc, 2))
+    max_xy = torch.min(boxes[:, None, :, 2:].expand(N, N, nc, 2), boxes[None, :, :, 2:].expand(N, N, nc, 2))
+    min_xy = torch.max(boxes[:, None, :, :2].expand(N, N, nc, 2), boxes[None, :, :, :2].expand(N, N, nc, 2))
     inter = torch.clamp(max_xy - min_xy + 1.0, min=0)
-    inters = inter[:, :, :, (0)] * inter[:, :, :, (1)]
+    inters = inter[:, :, :, 0] * inter[:, :, :, 1]
     boxes_flat = boxes.view(-1, 4)
-    areas_flat = (boxes_flat[:, (2)] - boxes_flat[:, (0)] + 1.0) * (boxes_flat[:, (3)] - boxes_flat[:, (1)] + 1.0)
+    areas_flat = (boxes_flat[:, 2] - boxes_flat[:, 0] + 1.0) * (boxes_flat[:, 3] - boxes_flat[:, 1] + 1.0)
     areas = areas_flat.view(boxes.size(0), boxes.size(1))
-    union = -inters + areas[None] + areas[:, (None)]
+    union = -inters + areas[None] + areas[:, None]
     return inters / union
 
 
@@ -628,12 +628,12 @@ class DecoderRNN(torch.nn.Module):
         if boxes_for_nms is not None and not self.training:
             is_overlap = nms_overlaps(boxes_for_nms.data).view(boxes_for_nms.size(0), boxes_for_nms.size(0), boxes_for_nms.size(1)).cpu().numpy() >= self.nms_thresh
             out_dists_sampled = F.softmax(torch.cat(out_dists, 0), 1).data.cpu().numpy()
-            out_dists_sampled[:, (0)] = 0
+            out_dists_sampled[:, 0] = 0
             out_commitments = out_commitments[0].data.new(len(out_commitments)).fill_(0)
             for i in range(out_commitments.size(0)):
                 box_ind, cls_ind = np.unravel_index(out_dists_sampled.argmax(), out_dists_sampled.shape)
                 out_commitments[int(box_ind)] = int(cls_ind)
-                out_dists_sampled[is_overlap[(box_ind), :, (cls_ind)], cls_ind] = 0.0
+                out_dists_sampled[is_overlap[box_ind, :, cls_ind], cls_ind] = 0.0
                 out_dists_sampled[box_ind] = -1.0
             out_commitments = Variable(out_commitments)
         else:
@@ -838,7 +838,7 @@ def apply_nms(scores, boxes, pre_nms_topn=12000, post_nms_topn=2000, boxes_per_i
 def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=0.7, pre_nms_topn=12000, post_nms_topn=2000):
     inds, im_per = apply_nms(class_preds, box_preds, pre_nms_topn=pre_nms_topn, post_nms_topn=post_nms_topn, boxes_per_im=boxes_per_im, nms_thresh=nms_thresh)
     img_inds = torch.cat([(val * torch.ones(i)) for val, i in enumerate(im_per)], 0)
-    rois = torch.cat((img_inds[:, (None)], box_preds[inds]), 1)
+    rois = torch.cat((img_inds[:, None], box_preds[inds]), 1)
     return rois
 
 
@@ -854,10 +854,10 @@ def gather_nd(x, index):
     assert index.dim() == 2
     assert index.size(1) == nd
     dim = x.size(-1)
-    sel_inds = index[:, (nd - 1)].clone()
+    sel_inds = index[:, nd - 1].clone()
     mult_factor = x.size(nd - 1)
     for col in range(nd - 2, -1, -1):
-        sel_inds += index[:, (col)] * mult_factor
+        sel_inds += index[:, col] * mult_factor
         mult_factor *= x.size(col)
     grouped = x.view(-1, dim)[sel_inds]
     return grouped
@@ -871,8 +871,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
   Given a vector of widths (ws) and heights (hs) around a center
   (x_ctr, y_ctr), output a set of anchors (windows).
   """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -919,7 +919,7 @@ def generate_base_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.arang
   """
     base_anchor = np.array([1, 1, base_size, base_size]) - 1
     ratio_anchors = _ratio_enum(base_anchor, ratios)
-    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in range(ratio_anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(ratio_anchors[i, :], scales) for i in range(ratio_anchors.shape[0])])
     return anchors
 
 
@@ -932,7 +932,7 @@ def generate_anchors(base_size=16, feat_stride=16, anchor_scales=(8, 16, 32), an
     shift_x = np.arange(0, IM_SCALE // feat_stride) * feat_stride
     shift_x, shift_y = np.meshgrid(shift_x, shift_x)
     shifts = np.stack([shift_x, shift_y, shift_x, shift_y], -1)
-    all_anchors = shifts[:, :, (None)] + anchors[None, None]
+    all_anchors = shifts[:, :, None] + anchors[None, None]
     return all_anchors
 
 
@@ -978,7 +978,7 @@ class RPNHead(nn.Module):
         """
         assert train_anchor_inds.size(1) == 4
         tai = train_anchor_inds.data.clone()
-        tai[:, (0)] -= image_offset
+        tai[:, 0] -= image_offset
         train_regions = gather_nd(preds, tai)
         class_preds = train_regions[:, :2]
         box_preds = train_regions[:, 2:]
@@ -1008,15 +1008,15 @@ class RPNHead(nn.Module):
             h_end = int(h) // self.stride
             w_end = int(w) // self.stride
             if h_end < class_preds.size(1):
-                class_preds[(i), h_end:] = -0.01
+                class_preds[i, h_end:] = -0.01
             if w_end < class_preds.size(2):
-                class_preds[(i), :, w_end:] = -0.01
-            box_preds[(i), :, :, :, (0)].clamp_(min=0, max=w - 1)
-            box_preds[(i), :, :, :, (1)].clamp_(min=0, max=h - 1)
-            box_preds[(i), :, :, :, (2)].clamp_(min=0, max=w - 1)
-            box_preds[(i), :, :, :, (3)].clamp_(min=0, max=h - 1)
+                class_preds[i, :, w_end:] = -0.01
+            box_preds[i, :, :, :, 0].clamp_(min=0, max=w - 1)
+            box_preds[i, :, :, :, 1].clamp_(min=0, max=h - 1)
+            box_preds[i, :, :, :, 2].clamp_(min=0, max=w - 1)
+            box_preds[i, :, :, :, 3].clamp_(min=0, max=h - 1)
         sizes = center_size(box_preds.view(-1, 4))
-        class_preds.view(-1)[(sizes[:, (2)] < 4) | (sizes[:, (3)] < 4)] = -0.01
+        class_preds.view(-1)[(sizes[:, 2] < 4) | (sizes[:, 3] < 4)] = -0.01
         return filter_roi_proposals(box_preds.view(-1, 4), class_preds.view(-1), boxes_per_im=np.array([np.prod(box_preds.size()[1:-1])] * fmap.size(0)), nms_thresh=nms_thresh, pre_nms_topn=pre_nms_topn, post_nms_topn=post_nms_topn)
 
 
@@ -1051,7 +1051,7 @@ def bbox_intersections(box_a, box_b):
     max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
     min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy + 1.0, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    return inter[:, :, 0] * inter[:, :, 1]
 
 
 def bbox_overlaps(box_a, box_b):
@@ -1070,8 +1070,8 @@ def bbox_overlaps(box_a, box_b):
         assert isinstance(box_b, np.ndarray)
         return bbox_overlaps_np(box_a, box_b)
     inter = bbox_intersections(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)] + 1.0) * (box_a[:, (3)] - box_a[:, (1)] + 1.0)).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)] + 1.0) * (box_b[:, (3)] - box_b[:, (1)] + 1.0)).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0] + 1.0) * (box_a[:, 3] - box_a[:, 1] + 1.0)).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0] + 1.0) * (box_b[:, 3] - box_b[:, 1] + 1.0)).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -1105,10 +1105,10 @@ def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001, pre_nm
     nms_mask = scores.data.clone()
     nms_mask.zero_()
     for c_i in valid_cls.squeeze(1).cpu():
-        scores_ci = scores.data[:, (c_i)]
-        boxes_ci = boxes.data[:, (c_i)]
+        scores_ci = scores.data[:, c_i]
+        boxes_ci = boxes.data[:, c_i]
         keep = apply_nms(scores_ci, boxes_ci, pre_nms_topn=pre_nms_topn, post_nms_topn=post_nms_topn, nms_thresh=nms_thresh)
-        nms_mask[:, (c_i)][keep] = 1
+        nms_mask[:, c_i][keep] = 1
     dists_all = Variable(nms_mask * scores.data, volatile=True)
     if nms_filter_duplicates:
         scores_pre, labels_pre = dists_all.data.max(1)
@@ -1120,8 +1120,8 @@ def filter_det(scores, boxes, start_ind=0, max_per_img=100, thresh=0.001, pre_nm
     else:
         nz = nms_mask.nonzero()
         assert nz.dim() != 0
-        inds_all = nz[:, (0)]
-        labels_all = nz[:, (1)]
+        inds_all = nz[:, 0]
+        labels_all = nz[:, 1]
         scores_all = scores.data.view(-1)[inds_all * scores.data.size(1) + labels_all]
     vs, idx = torch.sort(scores_all, dim=0, descending=True)
     idx = idx[vs > thresh]
@@ -1194,8 +1194,8 @@ def _sel_inds(ious, gt_classes_i, fg_thresh=0.5, fg_rois_per_image=128, rois_per
     bg_rois_per_this_image = min(rois_per_image - fg_inds.shape[0], bg_inds.size)
     if bg_inds.size > 0:
         bg_inds = npr.choice(bg_inds, size=bg_rois_per_this_image, replace=False)
-    obj_inds = np.concatenate((fg_inds[:, (0)], bg_inds), 0)
-    obj_assignments_i = np.concatenate((fg_inds[:, (1)], np.zeros(bg_inds.shape[0], dtype=np.int64)))
+    obj_inds = np.concatenate((fg_inds[:, 0], bg_inds), 0)
+    obj_assignments_i = np.concatenate((fg_inds[:, 1], np.zeros(bg_inds.shape[0], dtype=np.int64)))
     obj_labels_i = gt_classes_i[obj_assignments_i]
     obj_labels_i[fg_inds.shape[0]:] = 0
     return obj_inds, obj_labels_i, obj_assignments_i
@@ -1231,9 +1231,9 @@ def proposal_assignments_det(rpn_rois, gt_boxes, gt_classes, image_offset, fg_th
         bbox_targets [num_rois, 4] array of targets for the labels.
     """
     fg_rois_per_image = int(np.round(ROIS_PER_IMG * FG_FRACTION))
-    gt_img_inds = gt_classes[:, (0)] - image_offset
+    gt_img_inds = gt_classes[:, 0] - image_offset
     all_boxes = torch.cat([rpn_rois[:, 1:], gt_boxes], 0)
-    ims_per_box = torch.cat([rpn_rois[:, (0)].long(), gt_img_inds], 0)
+    ims_per_box = torch.cat([rpn_rois[:, 0].long(), gt_img_inds], 0)
     im_sorted, idx = torch.sort(ims_per_box, 0)
     all_boxes = all_boxes[idx]
     num_images = int(im_sorted[-1]) + 1
@@ -1258,11 +1258,11 @@ def proposal_assignments_det(rpn_rois, gt_boxes, gt_classes, image_offset, fg_th
         if keep_inds_np.size == 0:
             continue
         keep_inds = torch.LongTensor(keep_inds_np)
-        labels_ = gt_classes[:, (1)][gt_assignment[keep_inds]]
+        labels_ = gt_classes[:, 1][gt_assignment[keep_inds]]
         bbox_target_ = gt_boxes[gt_assignment[keep_inds]]
         if num_fg < labels_.size(0):
             labels_[num_fg:] = 0
-        rois_ = torch.cat((im_sorted[t_start:t_end, (None)][keep_inds].float(), all_boxes[t_start:t_end][keep_inds]), 1)
+        rois_ = torch.cat((im_sorted[t_start:t_end, None][keep_inds].float(), all_boxes[t_start:t_end][keep_inds]), 1)
         labels.append(labels_)
         rois.append(rois_)
         bbox_targets.append(bbox_target_)
@@ -1321,33 +1321,33 @@ def proposal_assignments_gtbox(rois, gt_boxes, gt_classes, gt_rels, image_offset
         bbox_targets [num_rois, 4] array of targets for the labels.
         rel_labels: [num_rels, 4] (img ind, box0 ind, box1ind, rel type)
     """
-    im_inds = rois[:, (0)].long()
+    im_inds = rois[:, 0].long()
     num_im = im_inds[-1] + 1
     fg_rels = gt_rels.clone()
-    fg_rels[:, (0)] -= image_offset
+    fg_rels[:, 0] -= image_offset
     offset = {}
     for i, s, e in enumerate_by_image(im_inds):
         offset[i] = s
-    for i, s, e in enumerate_by_image(fg_rels[:, (0)]):
+    for i, s, e in enumerate_by_image(fg_rels[:, 0]):
         fg_rels[s:e, 1:3] += offset[i]
-    is_cand = im_inds[:, (None)] == im_inds[None]
+    is_cand = im_inds[:, None] == im_inds[None]
     is_cand.view(-1)[diagonal_inds(is_cand)] = 0
-    is_cand.view(-1)[fg_rels[:, (1)] * im_inds.size(0) + fg_rels[:, (2)]] = 0
+    is_cand.view(-1)[fg_rels[:, 1] * im_inds.size(0) + fg_rels[:, 2]] = 0
     is_bgcand = is_cand.nonzero()
     num_fg = min(fg_rels.size(0), int(RELS_PER_IMG * REL_FG_FRACTION * num_im))
     if num_fg < fg_rels.size(0):
         fg_rels = random_choose(fg_rels, num_fg)
     num_bg = min(is_bgcand.size(0) if is_bgcand.dim() > 0 else 0, int(RELS_PER_IMG * num_im) - num_fg)
     if num_bg > 0:
-        bg_rels = torch.cat((im_inds[is_bgcand[:, (0)]][:, (None)], is_bgcand, (is_bgcand[:, (0), (None)] < -10).long()), 1)
+        bg_rels = torch.cat((im_inds[is_bgcand[:, 0]][:, None], is_bgcand, (is_bgcand[:, 0, None] < -10).long()), 1)
         if num_bg < is_bgcand.size(0):
             bg_rels = random_choose(bg_rels, num_bg)
         rel_labels = torch.cat((fg_rels, bg_rels), 0)
     else:
         rel_labels = fg_rels
-    _, perm = torch.sort(rel_labels[:, (0)] * gt_boxes.size(0) ** 2 + rel_labels[:, (1)] * gt_boxes.size(0) + rel_labels[:, (2)])
+    _, perm = torch.sort(rel_labels[:, 0] * gt_boxes.size(0) ** 2 + rel_labels[:, 1] * gt_boxes.size(0) + rel_labels[:, 2])
     rel_labels = rel_labels[perm].contiguous()
-    labels = gt_classes[:, (1)].contiguous()
+    labels = gt_classes[:, 1].contiguous()
     return rois, labels, rel_labels
 
 
@@ -1473,12 +1473,12 @@ class ObjectDetector(nn.Module):
         :return:
         """
         assert gt_boxes is not None
-        im_inds = gt_classes[:, (0)] - image_offset
-        rois = torch.cat((im_inds.float()[:, (None)], gt_boxes), 1)
+        im_inds = gt_classes[:, 0] - image_offset
+        rois = torch.cat((im_inds.float()[:, None], gt_boxes), 1)
         if gt_rels is not None and self.training:
             rois, labels, rel_labels = proposal_assignments_gtbox(rois.data, gt_boxes.data, gt_classes.data, gt_rels.data, image_offset, fg_thresh=0.5)
         else:
-            labels = gt_classes[:, (1)]
+            labels = gt_classes[:, 1]
             rel_labels = None
         return rois, labels, None, None, None, rel_labels
 
@@ -1495,7 +1495,7 @@ class ObjectDetector(nn.Module):
         :return:
         """
         assert proposals is not None
-        rois = filter_roi_proposals(proposals[:, 2:].data.contiguous(), proposals[:, (1)].data.contiguous(), np.array([2000] * len(im_sizes)), nms_thresh=0.7, pre_nms_topn=12000 if self.training and self.mode == 'rpntrain' else 6000, post_nms_topn=2000 if self.training and self.mode == 'rpntrain' else 1000)
+        rois = filter_roi_proposals(proposals[:, 2:].data.contiguous(), proposals[:, 1].data.contiguous(), np.array([2000] * len(im_sizes)), nms_thresh=0.7, pre_nms_topn=12000 if self.training and self.mode == 'rpntrain' else 6000, post_nms_topn=2000 if self.training and self.mode == 'rpntrain' else 1000)
         if self.training:
             all_rois, labels, bbox_targets = proposal_assignments_det(rois, gt_boxes.data, gt_classes.data, image_offset, fg_thresh=0.5)
             all_rois = torch.cat((all_rois, Variable(rois)), 0)
@@ -1546,17 +1546,17 @@ class ObjectDetector(nn.Module):
             obj_dists = od_obj_dists[nms_inds]
             obj_fmap = obj_fmap[nms_inds]
             box_deltas = od_box_deltas[nms_inds]
-            box_priors = nms_boxes[:, (0)]
+            box_priors = nms_boxes[:, 0]
             if self.training and not self.mode == 'gtbox':
                 pred_to_gtbox = bbox_overlaps(box_priors, gt_boxes).data
-                pred_to_gtbox[im_inds.data[:, (None)] != gt_classes.data[(None), :, (0)]] = 0.0
+                pred_to_gtbox[im_inds.data[:, None] != gt_classes.data[None, :, 0]] = 0.0
                 max_overlaps, argmax_overlaps = pred_to_gtbox.max(1)
-                rm_obj_labels = gt_classes[:, (1)][argmax_overlaps]
+                rm_obj_labels = gt_classes[:, 1][argmax_overlaps]
                 rm_obj_labels[max_overlaps < 0.5] = 0
             else:
                 rm_obj_labels = None
         else:
-            im_inds = rois[:, (0)].long().contiguous() + image_offset
+            im_inds = rois[:, 0].long().contiguous() + image_offset
             nms_scores = None
             nms_preds = None
             nms_boxes_assign = None
@@ -1581,15 +1581,15 @@ class ObjectDetector(nn.Module):
             nms_boxes_assign [#nms, 4]
             nms_boxes  [#nms, #classes, 4]. classid=0 is the box prior.
         """
-        boxes = bbox_preds(rois[:, (None), 1:].expand_as(box_deltas).contiguous().view(-1, 4), box_deltas.view(-1, 4)).view(*box_deltas.size())
-        inds = rois[:, (0)].long().contiguous()
+        boxes = bbox_preds(rois[:, None, 1:].expand_as(box_deltas).contiguous().view(-1, 4), box_deltas.view(-1, 4)).view(*box_deltas.size())
+        inds = rois[:, 0].long().contiguous()
         dets = []
         for i, s, e in enumerate_by_image(inds.data):
-            h, w = im_sizes[(i), :2]
-            boxes[s:e, :, (0)].data.clamp_(min=0, max=w - 1)
-            boxes[s:e, :, (1)].data.clamp_(min=0, max=h - 1)
-            boxes[s:e, :, (2)].data.clamp_(min=0, max=w - 1)
-            boxes[s:e, :, (3)].data.clamp_(min=0, max=h - 1)
+            h, w = im_sizes[i, :2]
+            boxes[s:e, :, 0].data.clamp_(min=0, max=w - 1)
+            boxes[s:e, :, 1].data.clamp_(min=0, max=h - 1)
+            boxes[s:e, :, 2].data.clamp_(min=0, max=w - 1)
+            boxes[s:e, :, 3].data.clamp_(min=0, max=h - 1)
             d_filtered = filter_det(F.softmax(obj_dists[s:e], 1), boxes[s:e], start_ind=s, nms_filter_duplicates=self.nms_filter_duplicates, max_per_img=self.max_per_img, thresh=self.thresh)
             if d_filtered is not None:
                 dets.append(d_filtered)
@@ -1599,7 +1599,7 @@ class ObjectDetector(nn.Module):
         nms_inds, nms_scores, nms_labels = [torch.cat(x, 0) for x in zip(*dets)]
         twod_inds = nms_inds * boxes.size(1) + nms_labels.data
         nms_boxes_assign = boxes.view(-1, 4)[twod_inds]
-        nms_boxes = torch.cat((rois[:, 1:][nms_inds][:, (None)], boxes[nms_inds][:, 1:]), 1)
+        nms_boxes = torch.cat((rois[:, 1:][nms_inds][:, None], boxes[nms_inds][:, 1:]), 1)
         return nms_inds, nms_scores, nms_labels, nms_boxes_assign, nms_boxes, inds[nms_inds]
 
     def __getitem__(self, batch):
@@ -1753,7 +1753,7 @@ class LinearizedContext(nn.Module):
         """
         cxcywh = center_size(box_priors)
         if self.order == 'size':
-            sizes = cxcywh[:, (2)] * cxcywh[:, (3)]
+            sizes = cxcywh[:, 2] * cxcywh[:, 3]
             assert sizes.min() > 0.0
             scores = sizes / (sizes.max() + 1)
         elif self.order == 'confidence':
@@ -1761,7 +1761,7 @@ class LinearizedContext(nn.Module):
         elif self.order == 'random':
             scores = torch.FloatTensor(np.random.rand(batch_idx.size(0)))
         elif self.order == 'leftright':
-            centers = cxcywh[:, (0)]
+            centers = cxcywh[:, 0]
             scores = centers / (centers.max() + 1)
         else:
             raise ValueError('invalid mode {}'.format(self.order))
@@ -1846,10 +1846,10 @@ class LinearizedContext(nn.Module):
                 nms_mask = obj_dists2.data.clone()
                 nms_mask.zero_()
                 for c_i in range(1, obj_dists2.size(1)):
-                    scores_ci = probs.data[:, (c_i)]
-                    boxes_ci = boxes_per_cls.data[:, (c_i)]
+                    scores_ci = probs.data[:, c_i]
+                    boxes_ci = boxes_per_cls.data[:, c_i]
                     keep = apply_nms(scores_ci, boxes_ci, pre_nms_topn=scores_ci.size(0), post_nms_topn=scores_ci.size(0), nms_thresh=0.3)
-                    nms_mask[:, (c_i)][keep] = 1
+                    nms_mask[:, c_i][keep] = 1
                 obj_preds = Variable(nms_mask * probs.data, volatile=True)[:, 1:].max(1)[1] + 1
             else:
                 obj_preds = obj_labels if obj_labels is not None else obj_dists2[:, 1:].max(1)[1] + 1
@@ -1885,7 +1885,7 @@ def assertion_checks(entry):
     num_gt = entry['gt_boxes'].shape[0]
     if entry['gt_classes'].shape[0] != num_gt:
         raise ValueError('GT classes and GT boxes must have same number of examples')
-    assert (entry['gt_boxes'][:, (2)] >= entry['gt_boxes'][:, (0)]).all()
+    assert (entry['gt_boxes'][:, 2] >= entry['gt_boxes'][:, 0]).all()
     assert (entry['gt_boxes'] >= -1).all()
 
 
@@ -1924,7 +1924,7 @@ def load_graphs(graphs_file, mode='train', num_im=-1, num_val_im=0, filter_empty
             image_index = image_index[num_val_im:]
     split_mask = np.zeros_like(data_split).astype(bool)
     split_mask[image_index] = True
-    all_labels = roi_h5['labels'][:, (0)]
+    all_labels = roi_h5['labels'][:, 0]
     all_boxes = roi_h5['boxes_{}'.format(BOX_SCALE)][:]
     assert np.all(all_boxes[:, :2] >= 0)
     assert np.all(all_boxes[:, 2:] > 0)
@@ -1935,7 +1935,7 @@ def load_graphs(graphs_file, mode='train', num_im=-1, num_val_im=0, filter_empty
     im_to_first_rel = roi_h5['img_to_first_rel'][split_mask]
     im_to_last_rel = roi_h5['img_to_last_rel'][split_mask]
     _relations = roi_h5['relationships'][:]
-    _relation_predicates = roi_h5['predicates'][:, (0)]
+    _relation_predicates = roi_h5['predicates'][:, 0]
     assert im_to_first_rel.shape[0] == im_to_last_rel.shape[0]
     assert _relations.shape[0] == _relation_predicates.shape[0]
     boxes = []
@@ -1956,7 +1956,7 @@ def load_graphs(graphs_file, mode='train', num_im=-1, num_val_im=0, filter_empty
         if filter_non_overlap:
             assert mode == 'train'
             inters = bbox_overlaps(boxes_i, boxes_i)
-            rel_overs = inters[rels[:, (0)], rels[:, (1)]]
+            rel_overs = inters[rels[:, 0], rels[:, 1]]
             inc = np.where(rel_overs > 0.0)[0]
             if inc.size > 0:
                 rels = rels[inc]
@@ -2039,8 +2039,8 @@ class FrequencyBias(nn.Module):
         super(FrequencyBias, self).__init__()
         fg_matrix, bg_matrix = get_counts(must_overlap=True)
         bg_matrix += 1
-        fg_matrix[:, :, (0)] = bg_matrix
-        pred_dist = np.log(fg_matrix / fg_matrix.sum(2)[:, :, (None)] + eps)
+        fg_matrix[:, :, 0] = bg_matrix
+        pred_dist = np.log(fg_matrix / fg_matrix.sum(2)[:, :, None] + eps)
         self.num_objs = pred_dist.shape[0]
         pred_dist = torch.FloatTensor(pred_dist).view(-1, pred_dist.shape[2])
         self.obj_baseline = nn.Embedding(pred_dist.size(0), pred_dist.size(1))
@@ -2051,7 +2051,7 @@ class FrequencyBias(nn.Module):
         :param labels: [batch_size, 2] 
         :return: 
         """
-        return self.obj_baseline(labels[:, (0)] * self.num_objs + labels[:, (1)])
+        return self.obj_baseline(labels[:, 0] * self.num_objs + labels[:, 1])
 
     def forward(self, obj_cands0, obj_cands1):
         """
@@ -2060,7 +2060,7 @@ class FrequencyBias(nn.Module):
         :return: [batch_size, #predicates] array, which contains potentials for
         each possibility
         """
-        joint_cands = obj_cands0[:, :, (None)] * obj_cands1[:, (None)]
+        joint_cands = obj_cands0[:, :, None] * obj_cands1[:, None]
         baseline = joint_cands.view(joint_cands.size(0), -1) @ self.obj_baseline.weight
         return baseline
 
@@ -2085,8 +2085,8 @@ def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
     num_rel = rel_inds.size(0)
     assert rel_inds.size(1) == 2
     assert pred_scores.size(0) == num_rel
-    obj_scores0 = obj_scores.data[rel_inds[:, (0)]]
-    obj_scores1 = obj_scores.data[rel_inds[:, (1)]]
+    obj_scores0 = obj_scores.data[rel_inds[:, 0]]
+    obj_scores1 = obj_scores.data[rel_inds[:, 1]]
     pred_scores_max, pred_classes_argmax = pred_scores.data[:, 1:].max(1)
     pred_classes_argmax = pred_classes_argmax + 1
     rel_scores_argmaxed = pred_scores_max * obj_scores0 * obj_scores1
@@ -2122,21 +2122,21 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
     gt_boxes_np = gt_boxes.cpu().numpy()
     gt_classes_np = gt_classes.cpu().numpy()
     gt_rels_np = gt_rels.cpu().numpy()
-    gt_classes_np[:, (0)] -= image_offset
-    gt_rels_np[:, (0)] -= image_offset
-    num_im = gt_classes_np[:, (0)].max() + 1
+    gt_classes_np[:, 0] -= image_offset
+    gt_rels_np[:, 0] -= image_offset
+    num_im = gt_classes_np[:, 0].max() + 1
     rel_labels = []
     num_box_seen = 0
     for im_ind in range(num_im):
         pred_ind = np.where(pred_inds_np == im_ind)[0]
-        gt_ind = np.where(gt_classes_np[:, (0)] == im_ind)[0]
+        gt_ind = np.where(gt_classes_np[:, 0] == im_ind)[0]
         gt_boxes_i = gt_boxes_np[gt_ind]
         gt_classes_i = gt_classes_np[gt_ind, 1]
-        gt_rels_i = gt_rels_np[(gt_rels_np[:, (0)] == im_ind), 1:]
+        gt_rels_i = gt_rels_np[gt_rels_np[:, 0] == im_ind, 1:]
         pred_boxes_i = pred_boxes_np[pred_ind]
         pred_boxlabels_i = pred_boxlabels_np[pred_ind]
         ious = bbox_overlaps(pred_boxes_i, gt_boxes_i)
-        is_match = (pred_boxlabels_i[:, (None)] == gt_classes_i[None]) & (ious >= fg_thresh)
+        is_match = (pred_boxlabels_i[:, None] == gt_classes_i[None]) & (ious >= fg_thresh)
         pbi_iou = bbox_overlaps(pred_boxes_i, pred_boxes_i)
         if filter_non_overlap:
             rel_possibilities = (pbi_iou < 1) & (pbi_iou > 0)
@@ -2145,14 +2145,14 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
             rel_possibilities = np.ones((pred_boxes_i.shape[0], pred_boxes_i.shape[0]), dtype=np.int64) - np.eye(pred_boxes_i.shape[0], dtype=np.int64)
             rels_intersect = (pbi_iou < 1) & (pbi_iou > 0)
         rel_possibilities[pred_boxlabels_i == 0] = 0
-        rel_possibilities[:, (pred_boxlabels_i == 0)] = 0
+        rel_possibilities[:, pred_boxlabels_i == 0] = 0
         fg_rels = []
         p_size = []
         for i, (from_gtind, to_gtind, rel_id) in enumerate(gt_rels_i):
             fg_rels_i = []
             fg_scores_i = []
-            for from_ind in np.where(is_match[:, (from_gtind)])[0]:
-                for to_ind in np.where(is_match[:, (to_gtind)])[0]:
+            for from_ind in np.where(is_match[:, from_gtind])[0]:
+                for to_ind in np.where(is_match[:, to_gtind])[0]:
                     if from_ind != to_ind:
                         fg_rels_i.append((from_ind, to_ind, rel_id))
                         fg_scores_i.append(ious[from_ind, from_gtind] * ious[to_ind, to_gtind])
@@ -2181,7 +2181,7 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
             bg_rels = np.array([[0, 0, 0]], dtype=np.int64)
         all_rels_i = np.concatenate((fg_rels, bg_rels), 0)
         all_rels_i[:, 0:2] += num_box_seen
-        all_rels_i = all_rels_i[np.lexsort((all_rels_i[:, (1)], all_rels_i[:, (0)]))]
+        all_rels_i = all_rels_i[np.lexsort((all_rels_i[:, 1], all_rels_i[:, 0]))]
         rel_labels.append(np.column_stack((im_ind * np.ones(all_rels_i.shape[0], dtype=np.int64), all_rels_i)))
         num_box_seen += pred_boxes_i.shape[0]
     rel_labels = torch.LongTensor(np.concatenate(rel_labels, 0))
@@ -2278,7 +2278,7 @@ class RelModel(nn.Module):
         if self.training:
             rel_inds = rel_labels[:, :3].data.clone()
         else:
-            rel_cands = im_inds.data[:, (None)] == im_inds.data[None]
+            rel_cands = im_inds.data[:, None] == im_inds.data[None]
             rel_cands.view(-1)[diagonal_inds(rel_cands)] = 0
             if self.require_overlap:
                 rel_cands = rel_cands & (bbox_overlaps(box_priors.data, box_priors.data) > 0)
@@ -2286,7 +2286,7 @@ class RelModel(nn.Module):
             rel_cands = rel_cands.nonzero()
             if rel_cands.dim() == 0:
                 rel_cands = im_inds.data.new(1, 2).fill_(0)
-            rel_inds = torch.cat((im_inds.data[rel_cands[:, (0)]][:, (None)], rel_cands), 1)
+            rel_inds = torch.cat((im_inds.data[rel_cands[:, 0]][:, None], rel_cands), 1)
         return rel_inds
 
     def obj_feature_map(self, features, rois):
@@ -2328,7 +2328,7 @@ class RelModel(nn.Module):
             assert self.mode == 'sgdet'
             result.rel_labels = rel_assignments(im_inds.data, boxes.data, result.rm_obj_labels.data, gt_boxes.data, gt_classes.data, gt_rels.data, image_offset, filter_non_overlap=True, num_sample_per_gt=1)
         rel_inds = self.get_rel_inds(result.rel_labels, im_inds, boxes)
-        rois = torch.cat((im_inds[:, (None)].float(), boxes), 1)
+        rois = torch.cat((im_inds[:, None].float(), boxes), 1)
         result.obj_fmap = self.obj_feature_map(result.fmap.detach(), rois)
         result.rm_obj_dists, result.obj_preds, edge_ctx = self.context(result.obj_fmap, result.rm_obj_dists.detach(), im_inds, result.rm_obj_labels if self.training or self.mode == 'predcls' else None, boxes.data, result.boxes_all)
         if edge_ctx is None:
@@ -2336,9 +2336,9 @@ class RelModel(nn.Module):
         else:
             edge_rep = self.post_lstm(edge_ctx)
         edge_rep = edge_rep.view(edge_rep.size(0), 2, self.pooling_dim)
-        subj_rep = edge_rep[:, (0)]
-        obj_rep = edge_rep[:, (1)]
-        prod_rep = subj_rep[rel_inds[:, (1)]] * obj_rep[rel_inds[:, (2)]]
+        subj_rep = edge_rep[:, 0]
+        obj_rep = edge_rep[:, 1]
+        prod_rep = subj_rep[rel_inds[:, 1]] * obj_rep[rel_inds[:, 2]]
         if self.use_vision:
             vr = self.visual_rep(result.fmap.detach(), rois, rel_inds[:, 1:])
             if self.limit_vision:
@@ -2349,7 +2349,7 @@ class RelModel(nn.Module):
             prod_rep = F.tanh(prod_rep)
         result.rel_dists = self.rel_compress(prod_rep)
         if self.use_bias:
-            result.rel_dists = result.rel_dists + self.freq_bias.index_with_labels(torch.stack((result.obj_preds[rel_inds[:, (1)]], result.obj_preds[rel_inds[:, (2)]]), 1))
+            result.rel_dists = result.rel_dists + self.freq_bias.index_with_labels(torch.stack((result.obj_preds[rel_inds[:, 1]], result.obj_preds[rel_inds[:, 2]]), 1))
         if self.training:
             return result
         twod_inds = arange(result.obj_preds.data) * self.num_classes + result.obj_preds.data
@@ -2414,18 +2414,18 @@ class RelModelStanford(RelModel):
         """
         numer = torch.arange(0, rel_inds.size(0)).long()
         objs_to_outrels = rel_rep.data.new(obj_rep.size(0), rel_rep.size(0)).zero_()
-        objs_to_outrels.view(-1)[rel_inds[:, (0)] * rel_rep.size(0) + numer] = 1
+        objs_to_outrels.view(-1)[rel_inds[:, 0] * rel_rep.size(0) + numer] = 1
         objs_to_outrels = Variable(objs_to_outrels)
         objs_to_inrels = rel_rep.data.new(obj_rep.size(0), rel_rep.size(0)).zero_()
-        objs_to_inrels.view(-1)[rel_inds[:, (1)] * rel_rep.size(0) + numer] = 1
+        objs_to_inrels.view(-1)[rel_inds[:, 1] * rel_rep.size(0) + numer] = 1
         objs_to_inrels = Variable(objs_to_inrels)
         hx_rel = Variable(rel_rep.data.new(rel_rep.size(0), SIZE).zero_(), requires_grad=False)
         hx_obj = Variable(obj_rep.data.new(obj_rep.size(0), SIZE).zero_(), requires_grad=False)
         vert_factor = [self.node_gru(obj_rep, hx_obj)]
         edge_factor = [self.edge_gru(rel_rep, hx_rel)]
         for i in range(3):
-            sub_vert = vert_factor[i][rel_inds[:, (0)]]
-            obj_vert = vert_factor[i][rel_inds[:, (1)]]
+            sub_vert = vert_factor[i][rel_inds[:, 0]]
+            obj_vert = vert_factor[i][rel_inds[:, 1]]
             weighted_sub = self.sub_vert_w_fc(torch.cat((sub_vert, edge_factor[i]), 1)) * sub_vert
             weighted_obj = self.obj_vert_w_fc(torch.cat((obj_vert, edge_factor[i]), 1)) * obj_vert
             edge_factor.append(self.edge_gru(weighted_sub + weighted_obj, edge_factor[i]))
@@ -2464,7 +2464,7 @@ class RelModelStanford(RelModel):
             assert self.mode == 'sgdet'
             result.rel_labels = rel_assignments(im_inds.data, boxes.data, result.rm_obj_labels.data, gt_boxes.data, gt_classes.data, gt_rels.data, image_offset, filter_non_overlap=True, num_sample_per_gt=1)
         rel_inds = self.get_rel_inds(result.rel_labels, im_inds, boxes)
-        rois = torch.cat((im_inds[:, (None)].float(), boxes), 1)
+        rois = torch.cat((im_inds[:, None].float(), boxes), 1)
         visual_rep = self.visual_rep(result.fmap, rois, rel_inds[:, 1:])
         result.obj_fmap = self.obj_feature_map(result.fmap.detach(), rois)
         result.rm_obj_dists, result.rel_dists = self.message_pass(F.relu(self.edge_unary(visual_rep)), self.obj_unary(result.obj_fmap), rel_inds[:, 1:])
@@ -2472,7 +2472,7 @@ class RelModelStanford(RelModel):
             return result
         if self.mode == 'predcls':
             result.obj_scores = result.rm_obj_dists.data.new(gt_classes.size(0)).fill_(1)
-            result.obj_preds = gt_classes.data[:, (1)]
+            result.obj_preds = gt_classes.data[:, 1]
         elif self.mode == 'sgdet':
             order, obj_scores, obj_preds = filter_det(F.softmax(result.rm_obj_dists), result.boxes_all, start_ind=0, max_per_img=100, thresh=0.0, pre_nms_topn=6000, post_nms_topn=300, nms_thresh=0.3, nms_filter_duplicates=True)
             idx, perm = torch.sort(order)
@@ -2482,10 +2482,10 @@ class RelModelStanford(RelModel):
             result.obj_preds[idx] = obj_preds.data[perm]
         else:
             scores_nz = F.softmax(result.rm_obj_dists).data
-            scores_nz[:, (0)] = 0.0
+            scores_nz[:, 0] = 0.0
             result.obj_scores, score_ord = scores_nz[:, 1:].sort(dim=1, descending=True)
-            result.obj_preds = score_ord[:, (0)] + 1
-            result.obj_scores = result.obj_scores[:, (0)]
+            result.obj_preds = score_ord[:, 0] + 1
+            result.obj_scores = result.obj_scores[:, 0]
         result.obj_preds = Variable(result.obj_preds)
         result.obj_scores = Variable(result.obj_scores)
         twod_inds = arange(result.obj_preds.data) * self.num_classes + result.obj_preds.data

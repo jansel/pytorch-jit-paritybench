@@ -101,7 +101,7 @@ class SupConLoss(nn.Module):
         contrast_count = features.shape[1]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
         if self.contrast_mode == 'one':
-            anchor_feature = features[:, (0)]
+            anchor_feature = features[:, 0]
             anchor_count = 1
         elif self.contrast_mode == 'all':
             anchor_feature = contrast_feature
@@ -327,7 +327,7 @@ TESTCASES = [
     (SupConLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (SupConResNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),

@@ -1,19 +1,12 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+load_LINEMOD = _module
 load_blender = _module
 load_deepvoxels = _module
 load_llff = _module
 run_nerf = _module
 run_nerf_helpers = _module
-benchmark = _module
-test = _module
-setup = _module
-torchsearchsorted = _module
-searchsorted = _module
-utils = _module
-conftest = _module
-test_searchsorted = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -53,31 +46,7 @@ import time
 import torch.nn as nn
 
 
-from torch.utils.tensorboard import SummaryWriter
-
-
 import matplotlib.pyplot as plt
-
-
-from torch.utils.cpp_extension import BuildExtension
-
-
-from torch.utils.cpp_extension import CUDA_HOME
-
-
-from torch.utils.cpp_extension import CppExtension
-
-
-from torch.utils.cpp_extension import CUDAExtension
-
-
-from typing import Optional
-
-
-from itertools import product
-
-
-from itertools import repeat
 
 
 class NeRF(nn.Module):

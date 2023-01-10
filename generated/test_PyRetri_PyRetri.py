@@ -196,9 +196,6 @@ from torch.nn import init
 from torch.autograd import Variable
 
 
-from torchvision.models.utils import load_state_dict_from_url
-
-
 from torch.nn import Parameter
 
 
@@ -389,7 +386,7 @@ class PCB(nn.Module):
         part = {}
         predict = {}
         for i in range(self.part):
-            part[i] = torch.squeeze(x[:, :, (i)])
+            part[i] = torch.squeeze(x[:, :, i])
             name = 'classifier' + str(i)
             c = getattr(self, name)
             predict[i] = c(part[i])

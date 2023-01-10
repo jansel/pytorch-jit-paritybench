@@ -1013,7 +1013,7 @@ def fill_up_weights(up):
         for j in range(w.size(3)):
             w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j / f - c))
     for c in range(1, w.size(0)):
-        w[(c), (0), :, :] = w[(0), (0), :, :]
+        w[c, 0, :, :] = w[0, 0, :, :]
 
 
 class DRNSeg(nn.Module):
@@ -1419,7 +1419,7 @@ class ConvLSTM(nn.Module):
             h, c = hidden_state[layer_idx]
             output_inner = []
             for t in range(seq_len):
-                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, (t), :, :, :], cur_state=[h, c])
+                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, t, :, :, :], cur_state=[h, c])
                 output_inner.append(h)
             layer_output = torch.stack(output_inner, dim=1)
             cur_layer_input = layer_output
@@ -4298,9 +4298,9 @@ class yoloLoss(nn.Module):
         rb = torch.min(box1[:, 2:].unsqueeze(1).expand(N, M, 2), box2[:, 2:].unsqueeze(0).expand(N, M, 2))
         wh = rb - lt
         wh[wh < 0] = 0
-        inter = wh[:, :, (0)] * wh[:, :, (1)]
-        area1 = (box1[:, (2)] - box1[:, (0)]) * (box1[:, (3)] - box1[:, (1)])
-        area2 = (box2[:, (2)] - box2[:, (0)]) * (box2[:, (3)] - box2[:, (1)])
+        inter = wh[:, :, 0] * wh[:, :, 1]
+        area1 = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
+        area2 = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
         area1 = area1.unsqueeze(1).expand_as(inter)
         area2 = area2.unsqueeze(0).expand_as(inter)
         iou = inter / (area1 + area2 - inter)
@@ -4312,8 +4312,8 @@ class yoloLoss(nn.Module):
         target_tensor: (tensor) size(batchsize,S,S,30)
         """
         N = pred_tensor.size()[0]
-        coo_mask = target_tensor[:, :, :, (4)] > 0
-        noo_mask = target_tensor[:, :, :, (4)] == 0
+        coo_mask = target_tensor[:, :, :, 4] > 0
+        noo_mask = target_tensor[:, :, :, 4] == 0
         coo_mask = coo_mask.unsqueeze(-1).expand_as(target_tensor)
         noo_mask = noo_mask.unsqueeze(-1).expand_as(target_tensor)
         coo_pred = pred_tensor[coo_mask].view(-1, self.out_tensor_shape)
@@ -4329,8 +4329,8 @@ class yoloLoss(nn.Module):
         else:
             noo_pred_mask = torch.ByteTensor(noo_pred.size())
         noo_pred_mask.zero_()
-        noo_pred_mask[:, (4)] = 1
-        noo_pred_mask[:, (9)] = 1
+        noo_pred_mask[:, 4] = 1
+        noo_pred_mask[:, 9] = 1
         noo_pred_c = noo_pred[noo_pred_mask]
         noo_target_c = noo_target[noo_pred_mask]
         nooobj_loss = F.mse_loss(noo_pred_c, noo_target_c, size_average=False)
@@ -4376,12 +4376,12 @@ class yoloLoss(nn.Module):
         box_pred_response = box_pred[coo_response_mask].view(-1, 5)
         box_target_response_iou = box_target_iou[coo_response_mask].view(-1, 5)
         box_target_response = box_target[coo_response_mask].view(-1, 5)
-        contain_loss = F.mse_loss(box_pred_response[:, (4)], box_target_response_iou[:, (4)], size_average=False)
+        contain_loss = F.mse_loss(box_pred_response[:, 4], box_target_response_iou[:, 4], size_average=False)
         loc_loss = F.mse_loss(box_pred_response[:, :2], box_target_response[:, :2], size_average=False) + F.mse_loss(torch.sqrt(box_pred_response[:, 2:4]), torch.sqrt(box_target_response[:, 2:4]), size_average=False)
         box_pred_not_response = box_pred[coo_not_response_mask].view(-1, 5)
         box_target_not_response = box_target[coo_not_response_mask].view(-1, 5)
-        box_target_not_response[:, (4)] = 0
-        not_contain_loss = F.mse_loss(box_pred_not_response[:, (4)], box_target_not_response[:, (4)], size_average=False)
+        box_target_not_response[:, 4] = 0
+        not_contain_loss = F.mse_loss(box_pred_not_response[:, 4], box_target_not_response[:, 4], size_average=False)
         class_loss = F.mse_loss(class_pred, class_target, size_average=False)
         return (self.l_coord * loc_loss + 2 * contain_loss + not_contain_loss + self.l_noobj * nooobj_loss + class_loss) / N
 
@@ -4397,10 +4397,6 @@ TESTCASES = [
      lambda: ([], {'dilation_series': [4, 4], 'padding_series': [4, 4], 'n_classes': 4}),
      lambda: ([torch.rand([4, 2048, 64, 64])], {}),
      False),
-    (AlignedResInception,
-     lambda: ([], {'in_planes': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (AttentionRefinementModule,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4417,10 +4413,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CascadeAlignedResInception,
-     lambda: ([], {'in_planes': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (CascadeResInception,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 512, 64, 64])], {}),
@@ -4433,10 +4425,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ConvLSTMCell,
-     lambda: ([], {'input_size': [4, 4], 'input_dim': 4, 'hidden_dim': 4, 'kernel_size': [4, 4], 'bias': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 65, 65]))], {}),
-     False),
     (Decoder,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 128, 4, 4])], {}),
@@ -4488,10 +4476,6 @@ TESTCASES = [
     (Inception,
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LRNRefineUnit,
-     lambda: ([], {'R_channel': 4, 'M_channel': 4}),
-     lambda: ([torch.rand([4, 4, 2, 2]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (ParallelDilatedConv,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
@@ -4596,23 +4580,23 @@ TESTCASES = [
     (segnetDown2,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (segnetDown3,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (segnetDown4,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (segnetUNetDown2,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (segnetUNetDown3,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (segnet_alignres,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -4803,16 +4787,4 @@ class Test_guanfuchen_semseg(_paritybench_base):
 
     def test_055(self):
         self._check(*TESTCASES[55])
-
-    def test_056(self):
-        self._check(*TESTCASES[56])
-
-    def test_057(self):
-        self._check(*TESTCASES[57])
-
-    def test_058(self):
-        self._check(*TESTCASES[58])
-
-    def test_059(self):
-        self._check(*TESTCASES[59])
 

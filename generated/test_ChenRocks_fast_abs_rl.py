@@ -354,7 +354,7 @@ class StackedLSTMCells(nn.Module):
         hs = []
         cs = []
         for i, cell in enumerate(self._cells):
-            s = state[0][(i), :, :], state[1][(i), :, :]
+            s = state[0][i, :, :], state[1][i, :, :]
             h, c = cell(input_, s)
             hs.append(h)
             cs.append(c)
@@ -428,7 +428,7 @@ def len_mask(lens, device):
     mask = torch.ByteTensor(batch_size, max_len)
     mask.fill_(0)
     for i, l in enumerate(lens):
-        mask[(i), :l].fill_(1)
+        mask[i, :l].fill_(1)
     return mask
 
 
@@ -497,7 +497,7 @@ class LSTMPointerNet(nn.Module):
             ext = score.max(dim=0)[1].item()
             extracts.append(ext)
             lstm_states = h, c
-            lstm_in = attn_mem[:, (ext), :]
+            lstm_in = attn_mem[:, ext, :]
         return extracts
 
     def _prepare(self, attn_mem):
@@ -599,7 +599,7 @@ class PtrExtractorRL(nn.Module):
         lstm_states = self._init_h.unsqueeze(1), self._init_c.unsqueeze(1)
         for _ in range(n_step):
             h, c = self._lstm_cell(lstm_in, lstm_states)
-            query = h[:, (-1), :]
+            query = h[:, -1, :]
             for _ in range(self._n_hop):
                 query = PtrExtractorRL.attention(hop_feat, query, self._hop_v, self._hop_wq)
             score = PtrExtractorRL.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
@@ -656,7 +656,7 @@ class PtrExtractorRLStop(PtrExtractorRL):
         lstm_states = self._init_h.unsqueeze(1), self._init_c.unsqueeze(1)
         while True:
             h, c = self._lstm_cell(lstm_in, lstm_states)
-            query = h[:, (-1), :]
+            query = h[:, -1, :]
             for _ in range(self._n_hop):
                 query = PtrExtractorRL.attention(hop_feat, query, self._hop_v, self._hop_wq)
             score = PtrExtractorRL.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
@@ -708,7 +708,7 @@ class PtrScorer(nn.Module):
         lstm_states = self._init_h.unsqueeze(1), self._init_c.unsqueeze(1)
         for _ in range(n_step):
             h, c = self._lstm_cell(lstm_in, lstm_states)
-            query = h[:, (-1), :]
+            query = h[:, -1, :]
             for _ in range(self._n_hop):
                 query = PtrScorer.attention(hop_feat, hop_feat, query, self._hop_v, self._hop_wq)
             output = PtrScorer.attention(attn_mem, attn_feat, query, self._attn_v, self._attn_wq)
@@ -871,7 +871,7 @@ class Seq2SeqSumm(nn.Module):
         states = init_dec_states
         for i in range(max_len):
             tok, states, attn_score = self._decoder.decode_step(tok, states, attention)
-            outputs.append(tok[:, (0)])
+            outputs.append(tok[:, 0])
             attns.append(attn_score)
         return outputs, attns
 
@@ -903,10 +903,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (LSTMPointerNet,
-     lambda: ([], {'input_dim': 4, 'n_hidden': 4, 'n_layer': 1, 'dropout': 0.5, 'n_hop': 4}),
-     lambda: ([torch.rand([2, 4, 4]), [4, 4], torch.rand([2, 4, 4])], {}),
-     False),
     (_CopyLinear,
      lambda: ([], {'context_dim': 4, 'state_dim': 4, 'input_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -916,7 +912,4 @@ TESTCASES = [
 class Test_ChenRocks_fast_abs_rl(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

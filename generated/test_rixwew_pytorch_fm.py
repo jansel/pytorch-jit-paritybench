@@ -4,6 +4,7 @@ del sys
 conf = _module
 main = _module
 setup = _module
+test_layers = _module
 torchfm = _module
 dataset = _module
 avazu = _module
@@ -20,6 +21,7 @@ ffm = _module
 fm = _module
 fnfm = _module
 fnn = _module
+hofm = _module
 lr = _module
 ncf = _module
 nfm = _module
@@ -56,10 +58,10 @@ from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 
 
-from collections import defaultdict
-
-
 import numpy as np
+
+
+from collections import defaultdict
 
 
 import torch.utils.data
@@ -128,7 +130,7 @@ class FieldAwareFactorizationMachine(torch.nn.Module):
         ix = list()
         for i in range(self.num_fields - 1):
             for j in range(i + 1, self.num_fields):
-                ix.append(xs[j][:, (i)] * xs[i][:, (j)])
+                ix.append(xs[j][:, i] * xs[i][:, j])
         ix = torch.stack(ix, dim=1)
         return ix
 
@@ -168,7 +170,7 @@ class MultiLayerPerceptron(torch.nn.Module):
 
     def forward(self, x):
         """
-        :param x: Float tensor of size ``(batch_size, num_fields, embed_dim)``
+        :param x: Float tensor of size ``(batch_size, embed_dim)``
         """
         return self.mlp(x)
 
@@ -184,7 +186,7 @@ class InnerProductNetwork(torch.nn.Module):
         for i in range(num_fields - 1):
             for j in range(i + 1, num_fields):
                 row.append(i), col.append(j)
-        return torch.sum(x[:, (row)] * x[:, (col)], dim=2)
+        return torch.sum(x[:, row] * x[:, col], dim=2)
 
 
 class OuterProductNetwork(torch.nn.Module):
@@ -213,7 +215,7 @@ class OuterProductNetwork(torch.nn.Module):
         for i in range(num_fields - 1):
             for j in range(i + 1, num_fields):
                 row.append(i), col.append(j)
-        p, q = x[:, (row)], x[:, (col)]
+        p, q = x[:, row], x[:, col]
         if self.kernel_type == 'mat':
             kp = torch.sum(p.unsqueeze(1) * self.kernel, dim=-1).permute(0, 2, 1)
             return torch.sum(kp * q, -1)
@@ -258,13 +260,13 @@ class AttentionalFactorizationMachine(torch.nn.Module):
         for i in range(num_fields - 1):
             for j in range(i + 1, num_fields):
                 row.append(i), col.append(j)
-        p, q = x[:, (row)], x[:, (col)]
+        p, q = x[:, row], x[:, col]
         inner_product = p * q
         attn_scores = F.relu(self.attention(inner_product))
         attn_scores = F.softmax(self.projection(attn_scores), dim=1)
-        attn_scores = F.dropout(attn_scores, p=self.dropouts[0])
+        attn_scores = F.dropout(attn_scores, p=self.dropouts[0], training=self.training)
         attn_output = torch.sum(attn_scores * inner_product, dim=1)
-        attn_output = F.dropout(attn_output, p=self.dropouts[1])
+        attn_output = F.dropout(attn_output, p=self.dropouts[1], training=self.training)
         return self.fc(attn_output)
 
 
@@ -302,6 +304,30 @@ class CompressedInteractionNetwork(torch.nn.Module):
                 h = x
             xs.append(x)
         return self.fc(torch.sum(torch.cat(xs, dim=1), 2))
+
+
+class AnovaKernel(torch.nn.Module):
+
+    def __init__(self, order, reduce_sum=True):
+        super().__init__()
+        self.order = order
+        self.reduce_sum = reduce_sum
+
+    def forward(self, x):
+        """
+        :param x: Float tensor of size ``(batch_size, num_fields, embed_dim)``
+        """
+        batch_size, num_fields, embed_dim = x.shape
+        a_prev = torch.ones((batch_size, num_fields + 1, embed_dim), dtype=torch.float)
+        for t in range(self.order):
+            a = torch.zeros((batch_size, num_fields + 1, embed_dim), dtype=torch.float)
+            a[:, t + 1:, :] += x[:, t:, :] * a_prev[:, t:-1, :]
+            a = torch.cumsum(a, dim=1)
+            a_prev = a
+        if self.reduce_sum:
+            return torch.sum(a[:, -1, :], dim=-1, keepdim=True)
+        else:
+            return a[:, -1, :]
 
 
 class AutomaticFeatureInteractionModel(torch.nn.Module):
@@ -592,6 +618,42 @@ class FactorizationSupportedNeuralNetworkModel(torch.nn.Module):
         return torch.sigmoid(x.squeeze(1))
 
 
+class HighOrderFactorizationMachineModel(torch.nn.Module):
+    """
+    A pytorch implementation of Higher-Order Factorization Machines.
+
+    Reference:
+        M Blondel, et al. Higher-Order Factorization Machines, 2016.
+    """
+
+    def __init__(self, field_dims, order, embed_dim):
+        super().__init__()
+        if order < 1:
+            raise ValueError(f'invalid order: {order}')
+        self.order = order
+        self.embed_dim = embed_dim
+        self.linear = FeaturesLinear(field_dims)
+        if order >= 2:
+            self.embedding = FeaturesEmbedding(field_dims, embed_dim * (order - 1))
+            self.fm = FactorizationMachine(reduce_sum=True)
+        if order >= 3:
+            self.kernels = torch.nn.ModuleList([AnovaKernel(order=i, reduce_sum=True) for i in range(3, order + 1)])
+
+    def forward(self, x):
+        """
+        :param x: Long tensor of size ``(batch_size, num_fields)``
+        """
+        y = self.linear(x).squeeze(1)
+        if self.order >= 2:
+            x = self.embedding(x)
+            x_part = x[:, :, :self.embed_dim]
+            y += self.fm(x_part).squeeze(1)
+            for i in range(self.order - 2):
+                x_part = x[:, :, (i + 1) * self.embed_dim:(i + 2) * self.embed_dim]
+                y += self.kernels[i](x_part).squeeze(1)
+        return torch.sigmoid(y)
+
+
 class LogisticRegressionModel(torch.nn.Module):
     """
     A pytorch implementation of Logistic Regression.
@@ -630,8 +692,8 @@ class NeuralCollaborativeFiltering(torch.nn.Module):
         :param x: Long tensor of size ``(batch_size, num_user_fields)``
         """
         x = self.embedding(x)
-        user_x = x[:, (self.user_field_idx)].squeeze(1)
-        item_x = x[:, (self.item_field_idx)].squeeze(1)
+        user_x = x[:, self.user_field_idx].squeeze(1)
+        item_x = x[:, self.item_field_idx].squeeze(1)
         x = self.mlp(x.view(-1, self.embed_output_dim))
         gmf = user_x * item_x
         x = torch.cat([gmf, x], dim=1)
@@ -751,6 +813,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AnovaKernel,
+     lambda: ([], {'order': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
     (CompressedInteractionNetwork,
      lambda: ([], {'input_dim': 4, 'cross_layer_sizes': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -759,46 +825,10 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4, 'num_layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DeepCrossNetworkModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'num_layers': 1, 'mlp_dims': [4, 4], 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (DeepFactorizationMachineModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (ExtremeDeepFactorizationMachineModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5, 'cross_layer_sizes': [4, 4]}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
     (FactorizationMachine,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (FactorizationMachineModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (FactorizationSupportedNeuralNetworkModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (FeaturesEmbedding,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (FeaturesLinear,
-     lambda: ([], {'field_dims': [4, 4]}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (FieldAwareFactorizationMachine,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (FieldAwareFactorizationMachineModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
     (InnerProductNetwork,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -807,10 +837,6 @@ TESTCASES = [
      lambda: ([], {'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LogisticRegressionModel,
-     lambda: ([], {'field_dims': [4, 4]}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
     (MultiLayerPerceptron,
      lambda: ([], {'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -818,14 +844,6 @@ TESTCASES = [
     (OuterProductNetwork,
      lambda: ([], {'num_fields': 4, 'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
-    (ProductNeuralNetworkModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
-     False),
-    (WideAndDeepModel,
-     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 2], dtype=torch.int64)], {}),
      False),
 ]
 
@@ -853,37 +871,4 @@ class Test_rixwew_pytorch_fm(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
 

@@ -302,10 +302,10 @@ class RoIPool(nn.Module):
                     wend = min(data_width, max(0, wend + roi_start_w))
                     is_empty = hend <= hstart or wend <= wstart
                     if is_empty:
-                        outputs[(roi_ind), :, (ph), (pw)] = 0
+                        outputs[roi_ind, :, ph, pw] = 0
                     else:
                         data = features[batch_ind]
-                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
+                        outputs[roi_ind, :, ph, pw] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
         return outputs
 
 
@@ -313,18 +313,18 @@ def bbox_transform_inv(boxes, deltas):
     if boxes.shape[0] == 0:
         return np.zeros((0,), dtype=deltas.dtype)
     boxes = boxes.astype(deltas.dtype, copy=False)
-    widths = boxes[:, (2)] - boxes[:, (0)] + 1.0
-    heights = boxes[:, (3)] - boxes[:, (1)] + 1.0
-    ctr_x = boxes[:, (0)] + 0.5 * widths
-    ctr_y = boxes[:, (1)] + 0.5 * heights
+    widths = boxes[:, 2] - boxes[:, 0] + 1.0
+    heights = boxes[:, 3] - boxes[:, 1] + 1.0
+    ctr_x = boxes[:, 0] + 0.5 * widths
+    ctr_y = boxes[:, 1] + 0.5 * heights
     dx = deltas[:, 0::4]
     dy = deltas[:, 1::4]
     dw = deltas[:, 2::4]
     dh = deltas[:, 3::4]
-    pred_ctr_x = dx * widths[:, (np.newaxis)] + ctr_x[:, (np.newaxis)]
-    pred_ctr_y = dy * heights[:, (np.newaxis)] + ctr_y[:, (np.newaxis)]
-    pred_w = np.exp(dw) * widths[:, (np.newaxis)]
-    pred_h = np.exp(dh) * heights[:, (np.newaxis)]
+    pred_ctr_x = dx * widths[:, np.newaxis] + ctr_x[:, np.newaxis]
+    pred_ctr_y = dy * heights[:, np.newaxis] + ctr_y[:, np.newaxis]
+    pred_w = np.exp(dw) * widths[:, np.newaxis]
+    pred_h = np.exp(dh) * heights[:, np.newaxis]
     pred_boxes = np.zeros(deltas.shape, dtype=deltas.dtype)
     pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w
     pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
@@ -356,7 +356,7 @@ def im_list_to_blob(ims):
     blob = np.zeros((num_images, max_shape[0], max_shape[1], 3), dtype=np.float32)
     for i in xrange(num_images):
         im = ims[i]
-        blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
+        blob[i, 0:im.shape[0], 0:im.shape[1], :] = im
     return blob
 
 
@@ -371,7 +371,7 @@ def nms(dets, thresh, force_cpu=False):
 
 
 def nms_detections(pred_boxes, scores, nms_thresh, inds=None):
-    dets = np.hstack((pred_boxes, scores[:, (np.newaxis)])).astype(np.float32)
+    dets = np.hstack((pred_boxes, scores[:, np.newaxis])).astype(np.float32)
     keep = nms(dets, nms_thresh)
     if inds is None:
         return pred_boxes[keep], scores[keep]
@@ -476,8 +476,8 @@ class FasterRCNN(nn.Module):
         scores, inds = scores[keep], inds[keep]
         keep = keep[0]
         box_deltas = bbox_pred.data.cpu().numpy()[keep]
-        box_deltas = np.asarray([box_deltas[(i), inds[i] * 4:inds[i] * 4 + 4] for i in range(len(inds))], dtype=np.float)
-        boxes = rois.data.cpu().numpy()[(keep), 1:5] / im_info[0][2]
+        box_deltas = np.asarray([box_deltas[i, inds[i] * 4:inds[i] * 4 + 4] for i in range(len(inds))], dtype=np.float)
+        boxes = rois.data.cpu().numpy()[keep, 1:5] / im_info[0][2]
         pred_boxes = bbox_transform_inv(boxes, box_deltas)
         if clip:
             pred_boxes = clip_boxes(pred_boxes, im_shape)

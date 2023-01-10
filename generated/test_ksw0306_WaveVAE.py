@@ -326,15 +326,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Conv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (WaveVAE,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 1024]), torch.rand([4, 80, 4])], {}),
-     False),
-    (Wavenet_Student,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1, 64]), torch.rand([4, 80, 64])], {}),
      False),
 ]
 
@@ -344,7 +340,4 @@ class Test_ksw0306_WaveVAE(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

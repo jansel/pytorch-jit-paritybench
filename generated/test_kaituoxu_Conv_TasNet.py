@@ -406,7 +406,7 @@ TESTCASES = [
      False),
     (DepthwiseSeparableConv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (Encoder,
      lambda: ([], {'L': 4, 'N': 4}),

@@ -137,17 +137,35 @@ class ModelParallel(nn.Module):
         return input
 
 
+class ScaleGradients(torch.autograd.Function):
+
+    @staticmethod
+    def forward(self, input_tensor, strength):
+        self.strength = strength
+        return input_tensor
+
+    @staticmethod
+    def backward(self, grad_output):
+        grad_input = grad_output.clone()
+        grad_input = grad_input / (torch.norm(grad_input, keepdim=True) + 1e-08)
+        return grad_input * self.strength * self.strength, None
+
+
 class ContentLoss(nn.Module):
 
-    def __init__(self, strength):
+    def __init__(self, strength, normalize):
         super(ContentLoss, self).__init__()
         self.strength = strength
         self.crit = nn.MSELoss()
         self.mode = 'None'
+        self.normalize = normalize
 
     def forward(self, input):
         if self.mode == 'loss':
-            self.loss = self.crit(input, self.target) * self.strength
+            loss = self.crit(input, self.target)
+            if self.normalize:
+                loss = ScaleGradients.apply(loss, self.strength)
+            self.loss = loss * self.strength
         elif self.mode == 'capture':
             self.target = input.detach()
         return input
@@ -163,7 +181,7 @@ class GramMatrix(nn.Module):
 
 class StyleLoss(nn.Module):
 
-    def __init__(self, strength):
+    def __init__(self, strength, normalize):
         super(StyleLoss, self).__init__()
         self.target = torch.Tensor()
         self.strength = strength
@@ -171,6 +189,7 @@ class StyleLoss(nn.Module):
         self.crit = nn.MSELoss()
         self.mode = 'None'
         self.blend_weight = None
+        self.normalize = normalize
 
     def forward(self, input):
         self.G = self.gram(input)
@@ -183,7 +202,10 @@ class StyleLoss(nn.Module):
             else:
                 self.target = self.target.add(self.blend_weight, self.G.detach())
         elif self.mode == 'loss':
-            self.loss = self.strength * self.crit(self.G, self.target)
+            loss = self.crit(self.G, self.target)
+            if self.normalize:
+                loss = ScaleGradients.apply(loss, self.strength)
+            self.loss = self.strength * loss
         return input
 
 
@@ -208,7 +230,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (ContentLoss,
-     lambda: ([], {'strength': 4}),
+     lambda: ([], {'strength': 4, 'normalize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (TVLoss,

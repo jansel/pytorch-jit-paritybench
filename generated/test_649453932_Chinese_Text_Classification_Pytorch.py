@@ -189,14 +189,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Encoder,
-     lambda: ([], {'dim_model': 4, 'num_head': 4, 'hidden': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4])], {}),
-     False),
-    (Multi_Head_Attention,
-     lambda: ([], {'dim_model': 4, 'num_head': 4}),
-     lambda: ([torch.rand([4, 4])], {}),
-     False),
     (Position_wise_Feed_Forward,
      lambda: ([], {'dim_model': 4, 'hidden': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -208,7 +200,7 @@ TESTCASES = [
     (Scaled_Dot_Product_Attention,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
@@ -220,10 +212,4 @@ class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

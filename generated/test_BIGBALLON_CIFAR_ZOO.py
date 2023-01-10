@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+eval = _module
 models = _module
 alexnet = _module
 cbam_resnext = _module
@@ -37,10 +38,22 @@ xrange = range
 wraps = functools.wraps
 
 
-import torch.nn as nn
+import logging
 
 
 import torch
+
+
+import torch.backends.cudnn as cudnn
+
+
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+import torch.nn as nn
 
 
 import torch.nn.functional as F
@@ -52,22 +65,10 @@ import math
 from torch.autograd import Variable
 
 
-import logging
-
-
 import time
 
 
-import torchvision.transforms as transforms
-
-
-import torch.backends.cudnn as cudnn
-
-
 from torch.utils.tensorboard import SummaryWriter
-
-
-import numpy as np
 
 
 import torchvision
@@ -875,9 +876,13 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Bottleneck,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'expansion': 4, 'M': 4, 'r': 4, 'L': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+    (CBAM,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (ChannelPool,
      lambda: ([], {}),
@@ -898,10 +903,6 @@ TESTCASES = [
     (ResNeXt,
      lambda: ([], {'cardinality': 4, 'depth': 1, 'num_classes': 4, 'base_width': 4}),
      lambda: ([torch.rand([4, 3, 9, 9])], {}),
-     True),
-    (SEModule,
-     lambda: ([], {'channels': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SKConv,
      lambda: ([], {'features': 4, 'M': 4, 'G': 4, 'r': 4}),

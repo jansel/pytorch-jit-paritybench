@@ -13,6 +13,7 @@ euclidean = _module
 lorentz = _module
 manifold = _module
 poincare = _module
+path_manager = _module
 rsgd = _module
 sn = _module
 train = _module
@@ -149,7 +150,7 @@ class EntailmentConeEnergyFunction(EnergyFunction):
         return energy.clamp(min=0)
 
     def loss(self, inp, target, **kwargs):
-        loss = inp[:, (0)].clamp_(min=0).sum()
+        loss = inp[:, 0].clamp_(min=0).sum()
         loss += (self.margin - inp[:, 1:]).clamp_(min=0).sum()
         return loss / inp.numel()
 

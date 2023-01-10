@@ -130,13 +130,13 @@ class FullQKAttention(nn.Module):
         query_len = default(query_len, seq_len)
         t = query_len
         q = qk[:, 0:query_len]
-        qk = F.normalize(qk, 2, dim=-1).type(q.type())
+        qk = F.normalize(qk, 2, dim=-1).type_as(q)
         dot = torch.einsum('bie,bje->bij', q, qk) * dim ** -0.5
         i = torch.arange(t)
-        dot[:, (i), (i)] = TOKEN_SELF_ATTN_VALUE
+        dot[:, i, i] = TOKEN_SELF_ATTN_VALUE
         masked_value = max_neg_value(dot)
         if input_mask is not None:
-            mask = input_mask[:, 0:query_len, (None)] * input_mask[:, (None), :]
+            mask = input_mask[:, 0:query_len, None] * input_mask[:, None, :]
             mask = F.pad(mask, (0, seq_len - mask.shape[-1]), value=True)
             dot.masked_fill_(~mask, masked_value)
         if input_attn_mask is not None:
@@ -144,16 +144,34 @@ class FullQKAttention(nn.Module):
             dot.masked_fill_(~input_attn_mask, masked_value)
         if self.causal:
             i, j = torch.triu_indices(t, t, 1)
-            dot[:, (i), (j)] = masked_value
+            dot[:, i, j] = masked_value
         dot = dot.softmax(dim=-1)
         dot = self.dropout(dot)
         out = torch.einsum('bij,bje->bie', dot, v)
         return out, dot, torch.empty(0)
 
 
+def rotate_every_two(x):
+    x = rearrange(x, '... (d j) -> ... d j', j=2)
+    x1, x2 = x.unbind(dim=-1)
+    x = torch.stack((-x2, x1), dim=-1)
+    return rearrange(x, '... d j -> ... (d j)')
+
+
+def apply_rotary_pos_emb(qk, sinu_pos):
+    sinu_pos = sinu_pos.type(qk.dtype)
+    sinu_pos = rearrange(sinu_pos, '() n (j d) -> n j d', j=2)
+    sin, cos = sinu_pos.unbind(dim=-2)
+    sin, cos = map(lambda t: repeat(t, 'n d -> n (d j)', j=2), (sin, cos))
+    seq_len = sin.shape[0]
+    qk, qk_pass = qk[:, :seq_len], qk[:, seq_len:]
+    qk = qk * cos + rotate_every_two(qk) * sin
+    return torch.cat((qk, qk_pass), dim=1)
+
+
 def batched_index_select(values, indices):
     last_dim = values.shape[-1]
-    return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
+    return values.gather(1, indices[:, :, None].expand(-1, -1, last_dim))
 
 
 def cache_method_decorator(cache_attr, cache_namespace, reexecute=False):
@@ -183,6 +201,10 @@ def chunked_sum(tensor, chunks=1):
     tensor = tensor.reshape(-1, last_dim)
     summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
     return torch.cat(summed_tensors, dim=0).reshape(orig_size)
+
+
+def exists(val):
+    return val is not None
 
 
 def sort_key_val(t1, t2, dim=-1):
@@ -223,22 +245,20 @@ class LSHAttention(nn.Module):
         if self._rehash_each_round:
             rotated_vecs = torch.cat([rotated_vecs, -rotated_vecs], dim=-1)
             buckets = torch.argmax(rotated_vecs, dim=-1)
-            offsets = torch.arange(self.n_hashes, device=device)
-            offsets = torch.reshape(offsets * n_buckets, (1, -1, 1))
-            buckets = torch.reshape(buckets + offsets, (batch_size, -1))
         else:
             rotated_vecs = torch.cat([rotated_vecs, -rotated_vecs], dim=-1)
-            rotated_vecs = torch.squeeze(rotated_vecs, 0)
+            rotated_vecs = torch.squeeze(rotated_vecs, 1)
             bucket_range = torch.arange(rotated_vecs.shape[-1], device=device)
             bucket_range = torch.reshape(bucket_range, (1, -1))
-            bucket_range = bucket_range.expand_as(rotated_vecs.shape)
+            bucket_range = bucket_range.expand_as(rotated_vecs)
             _, buckets = sort_key_val(rotated_vecs, bucket_range, dim=-1)
-            buckets = buckets[:, -self.n_hashes:]
-            h, *_ = buckets.shape
-            buckets = torch.reshape(buckets.permute((*_, h)), (-1,))
+            buckets = buckets[..., -self.n_hashes:].transpose(1, 2)
+        offsets = torch.arange(self.n_hashes, device=device)
+        offsets = torch.reshape(offsets * n_buckets, (1, -1, 1))
+        buckets = torch.reshape(buckets + offsets, (batch_size, -1))
         return buckets
 
-    def forward(self, qk, v, query_len=None, input_mask=None, input_attn_mask=None, **kwargs):
+    def forward(self, qk, v, query_len=None, input_mask=None, input_attn_mask=None, pos_emb=None, **kwargs):
         batch_size, seqlen, dim, device = *qk.shape, qk.device
         query_len = default(query_len, seqlen)
         is_reverse = kwargs.pop('_reverse', False)
@@ -252,11 +272,13 @@ class LSHAttention(nn.Module):
         buckets_and_t = seqlen * buckets + ticker % seqlen
         buckets_and_t = buckets_and_t.detach()
         sbuckets_and_t, sticker = sort_key_val(buckets_and_t, ticker, dim=-1)
-        _, undo_sort = sort_key_val(sticker, ticker, dim=-1)
+        _, undo_sort = sticker.sort(dim=-1)
         del ticker
         sbuckets_and_t = sbuckets_and_t.detach()
         sticker = sticker.detach()
         undo_sort = undo_sort.detach()
+        if exists(pos_emb):
+            qk = apply_rotary_pos_emb(qk, pos_emb)
         st = sticker % seqlen
         sqk = batched_index_select(qk, st)
         sv = batched_index_select(v, st)
@@ -265,10 +287,10 @@ class LSHAttention(nn.Module):
         bqk = torch.reshape(sqk, (batch_size, chunk_size, -1, dim))
         bv = torch.reshape(sv, (batch_size, chunk_size, -1, dim))
         bq = bqk
-        bk = F.normalize(bqk, p=2, dim=-1).type(bq.type())
+        bk = F.normalize(bqk, p=2, dim=-1).type_as(bq)
 
         def look_one_back(x):
-            x_extra = torch.cat([x[:, -1:, (...)], x[:, :-1, (...)]], dim=1)
+            x_extra = torch.cat([x[:, -1:, ...], x[:, :-1, ...]], dim=1)
             return torch.cat([x, x_extra], dim=2)
         bk = look_one_back(bk)
         bv = look_one_back(bv)
@@ -277,7 +299,7 @@ class LSHAttention(nn.Module):
         masked_value = max_neg_value(dots)
         if input_attn_mask is not None:
             input_attn_mask = F.pad(input_attn_mask, (0, seqlen - input_attn_mask.shape[-1], 0, seqlen - input_attn_mask.shape[-2]), value=True)
-            dot_attn_indices = (bq_t * seqlen)[:, :, :, (None)] + bkv_t[:, :, (None), :]
+            dot_attn_indices = (bq_t * seqlen)[:, :, :, None] + bkv_t[:, :, None, :]
             input_attn_mask = input_attn_mask.reshape(batch_size, -1)
             dot_attn_indices = dot_attn_indices.reshape(batch_size, -1)
             mask = input_attn_mask.gather(1, dot_attn_indices).reshape_as(dots)
@@ -287,22 +309,22 @@ class LSHAttention(nn.Module):
             input_mask = F.pad(input_mask, (0, seqlen - input_mask.shape[1]), value=True)
             mq = input_mask.gather(1, st).reshape((batch_size, chunk_size, -1))
             mkv = look_one_back(mq)
-            mask = mq[:, :, :, (None)] * mkv[:, :, (None), :]
+            mask = mq[:, :, :, None] * mkv[:, :, None, :]
             dots.masked_fill_(~mask, masked_value)
             del mask
         if self.causal:
-            mask = bq_t[:, :, :, (None)] < bkv_t[:, :, (None), :]
+            mask = bq_t[:, :, :, None] < bkv_t[:, :, None, :]
             if seqlen > query_len:
-                mask = mask & (bkv_t[:, :, (None), :] < query_len)
+                mask = mask & (bkv_t[:, :, None, :] < query_len)
             dots.masked_fill_(mask, masked_value)
             del mask
-        self_mask = bq_t[:, :, :, (None)] == bkv_t[:, :, (None), :]
+        self_mask = bq_t[:, :, :, None] == bkv_t[:, :, None, :]
         dots.masked_fill_(self_mask, TOKEN_SELF_ATTN_VALUE)
         del self_mask
         if not self._attend_across_buckets:
             bq_buckets = bkv_buckets = torch.reshape(sbuckets_and_t // seqlen, (batch_size, chunk_size, -1))
             bkv_buckets = look_one_back(bkv_buckets)
-            bucket_mask = bq_buckets[:, :, :, (None)] != bkv_buckets[:, :, (None), :]
+            bucket_mask = bq_buckets[:, :, :, None] != bkv_buckets[:, :, None, :]
             dots.masked_fill_(bucket_mask, masked_value)
             del bucket_mask
         if not self._allow_duplicate_attention:
@@ -314,40 +336,24 @@ class LSHAttention(nn.Module):
             locs = torch.cat([torch.reshape(locs1, (batch_size, total_hashes, seqlen)), torch.reshape(locs2, (batch_size, total_hashes, seqlen))], 1).permute((0, 2, 1))
             slocs = batched_index_select(locs, st)
             b_locs = torch.reshape(slocs, (batch_size, chunk_size, -1, 2 * total_hashes))
-            b_locs1 = b_locs[:, :, :, (None), :total_hashes]
+            b_locs1 = b_locs[:, :, :, None, :total_hashes]
             bq_locs = b_locs1.expand(b_locs.shape[:3] + (2, total_hashes))
             bq_locs = torch.reshape(bq_locs, b_locs.shape)
             bkv_locs = look_one_back(b_locs)
-            dup_counts = bq_locs[:, :, :, (None), :] == bkv_locs[:, :, (None), :, :]
+            dup_counts = bq_locs[:, :, :, None, :] == bkv_locs[:, :, None, :, :]
             dup_counts = chunked_sum(dup_counts, chunks=total_hashes * batch_size)
             dup_counts = dup_counts.detach()
             assert dup_counts.shape == dots.shape
             dots = dots - torch.log(dup_counts + 1e-09)
             del dup_counts
         dots_logsumexp = torch.logsumexp(dots, dim=-1, keepdim=True)
-        dots = torch.exp(dots - dots_logsumexp).type(dots.type())
+        dots = torch.exp(dots - dots_logsumexp).type_as(dots)
         dropped_dots = self.dropout(dots)
         bo = torch.einsum('buij,buje->buie', dropped_dots, bv)
         so = torch.reshape(bo, (batch_size, -1, dim))
         slogits = torch.reshape(dots_logsumexp, (batch_size, -1))
-
-
-        class UnsortLogits(Function):
-
-            @staticmethod
-            def forward(ctx, so, slogits):
-                so = so.detach()
-                slogits = slogits.detach()
-                o = batched_index_select(so, undo_sort)
-                _, logits = sort_key_val(sticker, slogits, dim=-1)
-                return o, logits
-
-            @staticmethod
-            def backward(ctx, grad_x, grad_y):
-                so_grad = batched_index_select(grad_x, sticker)
-                _, slogits_grad = sort_key_val(buckets_and_t, grad_y, dim=-1)
-                return so_grad, slogits_grad
-        o, logits = UnsortLogits.apply(so, slogits)
+        o = batched_index_select(so, undo_sort)
+        logits = slogits.gather(1, undo_sort)
         o = torch.reshape(o, (batch_size, total_hashes, seqlen, dim))
         logits = torch.reshape(logits, (batch_size, total_hashes, seqlen, 1))
         if query_len != seqlen:
@@ -357,7 +363,7 @@ class LSHAttention(nn.Module):
         out = torch.sum(o * probs, dim=1)
         attn = torch.empty(0, device=device)
         if self._return_attn:
-            attn_unsort = (bq_t * seqlen)[:, :, :, (None)] + bkv_t[:, :, (None), :]
+            attn_unsort = (bq_t * seqlen)[:, :, :, None] + bkv_t[:, :, None, :]
             attn_unsort = attn_unsort.view(batch_size * total_hashes, -1).long()
             unsorted_dots = torch.zeros(batch_size * total_hashes, seqlen * seqlen, device=device)
             unsorted_dots.scatter_add_(1, attn_unsort, dots.view_as(attn_unsort))
@@ -367,12 +373,11 @@ class LSHAttention(nn.Module):
         return out, attn, buckets
 
 
-def look_around(x, backward=1, forward=0, pad_value=-1, dim=2):
-    t = x.shape[1]
-    dims = (len(x.shape) - dim) * (0, 0)
-    padded_x = F.pad(x, (*dims, backward, forward), value=pad_value)
-    tensors = [padded_x[:, ind:ind + t, (...)] for ind in range(forward + backward + 1)]
-    return torch.cat(tensors, dim=dim)
+def expand_dim(dim, k, t):
+    t = t.unsqueeze(dim)
+    expand_shape = [-1] * len(t.shape)
+    expand_shape[dim] = k
+    return t.expand(*expand_shape)
 
 
 def merge_dims(ind_from, ind_to, tensor):
@@ -380,69 +385,6 @@ def merge_dims(ind_from, ind_to, tensor):
     arr_slice = slice(ind_from, ind_to + 1)
     shape[arr_slice] = [reduce(mul, shape[arr_slice])]
     return tensor.reshape(*shape)
-
-
-class LocalAttention(nn.Module):
-
-    def __init__(self, bucket_size, causal=False, look_backward=1, look_forward=0, dropout=0.0, shared_qk=False):
-        super().__init__()
-        assert not (causal and look_forward > 0), 'you cannot look forward if causal'
-        self.bucket_size = bucket_size
-        self.causal = causal
-        self.look_backward = look_backward
-        self.look_forward = look_forward
-        self.shared_qk = shared_qk
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, q, k, v, input_mask=None):
-        b, t, e, device, dtype = *q.shape, q.device, q.dtype
-        bucket_size, causal, look_backward, look_forward, shared_qk = self.bucket_size, self.causal, self.look_backward, self.look_forward, self.shared_qk
-        buckets = t // bucket_size
-        if shared_qk:
-            k = F.normalize(k, 2, dim=-1).type(q.type())
-        ticker = torch.arange(t, device=device, dtype=dtype)[(None), :]
-        b_t = ticker.reshape(1, buckets, bucket_size)
-        bucket_fn = lambda t: t.reshape(b, buckets, bucket_size, -1)
-        bq, bk, bv = map(bucket_fn, (q, k, v))
-        look_around_kwargs = {'backward': look_backward, 'forward': look_forward}
-        bk = look_around(bk, **look_around_kwargs)
-        bv = look_around(bv, **look_around_kwargs)
-        bq_t = b_t
-        bq_k = look_around(b_t, **look_around_kwargs)
-        dots = torch.einsum('bhie,bhje->bhij', bq, bk) * e ** -0.5
-        mask_value = max_neg_value(dots)
-        if shared_qk:
-            mask = bq_t[:, :, :, (None)] == bq_k[:, :, (None), :]
-            dots.masked_fill_(mask, TOKEN_SELF_ATTN_VALUE)
-            del mask
-        if causal:
-            mask = bq_t[:, :, :, (None)] < bq_k[:, :, (None), :]
-            dots.masked_fill_(mask, mask_value)
-            del mask
-        mask = bq_k[:, :, (None), :] == -1
-        dots.masked_fill_(mask, mask_value)
-        del mask
-        if input_mask is not None:
-            h = b // input_mask.shape[0]
-            input_mask = input_mask.reshape(-1, buckets, bucket_size)
-            mq = mk = input_mask
-            mk = look_around(mk, pad_value=False, **look_around_kwargs)
-            mask = mq[:, (None), :, :, (None)] * mk[:, (None), :, (None), :]
-            mask = merge_dims(0, 1, mask.expand(-1, h, -1, -1, -1))
-            dots.masked_fill_(~mask, mask_value)
-            del mask
-        attn = dots.softmax(dim=-1)
-        attn = self.dropout(attn)
-        out = torch.einsum('bhij,bhje->bhie', attn, bv)
-        out = out.reshape(b, t, e)
-        return out
-
-
-def expand_dim(dim, k, t):
-    t = t.unsqueeze(dim)
-    expand_shape = [-1] * len(t.shape)
-    expand_shape[dim] = k
-    return t.expand(*expand_shape)
 
 
 def process_inputs_chunk(fn, chunks=1, dim=0):
@@ -465,18 +407,21 @@ def split_at_index(dim, index, t):
 
 class LSHSelfAttention(nn.Module):
 
-    def __init__(self, dim, heads=8, bucket_size=64, n_hashes=8, causal=False, attn_chunks=1, random_rotations_per_head=False, attend_across_buckets=True, allow_duplicate_attention=True, num_mem_kv=0, one_value_head=False, use_full_attn=False, full_attn_thres=None, return_attn=False, post_attn_dropout=0.0, dropout=0.0, n_local_attn_heads=0, **kwargs):
+    def __init__(self, dim, heads=8, bucket_size=64, n_hashes=8, causal=False, dim_head=None, attn_chunks=1, random_rotations_per_head=False, attend_across_buckets=True, allow_duplicate_attention=True, num_mem_kv=0, one_value_head=False, use_full_attn=False, full_attn_thres=None, return_attn=False, post_attn_dropout=0.0, dropout=0.0, n_local_attn_heads=0, **kwargs):
         super().__init__()
-        assert dim % heads == 0, 'dimensions must be divisible by number of heads'
+        assert dim_head or dim % heads == 0, 'dimensions must be divisible by number of heads'
         assert n_local_attn_heads < heads, 'local attention heads must be less than number of heads'
+        dim_head = default(dim_head, dim // heads)
+        dim_heads = dim_head * heads
         self.dim = dim
         self.heads = heads
+        self.dim_head = dim_head
         self.attn_chunks = default(attn_chunks, 1)
         self.v_head_repeats = heads if one_value_head else 1
-        v_dim = dim // self.v_head_repeats
-        self.toqk = nn.Linear(dim, dim, bias=False)
+        v_dim = dim_heads // self.v_head_repeats
+        self.toqk = nn.Linear(dim, dim_heads, bias=False)
         self.tov = nn.Linear(dim, v_dim, bias=False)
-        self.to_out = nn.Linear(dim, dim)
+        self.to_out = nn.Linear(dim_heads, dim)
         self.bucket_size = bucket_size
         self.lsh_attn = LSHAttention(bucket_size=bucket_size, n_hashes=n_hashes, causal=causal, random_rotations_per_head=random_rotations_per_head, attend_across_buckets=attend_across_buckets, allow_duplicate_attention=allow_duplicate_attention, return_attn=return_attn, dropout=dropout, **kwargs)
         self.full_attn = FullQKAttention(causal=causal, dropout=dropout)
@@ -486,14 +431,14 @@ class LSHSelfAttention(nn.Module):
         self.num_mem_kv = num_mem_kv
         self.mem_kv = nn.Parameter(torch.randn(1, num_mem_kv, dim, requires_grad=True)) if num_mem_kv > 0 else None
         self.n_local_attn_heads = n_local_attn_heads
-        self.local_attn = LocalAttention(bucket_size=bucket_size * 2, causal=causal, dropout=dropout, shared_qk=True, look_forward=1 if not causal else 0)
+        self.local_attn = LocalAttention(window_size=bucket_size * 2, causal=causal, dropout=dropout, shared_qk=True, look_forward=1 if not causal else 0)
         self.callback = None
 
-    def forward(self, x, keys=None, input_mask=None, input_attn_mask=None, context_mask=None, **kwargs):
+    def forward(self, x, keys=None, input_mask=None, input_attn_mask=None, context_mask=None, pos_emb=None, **kwargs):
         device, dtype = x.device, x.dtype
-        b, t, e, h, m, l_h = *x.shape, self.heads, self.num_mem_kv, self.n_local_attn_heads
+        b, t, e, h, dh, m, l_h = *x.shape, self.heads, self.dim_head, self.num_mem_kv, self.n_local_attn_heads
         mem_kv = default(self.mem_kv, torch.empty(b, 0, e, dtype=dtype, device=device))
-        mem = mem_kv.expand(b, m, e)
+        mem = mem_kv.expand(b, m, -1)
         keys = default(keys, torch.empty(b, 0, e, dtype=dtype, device=device))
         c = keys.shape[1]
         kv_len = t + m + c
@@ -528,18 +473,18 @@ class LSHSelfAttention(nn.Module):
             input_attn_mask = merge_batch_and_heads(expand_dim(1, lsh_h, input_attn_mask))
             masks['input_attn_mask'] = input_attn_mask
         attn_fn = self.lsh_attn if not use_full_attn else self.full_attn
-        partial_attn_fn = partial(attn_fn, query_len=t, **kwargs)
+        partial_attn_fn = partial(attn_fn, query_len=t, pos_emb=pos_emb, **kwargs)
         attn_fn_in_chunks = process_inputs_chunk(partial_attn_fn, chunks=self.attn_chunks)
         out, attn, buckets = attn_fn_in_chunks(qk, v, **masks)
         if self.callback is not None:
-            self.callback(attn.reshape(b, h, t, -1), buckets.reshape(b, h, -1))
+            self.callback(attn.reshape(b, lsh_h, t, -1), buckets.reshape(b, lsh_h, -1))
         if has_local:
             lqk, lv = lqk[:, :t], lv[:, :t]
             local_out = self.local_attn(lqk, lqk, lv, input_mask=input_mask)
             local_out = local_out.reshape(b, l_h, t, -1)
             out = out.reshape(b, lsh_h, t, -1)
             out = torch.cat((local_out, out), dim=1)
-        out = split_heads(out).view(b, t, e)
+        out = split_heads(out).view(b, t, -1)
         out = self.to_out(out)
         return self.post_attn_dropout(out)
 
@@ -741,7 +686,7 @@ class ReversibleSequence(nn.Module):
         self.blocks = nn.ModuleList([ReversibleBlock(f, g, depth, send_signal) for depth, (f, g) in enumerate(blocks)])
         self.irrev_blocks = nn.ModuleList([IrreversibleBlock(f=f, g=g) for f, g in blocks])
 
-    def forward(self, x, arg_route=(True, True), **kwargs):
+    def forward(self, x, arg_route=(True, False), **kwargs):
         reverse = x.shape[1] > self.reverse_thres
         blocks = self.blocks if reverse else self.irrev_blocks
         if self.training and self.layer_dropout > 0:
@@ -788,15 +733,14 @@ def cast_tuple(x):
 
 class Reformer(nn.Module):
 
-    def __init__(self, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=8, ff_chunks=100, attn_chunks=None, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_activation=None, ff_mult=4, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, lsh_attend_across_buckets=True, lsh_allow_duplicate_attention=True, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
+    def __init__(self, dim, depth, heads=8, dim_head=None, bucket_size=64, n_hashes=8, ff_chunks=100, attn_chunks=None, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_activation=None, ff_mult=4, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, lsh_attend_across_buckets=True, lsh_allow_duplicate_attention=True, random_rotations_per_head=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.bucket_size = bucket_size
         self.num_mem_kv = num_mem_kv
-        self.twin_attention = twin_attention
         self.full_attn_thres = full_attn_thres
-        get_attn = lambda : LSHSelfAttention(dim, heads, bucket_size, n_hashes, causal=causal, dropout=lsh_dropout, post_attn_dropout=post_attn_dropout, attn_chunks=attn_chunks, allow_duplicate_attention=lsh_allow_duplicate_attention, attend_across_buckets=lsh_attend_across_buckets, random_rotations_per_head=random_rotations_per_head, num_mem_kv=num_mem_kv, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads)
+        get_attn = lambda : LSHSelfAttention(dim, heads, bucket_size, n_hashes, causal=causal, dim_head=dim_head, dropout=lsh_dropout, post_attn_dropout=post_attn_dropout, attn_chunks=attn_chunks, allow_duplicate_attention=lsh_allow_duplicate_attention, attend_across_buckets=lsh_attend_across_buckets, random_rotations_per_head=random_rotations_per_head, num_mem_kv=num_mem_kv, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads)
         get_ff = lambda : Chunk(ff_chunks, FeedForward(dim, dropout=ff_dropout, activation=ff_activation, mult=ff_mult, glu=ff_glu), along_dim=-2)
         get_pkm = lambda : PKM(dim, num_keys=pkm_num_keys)
         if weight_tie:
@@ -811,8 +755,6 @@ class Reformer(nn.Module):
             attn = get_attn()
             if use_pkm:
                 parallel_net = get_pkm()
-            elif twin_attention:
-                parallel_net = get_attn()
             else:
                 parallel_net = get_ff()
             f = residual_fn_wrapper(attn)
@@ -822,8 +764,7 @@ class Reformer(nn.Module):
 
     def forward(self, x, **kwargs):
         x = torch.cat([x, x], dim=-1)
-        arg_route = True, self.twin_attention
-        x = self.layers(x, arg_route=arg_route, **kwargs)
+        x = self.layers(x, **kwargs)
         return torch.stack(x.chunk(2, dim=-1)).mean(dim=0)
 
 
@@ -838,6 +779,16 @@ class AbsolutePositionalEmbedding(nn.Module):
         return self.emb(t)
 
 
+class Always(nn.Module):
+
+    def __init__(self, val):
+        super().__init__()
+        self.val = val
+
+    def forward(self, *args, **kwargs):
+        return self.val
+
+
 class FixedPositionalEmbedding(nn.Module):
 
     def __init__(self, dim):
@@ -845,11 +796,11 @@ class FixedPositionalEmbedding(nn.Module):
         inv_freq = 1.0 / 10000 ** (torch.arange(0, dim, 2).float() / dim)
         self.register_buffer('inv_freq', inv_freq)
 
-    def forward(self, x):
-        t = torch.arange(x.shape[1], device=x.device).type(self.inv_freq.type())
-        sinusoid_inp = torch.einsum('i,j->ij', t, self.inv_freq)
+    def forward(self, x, seq_dim=1):
+        t = torch.arange(x.shape[seq_dim], device=x.device).type_as(self.inv_freq)
+        sinusoid_inp = torch.einsum('i , j -> i j', t, self.inv_freq)
         emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
-        return emb[(None), :, :]
+        return emb[None, :, :].type_as(x)
 
 
 class MatrixMultiply(nn.Module):
@@ -871,20 +822,25 @@ class MatrixMultiply(nn.Module):
 
 class ReformerLM(nn.Module):
 
-    def __init__(self, num_tokens, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=4, ff_chunks=100, attn_chunks=1, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_mult=4, ff_activation=None, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, emb_dim=None, return_embeddings=False, weight_tie_embedding=False, fixed_position_emb=False, absolute_position_emb=False, axial_position_shape=None, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
+    def __init__(self, num_tokens, dim, depth, max_seq_len, heads=8, dim_head=64, bucket_size=64, n_hashes=4, ff_chunks=100, attn_chunks=1, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_mult=4, ff_activation=None, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, random_rotations_per_head=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, emb_dim=None, return_embeddings=False, weight_tie_embedding=False, fixed_position_emb=False, absolute_position_emb=False, axial_position_emb=False, axial_position_shape=None, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
         super().__init__()
         emb_dim = default(emb_dim, dim)
         self.max_seq_len = max_seq_len
         self.token_emb = nn.Embedding(num_tokens, emb_dim)
         self.to_model_dim = Identity() if emb_dim == dim else nn.Linear(emb_dim, dim)
-        if absolute_position_emb:
+        self.pos_emb = Always(0)
+        self.layer_pos_emb = Always(None)
+        if axial_position_emb:
+            axial_position_shape = default(axial_position_shape, (math.ceil(max_seq_len / bucket_size), bucket_size))
+            self.pos_emb = AxialPositionalEmbedding(emb_dim, axial_position_shape)
+        elif absolute_position_emb:
             self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len)
         elif fixed_position_emb:
             self.pos_emb = FixedPositionalEmbedding(emb_dim)
         else:
-            axial_position_shape = default(axial_position_shape, (max_seq_len // bucket_size, bucket_size))
-            self.pos_emb = AxialPositionalEmbedding(emb_dim, axial_position_shape)
-        self.reformer = Reformer(dim, depth, max_seq_len, heads=heads, bucket_size=bucket_size, n_hashes=n_hashes, ff_chunks=ff_chunks, attn_chunks=attn_chunks, causal=causal, weight_tie=weight_tie, lsh_dropout=lsh_dropout, ff_mult=ff_mult, ff_activation=ff_activation, ff_glu=ff_glu, ff_dropout=ff_dropout, post_attn_dropout=0.0, layer_dropout=layer_dropout, random_rotations_per_head=random_rotations_per_head, twin_attention=twin_attention, use_scale_norm=use_scale_norm, use_rezero=use_rezero, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, reverse_thres=reverse_thres, num_mem_kv=num_mem_kv, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads, pkm_layers=pkm_layers, pkm_num_keys=pkm_num_keys)
+            self.layer_pos_emb = FixedPositionalEmbedding(dim_head)
+        self.reformer = Reformer(dim, depth, heads=heads, dim_head=dim_head, bucket_size=bucket_size, n_hashes=n_hashes, ff_chunks=ff_chunks, attn_chunks=attn_chunks, causal=causal, weight_tie=weight_tie, lsh_dropout=lsh_dropout, ff_mult=ff_mult, ff_activation=ff_activation, ff_glu=ff_glu, ff_dropout=ff_dropout, post_attn_dropout=0.0, layer_dropout=layer_dropout, random_rotations_per_head=random_rotations_per_head, use_scale_norm=use_scale_norm, use_rezero=use_rezero, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, reverse_thres=reverse_thres, num_mem_kv=num_mem_kv, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads, pkm_layers=pkm_layers, pkm_num_keys=pkm_num_keys)
+        self.norm = nn.LayerNorm(dim)
         if return_embeddings:
             self.out = Identity()
             return
@@ -892,9 +848,11 @@ class ReformerLM(nn.Module):
 
     def forward(self, x, **kwargs):
         x = self.token_emb(x)
-        x = x + self.pos_emb(x).type(x.type())
+        x = x + self.pos_emb(x)
+        layer_pos_emb = self.layer_pos_emb(x)
         x = self.to_model_dim(x)
-        x = self.reformer(x, **kwargs)
+        x = self.reformer(x, pos_emb=layer_pos_emb, **kwargs)
+        x = self.norm(x)
         return self.out(x)
 
 
@@ -928,7 +886,7 @@ class Autopadder(nn.Module):
         seqlen = t + m + k_len
         if seqlen > self.full_attn_thres:
             if input_mask is None:
-                input_mask = torch.full_like(x, True, device=x.device, dtype=torch.bool)
+                input_mask = torch.full((b, t), True, device=x.device, dtype=torch.bool)
             x = pad_to_multiple(x, seqlen, self.bucket_size * 2, dim=self.pad_dim)
             if input_mask is not None:
                 new_mask = F.pad(input_mask, (0, x.shape[1] - input_mask.shape[1]), value=False)
@@ -964,7 +922,7 @@ class TrainingWrapper(nn.Module):
         was_training = self.net.training
         num_dims = len(start_tokens.shape)
         if num_dims == 1:
-            start_tokens = start_tokens[(None), :]
+            start_tokens = start_tokens[None, :]
         b, t = start_tokens.shape
         self.net.eval()
         out = start_tokens
@@ -974,7 +932,7 @@ class TrainingWrapper(nn.Module):
         for _ in range(seq_len):
             x = out[:, -self.max_seq_len:]
             input_mask = input_mask[:, -self.max_seq_len:]
-            logits = self.net(x, input_mask=input_mask, **kwargs)[:, (-1), :]
+            logits = self.net(x, input_mask=input_mask, **kwargs)[:, -1, :]
             filtered_logits = filter_logits_fn(logits, thres=filter_thres)
             probs = F.softmax(filtered_logits / temperature, dim=-1)
             sample = torch.multinomial(probs, 1)
@@ -1102,7 +1060,7 @@ def extract_and_set_enc_dec_kwargs(kwargs):
 
 class ReformerEncDec(nn.Module):
 
-    def __init__(self, dim, ignore_index=-100, pad_value=0, **kwargs):
+    def __init__(self, dim, ignore_index=0, pad_value=0, **kwargs):
         super().__init__()
         enc_kwargs, dec_kwargs, _ = extract_enc_dec_kwargs(kwargs)
         assert 'return_embedding' not in enc_kwargs, 'you cannot manually set the return embeddings flag for the encoder'
@@ -1139,6 +1097,10 @@ TESTCASES = [
      lambda: ([], {'dim': 4, 'max_seq_len': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Always,
+     lambda: ([], {'val': 4}),
+     lambda: ([], {}),
+     False),
     (Chunk,
      lambda: ([], {'chunks': 4, 'fn': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1163,10 +1125,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LocalAttention,
-     lambda: ([], {'bucket_size': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
     (PreNorm,
      lambda: ([], {'norm_class': _mock_layer, 'dim': 4, 'fn': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

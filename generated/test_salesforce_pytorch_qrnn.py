@@ -173,7 +173,7 @@ class GPUForgetMult(torch.autograd.Function):
         seq_size, batch_size, hidden_size = f.size()
         result = f.new(seq_size + 1, batch_size, hidden_size)
         if hidden_init is not None:
-            result[(0), :, :] = hidden_init
+            result[0, :, :] = hidden_init
         else:
             result = result.zero_()
         grid_hidden_size = min(hidden_size, 512)
@@ -337,7 +337,7 @@ TESTCASES = [
     (CPUForgetMult,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_salesforce_pytorch_qrnn(_paritybench_base):

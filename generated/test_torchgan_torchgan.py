@@ -430,7 +430,7 @@ class ResidualBlock2d(nn.Module):
             layers.append(nn.Conv2d(filters[i - 1], filters[i], kernels[i - 1], strides[i - 1], paddings[i - 1]))
             if batchnorm:
                 layers.append(nn.BatchNorm2d(filters[i]))
-            if i != len(filters):
+            if i != len(filters) - 1:
                 layers.append(nl)
         self.layers = nn.Sequential(*layers)
         self.shortcut = shortcut
@@ -500,7 +500,7 @@ class ResidualBlockTranspose2d(nn.Module):
             layers.append(nn.ConvTranspose2d(filters[i - 1], filters[i], kernels[i - 1], strides[i - 1], paddings[i - 1]))
             if batchnorm:
                 layers.append(nn.BatchNorm2d(filters[i]))
-            if i != len(filters):
+            if i != len(filters) - 1:
                 layers.append(nl)
         self.layers = nn.Sequential(*layers)
         self.shortcut = shortcut
@@ -719,7 +719,7 @@ class VirtualBatchNorm(nn.Module):
         bias = self.bias.view(*sizes)
         return x * scale + bias
 
-    def forward(self, x):
+    def forward(self, x, clear=True):
         """Computes the output of the Virtual Batch Normalization
 
         Args:
@@ -736,8 +736,9 @@ class VirtualBatchNorm(nn.Module):
             out = self._normalize(x, self.ref_mu, self.ref_var)
         else:
             out = self._normalize(x, self.ref_mu, self.ref_var)
-            self.ref_mu = None
-            self.ref_var = None
+            if clear:
+                self.ref_mu = None
+                self.ref_var = None
         return out
 
 
@@ -1056,7 +1057,7 @@ def reduce(x, reduction=None):
 
 
 def mutual_information_penalty(c_dis, c_cont, dist_dis, dist_cont, reduction='mean'):
-    log_probs = torch.Tensor([torch.mean(dist.log_prob(c)) for dist, c in zip((dist_dis, dist_cont), (c_dis, c_cont))])
+    log_probs = torch.cat([torch.reshape(torch.mean(dist.log_prob(c)), (1,)) for dist, c in zip((dist_dis, dist_cont), (c_dis, c_cont))])
     return reduce(-1.0 * log_probs, reduction)
 
 
@@ -1108,7 +1109,7 @@ class MutualInformationPenalty(GeneratorLoss, DiscriminatorLoss):
         if self.override_train_ops is not None:
             self.override_train_ops(generator, discriminator, optimizer_generator, optimizer_discriminator, dis_code, cont_code, device, batch_size)
         else:
-            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            noise = torch.randn(batch_size, generator.encoding_dims, device=device, requires_grad=True)
             optimizer_discriminator.zero_grad()
             optimizer_generator.zero_grad()
             fake = generator(noise, dis_code, cont_code)

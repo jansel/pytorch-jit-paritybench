@@ -71,6 +71,9 @@ from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import norm
 
 
+from scipy.optimize import linear_sum_assignment
+
+
 from torch.autograd import Function
 
 

@@ -595,15 +595,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (PreActivationBasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
-     True),
-    (ResNeXtBottleneck,
-     lambda: ([], {'inplanes': 64, 'planes': 32, 'cardinality': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64, 64])], {}),
      True),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
@@ -620,7 +616,4 @@ class Test_kenshohara_video_classification_3d_cnn_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

@@ -129,7 +129,7 @@ class CrossEntropyLoss2d(nn.Module):
         self.nll_loss = nn.NLLLoss2d(weights, size_average)
 
     def forward(self, inputs, targets):
-        return self.nll_loss(F.log_softmax(inputs, dim=1), targets[:, (0), :, :])
+        return self.nll_loss(F.log_softmax(inputs, dim=1), targets[:, 0, :, :])
 
 
 class Area_Loss(nn.Module):
@@ -155,11 +155,11 @@ class Area_Loss(nn.Module):
 
     def forward(self, params, gt_params, compute=True):
         diff = params.squeeze(-1) - gt_params
-        a = diff[:, (0)]
-        b = diff[:, (1)]
+        a = diff[:, 0]
+        b = diff[:, 1]
         t = 0.7
         if self.order == 2:
-            c = diff[:, (2)]
+            c = diff[:, 2]
             if self.weight_funct == 'none':
                 loss_fit = a ** 2 * t ** 5 / 5 + 2 * a * b * t ** 4 / 4 + (b ** 2 + c * 2 * a) * t ** 3 / 3 + 2 * b * c * t ** 2 / 2 + c ** 2 * t
             elif self.weight_funct == 'linear':
@@ -221,7 +221,7 @@ class backprojection_loss(nn.Module):
         num_heights = (720 - start) // delta
         self.y_d = (torch.arange(start, 720, delta) - 80).double() / 2.5
         self.ones = torch.ones(num_heights).double()
-        self.y_prime = (self.M[(1), 1:2] * self.y_d + self.M[(1), 2:]) / (self.M[(2), 1:2] * self.y_d + self.M[(2), 2:])
+        self.y_prime = (self.M[1, 1:2] * self.y_d + self.M[1, 2:]) / (self.M[2, 1:2] * self.y_d + self.M[2, 2:])
         self.y_eval = 255 - self.y_prime
         if options.order == 0:
             self.Y = self.tensor_ones
@@ -249,7 +249,7 @@ class backprojection_loss(nn.Module):
         x_prime = torch.bmm(self.Y[:bs], params)
         coordinates = torch.stack((x_prime, self.y_prime[:bs], self.ones[:bs]), 2).squeeze(3).permute((0, 2, 1))
         trans = torch.bmm(self.M_inv[:bs], coordinates)
-        x_cal = trans[:, (0), :] / trans[:, (2), :]
+        x_cal = trans[:, 0, :] / trans[:, 2, :]
         x_err = (x_gt - x_cal) * valid_samples
         loss = torch.sum(x_err ** 2) / valid_samples.sum()
         if valid_samples.sum() == 0:
@@ -441,9 +441,9 @@ class ProjectiveGridGenerator(nn.Module):
         linear_points_W = torch.linspace(0, 1 - 1 / self.W, self.W)
         linear_points_H = torch.linspace(0, 1 - 1 / self.H, self.H)
         self.base_grid = theta.new(self.N, self.H, self.W, 3)
-        self.base_grid[:, :, :, (0)] = torch.ger(torch.ones(self.H), linear_points_W).expand_as(self.base_grid[:, :, :, (0)])
-        self.base_grid[:, :, :, (1)] = torch.ger(linear_points_H, torch.ones(self.W)).expand_as(self.base_grid[:, :, :, (1)])
-        self.base_grid[:, :, :, (2)] = 1
+        self.base_grid[:, :, :, 0] = torch.ger(torch.ones(self.H), linear_points_W).expand_as(self.base_grid[:, :, :, 0])
+        self.base_grid[:, :, :, 1] = torch.ger(linear_points_H, torch.ones(self.W)).expand_as(self.base_grid[:, :, :, 1])
+        self.base_grid[:, :, :, 2] = 1
         self.base_grid = Variable(self.base_grid)
         if not no_cuda:
             self.base_grid = self.base_grid
@@ -471,9 +471,9 @@ class Weighted_least_squares(nn.Module):
     def forward(self, W, grid):
         beta2, beta3 = None, None
         W = W.view(-1, self.nclasses, grid.size(1))
-        W0 = W[:, (0), :].unsqueeze(2)
-        x_map = grid[:, :, (0)].unsqueeze(2)
-        y_map = (1 - grid[:, :, (1)]).unsqueeze(2)
+        W0 = W[:, 0, :].unsqueeze(2)
+        x_map = grid[:, :, 0].unsqueeze(2)
+        y_map = (1 - grid[:, :, 1]).unsqueeze(2)
         if self.order == 0:
             Y = self.tensor_ones
         elif self.order == 1:
@@ -496,20 +496,20 @@ class Weighted_least_squares(nn.Module):
                 opl = torch.trtrs(rhs, R.transpose(0, 1))
                 beta0.append(torch.trtrs(opl[0], R, upper=False)[0])
             beta0 = torch.cat(beta0, 1).transpose(0, 1).unsqueeze(2)
-        W1 = W[:, (1), :].unsqueeze(2)
+        W1 = W[:, 1, :].unsqueeze(2)
         Y1 = torch.mul(W1, Y)
         Z = torch.bmm(Y1.transpose(1, 2), Y1) + self.reg_ls
         Z_inv = torch.inverse(Z)
         X = torch.bmm(Y1.transpose(1, 2), torch.mul(W1, x_map))
         beta1 = torch.bmm(Z_inv, X)
         if self.nclasses > 3:
-            W2 = W[:, (2), :].unsqueeze(2)
+            W2 = W[:, 2, :].unsqueeze(2)
             Y2 = torch.mul(W2, Y)
             Z = torch.bmm(Y2.transpose(1, 2), Y2) + self.reg_ls
             Z_inv = torch.inverse(Z)
             X = torch.bmm(Y2.transpose(1, 2), torch.mul(W2, x_map))
             beta2 = torch.bmm(Z_inv, X)
-            W3 = W[:, (3), :].unsqueeze(2)
+            W3 = W[:, 3, :].unsqueeze(2)
             Y3 = torch.mul(W3, Y)
             Z = torch.bmm(Y3.transpose(1, 2), Y3) + self.reg_ls
             Z_inv = torch.inverse(Z)
@@ -567,7 +567,7 @@ class Net(nn.Module):
         n_row = 13
         self.idx_col1 = Variable(torch.linspace(1, n_row, n_row + 1).long())
         self.idx_col2 = Variable(torch.linspace(0, n_row, n_row + 1).long()) + 2 * resize - (n_row + 1)
-        idx_mask = (np.arange(resize)[:, (None)] < np.arange(2 * resize) - (resize + 10)) * 1
+        idx_mask = (np.arange(resize)[:, None] < np.arange(2 * resize) - (resize + 10)) * 1
         idx_mask = np.flip(idx_mask, 1).copy() + idx_mask
         self.idx_mask = Variable(torch.from_numpy(idx_mask)).type(torch.ByteTensor).expand(args.batch_size, args.nclasses, resize, 2 * resize)
         self.end_to_end = args.end_to_end
@@ -776,16 +776,16 @@ class DLT(nn.Module):
         x = self.activation(x) / 16
         A = Variable(self.A.clone())
         B = Variable(self.B.clone())
-        A[:, (1), (5)] = -self.ys1 * (self.xd1 + x[:, (0)])
-        A[:, (2), (5)] = -self.ys1 * (self.xd2 + x[:, (1)])
-        A[:, (3), (5)] = self.ys2 * (self.yd2 + x[:, (2)])
-        A[:, (4), (5)] = -self.ys2 * (self.xd3 + x[:, (0)])
-        A[:, (5), (5)] = -self.ys2 * (self.xd4 + x[:, (1)])
-        B[:, (1), (0)] = self.xd1 + x[:, (0)]
-        B[:, (2), (0)] = self.xd2 + x[:, (1)]
-        B[:, (3), (0)] = -(self.yd2 + x[:, (2)])
-        B[:, (4), (0)] = self.xd3 + x[:, (0)]
-        B[:, (5), (0)] = self.xd4 + x[:, (1)]
+        A[:, 1, 5] = -self.ys1 * (self.xd1 + x[:, 0])
+        A[:, 2, 5] = -self.ys1 * (self.xd2 + x[:, 1])
+        A[:, 3, 5] = self.ys2 * (self.yd2 + x[:, 2])
+        A[:, 4, 5] = -self.ys2 * (self.xd3 + x[:, 0])
+        A[:, 5, 5] = -self.ys2 * (self.xd4 + x[:, 1])
+        B[:, 1, 0] = self.xd1 + x[:, 0]
+        B[:, 2, 0] = self.xd2 + x[:, 1]
+        B[:, 3, 0] = -(self.yd2 + x[:, 2])
+        B[:, 4, 0] = self.xd3 + x[:, 0]
+        B[:, 5, 0] = self.xd4 + x[:, 1]
         A_prime = torch.bmm(A.transpose(1, 2), A)
         B_prime = torch.bmm(A.transpose(1, 2), B)
         h = torch.stack([torch.gesv(b, a)[0] for b, a in zip(torch.unbind(B_prime), torch.unbind(A_prime))])

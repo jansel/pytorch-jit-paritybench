@@ -320,9 +320,9 @@ class BaseModel(nn.Module):
         results = np.zeros((context.shape[0], max_temp_len))
         for b_id in range(context.shape[0]):
             if align_right:
-                results[(b_id), -temp_lens[b_id]:] = utts[b_id]
+                results[b_id, -temp_lens[b_id]:] = utts[b_id]
             else:
-                results[(b_id), 0:temp_lens[b_id]] = utts[b_id]
+                results[b_id, 0:temp_lens[b_id]] = utts[b_id]
         return results
 
 
@@ -1270,7 +1270,7 @@ class CatHRED(BaseModel):
             attn_context = []
             temp_sample_y = sample_y.view(-1, self.config.y_size, self.config.k_size)
             for z_id in range(self.config.y_size):
-                attn_context.append(th.mm(temp_sample_y[:, (z_id)], z_embeddings[z_id]).unsqueeze(1))
+                attn_context.append(th.mm(temp_sample_y[:, z_id], z_embeddings[z_id]).unsqueeze(1))
             attn_context = th.cat(attn_context, dim=1)
             dec_init_state = th.sum(attn_context, dim=1).unsqueeze(0)
         else:
@@ -1306,7 +1306,7 @@ class CatHRED(BaseModel):
             attn_context = []
             temp_sample_y = sample_y.view(-1, self.config.y_size, self.config.k_size)
             for z_id in range(self.config.y_size):
-                attn_context.append(th.mm(temp_sample_y[:, (z_id)], z_embeddings[z_id]).unsqueeze(1))
+                attn_context.append(th.mm(temp_sample_y[:, z_id], z_embeddings[z_id]).unsqueeze(1))
             attn_context = th.cat(attn_context, dim=1)
             dec_init_state = th.sum(attn_context, dim=1).unsqueeze(0)
         else:
@@ -1473,7 +1473,7 @@ class SysPerfectBD2Cat(BaseModel):
             attn_context = []
             temp_sample_y = sample_y.view(-1, self.config.y_size, self.config.k_size)
             for z_id in range(self.y_size):
-                attn_context.append(th.mm(temp_sample_y[:, (z_id)], z_embeddings[z_id]).unsqueeze(1))
+                attn_context.append(th.mm(temp_sample_y[:, z_id], z_embeddings[z_id]).unsqueeze(1))
             attn_context = th.cat(attn_context, dim=1)
             dec_init_state = th.sum(attn_context, dim=1).unsqueeze(0)
         else:
@@ -1526,7 +1526,7 @@ class SysPerfectBD2Cat(BaseModel):
             attn_context = []
             temp_sample_y = sample_y.view(-1, self.config.y_size, self.config.k_size)
             for z_id in range(self.y_size):
-                attn_context.append(th.mm(temp_sample_y[:, (z_id)], z_embeddings[z_id]).unsqueeze(1))
+                attn_context.append(th.mm(temp_sample_y[:, z_id], z_embeddings[z_id]).unsqueeze(1))
             attn_context = th.cat(attn_context, dim=1)
             dec_init_state = th.sum(attn_context, dim=1).unsqueeze(0)
         else:
@@ -1801,10 +1801,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (RnnContextEncoder,
-     lambda: ([], {'n': 4, 'k': 4, 'nembed': 4, 'nhid': 4, 'init_range': 4, 'device_id': 0}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (SelectionClassifier,
      lambda: ([], {'selection_length': 4, 'input_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1812,7 +1808,7 @@ TESTCASES = [
     (SelfAttn,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (TaskMlpGoalEncoder,
      lambda: ([], {'goal_vocab_sizes': [4, 4], 'nhid': 4, 'init_range': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1852,7 +1848,4 @@ class Test_snakeztc_NeuralDialog_LaRL(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

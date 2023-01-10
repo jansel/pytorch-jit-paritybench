@@ -207,13 +207,13 @@ class Controller(torch.nn.Module):
             action = probs.multinomial(num_samples=1).data
             selected_log_prob = log_prob.gather(1, utils.get_variable(action, requires_grad=False))
             entropies.append(entropy)
-            log_probs.append(selected_log_prob[:, (0)])
+            log_probs.append(selected_log_prob[:, 0])
             mode = block_idx % 2
-            inputs = utils.get_variable(action[:, (0)] + sum(self.num_tokens[:mode]), requires_grad=False)
+            inputs = utils.get_variable(action[:, 0] + sum(self.num_tokens[:mode]), requires_grad=False)
             if mode == 0:
-                activations.append(action[:, (0)])
+                activations.append(action[:, 0])
             elif mode == 1:
-                prev_nodes.append(action[:, (0)])
+                prev_nodes.append(action[:, 0])
         prev_nodes = torch.stack(prev_nodes).transpose(0, 1)
         activations = torch.stack(activations).transpose(0, 1)
         dags = _construct_dags(prev_nodes, activations, self.func_names, self.args.num_blocks)
@@ -451,7 +451,7 @@ class RNN(models.shared_base.SharedModel):
                 clip_norms = hidden_norms[clip_select]
                 mask = np.ones(hidden.size())
                 normalizer = max_norm / clip_norms
-                normalizer = normalizer[:, (np.newaxis)]
+                normalizer = normalizer[:, np.newaxis]
                 mask[clip_select] = normalizer
                 hidden *= torch.autograd.Variable(torch.FloatTensor(mask), requires_grad=False)
             logits.append(logit)
@@ -557,10 +557,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (EmbeddingDropout,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
     (LockedDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -570,7 +566,4 @@ TESTCASES = [
 class Test_carpedm20_ENAS_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

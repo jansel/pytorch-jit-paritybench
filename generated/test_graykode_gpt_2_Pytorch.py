@@ -281,14 +281,6 @@ TESTCASES = [
      lambda: ([], {'nf': 4, 'nx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (GPT2LMHeadModel,
-     lambda: ([], {'config': _mock_config(n_layer=1, n_embd=4, vocab_size=4, n_positions=4, n_ctx=4, layer_norm_epsilon=1, n_head=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (GPT2Model,
-     lambda: ([], {'config': _mock_config(n_layer=1, n_embd=4, vocab_size=4, n_positions=4, n_ctx=4, layer_norm_epsilon=1, n_head=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (LayerNorm,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -314,10 +306,4 @@ class Test_graykode_gpt_2_Pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

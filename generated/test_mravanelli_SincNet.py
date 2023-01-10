@@ -123,14 +123,14 @@ class SincConv_fast(nn.Module):
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
-        band = (high - low)[:, (0)]
+        band = (high - low)[:, 0]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
         band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
         band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
-        band_pass = band_pass / (2 * band[:, (None)])
+        band_pass = band_pass / (2 * band[:, None])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
         return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
@@ -140,7 +140,7 @@ def flip(x, dim):
     dim = x.dim() + dim if dim < 0 else dim
     x = x.contiguous()
     x = x.view(-1, *xsize[dim:])
-    x = x.view(x.size(0), x.size(1), -1)[:, (getattr(torch.arange(x.size(1) - 1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long()), :]
+    x = x.view(x.size(0), x.size(1), -1)[:, getattr(torch.arange(x.size(1) - 1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long(), :]
     return x.view(xsize)
 
 
@@ -186,7 +186,7 @@ class sinc_conv(nn.Module):
             low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i].float() * self.freq_scale, t_right)
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
-            filters[(i), :] = band_pass * window
+            filters[i, :] = band_pass * window
         out = F.conv1d(x, filters.view(self.N_filt, 1, self.Filt_dim))
         return out
 

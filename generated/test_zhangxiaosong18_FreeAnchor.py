@@ -203,9 +203,6 @@ from collections import defaultdict
 from collections import deque
 
 
-from torch.hub import _download_url_to_file
-
-
 from torch.hub import urlparse
 
 
@@ -801,10 +798,10 @@ class BoxCoder(object):
         """
         boxes = boxes
         TO_REMOVE = 1
-        widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
-        heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
-        ctr_x = boxes[:, (0)] + 0.5 * widths
-        ctr_y = boxes[:, (1)] + 0.5 * heights
+        widths = boxes[:, 2] - boxes[:, 0] + TO_REMOVE
+        heights = boxes[:, 3] - boxes[:, 1] + TO_REMOVE
+        ctr_x = boxes[:, 0] + 0.5 * widths
+        ctr_y = boxes[:, 1] + 0.5 * heights
         wx, wy, ww, wh = self.weights
         dx = rel_codes[:, 0::4] / wx
         dy = rel_codes[:, 1::4] / wy
@@ -812,10 +809,10 @@ class BoxCoder(object):
         dh = rel_codes[:, 3::4] / wh
         dw = torch.clamp(dw, max=self.bbox_xform_clip)
         dh = torch.clamp(dh, max=self.bbox_xform_clip)
-        pred_ctr_x = dx * widths[:, (None)] + ctr_x[:, (None)]
-        pred_ctr_y = dy * heights[:, (None)] + ctr_y[:, (None)]
-        pred_w = torch.exp(dw) * widths[:, (None)]
-        pred_h = torch.exp(dh) * heights[:, (None)]
+        pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
+        pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
+        pred_w = torch.exp(dw) * widths[:, None]
+        pred_h = torch.exp(dh) * heights[:, None]
         pred_boxes = torch.zeros_like(rel_codes)
         pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w
         pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
@@ -1051,13 +1048,13 @@ class BoxList(object):
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
         if remove_empty:
             box = self.bbox
-            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
+            keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])
             return self[keep]
         return self
 
@@ -1065,10 +1062,10 @@ class BoxList(object):
         if self.mode == 'xyxy':
             TO_REMOVE = 1
             box = self.bbox
-            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
+            area = (box[:, 2] - box[:, 0] + TO_REMOVE) * (box[:, 3] - box[:, 1] + TO_REMOVE)
         elif self.mode == 'xywh':
             box = self.bbox
-            area = box[:, (2)] * box[:, (3)]
+            area = box[:, 2] * box[:, 3]
         else:
             raise RuntimeError('Should not be here')
         return area
@@ -1117,8 +1114,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
     """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -1158,7 +1155,7 @@ def _generate_anchors(base_size, scales, aspect_ratios):
     """
     anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
     anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(anchors[i, :], scales) for i in range(anchors.shape[0])])
     return torch.from_numpy(anchors)
 
 
@@ -1369,10 +1366,10 @@ class RetinaNetPostProcessor(torch.nn.Module):
         for batch_idx, (per_box_cls, per_box_regression, per_candidate_inds, per_anchors) in enumerate(zip(box_cls, box_regression, candidate_inds, anchors)):
             per_box_cls = per_box_cls[per_candidate_inds]
             per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
+            per_box_loc = per_candidate_nonzeros[:, 0]
+            per_class = per_candidate_nonzeros[:, 1]
             per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
+            detections = self.box_coder.decode(per_box_regression[per_box_loc, :].view(-1, 4), per_anchors.bbox[per_box_loc, :].view(-1, 4))
             boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
             boxlist.add_field('labels', per_class)
             boxlist.add_field('scores', per_box_cls)
@@ -1433,14 +1430,14 @@ class RetinaNetPostProcessor(torch.nn.Module):
         for batch_idx, (per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors) in enumerate(zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors)):
             per_box_cls = per_box_cls[per_candidate_inds]
             per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
+            per_box_loc = per_candidate_nonzeros[:, 0]
+            per_class = per_candidate_nonzeros[:, 1]
             per_class += 1
             if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
                 per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
                 per_box_loc = per_box_loc[top_k_indices]
                 per_class = per_class[top_k_indices]
-            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
+            detections = self.box_coder.decode(per_box_regression[per_box_loc, :].view(-1, 4), per_anchors.bbox[per_box_loc, :].view(-1, 4))
             boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
             boxlist.add_field('labels', per_class)
             boxlist.add_field('scores', per_box_cls)
@@ -1484,7 +1481,7 @@ class RetinaNetPostProcessor(torch.nn.Module):
                 if len(inds) == 0:
                     continue
                 scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxes_j = boxes[inds, :].view(-1, 4)
                 boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
                 boxlist_for_class.add_field('scores', scores_j)
                 boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms_thresh, score_field='scores')
@@ -1866,8 +1863,8 @@ class Matcher(object):
             select = highest_quality_foreach_gt >= self.low_quality_threshold
             highest_quality_foreach_gt = highest_quality_foreach_gt[select]
             match_quality_matrix = match_quality_matrix[select]
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, None])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, 1]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
@@ -1892,12 +1889,12 @@ def boxlist_iou(boxlist1, boxlist2):
     area1 = boxlist1.area()
     area2 = boxlist2.area()
     box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    lt = torch.max(box1[:, None, :2], box2[:, :2])
+    rb = torch.min(box1[:, None, 2:], box2[:, 2:])
     TO_REMOVE = 1
     wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+    iou = inter / (area1[:, None] + area2 - inter)
     return iou
 
 
@@ -1990,8 +1987,8 @@ class FastRCNNLossComputation(object):
         classification_loss = F.cross_entropy(class_logits, labels)
         sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
         labels_pos = labels[sampled_pos_inds_subset]
-        map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3], device=device)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, (None)], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
+        map_inds = 4 * labels_pos[:, None] + torch.tensor([0, 1, 2, 3], device=device)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, None], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
         box_loss = box_loss / labels.numel()
         return dict(loss_classifier=classification_loss, loss_box_reg=box_loss)
 
@@ -2088,9 +2085,9 @@ class PostProcessor(nn.Module):
         inds_all = scores > self.score_thresh
         no_background = int(self.free_anchor)
         for j in range(1 - no_background, num_classes - no_background):
-            inds = inds_all[:, (j)].nonzero().squeeze(1)
+            inds = inds_all[:, j].nonzero().squeeze(1)
             scores_j = scores[inds, j]
-            boxes_j = boxes[(inds), j * 4:(j + 1) * 4]
+            boxes_j = boxes[inds, j * 4:(j + 1) * 4]
             boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
             boxlist_for_class.add_field('scores', scores_j)
             boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms, score_field='scores')
@@ -2423,7 +2420,7 @@ class MaskPostProcessor(nn.Module):
         labels = [bbox.get_field('labels') for bbox in boxes]
         labels = torch.cat(labels)
         index = torch.arange(num_masks, device=labels.device)
-        mask_prob = mask_prob[index, labels][:, (None)]
+        mask_prob = mask_prob[index, labels][:, None]
         if self.masker:
             mask_prob = self.masker(mask_prob, boxes)
         boxes_per_image = [len(box) for box in boxes]
@@ -2717,7 +2714,7 @@ class RPNPostProcessor(torch.nn.Module):
         num_anchors = A * H * W
         pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
         objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
-        batch_idx = torch.arange(N, device=device)[:, (None)]
+        batch_idx = torch.arange(N, device=device)[:, None]
         box_regression = box_regression[batch_idx, topk_idx]
         image_shapes = [box.size for box in anchors]
         concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
@@ -3101,7 +3098,7 @@ class MaskPostProcessorCOCOFormat(MaskPostProcessor):
         results = super(MaskPostProcessorCOCOFormat, self).forward(x, boxes)
         for result in results:
             masks = result.get_field('mask').cpu()
-            rles = [mask_util.encode(np.array(mask[(0), :, :, (np.newaxis)], order='F'))[0] for mask in masks]
+            rles = [mask_util.encode(np.array(mask[0, :, :, np.newaxis], order='F'))[0] for mask in masks]
             for rle in rles:
                 rle['counts'] = rle['counts'].decode('utf-8')
             result.add_field('mask', rles)
@@ -3141,7 +3138,7 @@ TESTCASES = [
      True),
     (RPNHead,
      lambda: ([], {'in_channels': 4, 'num_anchors': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (SmoothL1Loss,
      lambda: ([], {}),

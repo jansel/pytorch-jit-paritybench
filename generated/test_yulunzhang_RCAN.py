@@ -222,7 +222,7 @@ class Loss(nn.modules.loss._Loss):
             label = '{} Loss'.format(l['type'])
             fig = plt.figure()
             plt.title(label)
-            plt.plot(axis, self.log[:, (i)].numpy(), label=label)
+            plt.plot(axis, self.log[:, i].numpy(), label=label)
             plt.legend()
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -737,14 +737,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CALayer,
-     lambda: ([], {'channel': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
-    (Discriminator,
-     lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (RCAB,
      lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -752,10 +744,6 @@ TESTCASES = [
     (ResBlock,
      lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SELayer,
-     lambda: ([], {'channel': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SEResBlock,
      lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
@@ -775,13 +763,4 @@ class Test_yulunzhang_RCAN(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

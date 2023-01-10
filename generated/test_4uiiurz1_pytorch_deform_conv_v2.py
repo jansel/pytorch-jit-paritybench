@@ -127,15 +127,15 @@ class DeformConv2d(nn.Module):
         p = p.contiguous().permute(0, 2, 3, 1)
         q_lt = p.detach().floor()
         q_rb = q_lt + 1
-        q_lt = torch.cat([torch.clamp(q_lt[(...), :N], 0, x.size(2) - 1), torch.clamp(q_lt[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
-        q_rb = torch.cat([torch.clamp(q_rb[(...), :N], 0, x.size(2) - 1), torch.clamp(q_rb[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
-        q_lb = torch.cat([q_lt[(...), :N], q_rb[(...), N:]], dim=-1)
-        q_rt = torch.cat([q_rb[(...), :N], q_lt[(...), N:]], dim=-1)
-        p = torch.cat([torch.clamp(p[(...), :N], 0, x.size(2) - 1), torch.clamp(p[(...), N:], 0, x.size(3) - 1)], dim=-1)
-        g_lt = (1 + (q_lt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (q_lt[(...), N:].type_as(p) - p[(...), N:]))
-        g_rb = (1 - (q_rb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (q_rb[(...), N:].type_as(p) - p[(...), N:]))
-        g_lb = (1 + (q_lb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (q_lb[(...), N:].type_as(p) - p[(...), N:]))
-        g_rt = (1 - (q_rt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (q_rt[(...), N:].type_as(p) - p[(...), N:]))
+        q_lt = torch.cat([torch.clamp(q_lt[..., :N], 0, x.size(2) - 1), torch.clamp(q_lt[..., N:], 0, x.size(3) - 1)], dim=-1).long()
+        q_rb = torch.cat([torch.clamp(q_rb[..., :N], 0, x.size(2) - 1), torch.clamp(q_rb[..., N:], 0, x.size(3) - 1)], dim=-1).long()
+        q_lb = torch.cat([q_lt[..., :N], q_rb[..., N:]], dim=-1)
+        q_rt = torch.cat([q_rb[..., :N], q_lt[..., N:]], dim=-1)
+        p = torch.cat([torch.clamp(p[..., :N], 0, x.size(2) - 1), torch.clamp(p[..., N:], 0, x.size(3) - 1)], dim=-1)
+        g_lt = (1 + (q_lt[..., :N].type_as(p) - p[..., :N])) * (1 + (q_lt[..., N:].type_as(p) - p[..., N:]))
+        g_rb = (1 - (q_rb[..., :N].type_as(p) - p[..., :N])) * (1 - (q_rb[..., N:].type_as(p) - p[..., N:]))
+        g_lb = (1 + (q_lb[..., :N].type_as(p) - p[..., :N])) * (1 - (q_lb[..., N:].type_as(p) - p[..., N:]))
+        g_rt = (1 - (q_rt[..., :N].type_as(p) - p[..., :N])) * (1 + (q_rt[..., N:].type_as(p) - p[..., N:]))
         x_q_lt = self._get_x_q(x, q_lt, N)
         x_q_rb = self._get_x_q(x, q_rb, N)
         x_q_lb = self._get_x_q(x, q_lb, N)
@@ -175,7 +175,7 @@ class DeformConv2d(nn.Module):
         padded_w = x.size(3)
         c = x.size(1)
         x = x.contiguous().view(b, c, -1)
-        index = q[(...), :N] * padded_w + q[(...), N:]
+        index = q[..., :N] * padded_w + q[..., N:]
         index = index.contiguous().unsqueeze(dim=1).expand(-1, c, -1, -1, -1).contiguous().view(b, c, -1)
         x_offset = x.gather(dim=-1, index=index).contiguous().view(b, c, h, w, N)
         return x_offset
@@ -183,7 +183,7 @@ class DeformConv2d(nn.Module):
     @staticmethod
     def _reshape_x_offset(x_offset, ks):
         b, c, h, w, N = x_offset.size()
-        x_offset = torch.cat([x_offset[(...), s:s + ks].contiguous().view(b, c, h, w * ks) for s in range(0, N, ks)], dim=-1)
+        x_offset = torch.cat([x_offset[..., s:s + ks].contiguous().view(b, c, h, w * ks) for s in range(0, N, ks)], dim=-1)
         x_offset = x_offset.contiguous().view(b, c, h * ks, w * ks)
         return x_offset
 

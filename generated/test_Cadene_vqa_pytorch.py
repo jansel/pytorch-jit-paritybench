@@ -483,28 +483,3 @@ class TwoLSTM(nn.Module):
         output = torch.cat((vec_0, vec_1), 1)
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (LSTM,
-     lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (TwoLSTM,
-     lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-]
-
-class Test_Cadene_vqa_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-

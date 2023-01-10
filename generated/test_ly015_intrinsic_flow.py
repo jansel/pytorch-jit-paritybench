@@ -318,8 +318,8 @@ def warp_acc_flow(x, flow, mode='bilinear', mask=None, mask_value=-1):
     yy = yy.view(1, 1, h, w).repeat(bsz, 1, 1, 1)
     grid = torch.cat((xx, yy), dim=1).float()
     grid = grid + flow
-    grid[:, (0), :, :] = 2.0 * grid[:, (0), :, :] / max(w - 1, 1) - 1.0
-    grid[:, (1), :, :] = 2.0 * grid[:, (1), :, :] / max(h - 1, 1) - 1.0
+    grid[:, 0, :, :] = 2.0 * grid[:, 0, :, :] / max(w - 1, 1) - 1.0
+    grid[:, 1, :, :] = 2.0 * grid[:, 1, :, :] / max(h - 1, 1) - 1.0
     grid = grid.permute(0, 2, 3, 1)
     output = F.grid_sample(x, grid, mode=mode, padding_mode='zeros')
     if mask is not None:
@@ -346,8 +346,8 @@ class SS_FlowLoss(nn.Module):
         vis_2: (bsz, 1, h, w) visibility map of image_2
         """
         with torch.no_grad():
-            seg_1 = seg_1[:, 1:, (...)]
-            seg_2 = seg_2[:, 1:, (...)]
+            seg_1 = seg_1[:, 1:, ...]
+            seg_2 = seg_2[:, 1:, ...]
             seg_1w = warp_acc_flow(seg_1, input_flow)
             seg_1w = (seg_1w > 0).float()
             mask = (seg_2 * (1 - seg_1w)).sum(dim=1, keepdim=True)
@@ -1008,7 +1008,7 @@ TESTCASES = [
      False),
     (GANLoss,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), 0], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
      True),
     (GateBlock,
      lambda: ([], {'dim': 4, 'dim_a': 4}),

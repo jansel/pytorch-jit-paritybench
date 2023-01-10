@@ -925,14 +925,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (Encoder,
      lambda: ([], {'BatchNorm': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (NLayerDiscriminator,
      lambda: ([], {'input_nc': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -961,7 +957,4 @@ class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

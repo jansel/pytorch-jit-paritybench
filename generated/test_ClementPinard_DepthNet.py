@@ -116,7 +116,7 @@ def post_process_depth(depth, activation_function=None, clamp=False):
         depth = activation_function(depth)
     if clamp:
         depth = depth.clamp(10, 60)
-    return depth[:, (0)]
+    return depth[:, 0]
 
 
 def predict_depth(in_planes, with_confidence):

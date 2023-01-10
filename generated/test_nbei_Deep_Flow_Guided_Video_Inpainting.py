@@ -1072,7 +1072,7 @@ class FlowNet2(nn.Module):
         min_dim = min(f_shape[0], f_shape[1])
         weight.data.fill_(0.0)
         for i in range(min_dim):
-            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
+            weight.data[i, i, :, :] = torch.from_numpy(bilinear)
         return
 
     def forward(self, img1, img2):
@@ -1082,8 +1082,8 @@ class FlowNet2(nn.Module):
         inputs = torch.cat((img1, img2), dim=2)
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -1142,8 +1142,8 @@ class FlowNet2CS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -1192,8 +1192,8 @@ class FlowNet2CSS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -1460,14 +1460,6 @@ TESTCASES = [
      lambda: ([], {'args': _mock_config()}),
      lambda: ([torch.rand([4, 6, 64, 64])], {}),
      False),
-    (Up_Module,
-     lambda: ([], {'in_ch': 18, 'out_ch': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
-    (Up_Module_CNet,
-     lambda: ([], {'in_ch': 18, 'out_ch': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (tofp16,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1511,10 +1503,4 @@ class Test_nbei_Deep_Flow_Guided_Video_Inpainting(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

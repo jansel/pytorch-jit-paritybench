@@ -515,7 +515,7 @@ class CPUStreamType:
     pass
 
 
-AbstractStream = Union[torch.cuda.Stream, CPUStreamType]
+AbstractStream = Union[torch.Stream, CPUStreamType]
 
 
 class pop:
@@ -767,9 +767,9 @@ def default_stream(device: torch.device) ->AbstractStream:
     return torch.cuda.default_stream(device)
 
 
-def as_cuda(stream: AbstractStream) ->torch.cuda.Stream:
+def as_cuda(stream: AbstractStream) ->torch.Stream:
     """Casts the given stream as :class:`torch.cuda.Stream`."""
-    return cast(torch.cuda.Stream, stream)
+    return cast(torch.Stream, stream)
 
 
 def is_cuda(stream: AbstractStream) ->bool:
@@ -1069,7 +1069,7 @@ def new_stream(device: torch.device) ->AbstractStream:
     """Creates a new stream for either CPU or CUDA device."""
     if device.type != 'cuda':
         return CPUStream
-    return torch.cuda.Stream(device)
+    return torch.Stream(device)
 
 
 def recommend_auto_balance(message: str) ->str:

@@ -1,16 +1,16 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-dice_loss = _module
-eval = _module
+evaluate = _module
+hubconf = _module
 predict = _module
-submit = _module
 train = _module
 unet = _module
 unet_model = _module
 unet_parts = _module
-data_vis = _module
-dataset = _module
+utils = _module
+data_loading = _module
+dice_score = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -35,9 +35,6 @@ wraps = functools.wraps
 import torch
 
 
-from torch.autograd import Function
-
-
 import torch.nn.functional as F
 
 
@@ -50,13 +47,19 @@ import numpy as np
 from torchvision import transforms
 
 
+import random
+
+
 import torch.nn as nn
 
 
+import torchvision.transforms as transforms
+
+
+import torchvision.transforms.functional as TF
+
+
 from torch import optim
-
-
-from torch.utils.tensorboard import SummaryWriter
 
 
 from torch.utils.data import DataLoader
@@ -65,7 +68,19 @@ from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
 
+from functools import lru_cache
+
+
+from functools import partial
+
+
+from itertools import repeat
+
+
 from torch.utils.data import Dataset
+
+
+from torch import Tensor
 
 
 class DoubleConv(nn.Module):
@@ -75,7 +90,7 @@ class DoubleConv(nn.Module):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
-        self.double_conv = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+        self.double_conv = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.double_conv(x)
@@ -125,7 +140,7 @@ class Up(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, n_channels, n_classes, bilinear=True):
+    def __init__(self, n_channels, n_classes, bilinear=False):
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
@@ -154,6 +169,18 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         logits = self.outc(x)
         return logits
+
+    def use_checkpointing(self):
+        self.inc = torch.utils.checkpoint(self.inc)
+        self.down1 = torch.utils.checkpoint(self.down1)
+        self.down2 = torch.utils.checkpoint(self.down2)
+        self.down3 = torch.utils.checkpoint(self.down3)
+        self.down4 = torch.utils.checkpoint(self.down4)
+        self.up1 = torch.utils.checkpoint(self.up1)
+        self.up2 = torch.utils.checkpoint(self.up2)
+        self.up3 = torch.utils.checkpoint(self.up3)
+        self.up4 = torch.utils.checkpoint(self.up4)
+        self.outc = torch.utils.checkpoint(self.outc)
 
 
 import torch

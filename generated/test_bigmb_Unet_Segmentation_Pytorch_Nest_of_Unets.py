@@ -572,10 +572,6 @@ TESTCASES = [
      lambda: ([], {'in_filters': 4, 'out_filters': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ExpansiveBlock,
-     lambda: ([], {'in_filters1': 4, 'in_filters2': 4, 'out_filters': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
-     True),
     (NestedUNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -660,7 +656,4 @@ class Test_bigmb_Unet_Segmentation_Pytorch_Nest_of_Unets(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

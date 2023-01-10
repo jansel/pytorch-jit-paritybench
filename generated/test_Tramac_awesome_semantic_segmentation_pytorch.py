@@ -31,7 +31,6 @@ resnext = _module
 vgg = _module
 xception = _module
 bisenet = _module
-ccnet = _module
 cgnet = _module
 danet = _module
 deeplabv3 = _module
@@ -51,23 +50,12 @@ model_store = _module
 model_zoo = _module
 ocnet = _module
 psanet = _module
-psanet_old = _module
 pspnet = _module
 segbase = _module
+swnet = _module
 nn = _module
 basic = _module
-ca_block = _module
 jpu = _module
-psa_block = _module
-setup = _module
-sync_bn = _module
-functions = _module
-lib = _module
-setup = _module
-gpu = _module
-setup = _module
-syncbn = _module
-syncbn = _module
 distributed = _module
 download = _module
 filesystem = _module
@@ -133,39 +121,6 @@ from collections import OrderedDict
 import math
 
 
-from torch.autograd.function import once_differentiable
-
-
-from torch.utils.cpp_extension import BuildExtension
-
-
-from torch.utils.cpp_extension import CppExtension
-
-
-from torch.utils.cpp_extension import CUDAExtension
-
-
-from torch.utils.cpp_extension import CUDA_HOME
-
-
-import torch.cuda.comm as comm
-
-
-from torch.autograd import Function
-
-
-from torch.utils.cpp_extension import load
-
-
-import warnings
-
-
-from torch.nn.modules.batchnorm import _BatchNorm
-
-
-from queue import Queue
-
-
 import torch.utils.data as data
 
 
@@ -181,10 +136,16 @@ from torch.utils.data.sampler import BatchSampler
 from torch.autograd import Variable
 
 
+import torch.cuda.comm as comm
+
+
 from torch.nn.parallel.data_parallel import DataParallel
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+from torch.autograd import Function
 
 
 from torchvision import transforms
@@ -523,15 +484,15 @@ class Bottleneck(nn.Module):
         if downsampling:
             self.maxpool = nn.MaxPool2d(2, 2, return_indices=True)
             self.conv_down = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels))
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.PReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.RReLU())
         if downsampling:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 2, stride=2, bias=False), norm_layer(inter_channels), nn.PReLU())
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 2, stride=2, bias=False), norm_layer(inter_channels), nn.RReLU())
         elif asymmetric:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, (5, 1), padding=(2, 0), bias=False), nn.Conv2d(inter_channels, inter_channels, (1, 5), padding=(0, 2), bias=False), norm_layer(inter_channels), nn.PReLU())
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, (5, 1), padding=(2, 0), bias=False), nn.Conv2d(inter_channels, inter_channels, (1, 5), padding=(0, 2), bias=False), norm_layer(inter_channels), nn.RReLU())
         else:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, dilation=dilation, padding=dilation, bias=False), norm_layer(inter_channels), nn.PReLU())
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, dilation=dilation, padding=dilation, bias=False), norm_layer(inter_channels), nn.RReLU())
         self.conv3 = nn.Sequential(nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
-        self.act = nn.PReLU()
+        self.act = nn.RReLU()
 
     def forward(self, x):
         identity = x
@@ -1606,98 +1567,6 @@ class BiSeNet(nn.Module):
         return tuple(outputs)
 
 
-class _CAMap(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, weight, g):
-        out = _C.ca_map_forward(weight, g)
-        ctx.save_for_backward(weight, g)
-        return out
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dout):
-        weight, g = ctx.saved_tensors
-        dw, dg = _C.ca_map_backward(dout, weight, g)
-        return dw, dg
-
-
-ca_map = _CAMap.apply
-
-
-class _CAWeight(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, t, f):
-        weight = _C.ca_forward(t, f)
-        ctx.save_for_backward(t, f)
-        return weight
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dw):
-        t, f = ctx.saved_tensors
-        dt, df = _C.ca_backward(dw, t, f)
-        return dt, df
-
-
-ca_weight = _CAWeight.apply
-
-
-class CrissCrossAttention(nn.Module):
-    """Criss-Cross Attention Module"""
-
-    def __init__(self, in_channels):
-        super(CrissCrossAttention, self).__init__()
-        self.query_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
-        self.key_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
-        self.value_conv = nn.Conv2d(in_channels, in_channels, 1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def forward(self, x):
-        proj_query = self.query_conv(x)
-        proj_key = self.key_conv(x)
-        proj_value = self.value_conv(x)
-        energy = ca_weight(proj_query, proj_key)
-        attention = F.softmax(energy, 1)
-        out = ca_map(attention, proj_value)
-        out = self.gamma * out + x
-        return out
-
-
-class _RCCAModule(nn.Module):
-
-    def __init__(self, in_channels, out_channels, norm_layer, **kwargs):
-        super(_RCCAModule, self).__init__()
-        inter_channels = in_channels // 4
-        self.conva = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True))
-        self.cca = CrissCrossAttention(inter_channels)
-        self.convb = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True))
-        self.bottleneck = nn.Sequential(nn.Conv2d(in_channels + inter_channels, out_channels, 3, padding=1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
-
-    def forward(self, x, recurrence=1):
-        out = self.conva(x)
-        for i in range(recurrence):
-            out = self.cca(out)
-        out = self.convb(out)
-        out = torch.cat([x, out], dim=1)
-        out = self.bottleneck(out)
-        return out
-
-
-class _CCHead(nn.Module):
-
-    def __init__(self, nclass, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(_CCHead, self).__init__()
-        self.rcca = _RCCAModule(2048, 512, norm_layer, **kwargs)
-        self.out = nn.Conv2d(512, nclass, 1)
-
-    def forward(self, x):
-        x = self.rcca(x)
-        x = self.out(x)
-        return x
-
-
 class _ChannelWiseConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, dilation=1, **kwargs):
@@ -2431,7 +2300,7 @@ class InitialBlock(nn.Module):
         self.conv = nn.Conv2d(3, out_channels, 3, 2, 1, bias=False)
         self.maxpool = nn.MaxPool2d(2, 2)
         self.bn = norm_layer(out_channels + 3)
-        self.act = nn.PReLU()
+        self.act = nn.RReLU()
 
     def forward(self, x):
         x_conv = self.conv(x)
@@ -2449,8 +2318,8 @@ class UpsamplingBottleneck(nn.Module):
         super(UpsamplingBottleneck, self).__init__()
         self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels))
         self.upsampling = nn.MaxUnpool2d(2)
-        self.block = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.PReLU(), nn.ConvTranspose2d(inter_channels, inter_channels, 2, 2, bias=False), norm_layer(inter_channels), nn.PReLU(), nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
-        self.act = nn.PReLU()
+        self.block = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.RReLU(), nn.ConvTranspose2d(inter_channels, inter_channels, 2, 2, bias=False), norm_layer(inter_channels), nn.RReLU(), nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
+        self.act = nn.RReLU()
 
     def forward(self, x, max_indices):
         out_up = self.conv(x)
@@ -2471,30 +2340,58 @@ class ENet(nn.Module):
         self.bottleneck1_2 = Bottleneck(64, 16, 64, **kwargs)
         self.bottleneck1_3 = Bottleneck(64, 16, 64, **kwargs)
         self.bottleneck1_4 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_5 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_6 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_7 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_8 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_9 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck1_10 = Bottleneck(64, 16, 64, **kwargs)
         self.bottleneck2_0 = Bottleneck(64, 32, 128, downsampling=True, **kwargs)
         self.bottleneck2_1 = Bottleneck(128, 32, 128, **kwargs)
         self.bottleneck2_2 = Bottleneck(128, 32, 128, dilation=2, **kwargs)
         self.bottleneck2_3 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
         self.bottleneck2_4 = Bottleneck(128, 32, 128, dilation=4, **kwargs)
         self.bottleneck2_5 = Bottleneck(128, 32, 128, **kwargs)
-        self.bottleneck2_6 = Bottleneck(128, 32, 128, dilation=8, **kwargs)
-        self.bottleneck2_7 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
-        self.bottleneck2_8 = Bottleneck(128, 32, 128, dilation=16, **kwargs)
-        self.bottleneck3_1 = Bottleneck(128, 32, 128, **kwargs)
-        self.bottleneck3_2 = Bottleneck(128, 32, 128, dilation=2, **kwargs)
-        self.bottleneck3_3 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
-        self.bottleneck3_4 = Bottleneck(128, 32, 128, dilation=4, **kwargs)
+        self.bottleneck2_6 = Bottleneck(128, 32, 128, **kwargs)
+        self.bottleneck2_7 = Bottleneck(128, 32, 128, **kwargs)
+        self.bottleneck2_8 = Bottleneck(128, 32, 128, dilation=8, **kwargs)
+        self.bottleneck2_9 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
+        self.bottleneck2_10 = Bottleneck(128, 32, 128, dilation=16, **kwargs)
+        self.bottleneck3_0 = Bottleneck(128, 32, 128, **kwargs)
+        self.bottleneck3_1 = Bottleneck(128, 32, 128, dilation=2, **kwargs)
+        self.bottleneck3_2 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
+        self.bottleneck3_3 = Bottleneck(128, 32, 128, dilation=4, **kwargs)
+        self.bottleneck3_4 = Bottleneck(128, 32, 128, **kwargs)
         self.bottleneck3_5 = Bottleneck(128, 32, 128, **kwargs)
-        self.bottleneck3_6 = Bottleneck(128, 32, 128, dilation=8, **kwargs)
-        self.bottleneck3_7 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
-        self.bottleneck3_8 = Bottleneck(128, 32, 128, dilation=16, **kwargs)
+        self.bottleneck3_6 = Bottleneck(128, 32, 128, **kwargs)
+        self.bottleneck3_7 = Bottleneck(128, 32, 128, **kwargs)
+        self.bottleneck3_8 = Bottleneck(128, 32, 128, dilation=8, **kwargs)
+        self.bottleneck3_9 = Bottleneck(128, 32, 128, asymmetric=True, **kwargs)
+        self.bottleneck3_10 = Bottleneck(128, 32, 128, dilation=16, **kwargs)
         self.bottleneck4_0 = UpsamplingBottleneck(128, 16, 64, **kwargs)
         self.bottleneck4_1 = Bottleneck(64, 16, 64, **kwargs)
         self.bottleneck4_2 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_3 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_4 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_5 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_6 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_7 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_8 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_9 = Bottleneck(64, 16, 64, **kwargs)
+        self.bottleneck4_10 = Bottleneck(64, 16, 64, **kwargs)
         self.bottleneck5_0 = UpsamplingBottleneck(64, 4, 16, **kwargs)
         self.bottleneck5_1 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_2 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_3 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_4 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_5 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_6 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_7 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_8 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_9 = Bottleneck(16, 4, 16, **kwargs)
+        self.bottleneck5_10 = Bottleneck(16, 4, 16, **kwargs)
         self.fullconv = nn.ConvTranspose2d(16, nclass, 2, 2, bias=False)
-        self.__setattr__('exclusive', ['bottleneck1_0', 'bottleneck1_1', 'bottleneck1_2', 'bottleneck1_3', 'bottleneck1_4', 'bottleneck2_0', 'bottleneck2_1', 'bottleneck2_2', 'bottleneck2_3', 'bottleneck2_4', 'bottleneck2_5', 'bottleneck2_6', 'bottleneck2_7', 'bottleneck2_8', 'bottleneck3_1', 'bottleneck3_2', 'bottleneck3_3', 'bottleneck3_4', 'bottleneck3_5', 'bottleneck3_6', 'bottleneck3_7', 'bottleneck3_8', 'bottleneck4_0', 'bottleneck4_1', 'bottleneck4_2', 'bottleneck5_0', 'bottleneck5_1', 'fullconv'])
+        self.__setattr__('exclusive', ['bottleneck1_0', 'bottleneck1_1', 'bottleneck1_2', 'bottleneck1_3', 'bottleneck1_4', 'bottleneck1_5', 'bottleneck1_6', 'bottleneck1_7', 'bottleneck1_8', 'bottleneck1_9', 'bottleneck1_10', 'bottleneck2_0', 'bottleneck2_1', 'bottleneck2_2', 'bottleneck2_3', 'bottleneck2_4', 'bottleneck2_5', 'bottleneck2_6', 'bottleneck2_7', 'bottleneck2_8', 'bottleneck2_9', 'bottleneck2_10', 'bottleneck3_0', 'bottleneck3_1', 'bottleneck3_2', 'bottleneck3_3', 'bottleneck3_4', 'bottleneck3_5', 'bottleneck3_6', 'bottleneck3_7', 'bottleneck3_8', 'bottleneck3_9', 'bottleneck3_10', 'bottleneck4_0', 'bottleneck4_1', 'bottleneck4_2', 'bottleneck4_3', 'bottleneck4_4', 'bottleneck4_5', 'bottleneck4_6', 'bottleneck4_7', 'bottleneck4_8', 'bottleneck4_9', 'bottleneck4_10', 'bottleneck5_0', 'bottleneck5_1', 'bottleneck5_2', 'bottleneck5_3', 'bottleneck5_4', 'bottleneck5_5', 'bottleneck5_6', 'bottleneck5_7', 'bottleneck5_8', 'bottleneck5_9', 'bottleneck5_10', 'fullconv'])
 
     def forward(self, x):
         x = self.initial(x)
@@ -2503,6 +2400,12 @@ class ENet(nn.Module):
         x = self.bottleneck1_2(x)
         x = self.bottleneck1_3(x)
         x = self.bottleneck1_4(x)
+        x = self.bottleneck1_5(x)
+        x = self.bottleneck1_6(x)
+        x = self.bottleneck1_7(x)
+        x = self.bottleneck1_8(x)
+        x = self.bottleneck1_9(x)
+        x = self.bottleneck1_10(x)
         x, max_indices2 = self.bottleneck2_0(x)
         x = self.bottleneck2_1(x)
         x = self.bottleneck2_2(x)
@@ -2512,18 +2415,41 @@ class ENet(nn.Module):
         x = self.bottleneck2_6(x)
         x = self.bottleneck2_7(x)
         x = self.bottleneck2_8(x)
+        x = self.bottleneck2_9(x)
+        x = self.bottleneck2_10(x)
+        x = self.bottleneck3_0(x)
         x = self.bottleneck3_1(x)
         x = self.bottleneck3_2(x)
         x = self.bottleneck3_3(x)
         x = self.bottleneck3_4(x)
+        x = self.bottleneck3_5(x)
         x = self.bottleneck3_6(x)
         x = self.bottleneck3_7(x)
         x = self.bottleneck3_8(x)
+        x = self.bottleneck3_9(x)
+        x = self.bottleneck3_10(x)
         x = self.bottleneck4_0(x, max_indices2)
         x = self.bottleneck4_1(x)
         x = self.bottleneck4_2(x)
+        x = self.bottleneck4_3(x)
+        x = self.bottleneck4_4(x)
+        x = self.bottleneck4_5(x)
+        x = self.bottleneck4_6(x)
+        x = self.bottleneck4_7(x)
+        x = self.bottleneck4_8(x)
+        x = self.bottleneck4_9(x)
+        x = self.bottleneck4_10(x)
         x = self.bottleneck5_0(x, max_indices1)
         x = self.bottleneck5_1(x)
+        x = self.bottleneck5_2(x)
+        x = self.bottleneck5_3(x)
+        x = self.bottleneck5_4(x)
+        x = self.bottleneck5_5(x)
+        x = self.bottleneck5_6(x)
+        x = self.bottleneck5_7(x)
+        x = self.bottleneck5_8(x)
+        x = self.bottleneck5_9(x)
+        x = self.bottleneck5_10(x)
         x = self.fullconv(x)
         return tuple([x])
 
@@ -3111,136 +3037,6 @@ class _OCHead(nn.Module):
         return self.out(x)
 
 
-class _PSACollect(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, hc):
-        out = _C.psa_forward(hc, 1)
-        ctx.save_for_backward(hc)
-        return out
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dout):
-        hc = ctx.saved_tensors
-        dhc = _C.psa_backward(dout, hc[0], 1)
-        return dhc
-
-
-psa_collect = _PSACollect.apply
-
-
-class CollectAttention(nn.Module):
-    """Collect Attention Generation Module"""
-
-    def __init__(self):
-        super(CollectAttention, self).__init__()
-
-    def forward(self, x):
-        out = psa_collect(x)
-        return out
-
-
-class _CollectModule(nn.Module):
-
-    def __init__(self, in_channels, reduced_channels, feat_w, feat_h, norm_layer, **kwargs):
-        super(_CollectModule, self).__init__()
-        self.conv_reduce = nn.Sequential(nn.Conv2d(in_channels, reduced_channels, 1, bias=False), norm_layer(reduced_channels), nn.ReLU(True))
-        self.conv_adaption = nn.Sequential(nn.Conv2d(reduced_channels, reduced_channels, 1, bias=False), norm_layer(reduced_channels), nn.ReLU(True), nn.Conv2d(reduced_channels, (feat_w - 1) * feat_h, 1, bias=False))
-        self.collect_attention = CollectAttention()
-        self.reduced_channels = reduced_channels
-        self.feat_w = feat_w
-        self.feat_h = feat_h
-
-    def forward(self, x):
-        x = self.conv_reduce(x)
-        x_shrink = F.interpolate(x, scale_factor=1 / 2, mode='bilinear', align_corners=True)
-        x_adaption = self.conv_adaption(x_shrink)
-        ca = self.collect_attention(x_adaption)
-        global_feature_collect_list = list()
-        for i in range(x_shrink.shape[0]):
-            x_shrink_i = x_shrink[i].view(self.reduced_channels, -1)
-            ca_i = ca[i].view(ca.shape[1], -1)
-            global_feature_collect_list.append(torch.mm(x_shrink_i, ca_i).view(1, self.reduced_channels, self.feat_h // 2, self.feat_w // 2))
-        global_feature_collect = torch.cat(global_feature_collect_list)
-        return global_feature_collect
-
-
-class _PSADistribute(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, hc):
-        out = _C.psa_forward(hc, 2)
-        ctx.save_for_backward(hc)
-        return out
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dout):
-        hc = ctx.saved_tensors
-        dhc = _C.psa_backward(dout, hc[0], 2)
-        return dhc
-
-
-psa_distribute = _PSADistribute.apply
-
-
-class DistributeAttention(nn.Module):
-    """Distribute Attention Generation Module"""
-
-    def __init__(self):
-        super(DistributeAttention, self).__init__()
-
-    def forward(self, x):
-        out = psa_distribute(x)
-        return out
-
-
-class _DistributeModule(nn.Module):
-
-    def __init__(self, in_channels, reduced_channels, feat_w, feat_h, norm_layer, **kwargs):
-        super(_DistributeModule, self).__init__()
-        self.conv_reduce = nn.Sequential(nn.Conv2d(in_channels, reduced_channels, 1, bias=False), norm_layer(reduced_channels), nn.ReLU(True))
-        self.conv_adaption = nn.Sequential(nn.Conv2d(reduced_channels, reduced_channels, 1, bias=False), norm_layer(reduced_channels), nn.ReLU(True), nn.Conv2d(reduced_channels, (feat_w - 1) * feat_h, 1, bias=False))
-        self.distribute_attention = DistributeAttention()
-        self.reduced_channels = reduced_channels
-        self.feat_w = feat_w
-        self.feat_h = feat_h
-
-    def forward(self, x):
-        x = self.conv_reduce(x)
-        x_shrink = F.interpolate(x, scale_factor=1 / 2, mode='bilinear', align_corners=True)
-        x_adaption = self.conv_adaption(x_shrink)
-        da = self.distribute_attention(x_adaption)
-        global_feature_distribute_list = list()
-        for i in range(x_shrink.shape[0]):
-            x_shrink_i = x_shrink[i].view(self.reduced_channels, -1)
-            da_i = da[i].view(da.shape[1], -1)
-            global_feature_distribute_list.append(torch.mm(x_shrink_i, da_i).view(1, self.reduced_channels, self.feat_h // 2, self.feat_w // 2))
-        global_feature_distribute = torch.cat(global_feature_distribute_list)
-        return global_feature_distribute
-
-
-class _PSAHead(nn.Module):
-
-    def __init__(self, nclass, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(_PSAHead, self).__init__()
-        self.collect = _CollectModule(2048, 512, 60, 60, norm_layer, **kwargs)
-        self.distribute = _DistributeModule(2048, 512, 60, 60, norm_layer, **kwargs)
-        self.conv_post = nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), norm_layer(2048), nn.ReLU(True))
-        self.project = nn.Sequential(nn.Conv2d(4096, 512, 3, padding=1, bias=False), norm_layer(512), nn.ReLU(True), nn.Conv2d(512, nclass, 1))
-
-    def forward(self, x):
-        global_feature_collect = self.collect(x)
-        global_feature_distribute = self.distribute(x)
-        global_feature = torch.cat([global_feature_collect, global_feature_distribute], dim=1)
-        out = self.conv_post(global_feature)
-        out = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=True)
-        out = torch.cat([x, out], dim=1)
-        out = self.project(out)
-        return out
-
-
 class _AttentionGeneration(nn.Module):
 
     def __init__(self, in_channels, reduced_channels, out_channels, norm_layer, **kwargs):
@@ -3273,6 +3069,22 @@ class _PointwiseSpatialAttention(nn.Module):
         distribute_fm = self.distribute_attention(x)
         psa_fm = torch.cat([collect_fm, distribute_fm], dim=1)
         return psa_fm
+
+
+class _PSAHead(nn.Module):
+
+    def __init__(self, nclass, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(_PSAHead, self).__init__()
+        self.psa = _PointwiseSpatialAttention(2048, 3600, norm_layer)
+        self.conv_post = _ConvBNReLU(1024, 2048, 1, norm_layer=norm_layer)
+        self.project = nn.Sequential(_ConvBNReLU(4096, 512, 3, padding=1, norm_layer=norm_layer), nn.Dropout2d(0.1, False), nn.Conv2d(512, nclass, 1))
+
+    def forward(self, x):
+        global_feature = self.psa(x)
+        out = self.conv_post(global_feature)
+        out = torch.cat([x, out], dim=1)
+        out = self.project(out)
+        return out
 
 
 def _PSP1x1Conv(in_channels, out_channels, norm_layer, norm_kwargs):
@@ -3406,173 +3218,6 @@ class SegBaseModel(nn.Module):
         if self.aux:
             pred = pred[0]
         return pred
-
-
-class _SyncBatchNorm(Function):
-
-    @classmethod
-    def forward(cls, ctx, x, gamma, beta, running_mean, running_var, extra, sync=True, training=True, momentum=0.1, eps=1e-05, activation='none', slope=0.01):
-        cls._parse_extra(ctx, extra)
-        ctx.sync = sync
-        ctx.training = training
-        ctx.momentum = momentum
-        ctx.eps = eps
-        ctx.activation = activation
-        ctx.slope = slope
-        assert activation == 'none'
-        x = x.contiguous()
-        gamma = gamma.contiguous()
-        beta = beta.contiguous()
-        if ctx.training:
-            _ex, _exs = _C.expectation_forward(x)
-            if ctx.sync:
-                if ctx.is_master:
-                    _ex, _exs = [_ex.unsqueeze(0)], [_exs.unsqueeze(0)]
-                    for _ in range(ctx.master_queue.maxsize):
-                        _ex_w, _exs_w = ctx.master_queue.get()
-                        ctx.master_queue.task_done()
-                        _ex.append(_ex_w.unsqueeze(0))
-                        _exs.append(_exs_w.unsqueeze(0))
-                    _ex = comm.gather(_ex).mean(0)
-                    _exs = comm.gather(_exs).mean(0)
-                    tensors = comm.broadcast_coalesced((_ex, _exs), [_ex.get_device()] + ctx.worker_ids)
-                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
-                        queue.put(ts)
-                else:
-                    ctx.master_queue.put((_ex, _exs))
-                    _ex, _exs = ctx.worker_queue.get()
-                    ctx.worker_queue.task_done()
-            _var = _exs - _ex ** 2
-            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * _ex)
-            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
-            ctx.mark_dirty(running_mean, running_var)
-        else:
-            _ex, _var = running_mean.contiguous(), running_var.contiguous()
-            _exs = _var + _ex ** 2
-        y = _C.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
-        ctx.save_for_backward(x, _ex, _exs, gamma, beta)
-        return y
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dz):
-        x, _ex, _exs, gamma, beta = ctx.saved_tensors
-        dz = dz.contiguous()
-        dx, _dex, _dexs, dgamma, dbeta = _C.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
-        if ctx.training:
-            if ctx.sync:
-                if ctx.is_master:
-                    _dex, _dexs = [_dex.unsqueeze(0)], [_dexs.unsqueeze(0)]
-                    for _ in range(ctx.master_queue.maxsize):
-                        _dex_w, _dexs_w = ctx.master_queue.get()
-                        ctx.master_queue.task_done()
-                        _dex.append(_dex_w.unsqueeze(0))
-                        _dexs.append(_dexs_w.unsqueeze(0))
-                    _dex = comm.gather(_dex).mean(0)
-                    _dexs = comm.gather(_dexs).mean(0)
-                    tensors = comm.broadcast_coalesced((_dex, _dexs), [_dex.get_device()] + ctx.worker_ids)
-                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
-                        queue.put(ts)
-                else:
-                    ctx.master_queue.put((_dex, _dexs))
-                    _dex, _dexs = ctx.worker_queue.get()
-                    ctx.worker_queue.task_done()
-            dx_ = _C.expectation_backward(x, _dex, _dexs)
-            dx = dx + dx_
-        return dx, dgamma, dbeta, None, None, None, None, None, None, None, None, None
-
-    @staticmethod
-    def _parse_extra(ctx, extra):
-        ctx.is_master = extra['is_master']
-        if ctx.is_master:
-            ctx.master_queue = extra['master_queue']
-            ctx.worker_queues = extra['worker_queues']
-            ctx.worker_ids = extra['worker_ids']
-        else:
-            ctx.master_queue = extra['master_queue']
-            ctx.worker_queue = extra['worker_queue']
-
-
-syncbatchnorm = _SyncBatchNorm.apply
-
-
-class SyncBatchNorm(_BatchNorm):
-    """Cross-GPU Synchronized Batch normalization (SyncBN)
-
-    Parameters:
-        num_features: num_features from an expected input of
-            size batch_size x num_features x height x width
-        eps: a value added to the denominator for numerical stability.
-            Default: 1e-5
-        momentum: the value used for the running_mean and running_var
-            computation. Default: 0.1
-        sync: a boolean value that when set to ``True``, synchronize across
-            different gpus. Default: ``True``
-        activation : str
-            Name of the activation functions, one of: `leaky_relu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-
-    Shape:
-        - Input: :math:`(N, C, H, W)`
-        - Output: :math:`(N, C, H, W)` (same shape as input)
-    Reference:
-        .. [1] Ioffe, Sergey, and Christian Szegedy. "Batch normalization: Accelerating deep network training by reducing internal covariate shift." *ICML 2015*
-        .. [2] Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi, and Amit Agrawal. "Context Encoding for Semantic Segmentation." *CVPR 2018*
-    Examples:
-        >>> m = SyncBatchNorm(100)
-        >>> net = torch.nn.DataParallel(m)
-        >>> output = net(input)
-    """
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True, activation='none', slope=0.01):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=True)
-        self.activation = activation
-        self.slope = slope
-        self.devices = list(range(torch.cuda.device_count()))
-        self.sync = sync if len(self.devices) > 1 else False
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
-
-    def forward(self, x):
-        input_shape = x.size()
-        x = x.view(input_shape[0], self.num_features, -1)
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
-        else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
-
-    def extra_repr(self):
-        if self.activation == 'none':
-            return 'sync={}'.format(self.sync)
-        else:
-            return 'sync={}, act={}, slope={}'.format(self.sync, self.activation, self.slope)
-
-
-class BatchNorm1d(SyncBatchNorm):
-    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm1d', SyncBatchNorm.__name__), DeprecationWarning)
-        super(BatchNorm1d, self).__init__(*args, **kwargs)
-
-
-class BatchNorm2d(SyncBatchNorm):
-    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm2d', SyncBatchNorm.__name__), DeprecationWarning)
-        super(BatchNorm2d, self).__init__(*args, **kwargs)
-
-
-class BatchNorm3d(SyncBatchNorm):
-    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm3d', SyncBatchNorm.__name__), DeprecationWarning)
-        super(BatchNorm3d, self).__init__(*args, **kwargs)
 
 
 class MixSoftmaxCrossEntropyLoss(nn.CrossEntropyLoss):
@@ -3924,18 +3569,14 @@ TESTCASES = [
      lambda: ([], {'low_channels': 4, 'high_channels': 4, 'out_channels': 4, 'nclass': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ContextGuidedBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DUpsampling,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelCriterion,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DenseNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -4064,10 +3705,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (_DAHead,
-     lambda: ([], {'in_channels': 32, 'nclass': 4}),
-     lambda: ([torch.rand([4, 32, 64, 64])], {}),
-     False),
     (_DenseASPPBlock,
      lambda: ([], {'in_channels': 4, 'inter_channels1': 4, 'inter_channels2': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4096,6 +3733,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (_FGlo,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (_GlobalAvgPooling,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4107,10 +3748,6 @@ TESTCASES = [
     (_PSPHead,
      lambda: ([], {'nclass': 4}),
      lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     True),
-    (_PositionAttentionModule,
-     lambda: ([], {'in_channels': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      True),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
@@ -4286,10 +3923,4 @@ class Test_Tramac_awesome_semantic_segmentation_pytorch(_paritybench_base):
 
     def test_055(self):
         self._check(*TESTCASES[55])
-
-    def test_056(self):
-        self._check(*TESTCASES[56])
-
-    def test_057(self):
-        self._check(*TESTCASES[57])
 

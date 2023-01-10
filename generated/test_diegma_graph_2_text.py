@@ -797,9 +797,9 @@ class DecoderState(object):
             sizes = e.size()
             br = sizes[1]
             if len(sizes) == 3:
-                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2])[:, :, (idx)]
+                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2])[:, :, idx]
             else:
-                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2], sizes[3])[:, :, (idx)]
+                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2], sizes[3])[:, :, idx]
             sent_states.data.copy_(sent_states.data.index_select(1, positions))
 
 
@@ -1612,7 +1612,7 @@ class CopyGenerator(nn.Module):
         aeq(batch_by_tlen, batch_by_tlen_)
         aeq(slen, slen_)
         logits = self.linear(hidden)
-        logits[:, (self.tgt_dict.stoi[onmt.io.PAD_WORD])] = -float('inf')
+        logits[:, self.tgt_dict.stoi[onmt.io.PAD_WORD]] = -float('inf')
         prob = F.softmax(logits)
         p_copy = F.sigmoid(self.linear_copy(hidden))
         out_prob = torch.mul(prob, 1 - p_copy.expand_as(prob))
@@ -2171,7 +2171,7 @@ class ImageEncoder(nn.Module):
         input = F.relu(self.batch_norm3(self.layer6(input)), True)
         all_outputs = []
         for row in range(input.size(2)):
-            inp = input[:, :, (row), :].transpose(0, 2).transpose(1, 2)
+            inp = input[:, :, row, :].transpose(0, 2).transpose(1, 2)
             row_vec = torch.Tensor(batch_size).type_as(inp.data).long().fill_(row)
             pos_emb = self.pos_lut(Variable(row_vec))
             with_pos = torch.cat((pos_emb.view(1, pos_emb.size(0), pos_emb.size(1)), inp), 0)
@@ -2296,7 +2296,7 @@ class MultiHeadedAttention(nn.Module):
         aeq(q_len, q_len_)
         aeq(batch, batch_)
         aeq(d, d_)
-        top_attn = attn.view(batch_size, head_count, query_len, key_len)[:, (0), :, :].contiguous()
+        top_attn = attn.view(batch_size, head_count, query_len, key_len)[:, 0, :, :].contiguous()
         return output, top_attn
 
 
@@ -2329,7 +2329,7 @@ class SRU_Compute(Function):
         if x.dim() == 2:
             last_hidden = c
         elif self.bidirectional:
-            last_hidden = torch.stack((c[(-1), :, :d], c[(0), :, d:]))
+            last_hidden = torch.stack((c[-1, :, :d], c[0, :, d:]))
         else:
             last_hidden = c[-1]
         return h, last_hidden
@@ -2587,7 +2587,7 @@ class MatrixTree(nn.Module):
             factor = inv_laplacian.diag().unsqueeze(1).expand_as(input[b]).transpose(0, 1)
             term1 = input[b].exp().mul(factor).clone()
             term2 = input[b].exp().mul(inv_laplacian.transpose(0, 1)).clone()
-            term1[:, (0)] = 0
+            term1[:, 0] = 0
             term2[0] = 0
             output[b] = term1 - term2
             roots_output = input[b].diag().exp().mul(inv_laplacian.transpose(0, 1)[0])
@@ -2686,7 +2686,7 @@ class TransformerEncoder(EncoderBase):
         emb = self.embeddings(input)
         s_len, n_batch, emb_dim = emb.size()
         out = emb.transpose(0, 1).contiguous()
-        words = input[:, :, (0)].transpose(0, 1)
+        words = input[:, :, 0].transpose(0, 1)
         out_batch, out_len, _ = out.size()
         w_batch, w_len = words.size()
         aeq(out_batch, w_batch)
@@ -2845,8 +2845,8 @@ class TransformerDecoder(nn.Module):
         memory_len, memory_batch, _ = memory_bank.size()
         aeq(tgt_batch, memory_batch)
         src = state.src
-        src_words = src[:, :, (0)].transpose(0, 1)
-        tgt_words = tgt[:, :, (0)].transpose(0, 1)
+        src_words = src[:, :, 0].transpose(0, 1)
+        tgt_words = tgt[:, :, 0].transpose(0, 1)
         src_batch, src_len = src_words.size()
         tgt_batch, tgt_len = tgt_words.size()
         aeq(tgt_batch, memory_batch, src_batch, tgt_batch)

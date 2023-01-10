@@ -121,7 +121,7 @@ class PoseDiscriminator(nn.Module):
         internal_outputs = self.conv_blocks(inputs)
         o = []
         for idx in range(23):
-            o.append(self.fc_layer[idx](internal_outputs[:, :, (0), (idx)]))
+            o.append(self.fc_layer[idx](internal_outputs[:, :, 0, idx]))
         return torch.cat(o, 1), internal_outputs
 
 
@@ -503,24 +503,24 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
         np_rot_x = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float)
         np_rot_x = np.reshape(np.tile(np_rot_x, [N, 1]), [N, 3, 3])
         rot_x = Variable(torch.from_numpy(np_rot_x).float())
-        root_rotation = torch.matmul(Rs[:, (0), :, :], rot_x)
+        root_rotation = torch.matmul(Rs[:, 0, :, :], rot_x)
     else:
-        root_rotation = Rs[:, (0), :, :]
+        root_rotation = Rs[:, 0, :, :]
     Js = torch.unsqueeze(Js, -1)
 
     def make_A(R, t):
         R_homo = F.pad(R, [0, 0, 0, 1, 0, 0])
         t_homo = torch.cat([t, Variable(torch.ones(N, 1, 1))], dim=1)
         return torch.cat([R_homo, t_homo], 2)
-    A0 = make_A(root_rotation, Js[:, (0)])
+    A0 = make_A(root_rotation, Js[:, 0])
     results = [A0]
     for i in range(1, parent.shape[0]):
-        j_here = Js[:, (i)] - Js[:, (parent[i])]
-        A_here = make_A(Rs[:, (i)], j_here)
+        j_here = Js[:, i] - Js[:, parent[i]]
+        A_here = make_A(Rs[:, i], j_here)
         res_here = torch.matmul(results[parent[i]], A_here)
         results.append(res_here)
     results = torch.stack(results, dim=1)
-    new_J = results[:, :, :3, (3)]
+    new_J = results[:, :, :3, 3]
     Js_w0 = torch.cat([Js, Variable(torch.zeros(N, 24, 1, 1))], dim=2)
     init_bone = torch.matmul(results, Js_w0)
     init_bone = F.pad(init_bone, [3, 0, 0, 0, 0, 0, 0, 0])
@@ -537,7 +537,7 @@ def quat2mat(quat):
     """
     norm_quat = quat
     norm_quat = norm_quat / norm_quat.norm(p=2, dim=1, keepdim=True)
-    w, x, y, z = norm_quat[:, (0)], norm_quat[:, (1)], norm_quat[:, (2)], norm_quat[:, (3)]
+    w, x, y, z = norm_quat[:, 0], norm_quat[:, 1], norm_quat[:, 2], norm_quat[:, 3]
     B = quat.size(0)
     w2, x2, y2, z2 = w.pow(2), x.pow(2), y.pow(2), z.pow(2)
     wx, wy, wz = w * x, w * y, w * z
@@ -617,9 +617,9 @@ class SMPL(nn.Module):
             self.cur_device = torch.device(device.type, device.index)
         num_batch = beta.shape[0]
         v_shaped = torch.matmul(beta, self.shapedirs).view(-1, self.size[0], self.size[1]) + self.v_template
-        Jx = torch.matmul(v_shaped[:, :, (0)], self.J_regressor)
-        Jy = torch.matmul(v_shaped[:, :, (1)], self.J_regressor)
-        Jz = torch.matmul(v_shaped[:, :, (2)], self.J_regressor)
+        Jx = torch.matmul(v_shaped[:, :, 0], self.J_regressor)
+        Jy = torch.matmul(v_shaped[:, :, 1], self.J_regressor)
+        Jz = torch.matmul(v_shaped[:, :, 2], self.J_regressor)
         J = torch.stack([Jx, Jy, Jz], dim=2)
         Rs = batch_rodrigues(theta.view(-1, 3)).view(-1, 24, 3, 3)
         pose_feature = Rs[:, 1:, :, :].sub(1.0, self.e3).view(-1, 207)
@@ -630,10 +630,10 @@ class SMPL(nn.Module):
         T = torch.matmul(W, A.view(num_batch, 24, 16)).view(num_batch, -1, 4, 4)
         v_posed_homo = torch.cat([v_posed, torch.ones(num_batch, v_posed.shape[1], 1, device=self.cur_device)], dim=2)
         v_homo = torch.matmul(T, torch.unsqueeze(v_posed_homo, -1))
-        verts = v_homo[:, :, :3, (0)]
-        joint_x = torch.matmul(verts[:, :, (0)], self.joint_regressor)
-        joint_y = torch.matmul(verts[:, :, (1)], self.joint_regressor)
-        joint_z = torch.matmul(verts[:, :, (2)], self.joint_regressor)
+        verts = v_homo[:, :, :3, 0]
+        joint_x = torch.matmul(verts[:, :, 0], self.joint_regressor)
+        joint_y = torch.matmul(verts[:, :, 1], self.joint_regressor)
+        joint_z = torch.matmul(verts[:, :, 2], self.joint_regressor)
         joints = torch.stack([joint_x, joint_y, joint_z], dim=2)
         if get_skin:
             return verts, joints, Rs

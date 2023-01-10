@@ -123,7 +123,7 @@ class LossFun(nn.Module):
             target_conf = target_conf
         for batch_id in range(batch_num):
             target_truths = targets[batch_id][:, :-1].data
-            target_labels = targets[batch_id][:, (-1)].data
+            target_labels = targets[batch_id][:, -1].data
             if Config.use_cuda:
                 target_truths = target_truths
                 target_labels = target_labels

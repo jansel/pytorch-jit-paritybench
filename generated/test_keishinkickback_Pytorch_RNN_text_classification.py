@@ -112,29 +112,11 @@ class RNN(nn.Module):
             row_indices = row_indices
             col_indices = col_indices
         if self.use_last:
-            last_tensor = out_rnn[(row_indices), (col_indices), :]
+            last_tensor = out_rnn[row_indices, col_indices, :]
         else:
-            last_tensor = out_rnn[(row_indices), :, :]
+            last_tensor = out_rnn[row_indices, :, :]
             last_tensor = torch.mean(last_tensor, dim=1)
         fc_input = self.bn2(last_tensor)
         out = self.fc(fc_input)
         return out
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (RNN,
-     lambda: ([], {'vocab_size': 4, 'embed_size': 4, 'num_output': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     False),
-]
-
-class Test_keishinkickback_Pytorch_RNN_text_classification(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

@@ -1263,10 +1263,10 @@ class CRF(BaseLayer):
         super(CRF, self).__init__(layer_conf)
         self.target_size = len(self.layer_conf.target_dict)
         init_transitions = torch.zeros(self.target_size, self.target_size)
-        init_transitions[:, (self.layer_conf.target_dict[self.layer_conf.START_TAG])] = -10000.0
-        init_transitions[(self.layer_conf.target_dict[self.layer_conf.STOP_TAG]), :] = -10000.0
-        init_transitions[:, (0)] = -10000.0
-        init_transitions[(0), :] = -10000.0
+        init_transitions[:, self.layer_conf.target_dict[self.layer_conf.START_TAG]] = -10000.0
+        init_transitions[self.layer_conf.target_dict[self.layer_conf.STOP_TAG], :] = -10000.0
+        init_transitions[:, 0] = -10000.0
+        init_transitions[0, :] = -10000.0
         if self.layer_conf.use_gpu:
             init_transitions = init_transitions
         self.transitions = nn.Parameter(init_transitions)
@@ -1287,17 +1287,17 @@ class CRF(BaseLayer):
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (self.layer_conf.target_dict[self.layer_conf.START_TAG]), :].clone().view(batch_size, tag_size, 1)
+        partition = inivalues[:, self.layer_conf.target_dict[self.layer_conf.START_TAG], :].clone().view(batch_size, tag_size, 1)
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
-            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size, tag_size)
+            mask_idx = mask[idx, :].view(batch_size, 1).expand(batch_size, tag_size)
             masked_cur_partition = cur_partition.masked_select(mask_idx)
             mask_idx = mask_idx.contiguous().view(batch_size, tag_size, 1)
             partition.masked_scatter_(mask_idx, masked_cur_partition)
         cur_values = self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
-        final_partition = cur_partition[:, (self.layer_conf.target_dict[self.layer_conf.STOP_TAG])]
+        final_partition = cur_partition[:, self.layer_conf.target_dict[self.layer_conf.STOP_TAG]]
         return final_partition.sum(), scores
 
     def _viterbi_decode(self, feats, mask):
@@ -1323,7 +1323,7 @@ class CRF(BaseLayer):
         partition_history = list()
         mask = (1 - mask.long()).byte()
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (self.layer_conf.target_dict[self.layer_conf.START_TAG]), :].clone().view(batch_size, tag_size)
+        partition = inivalues[:, self.layer_conf.target_dict[self.layer_conf.START_TAG], :].clone().view(batch_size, tag_size)
         partition_history.append(partition)
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
@@ -1341,7 +1341,7 @@ class CRF(BaseLayer):
             pad_zero = pad_zero
         back_points.append(pad_zero)
         back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size)
-        pointer = last_bp[:, (self.layer_conf.target_dict[self.layer_conf.STOP_TAG])]
+        pointer = last_bp[:, self.layer_conf.target_dict[self.layer_conf.STOP_TAG]]
         insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(batch_size, 1, tag_size)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
@@ -3045,10 +3045,10 @@ class CRFLoss(nn.Module):
             new_tags = new_tags
         for idx in range(seq_len):
             if idx == 0:
-                new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
+                new_tags[:, 0] = (tag_size - 2) * tag_size + tags[:, 0]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
-        end_transition = transitions[:, (crf_layer_conf.target_dict[crf_layer_conf.STOP_TAG])].contiguous().view(1, tag_size).expand(batch_size, tag_size)
+                new_tags[:, idx] = tags[:, idx - 1] * tag_size + tags[:, idx]
+        end_transition = transitions[:, crf_layer_conf.target_dict[crf_layer_conf.STOP_TAG]].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         end_ids = torch.gather(tags, 1, length_mask - 1)
         end_energy = torch.gather(end_transition, 1, end_ids)
@@ -3210,10 +3210,14 @@ TESTCASES = [
      lambda: ([], {'layer_conf': 1}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (FocalLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
+     True),
     (ForgetMult,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (QRNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -3239,4 +3243,7 @@ class Test_microsoft_NeuronBlocks(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

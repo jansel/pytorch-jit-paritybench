@@ -129,11 +129,11 @@ class MeshConv(nn.Module):
         f = torch.index_select(x, dim=0, index=Gi_flat)
         f = f.view(Gishape[0], Gishape[1], Gishape[2], -1)
         f = f.permute(0, 3, 1, 2)
-        x_1 = f[:, :, :, (1)] + f[:, :, :, (3)]
-        x_2 = f[:, :, :, (2)] + f[:, :, :, (4)]
-        x_3 = torch.abs(f[:, :, :, (1)] - f[:, :, :, (3)])
-        x_4 = torch.abs(f[:, :, :, (2)] - f[:, :, :, (4)])
-        f = torch.stack([f[:, :, :, (0)], x_1, x_2, x_3, x_4], dim=3)
+        x_1 = f[:, :, :, 1] + f[:, :, :, 3]
+        x_2 = f[:, :, :, 2] + f[:, :, :, 4]
+        x_3 = torch.abs(f[:, :, :, 1] - f[:, :, :, 3])
+        x_4 = torch.abs(f[:, :, :, 2] - f[:, :, :, 4])
+        f = torch.stack([f[:, :, :, 0], x_1, x_2, x_3, x_4], dim=3)
         return f
 
     def pad_gemm(self, m, xsz, device):
@@ -158,20 +158,20 @@ class MeshUnion:
         self.groups = torch.eye(n, device=device)
 
     def union(self, source, target):
-        self.groups[(target), :] += self.groups[(source), :]
+        self.groups[target, :] += self.groups[source, :]
 
     def remove_group(self, index):
         return
 
     def get_group(self, edge_key):
-        return self.groups[(edge_key), :]
+        return self.groups[edge_key, :]
 
     def get_occurrences(self):
         return torch.sum(self.groups, 0)
 
     def get_groups(self, tensor_mask):
         self.groups = torch.clamp(self.groups, 0, 1)
-        return self.groups[(tensor_mask), :]
+        return self.groups[tensor_mask, :]
 
     def rebuild_features_average(self, features, mask, target_edges):
         self.prepare_groups(features, mask)
@@ -186,7 +186,7 @@ class MeshUnion:
 
     def prepare_groups(self, features, mask):
         tensor_mask = torch.from_numpy(mask)
-        self.groups = torch.clamp(self.groups[(tensor_mask), :], 0, 1).transpose_(1, 0)
+        self.groups = torch.clamp(self.groups[tensor_mask, :], 0, 1).transpose_(1, 0)
         padding_a = features.shape[1] - self.groups.shape[0]
         if padding_a > 0:
             padding_a = ConstantPad2d((0, 0, 0, padding_a), 0)
@@ -226,7 +226,7 @@ class MeshPool(nn.Module):
 
     def __pool_main(self, mesh_index):
         mesh = self.__meshes[mesh_index]
-        queue = self.__build_queue(self.__fe[(mesh_index), :, :mesh.edges_count], mesh.edges_count)
+        queue = self.__build_queue(self.__fe[mesh_index, :, :mesh.edges_count], mesh.edges_count)
         last_count = mesh.edges_count + 1
         mask = np.ones(mesh.edges_count, dtype=np.bool)
         edge_groups = MeshUnion(mesh.edges_count, self.__fe.device)

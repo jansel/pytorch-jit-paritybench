@@ -170,16 +170,9 @@ TESTCASES = [
      lambda: ([], {'cardinality': 4, 'depth': 1, 'nlabels': 4, 'base_width': 4}),
      lambda: ([torch.rand([4, 3, 9, 9])], {}),
      True),
-    (ResNeXtBottleneck,
-     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
 ]
 
 class Test_prlz77_ResNeXt_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

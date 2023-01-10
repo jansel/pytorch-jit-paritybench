@@ -276,7 +276,7 @@ class LSTMAggregator(nn.Module, AggregatorMixin):
         x_emb = self.fc_x(x)
         agg_neib = neibs.view(x.size(0), -1, neibs.size(1))
         agg_neib, _ = self.lstm(agg_neib)
-        agg_neib = agg_neib[:, (-1), :]
+        agg_neib = agg_neib[:, -1, :]
         neib_emb = self.fc_neib(agg_neib)
         out = self.combine_fn([x_emb, neib_emb])
         if self.activation:
@@ -336,10 +336,6 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (NodeEmbeddingPrep,
-     lambda: ([], {'input_dim': 4, 'n_nodes': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([4, 4])], {}),
-     False),
     (PoolAggregator,
      lambda: ([], {'input_dim': 4, 'output_dim': 4, 'pool_fn': _mock_layer(), 'activation': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
@@ -364,7 +360,4 @@ class Test_bkj_pytorch_graphsage(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

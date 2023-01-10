@@ -74,7 +74,7 @@ class SpeechEmbedder(nn.Module):
 
     def forward(self, x):
         x, _ = self.LSTM_stack(x.float())
-        x = x[:, (x.size(1) - 1)]
+        x = x[:, x.size(1) - 1]
         x = self.projection(x.float())
         x = x / torch.norm(x, dim=1).unsqueeze(1)
         return x
@@ -82,7 +82,7 @@ class SpeechEmbedder(nn.Module):
 
 def calc_loss(sim_matrix):
     same_idx = list(range(sim_matrix.size(0)))
-    pos = sim_matrix[(same_idx), :, (same_idx)]
+    pos = sim_matrix[same_idx, :, same_idx]
     neg = (torch.exp(sim_matrix).sum(dim=2) + 1e-06).log_()
     per_embedding_loss = -1 * (pos - neg)
     loss = per_embedding_loss.sum()
@@ -122,7 +122,7 @@ def get_cossim(embeddings, centroids):
     cos_diff = F.cosine_similarity(embeddings_expand, centroids_expand)
     cos_diff = cos_diff.view(embeddings.size(0), num_utterances, centroids.size(0))
     same_idx = list(range(embeddings.size(0)))
-    cos_diff[(same_idx), :, (same_idx)] = cos_same.view(embeddings.shape[0], num_utterances)
+    cos_diff[same_idx, :, same_idx] = cos_same.view(embeddings.shape[0], num_utterances)
     cos_diff = cos_diff + 1e-06
     return cos_diff
 
@@ -154,7 +154,7 @@ TESTCASES = [
     (GE2ELoss,
      lambda: ([], {'device': 0}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_HarryVolek_PyTorch_Speaker_Verification(_paritybench_base):

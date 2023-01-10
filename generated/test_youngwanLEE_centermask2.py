@@ -2,11 +2,10 @@ import sys
 _module = sys.modules[__name__]
 del sys
 centermask = _module
-checkpoint = _module
-adet_checkpoint = _module
 config = _module
 defaults = _module
 evaluation = _module
+cityscapes_evaluation = _module
 coco_evaluation = _module
 layers = _module
 conv_with_kaiming_uniform = _module
@@ -34,6 +33,7 @@ measures = _module
 prepare_panoptic_fpn = _module
 demo = _module
 predictor = _module
+video_visualizer = _module
 train_net = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -56,12 +56,6 @@ xrange = range
 wraps = functools.wraps
 
 
-import copy
-
-
-import itertools
-
-
 import logging
 
 
@@ -72,6 +66,12 @@ from collections import OrderedDict
 
 
 import torch
+
+
+import copy
+
+
+import itertools
 
 
 from torch import nn
@@ -117,9 +117,6 @@ from collections import deque
 
 
 import matplotlib.pyplot as plt
-
-
-from torch.nn.parallel import DistributedDataParallel
 
 
 class _NewEmptyTensorOp(torch.autograd.Function):
@@ -194,14 +191,14 @@ class IOULoss(nn.Module):
         self.loc_loss_type = loc_loss_type
 
     def forward(self, pred, target, weight=None):
-        pred_left = pred[:, (0)]
-        pred_top = pred[:, (1)]
-        pred_right = pred[:, (2)]
-        pred_bottom = pred[:, (3)]
-        target_left = target[:, (0)]
-        target_top = target[:, (1)]
-        target_right = target[:, (2)]
-        target_bottom = target[:, (3)]
+        pred_left = pred[:, 0]
+        pred_top = pred[:, 1]
+        pred_right = pred[:, 2]
+        pred_bottom = pred[:, 3]
+        target_left = target[:, 0]
+        target_top = target[:, 1]
+        target_right = target[:, 2]
+        target_bottom = target[:, 3]
         target_aera = (target_left + target_right) * (target_top + target_bottom)
         pred_aera = (pred_left + pred_right) * (pred_top + pred_bottom)
         w_intersect = torch.min(pred_left, target_left) + torch.min(pred_right, target_right)
@@ -824,7 +821,7 @@ def mask_rcnn_inference(pred_mask_logits, pred_instances):
         num_masks = pred_mask_logits.shape[0]
         class_pred = cat([i.pred_classes for i in pred_instances])
         indices = torch.arange(num_masks, device=class_pred.device)
-        mask_probs_pred = pred_mask_logits[indices, class_pred][:, (None)].sigmoid()
+        mask_probs_pred = pred_mask_logits[indices, class_pred][:, None].sigmoid()
     num_boxes_per_image = [len(i) for i in pred_instances]
     mask_probs_pred = mask_probs_pred.split(num_boxes_per_image, dim=0)
     for prob, instances in zip(mask_probs_pred, pred_instances):
@@ -887,7 +884,7 @@ def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on):
         if maskiou_on:
             selected_index = torch.arange(pred_mask_logits.shape[0], device=pred_mask_logits.device)
             if cls_agnostic_mask:
-                selected_mask = pred_mask_logits[:, (0)]
+                selected_mask = pred_mask_logits[:, 0]
             else:
                 selected_mask = pred_mask_logits[selected_index, gt_classes]
             mask_num, mask_h, mask_w = selected_mask.shape
@@ -897,7 +894,7 @@ def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on):
             return pred_mask_logits.sum() * 0
     gt_masks = cat(gt_masks, dim=0)
     if cls_agnostic_mask:
-        pred_mask_logits = pred_mask_logits[:, (0)]
+        pred_mask_logits = pred_mask_logits[:, 0]
         gt_classes = torch.zeros(total_num_masks, dtype=torch.int64)
     else:
         indices = torch.arange(total_num_masks)
@@ -919,13 +916,13 @@ def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on):
     mask_loss = F.binary_cross_entropy_with_logits(pred_mask_logits, gt_masks, reduction='mean')
     if maskiou_on:
         mask_ratios = cat(mask_ratios, dim=0)
-        value_eps = 1e-10 * torch.ones(gt_masks.shape[0], device=gt_masks.device)
+        value_eps = 1e-10 * torch.ones(gt_masks.shape[0], device=gt_masks.device).double()
         mask_ratios = torch.max(mask_ratios, value_eps)
         pred_masks = pred_mask_logits > 0
         mask_targets_full_area = gt_masks.sum(dim=[1, 2]) / mask_ratios
         mask_ovr_area = (pred_masks * gt_masks).sum(dim=[1, 2]).float()
         mask_union_area = pred_masks.sum(dim=[1, 2]) + mask_targets_full_area - mask_ovr_area
-        value_1 = torch.ones(pred_masks.shape[0], device=gt_masks.device)
+        value_1 = torch.ones(pred_masks.shape[0], device=gt_masks.device).double()
         value_0 = torch.zeros(pred_masks.shape[0], device=gt_masks.device)
         mask_union_area = torch.max(mask_union_area, value_1)
         mask_ovr_area = torch.max(mask_ovr_area, value_0)
@@ -988,7 +985,7 @@ def keypoint_rcnn_inference(pred_keypoint_logits, pred_instances):
     bboxes_flat = cat([b.pred_boxes.tensor for b in pred_instances], dim=0)
     keypoint_results = heatmaps_to_keypoints(pred_keypoint_logits.detach(), bboxes_flat.detach())
     num_instances_per_image = [len(i) for i in pred_instances]
-    keypoint_results = keypoint_results[:, :, ([0, 1, 3])].split(num_instances_per_image, dim=0)
+    keypoint_results = keypoint_results[:, :, [0, 1, 3]].split(num_instances_per_image, dim=0)
     for keypoint_results_per_image, instances_per_image in zip(keypoint_results, pred_instances):
         instances_per_image.pred_keypoints = keypoint_results_per_image
 
@@ -1083,8 +1080,8 @@ INF = 100000000
 def compute_ctrness_targets(reg_targets):
     if len(reg_targets) == 0:
         return reg_targets.new_zeros(len(reg_targets))
-    left_right = reg_targets[:, ([0, 2])]
-    top_bottom = reg_targets[:, ([1, 3])]
+    left_right = reg_targets[:, [0, 2]]
+    top_bottom = reg_targets[:, [1, 3]]
     ctrness = left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
     return torch.sqrt(ctrness)
 
@@ -1214,15 +1211,15 @@ class FCOSOutputs(object):
             ymin = center_y[beg:end] - stride
             xmax = center_x[beg:end] + stride
             ymax = center_y[beg:end] + stride
-            center_gt[beg:end, :, (0)] = torch.where(xmin > gt[beg:end, :, (0)], xmin, gt[beg:end, :, (0)])
-            center_gt[beg:end, :, (1)] = torch.where(ymin > gt[beg:end, :, (1)], ymin, gt[beg:end, :, (1)])
-            center_gt[beg:end, :, (2)] = torch.where(xmax > gt[beg:end, :, (2)], gt[beg:end, :, (2)], xmax)
-            center_gt[beg:end, :, (3)] = torch.where(ymax > gt[beg:end, :, (3)], gt[beg:end, :, (3)], ymax)
+            center_gt[beg:end, :, 0] = torch.where(xmin > gt[beg:end, :, 0], xmin, gt[beg:end, :, 0])
+            center_gt[beg:end, :, 1] = torch.where(ymin > gt[beg:end, :, 1], ymin, gt[beg:end, :, 1])
+            center_gt[beg:end, :, 2] = torch.where(xmax > gt[beg:end, :, 2], gt[beg:end, :, 2], xmax)
+            center_gt[beg:end, :, 3] = torch.where(ymax > gt[beg:end, :, 3], gt[beg:end, :, 3], ymax)
             beg = end
-        left = loc_xs[:, (None)] - center_gt[..., 0]
-        right = center_gt[..., 2] - loc_xs[:, (None)]
-        top = loc_ys[:, (None)] - center_gt[..., 1]
-        bottom = center_gt[..., 3] - loc_ys[:, (None)]
+        left = loc_xs[:, None] - center_gt[..., 0]
+        right = center_gt[..., 2] - loc_xs[:, None]
+        top = loc_ys[:, None] - center_gt[..., 1]
+        bottom = center_gt[..., 3] - loc_ys[:, None]
         center_bbox = torch.stack((left, top, right, bottom), -1)
         inside_gt_bbox_mask = center_bbox.min(-1)[0] > 0
         return inside_gt_bbox_mask
@@ -1230,7 +1227,7 @@ class FCOSOutputs(object):
     def compute_targets_for_locations(self, locations, targets, size_ranges):
         labels = []
         reg_targets = []
-        xs, ys = locations[:, (0)], locations[:, (1)]
+        xs, ys = locations[:, 0], locations[:, 1]
         for im_i in range(len(targets)):
             targets_per_im = targets[im_i]
             bboxes = targets_per_im.gt_boxes.tensor
@@ -1240,17 +1237,17 @@ class FCOSOutputs(object):
                 reg_targets.append(locations.new_zeros((locations.size(0), 4)))
                 continue
             area = targets_per_im.gt_boxes.area()
-            l = xs[:, (None)] - bboxes[:, (0)][None]
-            t = ys[:, (None)] - bboxes[:, (1)][None]
-            r = bboxes[:, (2)][None] - xs[:, (None)]
-            b = bboxes[:, (3)][None] - ys[:, (None)]
+            l = xs[:, None] - bboxes[:, 0][None]
+            t = ys[:, None] - bboxes[:, 1][None]
+            r = bboxes[:, 2][None] - xs[:, None]
+            b = bboxes[:, 3][None] - ys[:, None]
             reg_targets_per_im = torch.stack([l, t, r, b], dim=2)
             if self.center_sample:
                 is_in_boxes = self.get_sample_region(bboxes, self.strides, self.num_loc_list, xs, ys, radius=self.radius)
             else:
                 is_in_boxes = reg_targets_per_im.min(dim=2)[0] > 0
             max_reg_targets_per_im = reg_targets_per_im.max(dim=2)[0]
-            is_cared_in_the_level = (max_reg_targets_per_im >= size_ranges[:, ([0])]) & (max_reg_targets_per_im <= size_ranges[:, ([1])])
+            is_cared_in_the_level = (max_reg_targets_per_im >= size_ranges[:, [0]]) & (max_reg_targets_per_im <= size_ranges[:, [1]])
             locations_to_gt_area = area[None].repeat(len(locations), 1)
             locations_to_gt_area[is_in_boxes == 0] = INF
             locations_to_gt_area[is_cared_in_the_level == 0] = INF
@@ -1298,20 +1295,20 @@ class FCOSOutputs(object):
         ctrness = ctrness.view(N, 1, H, W).permute(0, 2, 3, 1)
         ctrness = ctrness.reshape(N, -1).sigmoid()
         if self.thresh_with_ctr:
-            box_cls = box_cls * ctrness[:, :, (None)]
+            box_cls = box_cls * ctrness[:, :, None]
         candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
+        pre_nms_top_n = candidate_inds.reshape(N, -1).sum(1)
         pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
         if not self.thresh_with_ctr:
-            box_cls = box_cls * ctrness[:, :, (None)]
+            box_cls = box_cls * ctrness[:, :, None]
         results = []
         for i in range(N):
             per_box_cls = box_cls[i]
             per_candidate_inds = candidate_inds[i]
             per_box_cls = per_box_cls[per_candidate_inds]
-            per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
+            per_candidate_nonzeros = torch.nonzero(per_candidate_inds, as_tuple=False)
+            per_box_loc = per_candidate_nonzeros[:, 0]
+            per_class = per_candidate_nonzeros[:, 1]
             per_box_regression = box_regression[i]
             per_box_regression = per_box_regression[per_box_loc]
             per_locations = locations[per_box_loc]
@@ -1321,7 +1318,7 @@ class FCOSOutputs(object):
                 per_class = per_class[top_k_indices]
                 per_box_regression = per_box_regression[top_k_indices]
                 per_locations = per_locations[top_k_indices]
-            detections = torch.stack([per_locations[:, (0)] - per_box_regression[:, (0)], per_locations[:, (1)] - per_box_regression[:, (1)], per_locations[:, (0)] + per_box_regression[:, (2)], per_locations[:, (1)] + per_box_regression[:, (3)]], dim=1)
+            detections = torch.stack([per_locations[:, 0] - per_box_regression[:, 0], per_locations[:, 1] - per_box_regression[:, 1], per_locations[:, 0] + per_box_regression[:, 2], per_locations[:, 1] + per_box_regression[:, 3]], dim=1)
             boxlist = Instances(image_sizes[i])
             boxlist.pred_boxes = Boxes(detections)
             boxlist.scores = torch.sqrt(per_box_cls)
@@ -1360,7 +1357,7 @@ TESTCASES = [
     (IOULoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (Linear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

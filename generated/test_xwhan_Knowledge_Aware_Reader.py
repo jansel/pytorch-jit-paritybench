@@ -261,12 +261,12 @@ class Packed(nn.Module):
 
     def forward(self, inputs, lengths, hidden=None, max_length=None):
         lens, indices = torch.sort(lengths, 0, True)
-        inputs = inputs[indices] if self.batch_first else inputs[:, (indices)]
+        inputs = inputs[indices] if self.batch_first else inputs[:, indices]
         outputs, (h, c) = self.rnn(nn.utils.rnn.pack_padded_sequence(inputs, lens.tolist(), batch_first=self.batch_first), hidden)
         outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=self.batch_first, total_length=max_length)
         _, _indices = torch.sort(indices, 0)
-        outputs = outputs[_indices] if self.batch_first else outputs[:, (_indices)]
-        h, c = h[:, (_indices), :], c[:, (_indices), :]
+        outputs = outputs[_indices] if self.batch_first else outputs[:, _indices]
+        h, c = h[:, _indices, :], c[:, _indices, :]
         return outputs, (h, c)
 
 
@@ -596,10 +596,6 @@ TESTCASES = [
      lambda: ([], {'d_model': 4, 'd_ff': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (QueryReform,
-     lambda: ([], {'h_dim': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
-     True),
     (SublayerConnection,
      lambda: ([], {'size': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
@@ -630,7 +626,4 @@ class Test_xwhan_Knowledge_Aware_Reader(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
 

@@ -250,7 +250,7 @@ class SplitCrossEntropyLoss(nn.Module):
                 tail_weight = weight[start:end]
                 tail_bias = bias[start:end]
                 tail_res = torch.nn.functional.linear(hiddens, tail_weight, bias=tail_bias)
-                head_entropy = softmaxed_head_res[:, (-idx)].contiguous()
+                head_entropy = softmaxed_head_res[:, -idx].contiguous()
                 tail_entropy = torch.nn.functional.log_softmax(tail_res, dim=-1)
                 results.append(head_entropy.view(-1, 1) + tail_entropy)
         if len(results) > 1:
@@ -311,7 +311,7 @@ class SplitCrossEntropyLoss(nn.Module):
                     tail_weight = weight[start:end]
                     self.stats[idx].append(split_hiddens[idx].size()[0] * tail_weight.size()[0])
                 tail_res = self.logprob(weight, bias, split_hiddens[idx], splits=[idx], softmaxed_head_res=softmaxed_head_res)
-                head_entropy = softmaxed_head_res[:, (-idx)]
+                head_entropy = softmaxed_head_res[:, -idx]
                 indices = (split_targets[idx] - self.splits[idx]).view(-1, 1)
                 tail_entropy = torch.gather(torch.nn.functional.log_softmax(tail_res, dim=-1), dim=1, index=indices).squeeze()
                 entropy = -(head_entropy + tail_entropy)

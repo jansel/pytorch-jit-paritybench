@@ -83,21 +83,3 @@ class LSTMClassifier(nn.Module):
         y = self.hidden2label(lstm_out[-1])
         return y
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (LSTMClassifier,
-     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'label_size': 4, 'batch_size': 4, 'use_gpu': False}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-]
-
-class Test_jiangqy_LSTM_Classification_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-

@@ -3,11 +3,14 @@ _module = sys.modules[__name__]
 del sys
 bindsnet = _module
 analysis = _module
+dotTrace_plotter = _module
 pipeline_analysis = _module
 plotting = _module
 visualization = _module
 conversion = _module
 conversion = _module
+nodes = _module
+topology = _module
 datasets = _module
 alov300 = _module
 collate = _module
@@ -21,6 +24,8 @@ encoders = _module
 encodings = _module
 loaders = _module
 environment = _module
+cue_reward = _module
+dot_simulator = _module
 environment = _module
 evaluation = _module
 evaluation = _module
@@ -52,9 +57,15 @@ breakout_stdp = _module
 play_breakout_from_ANN = _module
 random_baseline = _module
 random_network_baseline = _module
+dot_tracing = _module
 batch_eth_mnist = _module
+conv1d_MNIST = _module
+conv3d_MNIST = _module
 conv_mnist = _module
 eth_mnist = _module
+loc1d_mnist = _module
+loc2d_mnist = _module
+loc3d_mnist = _module
 reservoir = _module
 supervised_mnist = _module
 tensorboard = _module
@@ -117,7 +128,22 @@ import torch
 from torchvision.utils import make_grid
 
 
+from typing import List
+
+
+from typing import Sized
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
 from matplotlib.axes import Axes
+
+
+from matplotlib.collections import PathCollection
 
 
 from matplotlib.image import AxesImage
@@ -126,28 +152,7 @@ from matplotlib.image import AxesImage
 from torch.nn.modules.utils import _pair
 
 
-from matplotlib.collections import PathCollection
-
-
-from typing import Tuple
-
-
-from typing import List
-
-
-from typing import Sized
-
-
-from typing import Union
-
-
 import matplotlib.animation as animation
-
-
-import torch.nn as nn
-
-
-import torch.nn.functional as F
 
 
 from copy import deepcopy
@@ -156,25 +161,28 @@ from copy import deepcopy
 from typing import Sequence
 
 
+import torch.nn as nn
+
+
 from typing import Iterable
 
 
-import warnings
+import torch.nn.functional as F
 
 
 import time
 
 
+import warnings
+
+
 from torch.utils.data import Dataset
 
 
-from torch._six import container_abcs
+import collections
 
 
 from torch._six import string_classes
-
-
-from torch._six import int_classes
 
 
 from torch.utils.data._utils import collate as pytorch_collate
@@ -184,6 +192,9 @@ from collections import defaultdict
 
 
 import math
+
+
+import random
 
 
 from torchvision import transforms
@@ -198,6 +209,9 @@ import torchvision
 from typing import Iterator
 
 
+from time import time
+
+
 from typing import Any
 
 
@@ -210,7 +224,7 @@ from sklearn.linear_model import LogisticRegression
 from scipy.spatial.distance import euclidean
 
 
-from torchvision import models
+from typing import TYPE_CHECKING
 
 
 from typing import Type
@@ -225,6 +239,9 @@ from torch.nn import Module
 from torch.nn import Parameter
 
 
+from torch.nn.modules.utils import _triple
+
+
 import itertools
 
 
@@ -234,16 +251,13 @@ from typing import Callable
 from torch import Tensor
 
 
-from numpy import ndarray
-
-
 from time import time as t
 
 
 class Permute(nn.Module):
     """
-    PyTorch module for the explicit permutation of a tensor's dimensions in a parent
-    module's ``forward`` pass (as opposed to ``torch.permute``).
+    PyTorch module for the explicit permutation of a tensor's dimensions in a
+    parent module's ``forward`` pass (as opposed to ``torch.permute``).
     """
 
     def __init__(self, dims):
@@ -267,14 +281,16 @@ class Permute(nn.Module):
 
 class FeatureExtractor(nn.Module):
     """
-    Special-purpose PyTorch module for the extraction of child module's activations.
+    Special-purpose PyTorch module for the extraction of child module's
+    activations.
     """
 
     def __init__(self, submodule):
         """
         Constructor for ``FeatureExtractor`` module.
 
-        :param submodule: The module who's children modules are to be extracted.
+        :param submodule: The module who's children modules are to be
+            extracted.
         """
         super(FeatureExtractor, self).__init__()
         self.submodule = submodule
@@ -331,8 +347,7 @@ class Nodes(torch.nn.Module):
         if self.traces:
             self.register_buffer('x', torch.Tensor())
             self.register_buffer('tc_trace', torch.tensor(tc_trace))
-            if self.traces_additive:
-                self.register_buffer('trace_scale', torch.tensor(trace_scale))
+            self.register_buffer('trace_scale', torch.tensor(trace_scale))
             self.register_buffer('trace_decay', torch.empty_like(self.tc_trace))
         if self.sum_input:
             self.register_buffer('summed', torch.FloatTensor())
@@ -353,7 +368,7 @@ class Nodes(torch.nn.Module):
             if self.traces_additive:
                 self.x += self.trace_scale * self.s.float()
             else:
-                self.x.masked_fill_(self.s != 0, 1)
+                self.x.masked_fill_(self.s.bool(), self.trace_scale)
         if self.sum_input:
             self.summed += x.float()
 
@@ -371,7 +386,7 @@ class Nodes(torch.nn.Module):
         """
         Abstract base class method for setting decays.
         """
-        self.dt = dt
+        self.dt = torch.tensor(dt)
         if self.traces:
             self.trace_decay = torch.exp(-self.dt / self.tc_trace)
 
@@ -382,7 +397,7 @@ class Nodes(torch.nn.Module):
         :param batch_size: Mini-batch size.
         """
         self.batch_size = batch_size
-        self.s = torch.zeros(batch_size, *self.shape, device=self.s.device)
+        self.s = torch.zeros(batch_size, *self.shape, device=self.s.device, dtype=torch.bool)
         if self.traces:
             self.x = torch.zeros(batch_size, *self.shape, device=self.x.device)
         if self.sum_input:
@@ -404,13 +419,15 @@ class AbstractConnection(ABC, Module):
     Abstract base method for connections between ``Nodes``.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
         Constructor for abstract base class for connection objects.
 
         :param source: A layer of nodes from which the connection originates.
         :param target: A layer of nodes to which the connection connects.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param reduction: Method for reducing parameter updates along the minibatch
             dimension.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
@@ -419,8 +436,10 @@ class AbstractConnection(ABC, Module):
 
         :param LearningRule update_rule: Modifies connection parameters according to
             some rule.
-        :param float wmin: The minimum value on the connection weights.
-        :param float wmax: The maximum value on the connection weights.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
         :param float norm: Total weight per target neuron normalization.
         """
         super().__init__()
@@ -428,12 +447,11 @@ class AbstractConnection(ABC, Module):
         assert isinstance(target, Nodes), 'Target is not a Nodes object'
         self.source = source
         self.target = target
-        self.nu = nu
         self.weight_decay = weight_decay
         self.reduction = reduction
         self.update_rule = kwargs.get('update_rule', NoOp)
-        self.wmin = kwargs.get('wmin', -np.inf)
-        self.wmax = kwargs.get('wmax', np.inf)
+        self.wmin = Parameter(torch.as_tensor(kwargs.get('wmin', -np.inf), dtype=torch.float32), requires_grad=False)
+        self.wmax = Parameter(torch.as_tensor(kwargs.get('wmax', np.inf), dtype=torch.float32), requires_grad=False)
         self.norm = kwargs.get('norm', None)
         self.decay = kwargs.get('decay', None)
         if self.update_rule is None:
@@ -447,7 +465,6 @@ class AbstractConnection(ABC, Module):
 
         :param s: Incoming spikes.
         """
-        pass
 
     @abstractmethod
     def update(self, **kwargs) ->None:
@@ -471,7 +488,6 @@ class AbstractConnection(ABC, Module):
         """
         Contains resetting logic for the connection.
         """
-        pass
 
 
 class AbstractMonitor(ABC):
@@ -490,7 +506,6 @@ class AbstractReward(ABC):
         """
         Computes/modifies reward.
         """
-        pass
 
     @abstractmethod
     def update(self, **kwargs) ->None:
@@ -498,7 +513,142 @@ class AbstractReward(ABC):
         Updates internal variables needed to modify reward. Usually called once per
         episode.
         """
-        pass
+
+
+class CSRMNodes(Nodes):
+    """
+    A layer of Cumulative Spike Response Model (Gerstner and van Hemmen 1992, Gerstner et al. 1996) nodes.
+    It accounts for a model where refractoriness and adaptation were modeled by the combined effects
+    of the spike after potentials of several previous spikes, rather than only the most recent spike.
+    """
+
+    def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]]=None, traces: bool=False, traces_additive: bool=False, tc_trace: Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.Tensor]=1.0, sum_input: bool=False, rest: Union[float, torch.Tensor]=-65.0, thresh: Union[float, torch.Tensor]=-52.0, responseKernel: str='ExponentialKernel', refractoryKernel: str='EtaKernel', tau: Union[float, torch.Tensor]=1, res_window_size: Union[float, torch.Tensor]=20, ref_window_size: Union[float, torch.Tensor]=10, reset_const: Union[float, torch.Tensor]=50, tc_decay: Union[float, torch.Tensor]=100.0, theta_plus: Union[float, torch.Tensor]=0.05, tc_theta_decay: Union[float, torch.Tensor]=10000000.0, lbound: float=None, **kwargs) ->None:
+        """
+        Instantiates a layer of Cumulative Spike Response Model nodes.
+
+        :param n: The number of neurons in the layer.
+        :param shape: The dimensionality of the layer.
+        :param traces: Whether to record spike traces.
+        :param traces_additive: Whether to record spike traces additively.
+        :param tc_trace: Time constant of spike trace decay.
+        :param trace_scale: Scaling factor for spike trace.
+        :param sum_input: Whether to sum all inputs.
+        :param rest: Resting membrane voltage.
+        :param thresh: Spike threshold voltage.
+        :param refrac: Refractory (non-firing) period of the neuron.
+        :param tc_decay: Time constant of neuron voltage decay.
+        :param theta_plus: Voltage increase of threshold after spiking.
+        :param tc_theta_decay: Time constant of adaptive threshold decay.
+        :param lbound: Lower bound of the voltage.
+        """
+        super().__init__(n=n, shape=shape, traces=traces, traces_additive=traces_additive, tc_trace=tc_trace, trace_scale=trace_scale, sum_input=sum_input)
+        self.register_buffer('rest', torch.tensor(rest))
+        self.register_buffer('thresh', torch.tensor(thresh))
+        self.register_buffer('tau', torch.tensor(tau))
+        self.register_buffer('reset_const', torch.tensor(reset_const))
+        self.register_buffer('res_window_size', torch.tensor(res_window_size))
+        self.register_buffer('ref_window_size', torch.tensor(ref_window_size))
+        self.register_buffer('tc_decay', torch.tensor(tc_decay))
+        self.register_buffer('decay', torch.empty_like(self.tc_decay, dtype=torch.float32))
+        self.register_buffer('theta_plus', torch.tensor(theta_plus))
+        self.register_buffer('tc_theta_decay', torch.tensor(tc_theta_decay))
+        self.register_buffer('theta_decay', torch.empty_like(self.tc_theta_decay))
+        self.register_buffer('v', torch.FloatTensor())
+        self.register_buffer('last_spikes', torch.ByteTensor())
+        self.register_buffer('theta', torch.zeros(*self.shape))
+        self.lbound = lbound
+        self.responseKernel = responseKernel
+        self.refractoryKernel = refractoryKernel
+        self.register_buffer('resKernel', torch.FloatTensor())
+        self.register_buffer('refKernel', torch.FloatTensor())
+
+    def forward(self, x: torch.Tensor) ->None:
+        """
+        Runs a single simulation step.
+
+        :param x: Inputs to the layer.
+        """
+        self.v *= self.decay
+        if self.learning:
+            self.theta *= self.theta_decay
+        v = torch.einsum('i,kij->kj', self.resKernel, x)
+        v += torch.einsum('i,kij->kj', self.refKernel, self.last_spikes)
+        self.v += v.view(x.size(0), *self.shape)
+        self.s = self.v >= self.thresh + self.theta
+        if self.learning:
+            self.theta += self.theta_plus * self.s.float().sum(0)
+        self.last_spikes = torch.cat((self.last_spikes[:, 1:, :], self.s[:, None, :]), 1)
+        if self.lbound is not None:
+            self.v.masked_fill_(self.v < self.lbound, self.lbound)
+        super().forward(x)
+
+    def reset_state_variables(self) ->None:
+        """
+        Resets relevant state variables.
+        """
+        super().reset_state_variables()
+        self.v.fill_(self.rest)
+
+    def compute_decays(self, dt) ->None:
+        """
+        Sets the relevant decays.
+        """
+        super().compute_decays(dt=dt)
+        self.decay = torch.exp(-self.dt / self.tc_decay)
+        self.theta_decay = torch.exp(-self.dt / self.tc_theta_decay)
+
+    def set_batch_size(self, batch_size) ->None:
+        """
+        Sets mini-batch size. Called when layer is added to a network.
+
+        :param batch_size: Mini-batch size.
+        """
+        super().set_batch_size(batch_size=batch_size)
+        self.v = self.rest * torch.ones(batch_size, *self.shape, device=self.v.device)
+        self.last_spikes = torch.zeros(batch_size, self.ref_window_size, *self.shape)
+        resKernels = {'AlphaKernel': self.AlphaKernel, 'AlphaKernelSLAYER': self.AlphaKernelSLAYER, 'LaplacianKernel': self.LaplacianKernel, 'ExponentialKernel': self.ExponentialKernel, 'RectangularKernel': self.RectangularKernel, 'TriangularKernel': self.TriangularKernel}
+        if self.responseKernel not in resKernels.keys():
+            raise Exception(' The given response Kernel is not implemented')
+        self.resKernel = resKernels[self.responseKernel](self.dt)
+        refKernels = {'EtaKernel': self.EtaKernel}
+        if self.refractoryKernel not in refKernels.keys():
+            raise Exception(' The given refractory Kernel is not implemented')
+        self.refKernel = refKernels[self.refractoryKernel](self.dt)
+
+    def AlphaKernel(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / self.tau ** 2 * t * torch.exp(-t / self.tau)
+        return torch.flip(kernelVec, [0])
+
+    def AlphaKernelSLAYER(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / self.tau * t * torch.exp(1 - t / self.tau)
+        return torch.flip(kernelVec, [0])
+
+    def LaplacianKernel(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / (self.tau * 2) * torch.exp(-1 * torch.abs(t / self.tau))
+        return torch.flip(kernelVec, [0])
+
+    def ExponentialKernel(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / self.tau * torch.exp(-t / self.tau)
+        return torch.flip(kernelVec, [0])
+
+    def RectangularKernel(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / (self.tau * 2)
+        return torch.flip(kernelVec, [0])
+
+    def TriangularKernel(self, dt):
+        t = torch.arange(0, self.res_window_size, dt)
+        kernelVec = 1 / self.tau * (1 - t / self.tau)
+        return torch.flip(kernelVec, [0])
+
+    def EtaKernel(self, dt):
+        t = torch.arange(0, self.ref_window_size, dt)
+        kernelVec = -self.reset_const * torch.exp(-t / self.tau)
+        return torch.flip(kernelVec, [0])
 
 
 class Network(torch.nn.Module):
@@ -651,7 +801,7 @@ class Network(torch.nn.Module):
     def clone(self) ->'Network':
         """
         Returns a cloned network object.
-        
+
         :return: A copy of this network.
         """
         virtual_file = tempfile.SpooledTemporaryFile()
@@ -674,8 +824,14 @@ class Network(torch.nn.Module):
                 source = self.connections[c].source
                 target = self.connections[c].target
                 if not c[1] in inputs:
-                    inputs[c[1]] = torch.zeros(self.batch_size, *target.shape, device=target.s.device)
-                inputs[c[1]] += self.connections[c].compute(source.s)
+                    if isinstance(target, CSRMNodes):
+                        inputs[c[1]] = torch.zeros(self.batch_size, target.res_window_size, *target.shape, device=target.s.device)
+                    else:
+                        inputs[c[1]] = torch.zeros(self.batch_size, *target.shape, device=target.s.device)
+                if isinstance(target, CSRMNodes):
+                    inputs[c[1]] += self.connections[c].compute_window(source.s)
+                else:
+                    inputs[c[1]] += self.connections[c].compute(source.s)
         return inputs
 
     def run(self, inputs: Dict[str, torch.Tensor], time: int, one_step=False, **kwargs) ->None:
@@ -704,6 +860,7 @@ class Network(torch.nn.Module):
             learning.
         :param Dict[Tuple[str], torch.Tensor] masks: Mapping of connection names to
             boolean masks determining which weights to clamp to zero.
+        :param Bool progress_bar: Show a progress bar while running the network.
 
         **Example:**
 
@@ -735,6 +892,7 @@ class Network(torch.nn.Module):
             plt.title('Input spiking')
             plt.show()
         """
+        assert type(inputs) == dict, "'inputs' must be a dict of names of layers " + f'(str) and relevant input tensors. Got {type(inputs).__name__} instead.'
         clamps = kwargs.get('clamp', {})
         unclamps = kwargs.get('unclamp', {})
         masks = kwargs.get('masks', {})
@@ -768,28 +926,30 @@ class Network(torch.nn.Module):
                         current_inputs[l] = inputs[l][t]
                 if one_step:
                     current_inputs.update(self._get_inputs(layers=[l]))
-                self.layers[l].forward(x=current_inputs[l])
-                clamp = clamps.get(l, None)
-                if clamp is not None:
-                    if clamp.ndimension() == 1:
-                        self.layers[l].s[:, (clamp)] = 1
-                    else:
-                        self.layers[l].s[:, (clamp[t])] = 1
-                unclamp = unclamps.get(l, None)
-                if unclamp is not None:
-                    if unclamp.ndimension() == 1:
-                        self.layers[l].s[unclamp] = 0
-                    else:
-                        self.layers[l].s[unclamp[t]] = 0
                 inject_v = injects_v.get(l, None)
                 if inject_v is not None:
                     if inject_v.ndimension() == 1:
                         self.layers[l].v += inject_v
                     else:
                         self.layers[l].v += inject_v[t]
+                if l in current_inputs:
+                    self.layers[l].forward(x=current_inputs[l])
+                else:
+                    self.layers[l].forward(x=torch.zeros(self.layers[l].s.shape, device=self.layers[l].s.device))
+                clamp = clamps.get(l, None)
+                if clamp is not None:
+                    if clamp.ndimension() == 1:
+                        self.layers[l].s[:, clamp] = 1
+                    else:
+                        self.layers[l].s[:, clamp[t]] = 1
+                unclamp = unclamps.get(l, None)
+                if unclamp is not None:
+                    if unclamp.ndimension() == 1:
+                        self.layers[l].s[:, unclamp] = 0
+                    else:
+                        self.layers[l].s[:, unclamp[t]] = 0
             for c in self.connections:
                 self.connections[c].update(mask=masks.get(c, None), learning=self.learning, **kwargs)
-            current_inputs.update(self._get_inputs())
             for m in self.monitors:
                 self.monitors[m].record()
         for c in self.connections:
@@ -943,8 +1103,8 @@ class IFNodes(Nodes):
 
         :param x: Inputs to the layer.
         """
-        self.v += (self.refrac_count == 0).float() * x
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        self.v += (self.refrac_count <= 0).float() * x
+        self.refrac_count -= self.dt
         self.s = self.v >= self.thresh
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -974,7 +1134,7 @@ class IFNodes(Nodes):
 class LIFNodes(Nodes):
     """
     Layer of `leaky integrate-and-fire (LIF) neurons
-    <http://icwww.epfl.ch/~gerstner/SPNM/node26.html#SECTION02311000000000000000>`_.
+    <http://web.archive.org/web/20190318204706/http://icwww.epfl.ch/~gerstner/SPNM/node26.html#SECTION02311000000000000000>`_.
     """
 
     def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]]=None, traces: bool=False, traces_additive: bool=False, tc_trace: Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.Tensor]=1.0, sum_input: bool=False, thresh: Union[float, torch.Tensor]=-52.0, rest: Union[float, torch.Tensor]=-65.0, reset: Union[float, torch.Tensor]=-65.0, refrac: Union[int, torch.Tensor]=5, tc_decay: Union[float, torch.Tensor]=100.0, lbound: float=None, **kwargs) ->None:
@@ -1016,8 +1176,9 @@ class LIFNodes(Nodes):
         :param x: Inputs to the layer.
         """
         self.v = self.decay * (self.v - self.rest) + self.rest
-        self.v += (self.refrac_count == 0).float() * x
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        x.masked_fill_(self.refrac_count > 0, 0.0)
+        self.refrac_count -= self.dt
+        self.v += x
         self.s = self.v >= self.thresh
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -1051,10 +1212,79 @@ class LIFNodes(Nodes):
         self.refrac_count = torch.zeros_like(self.v, device=self.refrac_count.device)
 
 
+class BoostedLIFNodes(Nodes):
+
+    def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]]=None, traces: bool=False, traces_additive: bool=False, tc_trace: Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.Tensor]=1.0, sum_input: bool=False, thresh: Union[float, torch.Tensor]=13.0, refrac: Union[int, torch.Tensor]=5, tc_decay: Union[float, torch.Tensor]=100.0, **kwargs) ->None:
+        """
+        Instantiates a layer of LIF neurons.
+
+        :param n: The number of neurons in the layer.
+        :param shape: The dimensionality of the layer.
+        :param traces: Whether to record spike traces.
+        :param traces_additive: Whether to record spike traces additively.
+        :param tc_trace: Time constant of spike trace decay.
+        :param trace_scale: Scaling factor for spike trace.
+        :param sum_input: Whether to sum all inputs.
+        :param thresh: Spike threshold voltage.
+        :param reset: Post-spike reset voltage.
+        :param refrac: Refractory (non-firing) period of the neuron.
+        :param tc_decay: Time constant of neuron voltage decay.
+        """
+        super().__init__(n=n, shape=shape, traces=traces, traces_additive=traces_additive, tc_trace=tc_trace, trace_scale=trace_scale, sum_input=sum_input)
+        self.register_buffer('thresh', torch.tensor(thresh, dtype=torch.float))
+        self.register_buffer('refrac', torch.tensor(refrac))
+        self.register_buffer('tc_decay', torch.tensor(tc_decay, dtype=torch.float))
+        self.register_buffer('decay', torch.zeros(*self.shape))
+        self.register_buffer('v', torch.FloatTensor())
+        self.register_buffer('refrac_count', torch.tensor(0))
+
+    def forward(self, x: torch.Tensor) ->None:
+        """
+        Runs a single simulation step.
+
+        :param x: Inputs to the layer.
+        """
+        self.v *= self.decay
+        if x is not None:
+            x.masked_fill_(self.refrac_count > 0, 0.0)
+        self.refrac_count -= self.dt
+        if x is not None:
+            self.v += x
+        self.s = self.v >= self.thresh
+        self.refrac_count.masked_fill_(self.s, self.refrac)
+        self.v.masked_fill_(self.s, 0)
+        super().forward(x)
+
+    def reset_state_variables(self) ->None:
+        """
+        Resets relevant state variables.
+        """
+        super().reset_state_variables()
+        self.v.fill_(0)
+        self.refrac_count.zero_()
+
+    def compute_decays(self, dt) ->None:
+        """
+        Sets the relevant decays.
+        """
+        super().compute_decays(dt=dt)
+        self.decay = torch.exp(-self.dt / self.tc_decay)
+
+    def set_batch_size(self, batch_size) ->None:
+        """
+        Sets mini-batch size. Called when layer is added to a network.
+
+        :param batch_size: Mini-batch size.
+        """
+        super().set_batch_size(batch_size=batch_size)
+        self.v = torch.zeros(batch_size, *self.shape, device=self.v.device)
+        self.refrac_count = torch.zeros_like(self.v, device=self.refrac_count.device)
+
+
 class CurrentLIFNodes(Nodes):
     """
     Layer of `current-based leaky integrate-and-fire (LIF) neurons
-    <http://icwww.epfl.ch/~gerstner/SPNM/node26.html#SECTION02313000000000000000>`_.
+    <http://web.archive.org/web/20190318204706/http://icwww.epfl.ch/~gerstner/SPNM/node26.html#SECTION02313000000000000000>`_.
     Total synaptic input current is modeled as a decaying memory of input spikes multiplied by synaptic strengths.
     """
 
@@ -1098,9 +1328,9 @@ class CurrentLIFNodes(Nodes):
         """
         self.v = self.decay * (self.v - self.rest) + self.rest
         self.i *= self.i_decay
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        self.refrac_count -= self.dt
         self.i += x
-        self.v += (self.refrac_count == 0).float() * self.i
+        self.v += (self.refrac_count <= 0).float() * self.i
         self.s = self.v >= self.thresh
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -1169,7 +1399,7 @@ class AdaptiveLIFNodes(Nodes):
         self.register_buffer('thresh', torch.tensor(thresh))
         self.register_buffer('refrac', torch.tensor(refrac))
         self.register_buffer('tc_decay', torch.tensor(tc_decay))
-        self.register_buffer('decay', torch.empty_like(self.tc_decay))
+        self.register_buffer('decay', torch.empty_like(self.tc_decay, dtype=torch.float32))
         self.register_buffer('theta_plus', torch.tensor(theta_plus))
         self.register_buffer('tc_theta_decay', torch.tensor(tc_theta_decay))
         self.register_buffer('theta_decay', torch.empty_like(self.tc_theta_decay))
@@ -1187,8 +1417,8 @@ class AdaptiveLIFNodes(Nodes):
         self.v = self.decay * (self.v - self.rest) + self.rest
         if self.learning:
             self.theta *= self.theta_decay
-        self.v += (self.refrac_count == 0).float() * x
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        self.v += (self.refrac_count <= 0).float() * x
+        self.refrac_count -= self.dt
         self.s = self.v >= self.thresh + self.theta
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -1277,8 +1507,8 @@ class DiehlAndCookNodes(Nodes):
         self.v = self.decay * (self.v - self.rest) + self.rest
         if self.learning:
             self.theta *= self.theta_decay
-        self.v += (self.refrac_count == 0).float() * x
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        self.v += (self.refrac_count <= 0).float() * x
+        self.refrac_count -= self.dt
         self.s = self.v >= self.thresh + self.theta
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -1324,7 +1554,7 @@ class DiehlAndCookNodes(Nodes):
 
 class IzhikevichNodes(Nodes):
     """
-    Layer of Izhikevich neurons.
+    Layer of `Izhikevich neurons<https://www.izhikevich.org/publications/spikes.htm>`_.
     """
 
     def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]]=None, traces: bool=False, traces_additive: bool=False, tc_trace: Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.Tensor]=1.0, sum_input: bool=False, excitatory: float=1, thresh: Union[float, torch.Tensor]=45.0, rest: Union[float, torch.Tensor]=-65.0, lbound: float=None, **kwargs) ->None:
@@ -1407,16 +1637,16 @@ class IzhikevichNodes(Nodes):
 
         :param x: Inputs to the layer.
         """
-        self.s = self.v >= self.thresh
         self.v = torch.where(self.s, self.c, self.v)
         self.u = torch.where(self.s, self.u + self.d, self.u)
         if self.s.any():
-            x += torch.cat([self.S[:, (self.s[i])].sum(dim=1)[None] for i in range(self.s.shape[0])], dim=0)
+            x += torch.cat([self.S[:, self.s[i]].sum(dim=1)[None] for i in range(self.s.shape[0])], dim=0)
         self.v += self.dt * 0.5 * (0.04 * self.v ** 2 + 5 * self.v + 140 - self.u + x)
         self.v += self.dt * 0.5 * (0.04 * self.v ** 2 + 5 * self.v + 140 - self.u + x)
         self.u += self.dt * self.a * (self.b * self.v - self.u)
         if self.lbound is not None:
             self.v.masked_fill_(self.v < self.lbound, self.lbound)
+        self.s = self.v >= self.thresh
         super().forward(x)
 
     def reset_state_variables(self) ->None:
@@ -1486,10 +1716,10 @@ class SRM0Nodes(Nodes):
         :param x: Inputs to the layer.
         """
         self.v = self.decay * (self.v - self.rest) + self.rest
-        self.v += (self.refrac_count == 0).float() * self.eps_0 * x
+        self.v += (self.refrac_count <= 0).float() * self.eps_0 * x
         self.rho = self.rho_0 * torch.exp((self.v - self.thresh) / self.d_thresh)
         self.s_prob = 1.0 - torch.exp(-self.rho * self.dt)
-        self.refrac_count = (self.refrac_count > 0).float() * (self.refrac_count - self.dt)
+        self.refrac_count -= self.dt
         self.s = torch.rand_like(self.s_prob) < self.s_prob
         self.refrac_count.masked_fill_(self.s, self.refrac)
         self.v.masked_fill_(self.s, self.reset)
@@ -1528,13 +1758,15 @@ class Connection(AbstractConnection):
     Specifies synapses between one or two populations of neurons.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
         Instantiates a :code:`Connection` object.
 
         :param source: A layer of nodes from which the connection originates.
         :param target: A layer of nodes to which the connection connects.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param reduction: Method for reducing parameter updates along the minibatch
             dimension.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
@@ -1545,21 +1777,29 @@ class Connection(AbstractConnection):
             some rule.
         :param torch.Tensor w: Strengths of synapses.
         :param torch.Tensor b: Target population bias.
-        :param float wmin: Minimum allowed value on the connection weights.
-        :param float wmax: Maximum allowed value on the connection weights.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
         :param float norm: Total weight per target neuron normalization constant.
         """
         super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
         w = kwargs.get('w', None)
         if w is None:
-            if self.wmin == -np.inf or self.wmax == np.inf:
+            if (self.wmin == -np.inf).any() or (self.wmax == np.inf).any():
                 w = torch.clamp(torch.rand(source.n, target.n), self.wmin, self.wmax)
             else:
                 w = self.wmin + torch.rand(source.n, target.n) * (self.wmax - self.wmin)
-        elif self.wmin != -np.inf or self.wmax != np.inf:
-            w = torch.clamp(w, self.wmin, self.wmax)
+        elif (self.wmin != -np.inf).any() or (self.wmax != np.inf).any():
+            w = torch.clamp(torch.as_tensor(w), self.wmin, self.wmax)
         self.w = Parameter(w, requires_grad=False)
-        self.b = Parameter(kwargs.get('b', torch.zeros(target.n)), requires_grad=False)
+        b = kwargs.get('b', None)
+        if b is not None:
+            self.b = Parameter(b, requires_grad=False)
+        else:
+            self.b = None
+        if isinstance(self.target, CSRMNodes):
+            self.s_w = None
 
     def compute(self, s: torch.Tensor) ->torch.Tensor:
         """
@@ -1569,8 +1809,22 @@ class Connection(AbstractConnection):
         :return: Incoming spikes multiplied by synaptic weights (with or without
                  decaying spike activation).
         """
-        post = s.float().view(s.size(0), -1) @ self.w + self.b
+        if self.b is None:
+            post = s.view(s.size(0), -1).float() @ self.w
+        else:
+            post = s.view(s.size(0), -1).float() @ self.w + self.b
         return post.view(s.size(0), *self.target.shape)
+
+    def compute_window(self, s: torch.Tensor) ->torch.Tensor:
+        """ """
+        if self.s_w == None:
+            self.s_w = torch.zeros(self.target.batch_size, self.target.res_window_size, *self.source.shape)
+        self.s_w = torch.cat((self.s_w[:, 1:, :], s[:, None, :]), 1)
+        if self.b is None:
+            post = self.s_w.view(self.s_w.size(0), self.s_w.size(1), -1).float() @ self.w
+        else:
+            post = self.s_w.view(self.s_w.size(0), self.s_w.size(1), -1).float() @ self.w + self.b
+        return post.view(self.s_w.size(0), self.target.res_window_size, *self.target.shape)
 
     def update(self, **kwargs) ->None:
         """
@@ -1595,22 +1849,24 @@ class Connection(AbstractConnection):
         super().reset_state_variables()
 
 
-class Conv2dConnection(AbstractConnection):
+class Conv1dConnection(AbstractConnection):
     """
-    Specifies convolutional synapses between one or two populations of neurons.
+    Specifies one-dimensional convolutional synapses between one or two populations of neurons.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]]=1, padding: Union[int, Tuple[int, int]]=0, dilation: Union[int, Tuple[int, int]]=1, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: int, stride: int=1, padding: int=0, dilation: int=1, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
-        Instantiates a ``Conv2dConnection`` object.
+        Instantiates a ``Conv1dConnection`` object.
 
         :param source: A layer of nodes from which the connection originates.
         :param target: A layer of nodes to which the connection connects.
-        :param kernel_size: Horizontal and vertical size of convolutional kernels.
-        :param stride: Horizontal and vertical stride for convolution.
-        :param padding: Horizontal and vertical padding for convolution.
-        :param dilation: Horizontal and vertical dilation for convolution.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+        :param kernel_size: the size of 1-D convolutional kernel.
+        :param stride: stride for convolution.
+        :param padding: padding for convolution.
+        :param dilation: dilation for convolution.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param reduction: Method for reducing parameter updates along the minibatch
             dimension.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
@@ -1621,8 +1877,103 @@ class Conv2dConnection(AbstractConnection):
             some rule.
         :param torch.Tensor w: Strengths of synapses.
         :param torch.Tensor b: Target population bias.
-        :param float wmin: Minimum allowed value on the connection weights.
-        :param float wmax: Maximum allowed value on the connection weights.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param float norm: Total weight per target neuron normalization constant.
+        """
+        super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
+        if dilation != 1:
+            raise NotImplementedError('Dilation is not currently supported for 1-D spiking convolution.')
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.in_channels, input_size = source.shape[0], source.shape[1]
+        self.out_channels, output_size = target.shape[0], target.shape[1]
+        conv_size = (input_size - self.kernel_size + 2 * self.padding) / self.stride + 1
+        shape = self.in_channels, self.out_channels, int(conv_size)
+        error = 'Target dimensionality must be (out_channels, ?,(input_size - filter_size + 2 * padding) / stride + 1,'
+        assert target.shape[0] == shape[1] and target.shape[1] == shape[2], error
+        w = kwargs.get('w', None)
+        inf = torch.tensor(np.inf)
+        if w is None:
+            if (self.wmin == -inf).any() or (self.wmax == inf).any():
+                w = torch.clamp(torch.rand(self.out_channels, self.in_channels, self.kernel_size), self.wmin, self.wmax)
+            else:
+                w = (self.wmax - self.wmin) * torch.rand(self.out_channels, self.in_channels, self.kernel_size)
+                w += self.wmin
+        elif (self.wmin == -inf).any() or (self.wmax == inf).any():
+            w = torch.clamp(w, self.wmin, self.wmax)
+        self.w = Parameter(w, requires_grad=False)
+        self.b = Parameter(kwargs.get('b', torch.zeros(self.out_channels)), requires_grad=False)
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute convolutional pre-activations given spikes using layer weights.
+
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        return F.conv1d(s.float(), self.w, self.b, stride=self.stride, padding=self.padding, dilation=self.dilation)
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        Normalize weights along the first axis according to total weight per target
+        neuron.
+        """
+        if self.norm is not None:
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2])
+            for fltr in range(w.shape[0]):
+                w[fltr] *= self.norm / w[fltr].sum(0)
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+
+
+class Conv2dConnection(AbstractConnection):
+    """
+    Specifies two-dimensional convolutional synapses between one or two populations of neurons.
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]]=1, padding: Union[int, Tuple[int, int]]=0, dilation: Union[int, Tuple[int, int]]=1, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+        """
+        Instantiates a ``Conv2dConnection`` object.
+
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: Horizontal and vertical size of convolutional kernels.
+        :param stride: Horizontal and vertical stride for convolution.
+        :param padding: Horizontal and vertical padding for convolution.
+        :param dilation: Horizontal and vertical dilation for convolution.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
+        :param reduction: Method for reducing parameter updates along the minibatch
+            dimension.
+        :param weight_decay: Constant multiple to decay weights by on each iteration.
+
+        Keyword arguments:
+
+        :param LearningRule update_rule: Modifies connection parameters according to
+            some rule.
+        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor b: Target population bias.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
         :param float norm: Total weight per target neuron normalization constant.
         """
         super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
@@ -1638,13 +1989,14 @@ class Conv2dConnection(AbstractConnection):
         error = 'Target dimensionality must be (out_channels, ?,(input_height - filter_height + 2 * padding_height) / stride_height + 1,(input_width - filter_width + 2 * padding_width) / stride_width + 1'
         assert target.shape[0] == shape[1] and target.shape[1] == shape[2] and target.shape[2] == shape[3], error
         w = kwargs.get('w', None)
+        inf = torch.tensor(np.inf)
         if w is None:
-            if self.wmin == -np.inf or self.wmax == np.inf:
+            if (self.wmin == -inf).any() or (self.wmax == inf).any():
                 w = torch.clamp(torch.rand(self.out_channels, self.in_channels, *self.kernel_size), self.wmin, self.wmax)
             else:
                 w = (self.wmax - self.wmin) * torch.rand(self.out_channels, self.in_channels, *self.kernel_size)
                 w += self.wmin
-        elif self.wmin != -np.inf or self.wmax != np.inf:
+        elif (self.wmin == -inf).any() or (self.wmax == inf).any():
             w = torch.clamp(w, self.wmin, self.wmax)
         self.w = Parameter(w, requires_grad=False)
         self.b = Parameter(kwargs.get('b', torch.zeros(self.out_channels)), requires_grad=False)
@@ -1671,8 +2023,8 @@ class Conv2dConnection(AbstractConnection):
         neuron.
         """
         if self.norm is not None:
-            w = self.w.view(self.w.size(0) * self.w.size(1), self.w.size(2) * self.w.size(3))
-            for fltr in range(w.size(0)):
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2] * self.w.shape[3])
+            for fltr in range(w.shape[0]):
                 w[fltr] *= self.norm / w[fltr].sum(0)
 
     def reset_state_variables(self) ->None:
@@ -1680,6 +2032,162 @@ class Conv2dConnection(AbstractConnection):
         Contains resetting logic for the connection.
         """
         super().reset_state_variables()
+
+
+class Conv3dConnection(AbstractConnection):
+    """
+    Specifies three-dimensional convolutional synapses between one or two populations of neurons.
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int, int]], stride: Union[int, Tuple[int, int, int]]=1, padding: Union[int, Tuple[int, int, int]]=0, dilation: Union[int, Tuple[int, int, int]]=1, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+        """
+        Instantiates a ``Conv3dConnection`` object.
+
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: Depth-wise, horizontal, and vertical  size of convolutional kernels.
+        :param stride: Depth-wise, horizontal, and vertical stride for convolution.
+        :param padding: Depth-wise, horizontal, and vertical  padding for convolution.
+        :param dilation: Depth-wise, horizontal and vertical dilation for convolution.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
+        :param reduction: Method for reducing parameter updates along the minibatch
+            dimension.
+        :param weight_decay: Constant multiple to decay weights by on each iteration.
+
+        Keyword arguments:
+
+        :param LearningRule update_rule: Modifies connection parameters according to
+            some rule.
+        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor b: Target population bias.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param float norm: Total weight per target neuron normalization constant.
+        """
+        super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
+        if dilation != 1 and dilation != (1, 1, 1):
+            raise NotImplementedError('Dilation is not currently supported for 3-D spiking convolution.')
+        self.kernel_size = _triple(kernel_size)
+        self.stride = _triple(stride)
+        self.padding = _triple(padding)
+        self.dilation = _triple(dilation)
+        self.in_channels, input_depth, input_height, input_width = source.shape[0], source.shape[1], source.shape[2], source.shape[3]
+        self.out_channels, output_depth, output_height, output_width = target.shape[0], target.shape[1], target.shape[2], target.shape[3]
+        depth = (input_depth - self.kernel_size[0] + 2 * self.padding[0]) / self.stride[0] + 1
+        width = (input_height - self.kernel_size[1] + 2 * self.padding[1]) / self.stride[1] + 1
+        height = (input_width - self.kernel_size[2] + 2 * self.padding[2]) / self.stride[2] + 1
+        shape = self.in_channels, self.out_channels, int(depth), int(width), int(height)
+        error = 'Target dimensionality must be (out_channels, ?,(input_depth - filter_depth + 2 * padding_depth) / stride_depth + 1,(input_height - filter_height + 2 * padding_height) / stride_height + 1,(input_width - filter_width + 2 * padding_width) / stride_width + 1'
+        assert target.shape[0] == shape[1] and target.shape[1] == shape[2] and target.shape[2] == shape[3] and target.shape[3] == shape[4], error
+        w = kwargs.get('w', None)
+        inf = torch.tensor(np.inf)
+        if w is None:
+            if (self.wmin == -inf).any() or (self.wmax == inf).any():
+                w = torch.clamp(torch.rand(self.out_channels, self.in_channels, *self.kernel_size), self.wmin, self.wmax)
+            else:
+                w = (self.wmax - self.wmin) * torch.rand(self.out_channels, self.in_channels, *self.kernel_size)
+                w += self.wmin
+        elif (self.wmin == -inf).any() or (self.wmax == inf).any():
+            w = torch.clamp(w, self.wmin, self.wmax)
+        self.w = Parameter(w, requires_grad=False)
+        self.b = Parameter(kwargs.get('b', torch.zeros(self.out_channels)), requires_grad=False)
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute convolutional pre-activations given spikes using layer weights.
+
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        return F.conv3d(s.float(), self.w, self.b, stride=self.stride, padding=self.padding, dilation=self.dilation)
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        Normalize weights along the first axis according to total weight per target
+        neuron.
+        """
+        if self.norm is not None:
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2] * self.w.shape[3] * self.w.shape[4])
+            for fltr in range(w.shape[0]):
+                w[fltr] *= self.norm / w[fltr].sum(0)
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+
+
+class MaxPool1dConnection(AbstractConnection):
+    """
+    Specifies max-pooling synapses between one or two populations of neurons by keeping
+    online estimates of maximally firing neurons.
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: int, stride: int=1, padding: int=0, dilation: int=1, **kwargs) ->None:
+        """
+        Instantiates a ``MaxPool1dConnection`` object.
+
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: the size of 1-D convolutional kernel.
+        :param stride: stride for convolution.
+        :param padding: padding for convolution.
+        :param dilation: dilation for convolution.
+
+        Keyword arguments:
+
+        :param decay: Decay rate of online estimates of average firing activity.
+        """
+        super().__init__(source, target, None, None, 0.0, **kwargs)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.register_buffer('firing_rates', torch.zeros(source.s.shape))
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute max-pool pre-activations given spikes using online firing rate
+        estimates.
+
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        self.firing_rates -= self.decay * self.firing_rates
+        self.firing_rates += s.float().squeeze()
+        _, indices = F.max_pool1d(self.firing_rates, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, return_indices=True)
+        return s.flatten(2).gather(2, indices.flatten(2)).view_as(indices).float()
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        No weights -> no normalization.
+        """
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+        self.firing_rates = torch.zeros(self.source.batch_size, *self.source.s.shape[1:])
 
 
 class MaxPool2dConnection(AbstractConnection):
@@ -1708,7 +2216,7 @@ class MaxPool2dConnection(AbstractConnection):
         self.stride = _pair(stride)
         self.padding = _pair(padding)
         self.dilation = _pair(dilation)
-        self.register_buffer('firing_rates', torch.zeros(source.shape))
+        self.register_buffer('firing_rates', torch.zeros(source.s.shape))
 
     def compute(self, s: torch.Tensor) ->torch.Tensor:
         """
@@ -1720,9 +2228,9 @@ class MaxPool2dConnection(AbstractConnection):
             decaying spike activation).
         """
         self.firing_rates -= self.decay * self.firing_rates
-        self.firing_rates += s.float()
+        self.firing_rates += s.float().squeeze()
         _, indices = F.max_pool2d(self.firing_rates, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, return_indices=True)
-        return s.take(indices).float()
+        return s.flatten(2).gather(2, indices.flatten(2)).view_as(indices).float()
 
     def update(self, **kwargs) ->None:
         """
@@ -1734,14 +2242,74 @@ class MaxPool2dConnection(AbstractConnection):
         """
         No weights -> no normalization.
         """
-        pass
 
     def reset_state_variables(self) ->None:
         """
         Contains resetting logic for the connection.
         """
         super().reset_state_variables()
-        self.firing_rates = torch.zeros(self.source.shape)
+        self.firing_rates = torch.zeros(self.source.batch_size, *self.source.s.shape[1:])
+
+
+class MaxPoo3dConnection(AbstractConnection):
+    """
+    Specifies max-pooling synapses between one or two populations of neurons by keeping
+    online estimates of maximally firing neurons.
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int, int]], stride: Union[int, Tuple[int, int, int]]=1, padding: Union[int, Tuple[int, int, int]]=0, dilation: Union[int, Tuple[int, int, int]]=1, **kwargs) ->None:
+        """
+        Instantiates a ``MaxPool3dConnection`` object.
+
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: Depth-wise, horizontal and vertical size of convolutional kernels.
+        :param stride: Depth-wise, horizontal and vertical stride for convolution.
+        :param padding: Depth-wise, horizontal and vertical padding for convolution.
+        :param dilation: Depth-wise, horizontal and vertical dilation for convolution.
+
+        Keyword arguments:
+
+        :param decay: Decay rate of online estimates of average firing activity.
+        """
+        super().__init__(source, target, None, None, 0.0, **kwargs)
+        self.kernel_size = _triple(kernel_size)
+        self.stride = _triple(stride)
+        self.padding = _triple(padding)
+        self.dilation = _triple(dilation)
+        self.register_buffer('firing_rates', torch.zeros(source.s.shape))
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute max-pool pre-activations given spikes using online firing rate
+        estimates.
+
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        self.firing_rates -= self.decay * self.firing_rates
+        self.firing_rates += s.float().squeeze()
+        _, indices = F.max_pool3d(self.firing_rates, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, return_indices=True)
+        return s.flatten(2).gather(2, indices.flatten(2)).view_as(indices).float()
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        No weights -> no normalization.
+        """
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+        self.firing_rates = torch.zeros(self.source.batch_size, *self.source.s.shape[1:])
 
 
 class LocalConnection(AbstractConnection):
@@ -1749,10 +2317,10 @@ class LocalConnection(AbstractConnection):
     Specifies a locally connected connection between one or two populations of neurons.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]], n_filters: int, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]], n_filters: int, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
-        Instantiates a ``LocalConnection`` object. Source population should be
-        two-dimensional.
+        Instantiates a ``LocalConnection2D`` object. Source population should have
+        square size
 
         Neurons in the post-synaptic population are ordered by receptive field; that is,
         if there are ``n_conv`` neurons in each post-synaptic patch, then the first
@@ -1764,7 +2332,9 @@ class LocalConnection(AbstractConnection):
         :param kernel_size: Horizontal and vertical size of convolutional kernels.
         :param stride: Horizontal and vertical stride for convolution.
         :param n_filters: Number of locally connected filters per pre-synaptic region.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param reduction: Method for reducing parameter updates along the minibatch
             dimension.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
@@ -1775,8 +2345,10 @@ class LocalConnection(AbstractConnection):
             some rule.
         :param torch.Tensor w: Strengths of synapses.
         :param torch.Tensor b: Target population bias.
-        :param float wmin: Minimum allowed value on the connection weights.
-        :param float wmax: Maximum allowed value on the connection weights.
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
         :param float norm: Total weight per target neuron normalization constant.
         :param Tuple[int, int] input_shape: Shape of input population if it's not
             ``[sqrt, sqrt]``.
@@ -1798,7 +2370,7 @@ class LocalConnection(AbstractConnection):
         self.conv_size = conv_size
         conv_prod = int(np.prod(conv_size))
         kernel_prod = int(np.prod(kernel_size))
-        assert target.n == n_filters * conv_prod, 'Target layer size must be n_filters * (kernel_size ** 2).'
+        assert target.n == n_filters * conv_prod, f'Total neurons in target layer must be {n_filters * conv_prod}. Got {target.n}.'
         locations = torch.zeros(kernel_size[0], kernel_size[1], conv_size[0], conv_size[1]).long()
         for c1 in range(conv_size[0]):
             for c2 in range(conv_size[1]):
@@ -1813,11 +2385,12 @@ class LocalConnection(AbstractConnection):
             for f in range(n_filters):
                 for c in range(conv_prod):
                     for k in range(kernel_prod):
-                        if self.wmin == -np.inf or self.wmax == np.inf:
-                            w[self.locations[k, c], f * conv_prod + c] = np.clip(np.random.rand(), self.wmin, self.wmax)
-                        else:
-                            w[self.locations[k, c], f * conv_prod + c] = self.wmin + np.random.rand() * (self.wmax - self.wmin)
-        elif self.wmin != -np.inf or self.wmax != np.inf:
+                        w[self.locations[k, c], f * conv_prod + c] = np.random.rand()
+            if (self.wmin == -np.inf).any() or (self.wmax == np.inf).any():
+                w = torch.clamp(w, self.wmin, self.wmax)
+            else:
+                w = self.wmin + w * (self.wmax - self.wmin)
+        elif (self.wmin != -np.inf).any() or (self.wmax != np.inf).any():
             w = torch.clamp(w, self.wmin, self.wmax)
         self.w = Parameter(w, requires_grad=False)
         self.register_buffer('mask', self.w == 0)
@@ -1833,11 +2406,8 @@ class LocalConnection(AbstractConnection):
         :return: Incoming spikes multiplied by synaptic weights (with or without
             decaying spike activation).
         """
-        if self.w.shape[0] == self.source.n and self.w.shape[1] == self.target.n:
-            return s.float().view(s.size(0), -1) @ self.w + self.b
-        else:
-            a_post = s.float().view(s.size(0), -1) @ self.w.view(self.source.n, self.target.n) + self.b
-            return a_post.view(*self.target.shape)
+        a_post = s.float().view(s.size(0), -1) @ self.w.view(self.source.n, self.target.n) + self.b
+        return a_post.view(*self.target.shape)
 
     def update(self, **kwargs) ->None:
         """
@@ -1867,6 +2437,272 @@ class LocalConnection(AbstractConnection):
         super().reset_state_variables()
 
 
+class LocalConnection1D(AbstractConnection):
+    """
+    Specifies a one-dimensional local connection between one or two population of neurons supporting multi-channel inputs with shape (C, H);
+    The logic is different from the original LocalConnection implementation (where masks were used with normal dense connections).
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: int, stride: int, n_filters: int, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+        """
+        Instantiates a 'LocalConnection1D` object. Source population can be multi-channel.
+        Neurons in the post-synaptic population are ordered by receptive field, i.e.,
+        if there are `n_conv` neurons in each post-synaptic patch, then the first
+        `n_conv` neurons in the post-synaptic population correspond to the first
+        receptive field, the second ``n_conv`` to the second receptive field, and so on.
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: size of convolutional kernels.
+        :param stride: stride for convolution.
+        :param n_filters: Number of locally connected filters per pre-synaptic region.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
+        :param reduction: Method for reducing parameter updates along the minibatch dimension.
+        :param weight_decay: Constant multiple to decay weights by on each iteration.
+        Keyword arguments:
+        :param LearningRule update_rule: Modifies connection parameters according to some rule.
+        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor b: Target population bias.
+        :param float wmin: Minimum allowed value on the connection weights.
+        :param float wmax: Maximum allowed value on the connection weights.
+        :param float norm: Total weight per target neuron normalization constant.
+        """
+        super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.n_filters = n_filters
+        self.in_channels, input_height = source.shape[0], source.shape[1]
+        height = int((input_height - self.kernel_size) / self.stride) + 1
+        self.conv_size = height
+        w = kwargs.get('w', None)
+        error = 'Target dimensionality must be (in_channels,n_filters*conv_size,kernel_size)'
+        if w is None:
+            w = torch.rand(self.in_channels, self.n_filters * self.conv_size, self.kernel_size)
+        else:
+            assert w.shape == (self.in_channels, self.out_channels * self.conv_size, self.kernel_size), error
+        if self.wmin != -np.inf or self.wmax != np.inf:
+            w = torch.clamp(w, self.wmin, self.wmax)
+        self.w = Parameter(w, requires_grad=False)
+        self.b = Parameter(kwargs.get('b', None), requires_grad=False)
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute pre-activations given spikes using layer weights.
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        batch_size = s.shape[0]
+        self.s_unfold = s.unfold(-1, self.kernel_size, self.stride).reshape(s.shape[0], self.in_channels, self.conv_size, self.kernel_size).repeat(1, 1, self.n_filters, 1)
+        a_post = self.s_unfold * self.w
+        return a_post.sum(-1).sum(1).view(batch_size, *self.target.shape)
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        Normalize weights so each target neuron has sum of connection weights equal to
+        ``self.norm``.
+        """
+        if self.norm is not None:
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2])
+            for fltr in range(w.shape[0]):
+                w[fltr, :] *= self.norm / w[fltr, :].sum(0)
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+        self.target.reset_state_variables()
+
+
+class LocalConnection2D(AbstractConnection):
+    """
+    Specifies a two-dimensional local connection between one or two population of neurons supporting multi-channel inputs with shape (C, H, W);
+    The logic is different from the original LocalConnection implementation (where masks were used with normal dense connections)
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]], n_filters: int, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+        """
+        Instantiates a 'LocalConnection2D` object. Source population can be multi-channel.
+        Neurons in the post-synaptic population are ordered by receptive field, i.e.,
+        if there are `n_conv` neurons in each post-synaptic patch, then the first
+        `n_conv` neurons in the post-synaptic population correspond to the first
+        receptive field, the second ``n_conv`` to the second receptive field, and so on.
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: Horizontal and vertical size of convolutional kernels.
+        :param stride: Horizontal and vertical stride for convolution.
+        :param n_filters: Number of locally connected filters per pre-synaptic region.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
+        :param reduction: Method for reducing parameter updates along the minibatch dimension.
+        :param weight_decay: Constant multiple to decay weights by on each iteration.
+        Keyword arguments:
+        :param LearningRule update_rule: Modifies connection parameters according to some rule.
+        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor b: Target population bias.
+        :param float wmin: Minimum allowed value on the connection weights.
+        :param float wmax: Maximum allowed value on the connection weights.
+        :param float norm: Total weight per target neuron normalization constant.
+        """
+        super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.n_filters = n_filters
+        self.in_channels, input_height, input_width = source.shape[0], source.shape[1], source.shape[2]
+        height = int((input_height - self.kernel_size[0]) / self.stride[0]) + 1
+        width = int((input_width - self.kernel_size[1]) / self.stride[1]) + 1
+        self.conv_size = height, width
+        self.conv_prod = int(np.prod(self.conv_size))
+        self.kernel_prod = int(np.prod(kernel_size))
+        w = kwargs.get('w', None)
+        error = 'Target dimensionality must be (in_channels,n_filters*conv_prod,kernel_prod)'
+        if w is None:
+            w = torch.rand(self.in_channels, self.n_filters * self.conv_prod, self.kernel_prod)
+        else:
+            assert w.shape == (self.in_channels, self.out_channels * self.conv_prod, self.kernel_prod), error
+        if self.wmin != -np.inf or self.wmax != np.inf:
+            w = torch.clamp(w, self.wmin, self.wmax)
+        self.w = Parameter(w, requires_grad=False)
+        self.b = Parameter(kwargs.get('b', None), requires_grad=False)
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute pre-activations given spikes using layer weights.
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        batch_size = s.shape[0]
+        self.s_unfold = s.unfold(-2, self.kernel_size[0], self.stride[0]).unfold(-2, self.kernel_size[1], self.stride[1]).reshape(s.shape[0], self.in_channels, self.conv_prod, self.kernel_prod).repeat(1, 1, self.n_filters, 1)
+        a_post = self.s_unfold * self.w
+        return a_post.sum(-1).sum(1).view(batch_size, *self.target.shape)
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        Normalize weights so each target neuron has sum of connection weights equal to
+        ``self.norm``.
+        """
+        if self.norm is not None:
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2])
+            for fltr in range(w.shape[0]):
+                w[fltr, :] *= self.norm / w[fltr, :].sum(0)
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+        self.target.reset_state_variables()
+
+
+class LocalConnection3D(AbstractConnection):
+    """
+    Specifies a three-dimensional local connection between one or two population of neurons supporting multi-channel inputs with shape (C, H, W, D);
+    The logic is different from the original LocalConnection implementation (where masks were used with normal dense connections)
+    """
+
+    def __init__(self, source: Nodes, target: Nodes, kernel_size: Union[int, Tuple[int, int, int]], stride: Union[int, Tuple[int, int, int]], n_filters: int, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
+        """
+        Instantiates a 'LocalConnection3D` object. Source population can be multi-channel.
+        Neurons in the post-synaptic population are ordered by receptive field, i.e.,
+        if there are `n_conv` neurons in each post-synaptic patch, then the first
+        `n_conv` neurons in the post-synaptic population correspond to the first
+        receptive field, the second ``n_conv`` to the second receptive field, and so on.
+        :param source: A layer of nodes from which the connection originates.
+        :param target: A layer of nodes to which the connection connects.
+        :param kernel_size: Horizontal, vertical, and depth-wise size of convolutional kernels.
+        :param stride: Horizontal, vertical, and depth-wise stride for convolution.
+        :param n_filters: Number of locally connected filters per pre-synaptic region.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
+        :param reduction: Method for reducing parameter updates along the minibatch dimension.
+        :param weight_decay: Constant multiple to decay weights by on each iteration.
+        Keyword arguments:
+        :param LearningRule update_rule: Modifies connection parameters according to some rule.
+        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor b: Target population bias.
+        :param float wmin: Minimum allowed value on the connection weights.
+        :param float wmax: Maximum allowed value on the connection weights.
+        :param float norm: Total weight per target neuron normalization constant.
+        """
+        super().__init__(source, target, nu, reduction, weight_decay, **kwargs)
+        kernel_size = _triple(kernel_size)
+        stride = _triple(stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.n_filters = n_filters
+        self.in_channels, input_height, input_width, input_depth = source.shape[0], source.shape[1], source.shape[2], source.shape[3]
+        height = int((input_height - self.kernel_size[0]) / self.stride[0]) + 1
+        width = int((input_width - self.kernel_size[1]) / self.stride[1]) + 1
+        depth = int((input_depth - self.kernel_size[2]) / self.stride[2]) + 1
+        self.conv_size = height, width, depth
+        self.conv_prod = int(np.prod(self.conv_size))
+        self.kernel_prod = int(np.prod(kernel_size))
+        w = kwargs.get('w', None)
+        error = 'Target dimensionality must be (in_channels,n_filters*conv_prod,kernel_prod)'
+        if w is None:
+            w = torch.rand(self.in_channels, self.n_filters * self.conv_prod, self.kernel_prod)
+        else:
+            assert w.shape == (self.in_channels, self.out_channels * self.conv_prod, self.kernel_prod), error
+        if self.wmin != -np.inf or self.wmax != np.inf:
+            w = torch.clamp(w, self.wmin, self.wmax)
+        self.w = Parameter(w, requires_grad=False)
+        self.b = Parameter(kwargs.get('b', None), requires_grad=False)
+
+    def compute(self, s: torch.Tensor) ->torch.Tensor:
+        """
+        Compute pre-activations given spikes using layer weights.
+        :param s: Incoming spikes.
+        :return: Incoming spikes multiplied by synaptic weights (with or without
+            decaying spike activation).
+        """
+        batch_size = s.shape[0]
+        self.s_unfold = s.unfold(-3, self.kernel_size[0], self.stride[0]).unfold(-3, self.kernel_size[1], self.stride[1]).unfold(-3, self.kernel_size[2], self.stride[2]).reshape(s.shape[0], self.in_channels, self.conv_prod, self.kernel_prod).repeat(1, 1, self.n_filters, 1)
+        a_post = self.s_unfold * self.w
+        return a_post.sum(-1).sum(1).view(batch_size, *self.target.shape)
+
+    def update(self, **kwargs) ->None:
+        """
+        Compute connection's update rule.
+        """
+        super().update(**kwargs)
+
+    def normalize(self) ->None:
+        """
+        Normalize weights so each target neuron has sum of connection weights equal to
+        ``self.norm``.
+        """
+        if self.norm is not None:
+            w = self.w.view(self.w.shape[0] * self.w.shape[1], self.w.shape[2])
+            for fltr in range(w.shape[0]):
+                w[fltr, :] *= self.norm / w[fltr, :].sum(0)
+
+    def reset_state_variables(self) ->None:
+        """
+        Contains resetting logic for the connection.
+        """
+        super().reset_state_variables()
+        self.target.reset_state_variables()
+
+
 class MeanFieldConnection(AbstractConnection):
     """
     A connection between one or two populations of neurons which computes a summary of
@@ -1874,29 +2710,33 @@ class MeanFieldConnection(AbstractConnection):
     population.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float]]]=None, weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
         Instantiates a :code:`MeanFieldConnection` object.
         :param source: A layer of nodes from which the connection originates.
         :param target: A layer of nodes to which the connection connects.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
         Keyword arguments:
         :param LearningRule update_rule: Modifies connection parameters according to
             some rule.
-        :param torch.Tensor w: Strengths of synapses.
-        :param float wmin: Minimum allowed value on the connection weights.
-        :param float wmax: Maximum allowed value on the connection weights.
+        :param Union[float, torch.Tensor] w: Strengths of synapses. Can be single value or tensor of size ``target``
+        :param Union[float, torch.Tensor] wmin: Minimum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
+        :param Union[float, torch.Tensor] wmax: Maximum allowed value(s) on the connection weights. Single value, or
+            tensor of same size as w
         :param float norm: Total weight per target neuron normalization constant.
         """
         super().__init__(source, target, nu, weight_decay, **kwargs)
         w = kwargs.get('w', None)
         if w is None:
-            if self.wmin == -np.inf or self.wmax == np.inf:
+            if (self.wmin == -np.inf).any() or (self.wmax == np.inf).any():
                 w = torch.clamp((torch.randn(1)[0] + 1) / 10, self.wmin, self.wmax)
             else:
                 w = self.wmin + (torch.randn(1)[0] + 1) / 10 * (self.wmax - self.wmin)
-        elif self.wmin != -np.inf or self.wmax != np.inf:
+        elif (self.wmin == -np.inf).any() or (self.wmax == np.inf).any():
             w = torch.clamp(w, self.wmin, self.wmax)
         self.w = Parameter(w, requires_grad=False)
 
@@ -1937,20 +2777,22 @@ class SparseConnection(AbstractConnection):
     Specifies sparse synapses between one or two populations of neurons.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=None, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float], Sequence[torch.Tensor]]]=None, reduction: Optional[callable]=None, weight_decay: float=None, **kwargs) ->None:
         """
         Instantiates a :code:`Connection` object with sparse weights.
 
         :param source: A layer of nodes from which the connection originates.
         :param target: A layer of nodes to which the connection connects.
-        :param nu: Learning rate for both pre- and post-synaptic events.
+         :param nu: Learning rate for both pre- and post-synaptic events. It also
+            accepts a pair of tensors to individualize learning rates of each neuron.
+            In this case, their shape should be the same size as the connection weights.
         :param reduction: Method for reducing parameter updates along the minibatch
             dimension.
         :param weight_decay: Constant multiple to decay weights by on each iteration.
 
         Keyword arguments:
 
-        :param torch.Tensor w: Strengths of synapses.
+        :param torch.Tensor w: Strengths of synapses. Must be in ``torch.sparse`` format
         :param float sparsity: Fraction of sparse connections to use.
         :param LearningRule update_rule: Modifies connection parameters according to
             some rule.
@@ -1964,10 +2806,10 @@ class SparseConnection(AbstractConnection):
         assert w is not None and self.sparsity is None or w is None and self.sparsity is not None, 'Only one of "weights" or "sparsity" must be specified'
         if w is None and self.sparsity is not None:
             i = torch.bernoulli(1 - self.sparsity * torch.ones(*source.shape, *target.shape))
-            if self.wmin == -np.inf or self.wmax == np.inf:
-                v = torch.clamp(torch.rand(*source.shape, *target.shape)[i.byte()], self.wmin, self.wmax)
+            if (self.wmin == -np.inf).any() or (self.wmax == np.inf).any():
+                v = torch.clamp(torch.rand(*source.shape, *target.shape), self.wmin, self.wmax)[i.bool()]
             else:
-                v = self.wmin + torch.rand(*source.shape, *target.shape)[i.byte()] * (self.wmax - self.wmin)
+                v = (self.wmin + torch.rand(*source.shape, *target.shape) * (self.wmax - self.wmin))[i.bool()]
             w = torch.sparse.FloatTensor(i.nonzero().t(), v)
         elif w is not None and self.sparsity is None:
             assert w.is_sparse, 'Weight matrix is not sparse (see torch.sparse module)'
@@ -1983,20 +2825,18 @@ class SparseConnection(AbstractConnection):
         :return: Incoming spikes multiplied by synaptic weights (with or without
             decaying spike activation).
         """
-        return torch.mm(self.w, s.unsqueeze(-1).float()).squeeze(-1)
+        return torch.mm(self.w, s.view(s.shape[1], 1).float()).squeeze(-1)
 
     def update(self, **kwargs) ->None:
         """
         Compute connection's update rule.
         """
-        pass
 
     def normalize(self) ->None:
         """
         Normalize weights along the first axis according to total weight per target
         neuron.
         """
-        pass
 
     def reset_state_variables(self) ->None:
         """
@@ -2045,4 +2885,22 @@ class FullyConnectedNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeatureExtractor,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_BindsNET_bindsnet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

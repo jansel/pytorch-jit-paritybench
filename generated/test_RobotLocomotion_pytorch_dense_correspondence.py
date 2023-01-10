@@ -2270,7 +2270,7 @@ class DenseCorrespondenceNetwork(nn.Module):
         des = np.zeros([N, D])
         for idx, kp in enumerate(keypoint_list):
             uv = self.clip_pixel_to_image_size_and_round([kp.pt[0], kp.pt[1]])
-            des[(idx), :] = res[(uv[1]), (uv[0]), :]
+            des[idx, :] = res[uv[1], uv[0], :]
         des = np.array(des, dtype=np.float32)
         return des
 

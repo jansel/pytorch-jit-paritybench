@@ -123,10 +123,7 @@ class LSLRGradientDescentLearningRule(nn.Module):
                 with respect to each of the parameters passed to `initialise`
                 previously, with this list expected to be in the same order.
         """
-        updated_names_weights_dict = dict()
-        for key in names_grads_wrt_params_dict.keys():
-            updated_names_weights_dict[key] = names_weights_dict[key] - self.names_learning_rates_dict[key.replace('.', '-')][num_step] * names_grads_wrt_params_dict[key]
-        return updated_names_weights_dict
+        return {key: (names_weights_dict[key] - self.names_learning_rates_dict[key.replace('.', '-')][num_step] * names_grads_wrt_params_dict[key]) for key in names_grads_wrt_params_dict.keys()}
 
 
 def extract_top_level_dict(current_dict):
@@ -137,7 +134,7 @@ def extract_top_level_dict(current_dict):
     :param key_exists: If none then assume new dict, else load existing dict and add new key->value pairs to it.
     :return: A dictionary graph of the params already added to the graph.
     """
-    output_dict = dict()
+    output_dict = {}
     for key in current_dict.keys():
         name = key.replace('layer_dict.', '')
         name = name.replace('layer_dict.', '')
@@ -145,15 +142,14 @@ def extract_top_level_dict(current_dict):
         name = name.replace('module-', '')
         top_level = name.split('.')[0]
         sub_level = '.'.join(name.split('.')[1:])
-        if top_level not in output_dict:
-            if sub_level == '':
-                output_dict[top_level] = current_dict[key]
-            else:
-                output_dict[top_level] = {sub_level: current_dict[key]}
-        else:
+        if top_level in output_dict:
             new_item = {key: value for key, value in output_dict[top_level].items()}
             new_item[sub_level] = current_dict[key]
             output_dict[top_level] = new_item
+        elif sub_level == '':
+            output_dict[top_level] = current_dict[key]
+        else:
+            output_dict[top_level] = {sub_level: current_dict[key]}
     return output_dict
 
 
@@ -226,10 +222,9 @@ class MetaBatchNormLayer(nn.Module):
         if self.use_per_step_bn_statistics:
             running_mean = self.running_mean[num_step]
             running_var = self.running_var[num_step]
-            if params is None:
-                if not self.args.enable_inner_loop_optimizable_bn_params:
-                    bias = self.bias[num_step]
-                    weight = self.weight[num_step]
+            if params is None and not self.args.enable_inner_loop_optimizable_bn_params:
+                bias = self.bias[num_step]
+                weight = self.weight[num_step]
         else:
             running_mean = None
             running_var = None
@@ -237,8 +232,7 @@ class MetaBatchNormLayer(nn.Module):
             self.backup_running_mean.data = copy(self.running_mean.data)
             self.backup_running_var.data = copy(self.running_var.data)
         momentum = self.momentum
-        output = F.batch_norm(input, running_mean, running_var, weight, bias, training=True, momentum=momentum, eps=self.eps)
-        return output
+        return F.batch_norm(input, running_mean, running_var, weight, bias, training=True, momentum=momentum, eps=self.eps)
 
     def restore_backup_stats(self):
         """
@@ -299,8 +293,7 @@ class MetaConv2dLayer(nn.Module):
         else:
             weight = self.weight
             bias = None
-        out = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation_rate, groups=self.groups)
-        return out
+        return F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation_rate, groups=self.groups)
 
 
 class MetaLayerNormLayer(nn.Module):
@@ -486,15 +479,12 @@ class MetaLinearLayer(nn.Module):
             else:
                 weight = params['weights']
                 bias = None
+        elif self.use_bias:
+            weight, bias = self.weights, self.bias
         else:
-            pass
-            if self.use_bias:
-                weight, bias = self.weights, self.bias
-            else:
-                weight = self.weights
-                bias = None
-        out = F.linear(input=x, weight=weight, bias=bias)
-        return out
+            weight = self.weights
+            bias = None
+        return F.linear(input=x, weight=weight, bias=bias)
 
 
 class VGGReLUNormNetwork(nn.Module):
@@ -567,7 +557,7 @@ class VGGReLUNormNetwork(nn.Module):
         then used to reset the stats back to a previous state (usually after an eval loop, when we want to throw away stored statistics)
         :return: Logits of shape b, num_output_classes.
         """
-        param_dict = dict()
+        param_dict = {}
         if params is not None:
             params = {key: value[0] for key, value in params.items()}
             param_dict = extract_top_level_dict(current_dict=params)
@@ -590,19 +580,15 @@ class VGGReLUNormNetwork(nn.Module):
     def zero_grad(self, params=None):
         if params is None:
             for param in self.parameters():
-                if param.requires_grad == True:
-                    if param.grad is not None:
-                        if torch.sum(param.grad) > 0:
-                            None
-                            param.grad.zero_()
+                if param.requires_grad == True and param.grad is not None and torch.sum(param.grad) > 0:
+                    None
+                    param.grad.zero_()
         else:
             for name, param in params.items():
-                if param.requires_grad == True:
-                    if param.grad is not None:
-                        if torch.sum(param.grad) > 0:
-                            None
-                            param.grad.zero_()
-                            params[name].grad = None
+                if param.requires_grad == True and param.grad is not None and torch.sum(param.grad) > 0:
+                    None
+                    param.grad.zero_()
+                    params[name].grad = None
 
     def restore_backup_stats(self):
         """
@@ -691,14 +677,7 @@ class MAMLFewShotClassifier(nn.Module):
         :param params: A dictionary of the network's parameters.
         :return: A dictionary of the parameters to use for the inner loop optimization process.
         """
-        param_dict = dict()
-        for name, param in params:
-            if param.requires_grad:
-                if self.args.enable_inner_loop_optimizable_bn_params:
-                    param_dict[name] = param
-                elif 'norm_layer' not in name:
-                    param_dict[name] = param
-        return param_dict
+        return {name: param for name, param in params if param.requires_grad and (not self.args.enable_inner_loop_optimizable_bn_params and 'norm_layer' not in name or self.args.enable_inner_loop_optimizable_bn_params)}
 
     def apply_inner_loop_update(self, loss, names_weights_copy, use_second_order, current_step_idx):
         """
@@ -728,8 +707,7 @@ class MAMLFewShotClassifier(nn.Module):
         return names_weights_copy
 
     def get_across_task_loss_metrics(self, total_losses, total_accuracies):
-        losses = dict()
-        losses['loss'] = torch.mean(torch.stack(total_losses))
+        losses = {'loss': torch.mean(torch.stack(total_losses))}
         losses['accuracy'] = np.mean(total_accuracies)
         return losses
 
@@ -752,9 +730,9 @@ class MAMLFewShotClassifier(nn.Module):
         total_accuracies = []
         per_task_target_preds = [[] for i in range(len(x_target_set))]
         self.classifier.zero_grad()
+        task_accuracies = []
         for task_id, (x_support_set_task, y_support_set_task, x_target_set_task, y_target_set_task) in enumerate(zip(x_support_set, y_support_set, x_target_set, y_target_set)):
             task_losses = []
-            task_accuracies = []
             per_step_loss_importance_vectors = self.get_per_step_loss_importance_vector()
             names_weights_copy = self.get_inner_loop_parameter_dict(self.classifier.named_parameters())
             num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 1
@@ -765,7 +743,7 @@ class MAMLFewShotClassifier(nn.Module):
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
             for num_step in range(num_steps):
-                support_loss, support_preds = self.net_forward(x=x_support_set_task, y=y_support_set_task, weights=names_weights_copy, backup_running_statistics=True if num_step == 0 else False, training=True, num_step=num_step)
+                support_loss, support_preds = self.net_forward(x=x_support_set_task, y=y_support_set_task, weights=names_weights_copy, backup_running_statistics=num_step == 0, training=True, num_step=num_step)
                 names_weights_copy = self.apply_inner_loop_update(loss=support_loss, names_weights_copy=names_weights_copy, use_second_order=use_second_order, current_step_idx=num_step)
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
                     target_loss, target_preds = self.net_forward(x=x_target_set_task, y=y_target_set_task, weights=names_weights_copy, backup_running_statistics=False, training=True, num_step=num_step)
@@ -898,6 +876,7 @@ class MAMLFewShotClassifier(nn.Module):
         object.
         """
         state['network'] = self.state_dict()
+        state['optimizer'] = self.optimizer.state_dict()
         torch.save(state, f=model_save_dir)
 
     def load_model(self, model_save_dir, model_name, model_idx):
@@ -912,6 +891,7 @@ class MAMLFewShotClassifier(nn.Module):
         filepath = os.path.join(model_save_dir, '{}_{}'.format(model_name, model_idx))
         state = torch.load(filepath)
         state_dict_loaded = state['network']
+        self.optimizer.load_state_dict(state['optimizer'])
         self.load_state_dict(state_dict=state_dict_loaded)
         return state
 
@@ -952,10 +932,7 @@ class GradientDescentLearningRule(nn.Module):
                 with respect to each of the parameters passed to `initialise`
                 previously, with this list expected to be in the same order.
         """
-        updated_names_weights_dict = dict()
-        for key in names_weights_dict.keys():
-            updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * names_grads_wrt_params_dict[key]
-        return updated_names_weights_dict
+        return {key: (names_weights_dict[key] - self.learning_rate * names_grads_wrt_params_dict[key]) for key in names_weights_dict.keys()}
 
 
 class MetaNormLayerConvReLU(nn.Module):
@@ -1021,9 +998,8 @@ class MetaNormLayerConvReLU(nn.Module):
         batch_norm_params = None
         if params is not None:
             params = extract_top_level_dict(current_dict=params)
-            if self.normalization:
-                if 'norm_layer' in params:
-                    batch_norm_params = params['norm_layer']
+            if self.normalization and 'norm_layer' in params:
+                batch_norm_params = params['norm_layer']
             conv_params = params['conv']
         else:
             conv_params = None

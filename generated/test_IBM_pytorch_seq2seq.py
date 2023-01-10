@@ -227,11 +227,11 @@ class TopKDecoder(torch.nn.Module):
             stored_emitted_symbols.append(input_var)
             stored_hidden.append(hidden)
         output, h_t, h_n, s, l, p = self._backtrack(stored_outputs, stored_hidden, stored_predecessors, stored_emitted_symbols, stored_scores, batch_size, self.hidden_size)
-        decoder_outputs = [step[:, (0), :] for step in output]
+        decoder_outputs = [step[:, 0, :] for step in output]
         if isinstance(h_n, tuple):
-            decoder_hidden = tuple([h[:, :, (0), :] for h in h_n])
+            decoder_hidden = tuple([h[:, :, 0, :] for h in h_n])
         else:
-            decoder_hidden = h_n[:, :, (0), :]
+            decoder_hidden = h_n[:, :, 0, :]
         metadata = {}
         metadata['inputs'] = inputs
         metadata['output'] = output
@@ -302,16 +302,16 @@ class TopKDecoder(torch.nn.Module):
                     batch_eos_found[b_idx] += 1
                     res_idx = b_idx * self.k + res_k_idx
                     t_predecessors[res_idx] = predecessors[t][idx[0]]
-                    current_output[(res_idx), :] = nw_output[t][(idx[0]), :]
+                    current_output[res_idx, :] = nw_output[t][idx[0], :]
                     if lstm:
-                        current_hidden[0][:, (res_idx), :] = nw_hidden[t][0][:, (idx[0]), :]
-                        current_hidden[1][:, (res_idx), :] = nw_hidden[t][1][:, (idx[0]), :]
-                        h_n[0][:, (res_idx), :] = nw_hidden[t][0][:, (idx[0]), :].data
-                        h_n[1][:, (res_idx), :] = nw_hidden[t][1][:, (idx[0]), :].data
+                        current_hidden[0][:, res_idx, :] = nw_hidden[t][0][:, idx[0], :]
+                        current_hidden[1][:, res_idx, :] = nw_hidden[t][1][:, idx[0], :]
+                        h_n[0][:, res_idx, :] = nw_hidden[t][0][:, idx[0], :].data
+                        h_n[1][:, res_idx, :] = nw_hidden[t][1][:, idx[0], :].data
                     else:
-                        current_hidden[:, (res_idx), :] = nw_hidden[t][:, (idx[0]), :]
-                        h_n[:, (res_idx), :] = nw_hidden[t][:, (idx[0]), :].data
-                    current_symbol[(res_idx), :] = symbols[t][idx[0]]
+                        current_hidden[:, res_idx, :] = nw_hidden[t][:, idx[0], :]
+                        h_n[:, res_idx, :] = nw_hidden[t][:, idx[0], :].data
+                    current_symbol[res_idx, :] = symbols[t][idx[0]]
                     s[b_idx, res_k_idx] = scores[t][idx[0]].data[0]
                     l[b_idx][res_k_idx] = t + 1
             output.append(current_output)
@@ -320,7 +320,7 @@ class TopKDecoder(torch.nn.Module):
             t -= 1
         s, re_sorted_idx = s.topk(self.k)
         for b_idx in range(b):
-            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[(b_idx), :]]
+            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[b_idx, :]]
         re_sorted_idx = (re_sorted_idx + self.pos_index.expand_as(re_sorted_idx)).view(b * self.k)
         output = [step.index_select(0, re_sorted_idx).view(b, self.k, -1) for step in reversed(output)]
         p = [step.index_select(0, re_sorted_idx).view(b, self.k, -1) for step in reversed(p)]
@@ -338,7 +338,7 @@ class TopKDecoder(torch.nn.Module):
 
     def _mask(self, tensor, idx, dim=0, masking_score=-float('inf')):
         if len(idx.size()) > 0:
-            indices = idx[:, (0)]
+            indices = idx[:, 0]
             tensor.index_fill_(dim, indices, masking_score)
 
 

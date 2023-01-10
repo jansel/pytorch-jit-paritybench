@@ -82,21 +82,6 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
-from torchtext.data import Dataset
-
-
-from torchtext.data import Field
-
-
-from torchtext.data import BucketIterator
-
-
-from torchtext.data import ReversibleField
-
-
-from torchtext.datasets import SequenceTaggingDataset
-
-
 from sklearn.metrics import f1_score
 
 
@@ -113,12 +98,6 @@ import torch.nn.functional as F
 
 
 import re
-
-
-from torchtext.data import Iterator
-
-
-from torchtext.data import TabularDataset
 
 
 import random
@@ -377,24 +356,6 @@ def light_tokenize(text):
     return [text]
 
 
-ENTITY = Field(tokenize=light_tokenize, batch_first=True)
-
-
-RELATION = Field(tokenize=light_tokenize, batch_first=True)
-
-
-Fields = [('head', ENTITY), ('rel', RELATION), ('tail', ENTITY)]
-
-
-POS = Field(sequential=True, tokenize=light_tokenize)
-
-
-TAG = ReversibleField(sequential=True, tokenize=light_tokenize, is_target=True, unk_token=None)
-
-
-TEXT = Field(sequential=True, tokenize=light_tokenize, include_lengths=True)
-
-
 class SRL(Module):
     """
     """
@@ -549,9 +510,6 @@ class LSTMClassifier(BaseModel):
         return y
 
 
-LABEL = Field(sequential=False, unk_token=None)
-
-
 def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>', end_e1_token='</e1>', begin_e2_token='<e2>', end_e2_token='</e2>'):
     assert entity1 in sentence
     assert entity2 in sentence
@@ -563,24 +521,6 @@ def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>', end_e1_token=
     sentence = sentence.replace('< e2 >', begin_e2_token)
     sentence = sentence.replace('< / e2 >', end_e2_token)
     return sentence.split()
-
-
-class REDataset(Dataset):
-    """Defines a Dataset of relation extraction format.
-    eg:
-    钱钟书	辛笛	同门	与辛笛京沪唱和聽钱钟书与钱钟书是清华校友，钱钟书高辛笛两班。
-    元武	元华	unknown	于师傅在一次京剧表演中，选了元龙（洪金宝）、元楼（元奎）、元彪、成龙、元华、元武、元泰7人担任七小福的主角。
-    """
-
-    def __init__(self, path, fields, encoding='utf-8', **kwargs):
-        examples = []
-        with open(path, 'r', encoding=encoding) as f:
-            for line in f:
-                chunks = line.split()
-                entity_1, entity_2, relation, sentence = tuple(chunks)
-                sentence_list = handle_line(entity_1, entity_2, sentence)
-                examples.append(Example.fromlist((sentence_list, relation), fields))
-        super(REDataset, self).__init__(examples, fields, **kwargs)
 
 
 class NER(Module):
@@ -710,22 +650,4 @@ def get_neg_batch(head, tail, entity_num):
         offset_tensor = torch.randint_like(neg_tail, entity_num)
         neg_tail = (neg_tail + offset_tensor) % entity_num
     return neg_head, neg_tail
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (TransE,
-     lambda: ([], {'args': _mock_config(save_path=4, entity_num=4, rel_num=4, embedding_dim=4, score_func=4)}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     True),
-]
-
-class Test_smilelight_lightKG(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

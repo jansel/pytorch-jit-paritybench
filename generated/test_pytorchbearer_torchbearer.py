@@ -355,10 +355,6 @@ TESTCASES = [
     (MockModel,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (Net,
-     lambda: ([], {'x': torch.rand([4, 4])}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (SimpleModel,
      lambda: ([], {}),
@@ -393,7 +389,4 @@ class Test_pytorchbearer_torchbearer(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

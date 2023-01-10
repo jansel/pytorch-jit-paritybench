@@ -183,7 +183,7 @@ def intersect(box_a, box_b):
     max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
     min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    return inter[:, :, 0] * inter[:, :, 1]
 
 
 def jaccard(box_a, box_b):
@@ -199,8 +199,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -307,7 +307,7 @@ class MultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
@@ -467,7 +467,7 @@ class RefineMultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             if self.num_classes == 2:
                 labels = labels > 0
             if arm_data:
@@ -480,7 +480,7 @@ class RefineMultiBoxLoss(nn.Module):
         loc_t = Variable(loc_t, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
         if arm_data and filter_object:
-            arm_conf_data = arm_conf.data[:, :, (1)]
+            arm_conf_data = arm_conf.data[:, :, 1]
             pos = conf_t > 0
             object_score_index = arm_conf_data <= self.object_score
             pos[object_score_index] = 0
@@ -1373,18 +1373,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (BasicRFB,
-     lambda: ([], {'in_planes': 18, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
-    (BasicRFB_a,
-     lambda: ([], {'in_planes': 18, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
-    (BasicRFB_c,
-     lambda: ([], {'in_planes': 18, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (CombConvLayer,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1453,13 +1441,4 @@ class Test_lzx1413_PytorchSSD(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

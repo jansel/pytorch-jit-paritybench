@@ -466,7 +466,7 @@ TESTCASES = [
     (BaseLearner,
      lambda: ([], {'args': _mock_config(way=4), 'z_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

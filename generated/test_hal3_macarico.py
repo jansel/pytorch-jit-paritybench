@@ -171,7 +171,7 @@ class DynamicFeatures(nn.Module):
             assert 0 <= i and i < self._batched_features.shape[0]
             assert self._batched_lengths[i] <= self._batched_features.shape[1]
             l = self._batched_lengths[i]
-            self._features = self._batched_features[(i), :l, :].unsqueeze(0)
+            self._features = self._batched_features[i, :l, :].unsqueeze(0)
         if self._features is None or self._recompute_always:
             self._features = self._forward(env)
             assert self._features.dim() == 3
@@ -204,7 +204,7 @@ class DynamicFeatures(nn.Module):
             self._batched_features = Var(self._typememory.param.data.new(len(envs), max_len, self.dim).zero_())
             self._batched_lengths = []
             for i, x in enumerate(bf):
-                self._batched_features[(i), :x.shape[1], :] = x
+                self._batched_features[i, :x.shape[1], :] = x
                 self._batched_lengths.append(x.shape[1])
         assert self._batched_features.shape[0] == len(envs)
         for i, env in enumerate(envs):
@@ -672,8 +672,8 @@ class RNN(macarico.StaticFeatures):
         e = self.features(env)
         [res, _] = self.rnn(e)
         if hasattr(self, 'rnn2'):
-            [res2, _] = self.rnn2(e[:, (self.rev[-e.shape[1]:]), :])
-            res = torch.cat([res, res2[:, (self.rev[-res2.shape[1]:]), :]], dim=2)
+            [res2, _] = self.rnn2(e[:, self.rev[-e.shape[1]:], :])
+            res = torch.cat([res, res2[:, self.rev[-res2.shape[1]:], :]], dim=2)
         return res
 
     def inv_perm(self, perm):
@@ -691,8 +691,8 @@ class RNN(macarico.StaticFeatures):
         [r, _] = self.rnn(e)
         r = r[self.inv_perm(sort_idx)]
         if hasattr(self, 'rnn2'):
-            [r2, _] = self.rnn2(e[:, (self.rev[-e.shape[1]:]), :])
-            r = torch.cat([r, r2[:, (self.rev[-r2.shape[1]:]), :]], dim=2)
+            [r2, _] = self.rnn2(e[:, self.rev[-e.shape[1]:], :])
+            r = torch.cat([r, r2[:, self.rev[-r2.shape[1]:], :]], dim=2)
         return r, lens
 
 

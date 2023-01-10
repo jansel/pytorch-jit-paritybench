@@ -174,7 +174,7 @@ class GenBlock(nn.Module):
         x = self.conv_3(x)
         if self.drop_channels:
             new_channels = x0.shape[1] // 2
-            x0 = x0[:, :new_channels, (...)]
+            x0 = x0[:, :new_channels, ...]
         if self.up_sample:
             x0 = F.interpolate(x0, scale_factor=2, mode='nearest')
         out = x + x0
@@ -212,7 +212,7 @@ class Generator(nn.Module):
         z = self.bn(z, truncation)
         z = self.relu(z)
         z = self.conv_to_rgb(z)
-        z = z[:, :3, (...)]
+        z = z[:, :3, ...]
         z = self.tanh(z)
         return z
 
@@ -455,22 +455,4 @@ class BigGAN(nn.Module):
         cond_vector = torch.cat((z, embed), dim=1)
         z = self.generator(cond_vector, truncation)
         return z
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (SelfAttn,
-     lambda: ([], {'in_channels': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
-]
-
-class Test_huggingface_pytorch_pretrained_BigGAN(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

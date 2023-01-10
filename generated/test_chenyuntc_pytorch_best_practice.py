@@ -167,11 +167,11 @@ TESTCASES = [
     (ResNet34,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256])], {}),
-     False),
+     True),
     (ResidualBlock,
      lambda: ([], {'inchannel': 4, 'outchannel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_chenyuntc_pytorch_best_practice(_paritybench_base):

@@ -365,9 +365,9 @@ class TSN(nn.Module):
             new_data = input_view[:, :, 1:, :, :, :].clone()
         for x in reversed(list(range(1, self.new_length + 1))):
             if keep_rgb:
-                new_data[:, :, (x), :, :, :] = input_view[:, :, (x), :, :, :] - input_view[:, :, (x - 1), :, :, :]
+                new_data[:, :, x, :, :, :] = input_view[:, :, x, :, :, :] - input_view[:, :, x - 1, :, :, :]
             else:
-                new_data[:, :, (x - 1), :, :, :] = input_view[:, :, (x), :, :, :] - input_view[:, :, (x - 1), :, :, :]
+                new_data[:, :, x - 1, :, :, :] = input_view[:, :, x, :, :, :] - input_view[:, :, x - 1, :, :, :]
         return new_data
 
     def _construct_flow_model(self, base_model):

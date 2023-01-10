@@ -177,9 +177,6 @@ import torchvision.models as models
 import numpy as np
 
 
-import torch.jit
-
-
 import torch.autograd
 
 

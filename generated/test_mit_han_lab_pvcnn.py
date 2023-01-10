@@ -831,9 +831,9 @@ def get_box_corners_3d(centers, headings, sizes, with_flip=False):
         3--0 5
         7--4
     """
-    l = sizes[:, (0)]
-    w = sizes[:, (1)]
-    h = sizes[:, (2)]
+    l = sizes[:, 0]
+    w = sizes[:, 1]
+    h = sizes[:, 2]
     x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2], dim=1)
     y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2], dim=1)
     z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2], dim=1)
@@ -917,17 +917,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (PointNetAModule,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([(torch.rand([4, 3, 64]), torch.rand([4, 4, 64]))], {}),
-     False),
     (SharedMLP,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
     (Transformer,
      lambda: ([], {'channels': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      True),
 ]
 
@@ -937,7 +933,4 @@ class Test_mit_han_lab_pvcnn(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

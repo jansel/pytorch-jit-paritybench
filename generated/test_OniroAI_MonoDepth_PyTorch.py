@@ -102,7 +102,7 @@ class MonodepthLoss(nn.modules.Module):
         batch_size, _, height, width = img.size()
         x_base = torch.linspace(0, 1, width).repeat(batch_size, height, 1).type_as(img)
         y_base = torch.linspace(0, 1, height).repeat(batch_size, width, 1).transpose(1, 2).type_as(img)
-        x_shifts = disp[:, (0), :, :]
+        x_shifts = disp[:, 0, :, :]
         flow_field = torch.stack((x_base + x_shifts, y_base), dim=3)
         output = F.grid_sample(img, 2 * flow_field - 1, mode='bilinear', padding_mode='zeros')
         return output
@@ -152,8 +152,8 @@ class MonodepthLoss(nn.modules.Module):
         left, right = target
         left_pyramid = self.scale_pyramid(left, self.n)
         right_pyramid = self.scale_pyramid(right, self.n)
-        disp_left_est = [d[:, (0), :, :].unsqueeze(1) for d in input]
-        disp_right_est = [d[:, (1), :, :].unsqueeze(1) for d in input]
+        disp_left_est = [d[:, 0, :, :].unsqueeze(1) for d in input]
+        disp_right_est = [d[:, 1, :, :].unsqueeze(1) for d in input]
         self.disp_left_est = disp_left_est
         self.disp_right_est = disp_right_est
         left_est = [self.generate_image_left(right_pyramid[i], disp_left_est[i]) for i in range(self.n)]

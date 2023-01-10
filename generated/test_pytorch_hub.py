@@ -3,6 +3,7 @@ _module = sys.modules[__name__]
 del sys
 sanity_check = _module
 tags = _module
+test_run_python_code = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock

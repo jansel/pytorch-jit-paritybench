@@ -111,14 +111,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Discriminator,
-     lambda: ([], {'input_nc': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
-    (Generator,
-     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
     (ResidualBlock,
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -128,10 +120,4 @@ TESTCASES = [
 class Test_aitorzip_PyTorch_CycleGAN(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

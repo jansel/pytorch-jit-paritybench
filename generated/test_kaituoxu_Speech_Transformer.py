@@ -216,7 +216,7 @@ def get_non_pad_mask(padded_input, input_lengths=None, pad_idx=None):
         N = padded_input.size(0)
         non_pad_mask = padded_input.new_ones(padded_input.size()[:-1])
         for i in range(N):
-            non_pad_mask[(i), input_lengths[i]:] = 0
+            non_pad_mask[i, input_lengths[i]:] = 0
     if pad_idx is not None:
         assert padded_input.dim() == 2
         non_pad_mask = padded_input.ne(pad_idx).float()
@@ -244,7 +244,7 @@ def pad_list(xs, pad_value):
     max_len = max(x.size(0) for x in xs)
     pad = xs[0].new(n_batch, max_len, *xs[0].size()[1:]).fill_(pad_value)
     for i in range(n_batch):
-        pad[(i), :xs[i].size(0)] = xs[i]
+        pad[i, :xs[i].size(0)] = xs[i]
     return pad
 
 
@@ -350,7 +350,7 @@ class Decoder(nn.Module):
                 dec_output = self.dropout(self.tgt_word_emb(ys) * self.x_logit_scale + self.positional_encoding(ys))
                 for dec_layer in self.layer_stack:
                     dec_output, _, _ = dec_layer(dec_output, encoder_outputs, non_pad_mask=non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=None)
-                seq_logit = self.tgt_word_prj(dec_output[:, (-1)])
+                seq_logit = self.tgt_word_prj(dec_output[:, -1])
                 local_scores = F.log_softmax(seq_logit, dim=1)
                 local_best_scores, local_best_ids = torch.topk(local_scores, beam, dim=1)
                 for j in range(beam):
@@ -358,7 +358,7 @@ class Decoder(nn.Module):
                     new_hyp['score'] = hyp['score'] + local_best_scores[0, j]
                     new_hyp['yseq'] = torch.ones(1, 1 + ys.size(1)).type_as(encoder_outputs).long()
                     new_hyp['yseq'][:, :ys.size(1)] = hyp['yseq']
-                    new_hyp['yseq'][:, (ys.size(1))] = int(local_best_ids[0, j])
+                    new_hyp['yseq'][:, ys.size(1)] = int(local_best_ids[0, j])
                     hyps_best_kept.append(new_hyp)
                 hyps_best_kept = sorted(hyps_best_kept, key=lambda x: x['score'], reverse=True)[:beam]
             hyps = hyps_best_kept
@@ -542,7 +542,7 @@ TESTCASES = [
     (MultiHeadAttention,
      lambda: ([], {'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (PositionalEncoding,
      lambda: ([], {'d_model': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -558,7 +558,7 @@ TESTCASES = [
     (ScaledDotProductAttention,
      lambda: ([], {'temperature': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_kaituoxu_Speech_Transformer(_paritybench_base):

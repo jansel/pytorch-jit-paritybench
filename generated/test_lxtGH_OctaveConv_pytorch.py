@@ -129,8 +129,8 @@ class SRMLayer(nn.Module):
         return t
 
     def _style_integration(self, t):
-        z = t * self.cfc[(None), :, :]
-        z = torch.sum(z, dim=2)[:, :, (None), (None)]
+        z = t * self.cfc[None, :, :]
+        z = torch.sum(z, dim=2)[:, :, None, None]
         z_hat = self.bn(z)
         g = self.activation(z_hat)
         return g
@@ -646,9 +646,9 @@ class AdaptiveConv(nn.Module):
     def forward(self, x):
         _, _, h, w = x.size()
         weight = self.softmax(self.w)
-        w1 = weight[(0), :, :, :]
-        w2 = weight[(1), :, :, :]
-        w3 = weight[(2), :, :, :]
+        w1 = weight[0, :, :, :]
+        w2 = weight[1, :, :, :]
+        w3 = weight[2, :, :, :]
         x1 = self.conv3x3(x)
         x2 = self.conv1x1(x)
         size = x1.size()[2:]

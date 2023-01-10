@@ -244,7 +244,7 @@ def nll_pmf(phi: Tensor, idx_durations: Tensor, events: Tensor, reduction: str='
     phi = utils.pad_col(phi)
     gamma = phi.max(1)[0]
     cumsum = phi.sub(gamma.view(-1, 1)).exp().cumsum(1)
-    sum_ = cumsum[:, (-1)]
+    sum_ = cumsum[:, -1]
     part1 = phi.gather(1, idx_durations).view(-1).sub(gamma).mul(events)
     part2 = -sum_.relu().add(epsilon).log()
     part3 = sum_.sub(cumsum.gather(1, idx_durations).view(-1)).relu().add(epsilon).log().mul(1.0 - events)
@@ -356,8 +356,8 @@ def nll_pc_hazard_loss(phi: Tensor, idx_durations: Tensor, events: Tensor, inter
     events = events.view(-1)
     interval_frac = interval_frac.view(-1)
     keep = idx_durations.view(-1) >= 0
-    phi = phi[(keep), :]
-    idx_durations = idx_durations[(keep), :]
+    phi = phi[keep, :]
+    idx_durations = idx_durations[keep, :]
     events = events[keep]
     interval_frac = interval_frac[keep]
     log_h_e = utils.log_softplus(phi.gather(1, idx_durations).view(-1)).mul(events)
@@ -557,7 +557,7 @@ def nll_pmf_cr(phi: Tensor, idx_durations: Tensor, events: Tensor, reduction: st
     sm = utils.pad_col(phi.view(batch_size, -1)).softmax(1)[:, :-1].view(phi.shape)
     index = torch.arange(batch_size)
     part1 = sm[index, events, idx_durations].relu().add(epsilon).log().mul(event_01)
-    part2 = (1 - sm.cumsum(2)[(index), :, (idx_durations)].sum(1)).relu().add(epsilon).log().mul(1 - event_01)
+    part2 = (1 - sm.cumsum(2)[index, :, idx_durations].sum(1)).relu().add(epsilon).log().mul(1 - event_01)
     loss = -part1.add(part2)
     return _reduction(loss, reduction)
 
@@ -596,10 +596,10 @@ def rank_loss_deephit_cr(phi: Tensor, idx_durations: Tensor, events: Tensor, ran
     pmf = utils.pad_col(phi.view(batch_size, -1)).softmax(1)
     pmf = pmf[:, :-1].view(phi.shape)
     y = torch.zeros_like(pmf)
-    y[(torch.arange(batch_size)), :, (idx_durations)] = 1.0
+    y[torch.arange(batch_size), :, idx_durations] = 1.0
     loss = []
     for i in range(n_risks):
-        rank_loss_i = _rank_loss_deephit(pmf[:, (i), :], y[:, (i), :], rank_mat, sigma, 'none')
+        rank_loss_i = _rank_loss_deephit(pmf[:, i, :], y[:, i, :], rank_mat, sigma, 'none')
         loss.append(rank_loss_i.view(-1) * (events == i).float())
     if reduction == 'none':
         return sum(loss)

@@ -320,7 +320,7 @@ TESTCASES = [
      False),
     (EncoderLayer,
      lambda: ([], {'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 1])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
     (MultiHeadedAttention,
      lambda: ([], {'num_head': 4, 'd_model': 4}),

@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+hubconf = _module
 resnet = _module
 trainer = _module
 

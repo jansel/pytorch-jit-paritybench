@@ -402,7 +402,7 @@ class BertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -1116,10 +1116,6 @@ TESTCASES = [
      lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
-    (BertEmbeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (BertIntermediate,
      lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1180,7 +1176,4 @@ class Test_airsplay_lxmert(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

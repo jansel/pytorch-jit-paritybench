@@ -5,29 +5,56 @@ display_samples = _module
 download_mnist = _module
 convert = _module
 main = _module
+datautils = _module
+multigpu = _module
+multigpu_torchrun = _module
+multinode = _module
+single_gpu = _module
 example = _module
+main = _module
+char_dataset = _module
+main = _module
+model = _module
+trainer = _module
+parameter_server = _module
+reinforce = _module
 main = _module
 rpc_parameter_server = _module
 main = _module
 main = _module
 main = _module
 rnn = _module
+example = _module
+conf = _module
 download_saved_models = _module
 neural_style = _module
 neural_style = _module
 transformer_net = _module
 utils = _module
 vgg = _module
+custom_tracer = _module
+inline_function = _module
+invert = _module
+module_tracer = _module
+use_interpreter = _module
+primitive_library = _module
+profiling_tracer = _module
+proxy_based_graph_creation = _module
+replace_op = _module
+subgraph_rewriter_basic_use = _module
+wrap_output_dynamically = _module
 main = _module
-main = _module
-main = _module
-train = _module
-main = _module
-actor_critic = _module
-reinforce = _module
 model = _module
 train = _module
 util = _module
+main = _module
+main = _module
+train = _module
+main = _module
+main = _module
+actor_critic = _module
+reinforce = _module
+main = _module
 data = _module
 dataset = _module
 main = _module
@@ -97,52 +124,67 @@ import torchvision.transforms as transforms
 import torchvision.utils as vutils
 
 
-import torch.distributed as dist
-
-
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-
-import torch.multiprocessing as mp
-
-
-import time
-
-
-import torch.distributed.autograd as dist_autograd
-
-
-import torch.distributed.rpc as rpc
+from torch.utils.data import Dataset
 
 
 import torch.nn.functional as F
 
 
+from torch.utils.data import DataLoader
+
+
+import torch.multiprocessing as mp
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+from torch.distributed import init_process_group
+
+
+from torch.distributed import destroy_process_group
+
+
+import torch.distributed as dist
+
+
+from torch.utils.data import random_split
+
+
+import math
+
+
+from torch.nn import functional as F
+
+
+from collections import OrderedDict
+
+
+from typing import Optional
+
+
+from typing import Any
+
+
+from typing import Dict
+
+
+import torch.distributed.rpc as rpc
+
+
 from torch import optim
 
 
-from torch.distributed.optim import DistributedOptimizer
+import torchvision
 
 
-from torchvision import datasets
-
-
-from torchvision import transforms
-
-
-from functools import wraps
+import time
 
 
 from torch.distributed.rpc import RRef
-
-
-from torchvision.models.resnet import Bottleneck
-
-
-import numpy as np
-
-
-from itertools import count
 
 
 from torch.distributed.rpc import rpc_sync
@@ -157,19 +199,94 @@ from torch.distributed.rpc import remote
 from torch.distributions import Categorical
 
 
+import torch.distributed.autograd as dist_autograd
+
+
+from torch.distributed.nn import RemoteModule
+
+
+from torch.distributed.optim import DistributedOptimizer
+
+
+from torch.distributed.rpc import TensorPipeRpcBackendOptions
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+from functools import wraps
+
+
+from torchvision.models.resnet import Bottleneck
+
+
+import numpy as np
+
+
+from itertools import count
+
+
 import re
 
 
 from torch.optim import Adam
 
 
-from torch.utils.data import DataLoader
-
-
 import torch.onnx
 
 
 from collections import namedtuple
+
+
+from torch.fx import symbolic_trace
+
+
+from torch.fx import Tracer
+
+
+from torch.fx import Graph
+
+
+from torch.fx import GraphModule
+
+
+from torch.fx import Node
+
+
+from typing import Callable
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+from torch.fx import Proxy
+
+
+from torch.fx.node import map_arg
+
+
+import torch.fx as fx
+
+
+import torch.fx
+
+
+import torchvision.models as models
+
+
+from torch.fx import replace_pattern
+
+
+from enum import Enum
+
+
+from enum import auto
 
 
 import warnings
@@ -184,19 +301,25 @@ import torch.utils.data.distributed
 import torchvision.datasets as datasets
 
 
-import torchvision.models as models
-
-
 from torch.optim.lr_scheduler import StepLR
+
+
+from torch.utils.data import Subset
 
 
 import torch.optim as O
 
 
-from torchtext import data
+from torch.utils.data.sampler import Sampler
 
 
-from torchtext import datasets
+from collections import deque
+
+
+import copy
+
+
+from torchvision import transforms as T
 
 
 import torch.utils.data as data
@@ -217,13 +340,7 @@ import matplotlib
 from torch import nn
 
 
-from torch.nn import functional as F
-
-
 from torchvision.utils import save_image
-
-
-import math
 
 
 parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM/GRU/Transformer Language Model')
@@ -266,9 +383,9 @@ class ToyModel(nn.Module):
 
     def __init__(self):
         super(ToyModel, self).__init__()
-        self.net1 = nn.Linear(10, 10)
+        self.net1 = nn.Linear(10, 32)
         self.relu = nn.ReLU()
-        self.net2 = nn.Linear(10, 5)
+        self.net2 = nn.Linear(32, 5)
 
     def forward(self, x):
         return self.net2(self.relu(self.net1(x)))
@@ -289,6 +406,63 @@ class ToyMpModel(nn.Module):
         x = self.relu(self.net1(x))
         x = x
         return self.net2(x)
+
+
+class MultiheadAttentionLayer(nn.Module):
+    """
+    A multi-head masked self-attention layer with a projection at the end.
+    """
+
+    def __init__(self, config, device='cpu', dtype=torch.float32):
+        super().__init__()
+        assert config.n_embd % config.n_head == 0
+        self.resid_drop = nn.Dropout(config.resid_pdrop)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, device=device, dtype=dtype)
+        self.register_buffer('mask', torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size))
+        self.attn = torch.nn.MultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head, dropout=config.attn_pdrop, batch_first=True, device=device, dtype=dtype)
+
+    def forward(self, x):
+        _, seq_size, _ = x.size()
+        y = self.attn(x, x, x, attn_mask=self.mask[0, 0, :seq_size, :seq_size])[0]
+        y = self.resid_drop(self.c_proj(y))
+        return y
+
+
+class Policy(nn.Module):
+
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.affine1 = nn.Linear(4, 128)
+        self.dropout = nn.Dropout(p=0.6)
+        self.affine2 = nn.Linear(128, 2)
+        self.saved_log_probs = []
+        self.rewards = []
+
+    def forward(self, x):
+        x = self.affine1(x)
+        x = self.dropout(x)
+        x = F.relu(x)
+        action_scores = self.affine2(x)
+        return F.softmax(action_scores, dim=1)
+
+
+class HybridModel(torch.nn.Module):
+    """
+    The model consists of a sparse part and a dense part.
+    1) The dense part is an nn.Linear module that is replicated across all trainers using DistributedDataParallel.
+    2) The sparse part is a Remote Module that holds an nn.EmbeddingBag on the parameter server.
+    This remote model can get a Remote Reference to the embedding table on the parameter server.
+    """
+
+    def __init__(self, remote_emb_module, device):
+        super(HybridModel, self).__init__()
+        self.remote_emb_module = remote_emb_module
+        self.fc = DDP(torch.nn.Linear(16, 8), device_ids=[device])
+        self.device = device
+
+    def forward(self, indices, offsets):
+        emb_lookup = self.remote_emb_module.forward(indices, offsets)
+        return self.fc(emb_lookup)
 
 
 class Net(nn.Module):
@@ -407,17 +581,24 @@ class ResNetBase(nn.Module):
             layers.append(self._block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
+    def parameter_rrefs(self):
+        """
+        Create one RRef for each parameter in the given local module, and return a
+        list of RRefs.
+        """
+        return [RRef(p) for p in self.parameters()]
+
 
 num_classes = 1000
 
 
-class ResNetPart1(ResNetBase):
+class ResNetShard1(ResNetBase):
     """
     The first part of ResNet.
     """
 
     def __init__(self, device, *args, **kwargs):
-        super(ResNetPart1, self).__init__(Bottleneck, 64, *args, num_classes=num_classes, **kwargs)
+        super(ResNetShard1, self).__init__(Bottleneck, 64, *args, num_classes=num_classes, **kwargs)
         self.device = device
         self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False), self._norm_layer(self.inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), self._make_layer(64, 3), self._make_layer(128, 4, stride=2))
         for m in self.modules():
@@ -434,13 +615,13 @@ class ResNetPart1(ResNetBase):
         return out.cpu()
 
 
-class ResNetPart2(ResNetBase):
+class ResNetShard2(ResNetBase):
     """
     The second part of ResNet.
     """
 
     def __init__(self, device, *args, **kwargs):
-        super(ResNetPart2, self).__init__(Bottleneck, 512, *args, num_classes=num_classes, **kwargs)
+        super(ResNetShard2, self).__init__(Bottleneck, 512, *args, num_classes=num_classes, **kwargs)
         self.device = device
         self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self._make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1)))
         self.fc = nn.Linear(512 * self._block.expansion, num_classes)
@@ -452,40 +633,6 @@ class ResNetPart2(ResNetBase):
         return out.cpu()
 
 
-def _call_method(method, rref, *args, **kwargs):
-    """
-    a helper function to call a method on the given RRef
-    """
-    return method(rref.local_value(), *args, **kwargs)
-
-
-def _async_on_rref(method, rref, *args, **kwargs):
-    """
-    a helper function to run method on the owner of rref and fetch back the
-    result using RPC
-    """
-    return rpc.rpc_async(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
-
-
-def _parameter_rrefs(module):
-    """
-    Create one RRef for each parameter in the given local module, and return a
-    list of RRefs.
-    """
-    param_rrefs = []
-    for param in module.parameters():
-        param_rrefs.append(RRef(param))
-    return param_rrefs
-
-
-def _remote_on_rref(method, rref, *args, **kwargs):
-    """
-    a helper function to run method on the owner of rref and return an RRef
-    of the result.
-    """
-    return rpc.remote(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
-
-
 class DistResNet50(nn.Module):
     """
     Assemble two parts as an nn.Module and define pipelining logic
@@ -494,43 +641,23 @@ class DistResNet50(nn.Module):
     def __init__(self, split_size, workers, *args, **kwargs):
         super(DistResNet50, self).__init__()
         self.split_size = split_size
-        self.p1_rref = rpc.remote(workers[0], ResNetPart1, args=('cuda:0',) + args, kwargs=kwargs)
-        self.p2_rref = rpc.remote(workers[1], ResNetPart2, args=('cuda:1',) + args, kwargs=kwargs)
+        self.p1_rref = rpc.remote(workers[0], ResNetShard1, args=('cuda:0',) + args, kwargs=kwargs)
+        self.p2_rref = rpc.remote(workers[1], ResNetShard2, args=('cuda:1',) + args, kwargs=kwargs)
 
     def forward(self, xs):
         out_futures = []
         for x in iter(xs.split(self.split_size, dim=0)):
             x_rref = RRef(x)
-            y_rref = _remote_on_rref(ResNetPart1.forward, self.p1_rref, x_rref)
-            z_fut = _async_on_rref(ResNetPart2.forward, self.p2_rref, y_rref)
+            y_rref = self.p1_rref.remote().forward(x_rref)
+            z_fut = self.p2_rref.rpc_async().forward(y_rref)
             out_futures.append(z_fut)
-        outs = [fut.wait() for fut in out_futures]
-        out = torch.cat(outs)
-        return out
+        return torch.cat(torch.futures.wait_all(out_futures))
 
     def parameter_rrefs(self):
         remote_params = []
-        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p1_rref).to_here())
-        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p2_rref).to_here())
+        remote_params.extend(self.p1_rref.remote().parameter_rrefs().to_here())
+        remote_params.extend(self.p2_rref.remote().parameter_rrefs().to_here())
         return remote_params
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.dropout = nn.Dropout(p=0.6)
-        self.affine2 = nn.Linear(128, 2)
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = self.affine1(x)
-        x = self.dropout(x)
-        x = F.relu(x)
-        action_scores = self.affine2(x)
-        return F.softmax(action_scores, dim=1)
 
 
 class EmbeddingTable(nn.Module):
@@ -542,9 +669,13 @@ class EmbeddingTable(nn.Module):
         super(EmbeddingTable, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
+        if torch.cuda.is_available():
+            self.encoder = self.encoder
         nn.init.uniform_(self.encoder.weight, -0.1, 0.1)
 
     def forward(self, input):
+        if torch.cuda.is_available():
+            input = input
         return self.drop(self.encoder(input)).cpu()
 
 
@@ -577,9 +708,9 @@ class RNNModel(nn.Module):
         else:
             try:
                 nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
-            except KeyError:
+            except KeyError as e:
                 raise ValueError("""An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""") from e
             self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
@@ -594,7 +725,7 @@ class RNNModel(nn.Module):
     def init_weights(self):
         initrange = 0.1
         nn.init.uniform_(self.encoder.weight, -initrange, initrange)
-        nn.init.zeros_(self.decoder.weight)
+        nn.init.zeros_(self.decoder.bias)
         nn.init.uniform_(self.decoder.weight, -initrange, initrange)
 
     def forward(self, input, hidden):
@@ -744,6 +875,45 @@ class Vgg16(torch.nn.Module):
         return out
 
 
+class M1(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.relu = torch.nn.ReLU()
+
+    def forward(self, x):
+        return self.relu(x)
+
+
+class M2(torch.nn.Module):
+
+    def forward(self, a, b):
+        return a + b
+
+
+class M(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, y):
+        y = torch.cat([x, y])
+        return y
+
+
+class MyElementwiseModule(torch.nn.Module):
+
+    def forward(self, x, y):
+        return x * y + y
+
+
+class Foo(torch.nn.Module):
+
+    def forward(self, x):
+        with torch.profiler.record_function('foo'):
+            return torch.relu(x)
+
+
 class Bottle(nn.Module):
 
     def forward(self, input):
@@ -806,6 +976,48 @@ class SNLIClassifier(nn.Module):
         return scores
 
 
+class SiameseNetwork(nn.Module):
+    """
+        Siamese network for image similarity estimation.
+        The network is composed of two identical networks, one for each input.
+        The output of each network is concatenated and passed to a linear layer. 
+        The output of the linear layer passed through a sigmoid function.
+        `"FaceNet" <https://arxiv.org/pdf/1503.03832.pdf>`_ is a variant of the Siamese network.
+        This implementation varies from FaceNet as we use the `ResNet-18` model from
+        `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_ as our feature extractor.
+        In addition, we aren't using `TripletLoss` as the MNIST dataset is simple, so `BCELoss` can do the trick.
+    """
+
+    def __init__(self):
+        super(SiameseNetwork, self).__init__()
+        self.resnet = torchvision.models.resnet18(pretrained=False)
+        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.fc_in_features = self.resnet.fc.in_features
+        self.resnet = torch.nn.Sequential(*list(self.resnet.children())[:-1])
+        self.fc = nn.Sequential(nn.Linear(self.fc_in_features * 2, 256), nn.ReLU(inplace=True), nn.Linear(256, 1))
+        self.sigmoid = nn.Sigmoid()
+        self.resnet.apply(self.init_weights)
+        self.fc.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform(m.weight)
+            m.bias.data.fill_(0.01)
+
+    def forward_once(self, x):
+        output = self.resnet(x)
+        output = output.view(output.size()[0], -1)
+        return output
+
+    def forward(self, input1, input2):
+        output1 = self.forward_once(input1)
+        output2 = self.forward_once(input2)
+        output = torch.cat((output1, output2), 1)
+        output = self.fc(output)
+        output = self.sigmoid(output)
+        return output
+
+
 class Sequence(nn.Module):
 
     def __init__(self):
@@ -820,7 +1032,7 @@ class Sequence(nn.Module):
         c_t = torch.zeros(input.size(0), 51, dtype=torch.double)
         h_t2 = torch.zeros(input.size(0), 51, dtype=torch.double)
         c_t2 = torch.zeros(input.size(0), 51, dtype=torch.double)
-        for i, input_t in enumerate(input.chunk(input.size(1), dim=1)):
+        for input_t in input.split(1, dim=1):
             h_t, c_t = self.lstm1(input_t, (h_t, c_t))
             h_t2, c_t2 = self.lstm2(h_t, (h_t2, c_t2))
             output = self.linear(h_t2)
@@ -830,7 +1042,7 @@ class Sequence(nn.Module):
             h_t2, c_t2 = self.lstm2(h_t, (h_t2, c_t2))
             output = self.linear(h_t2)
             outputs += [output]
-        outputs = torch.stack(outputs, 1).squeeze(2)
+        outputs = torch.cat(outputs, dim=1)
         return outputs
 
 
@@ -864,11 +1076,10 @@ class VAE(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    """Inject some information about the relative or absolute position of the tokens
-        in the sequence. The positional encodings have the same dimension as
-        the embeddings, so that the two can be summed. Here, we use sine and cosine
-        functions of different frequencies.
-    .. math::
+    """Inject some information about the relative or absolute position of the tokens in the sequence.
+        The positional encodings have the same dimension as the embeddings, so that the two can be summed.
+        Here, we use sine and cosine functions of different frequencies.
+    .. math:
         \\text{PosEncoder}(pos, 2i) = sin(pos/10000^(2i/d_model))
         \\text{PosEncoder}(pos, 2i+1) = cos(pos/10000^(2i/d_model))
         \\text{where pos is the word position and i is the embed idx)
@@ -913,8 +1124,8 @@ class TransformerModel(nn.Module):
         try:
             from torch.nn import TransformerEncoder
             from torch.nn import TransformerEncoderLayer
-        except:
-            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.')
+        except BaseException as e:
+            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.') from e
         self.model_type = 'Transformer'
         self.src_mask = None
         self.pos_encoder = PositionalEncoding(ninp, dropout)
@@ -933,7 +1144,7 @@ class TransformerModel(nn.Module):
     def init_weights(self):
         initrange = 0.1
         nn.init.uniform_(self.encoder.weight, -initrange, initrange)
-        nn.init.zeros_(self.decoder)
+        nn.init.zeros_(self.decoder.bias)
         nn.init.uniform_(self.decoder.weight, -initrange, initrange)
 
     def forward(self, src, has_mask=True):
@@ -966,17 +1177,33 @@ TESTCASES = [
      lambda: ([], {'ntoken': 4, 'nhid': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (EmbeddingTable,
-     lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
+    (Foo,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Linear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
-    (Net,
-     lambda: ([], {'upscale_factor': 4}),
-     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+    (M,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (M1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (M2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiheadAttentionLayer,
+     lambda: ([], {'config': _mock_config(n_embd=4, n_head=4, resid_pdrop=0.5, block_size=4, attn_pdrop=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MyElementwiseModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (Policy,
      lambda: ([], {}),
@@ -989,6 +1216,10 @@ TESTCASES = [
     (ResidualBlock,
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SiameseNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64]), torch.rand([4, 1, 64, 64])], {}),
      True),
     (TransformerNet,
      lambda: ([], {}),
@@ -1044,4 +1275,19 @@ class Test_pytorch_examples(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

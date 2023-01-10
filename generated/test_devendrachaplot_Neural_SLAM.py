@@ -132,9 +132,9 @@ def get_grid(pose, grid_size, device):
 
     """
     pose = pose.float()
-    x = pose[:, (0)]
-    y = pose[:, (1)]
-    t = pose[:, (2)]
+    x = pose[:, 0]
+    y = pose[:, 1]
+    t = pose[:, 2]
     bs = x.size(0)
     t = t * np.pi / 180.0
     cos_t = t.cos()
@@ -230,9 +230,9 @@ class Neural_SLAM_Module(nn.Module):
                 st_poses = self.st_poses_train.detach_()
                 grid_map = self.grid_map_train.detach_()
             st_poses.fill_(0.0)
-            st_poses[:, (0)] = poses[:, (1)] * 200.0 / self.resolution / grid_size
-            st_poses[:, (1)] = poses[:, (0)] * 200.0 / self.resolution / grid_size
-            st_poses[:, (2)] = poses[:, (2)] * 57.29577951308232
+            st_poses[:, 0] = poses[:, 1] * 200.0 / self.resolution / grid_size
+            st_poses[:, 1] = poses[:, 0] * 200.0 / self.resolution / grid_size
+            st_poses[:, 2] = poses[:, 2] * 57.29577951308232
             rot_mat, trans_mat = get_grid(st_poses, (bs, 2, grid_size, grid_size), self.device)
             grid_map.fill_(0.0)
             grid_map[:, :, vr:, int(vr / 2):int(vr / 2 + vr)] = pred_last
@@ -267,16 +267,16 @@ class Neural_SLAM_Module(nn.Module):
                 corrected_pose = poses + pose_pred
 
                 def get_new_pose_batch(pose, rel_pose_change):
-                    pose[:, (1)] += rel_pose_change[:, (0)] * torch.sin(pose[:, (2)] / 57.29577951308232) + rel_pose_change[:, (1)] * torch.cos(pose[:, (2)] / 57.29577951308232)
-                    pose[:, (0)] += rel_pose_change[:, (0)] * torch.cos(pose[:, (2)] / 57.29577951308232) - rel_pose_change[:, (1)] * torch.sin(pose[:, (2)] / 57.29577951308232)
-                    pose[:, (2)] += rel_pose_change[:, (2)] * 57.29577951308232
-                    pose[:, (2)] = torch.fmod(pose[:, (2)] - 180.0, 360.0) + 180.0
-                    pose[:, (2)] = torch.fmod(pose[:, (2)] + 180.0, 360.0) - 180.0
+                    pose[:, 1] += rel_pose_change[:, 0] * torch.sin(pose[:, 2] / 57.29577951308232) + rel_pose_change[:, 1] * torch.cos(pose[:, 2] / 57.29577951308232)
+                    pose[:, 0] += rel_pose_change[:, 0] * torch.cos(pose[:, 2] / 57.29577951308232) - rel_pose_change[:, 1] * torch.sin(pose[:, 2] / 57.29577951308232)
+                    pose[:, 2] += rel_pose_change[:, 2] * 57.29577951308232
+                    pose[:, 2] = torch.fmod(pose[:, 2] - 180.0, 360.0) + 180.0
+                    pose[:, 2] = torch.fmod(pose[:, 2] + 180.0, 360.0) - 180.0
                     return pose
                 current_poses = get_new_pose_batch(current_poses, corrected_pose)
                 st_pose = current_poses.clone().detach()
                 st_pose[:, :2] = -(st_pose[:, :2] * 100.0 / self.resolution - self.map_size_cm // (self.resolution * 2)) / (self.map_size_cm // (self.resolution * 2))
-                st_pose[:, (2)] = 90.0 - st_pose[:, (2)]
+                st_pose[:, 2] = 90.0 - st_pose[:, 2]
                 rot_mat, trans_mat = get_grid(st_pose, agent_view.size(), self.device)
                 rotated = F.grid_sample(agent_view, rot_mat)
                 translated = F.grid_sample(rotated, trans_mat)
@@ -373,7 +373,7 @@ class NNBase(nn.Module):
 
     def _forward_gru(self, x, hxs, masks):
         if x.size(0) == hxs.size(0):
-            x = hxs = self.gru(x, hxs * masks[:, (None)])
+            x = hxs = self.gru(x, hxs * masks[:, None])
         else:
             N = hxs.size(0)
             T = int(x.size(0) / N)

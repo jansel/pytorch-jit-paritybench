@@ -30,30 +30,21 @@ train_eval = _module
 utils = _module
 run_ner = _module
 utils_ner = _module
+distiller_emd = _module
 modeling = _module
-optimization = _module
-convert_gpt2_checkpoint_to_pytorch = _module
-convert_openai_checkpoint_to_pytorch = _module
-convert_tf_checkpoint_to_pytorch = _module
-convert_transfo_xl_checkpoint_to_pytorch = _module
-modeling = _module
-modeling_gpt2 = _module
-modeling_openai = _module
-modeling_transfo_xl = _module
-modeling_transfo_xl_utilities = _module
-my_modeling = _module
-optimization = _module
-optimization_openai = _module
-tokenization_transfo_xl = _module
+parse = _module
+predict_function = _module
 utils = _module
 utils_glue = _module
+modeling = _module
+train_eval = _module
+utils_ner = _module
 distill = _module
 setup = _module
 textbrewer = _module
 compatibility = _module
 configurations = _module
 data_utils = _module
-distillation = _module
 distiller_basic = _module
 distiller_general = _module
 distiller_multitask = _module
@@ -172,6 +163,9 @@ from torch.utils.data import SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
 
+from scipy.special import softmax
+
+
 from torch.utils.data import DistributedSampler
 
 
@@ -190,6 +184,12 @@ from typing import Optional
 from typing import Dict
 
 
+from collections import abc
+
+
+BertLayerNorm = torch.nn.LayerNorm
+
+
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
@@ -199,7 +199,7 @@ class BertEmbeddings(nn.Module):
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
@@ -268,7 +268,7 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -328,7 +328,7 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -382,7 +382,7 @@ class BertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -395,7 +395,7 @@ class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act='gelu', hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=2, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act='gelu', hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=2, initializer_range=0.02, layer_norm_eps=1e-12):
         """Constructs BertConfig.
 
         Args:
@@ -437,6 +437,7 @@ class BertConfig(object):
             self.max_position_embeddings = max_position_embeddings
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
+            self.layer_norm_eps = layer_norm_eps
         else:
             raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
@@ -939,7 +940,7 @@ class BertForQA(nn.Module):
         output_for_cls = self.dropout(pooled_output)
         span_logits = self.qa_outputs(sequence_output)
         cls_logits = self.cls_outputs(output_for_cls).squeeze(-1)
-        doc_mask[:, (0)] = 0
+        doc_mask[:, 0] = 0
         span_logits = span_logits + (1.0 - doc_mask.unsqueeze(-1)) * -10000.0
         start_logits, end_logits = span_logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
@@ -1003,7 +1004,7 @@ class BertForQASimple(nn.Module):
             span_logits = self.qa_outputs(sequence_output[-1])
         else:
             span_logits = self.qa_outputs(sequence_output)
-        doc_mask[:, (0)] = 0
+        doc_mask[:, 0] = 0
         span_logits = span_logits + (1.0 - doc_mask.unsqueeze(-1)) * -10000.0
         start_logits, end_logits = span_logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
@@ -1035,7 +1036,7 @@ class BertPredictionHeadTransform(nn.Module):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
@@ -2642,8 +2643,8 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel):
         hidden_states = self.transformer(input_ids, position_ids, token_type_ids)
         lm_logits = self.lm_head(hidden_states)
         if lm_labels is not None:
-            shift_logits = lm_logits[(...), :-1, :].contiguous()
-            shift_labels = lm_labels[(...), 1:].contiguous()
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = lm_labels[..., 1:].contiguous()
             loss_fct = CrossEntropyLoss(ignore_index=-1)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             return loss
@@ -2731,8 +2732,8 @@ class OpenAIGPTDoubleHeadsModel(OpenAIGPTPreTrainedModel):
         mc_logits = self.multiple_choice_head(hidden_states, mc_token_ids)
         losses = []
         if lm_labels is not None:
-            shift_logits = lm_logits[(...), :-1, :].contiguous()
-            shift_labels = lm_labels[(...), 1:].contiguous()
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = lm_labels[..., 1:].contiguous()
             loss_fct = CrossEntropyLoss(ignore_index=-1)
             losses.append(loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)))
         if mc_labels is not None:
@@ -2755,9 +2756,9 @@ class PositionalEmbedding(nn.Module):
         sinusoid_inp = torch.ger(pos_seq, self.inv_freq)
         pos_emb = torch.cat([sinusoid_inp.sin(), sinusoid_inp.cos()], dim=-1)
         if bsz is not None:
-            return pos_emb[:, (None), :].expand(-1, bsz, -1)
+            return pos_emb[:, None, :].expand(-1, bsz, -1)
         else:
-            return pos_emb[:, (None), :]
+            return pos_emb[:, None, :]
 
 
 class PositionwiseFF(nn.Module):
@@ -2820,9 +2821,9 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, head_v))
@@ -2878,7 +2879,7 @@ class RelMultiHeadAttn(nn.Module):
             x_padded = torch.cat([zero_pad, x], dim=1).expand(qlen, -1, -1, -1)
         else:
             x_padded = torch.cat([x, zero_pad], dim=1).expand(qlen, -1, -1, -1)
-        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen, klen, x.size(2), x.size(3))
+        x = x_padded.masked_select(mask[:, :, None, None]).view(qlen, klen, x.size(2), x.size(3))
         return x
 
     def _rel_shift(self, x, zero_triu=False):
@@ -2890,7 +2891,7 @@ class RelMultiHeadAttn(nn.Module):
         x = x_padded[1:].view_as(x)
         if zero_triu:
             ones = torch.ones((x.size(0), x.size(1)))
-            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (None)]
+            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, None, None]
         return x
 
     def forward(self, w, r, attn_mask=None, mems=None):
@@ -2935,9 +2936,9 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[None, :, :, None], -1e+30).type_as(attn_score)
             elif attn_mask.dim() == 3:
-                attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, None], -1e+30).type_as(attn_score)
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
@@ -2987,15 +2988,15 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
         rw_head_q = w_head_q + r_w_bias[None]
         AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))
         B_ = torch.einsum('ibnd,jnd->ijbn', (w_head_q, r_emb))
-        D_ = r_bias[(None), :, (None)]
+        D_ = r_bias[None, :, None]
         BD = self._rel_shift(B_ + D_)
         attn_score = AC + BD
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
@@ -3558,9 +3559,9 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 mask_shift_len = qlen - mask_len
             else:
                 mask_shift_len = qlen
-            dec_attn_mask = (torch.triu(all_ones, 1 + mlen) + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, (None)]
+            dec_attn_mask = (torch.triu(all_ones, 1 + mlen) + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]
         else:
-            dec_attn_mask = torch.triu(word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, (None)]
+            dec_attn_mask = torch.triu(word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, None]
         hids = []
         if self.attn_type == 0:
             pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device, dtype=word_emb.dtype)
@@ -3779,7 +3780,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if target is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
                         out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
@@ -3788,9 +3789,9 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if target is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i[:, cluster_prob_idx] + tail_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
+                        logprob_i = head_logprob[:, cluster_prob_idx, None] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if target is not None:
                     if hasattr(self, 'keep_order') and self.keep_order or keep_order:
@@ -3844,8 +3845,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
                     tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
-                    logprob_i = head_logprob[:, (-i)] + tail_logprob_i
-                    out[:, (start_idx), (stop_idx)] = logprob_i
+                    logprob_i = head_logprob[:, -i] + tail_logprob_i
+                    out[:, start_idx, stop_idx] = logprob_i
             return out
 
 
@@ -3869,11 +3870,11 @@ def sample_logits(embedding, bias, labels, inputs, sampler):
     all_b = bias[all_ids]
     true_b = all_b[:-n_sample].view(b1, b2)
     sample_b = all_b[-n_sample:]
-    hit = (labels[:, :, (None)] == neg_samples).detach()
+    hit = (labels[:, :, None] == neg_samples).detach()
     true_logits = torch.einsum('ijk,ijk->ij', [true_w, inputs]) + true_b - true_log_probs
     sample_logits = torch.einsum('lk,ijk->ijl', [sample_w, inputs]) + sample_b - samp_log_probs
     sample_logits.masked_fill_(hit, -1e+30)
-    logits = torch.cat([true_logits[:, :, (None)], sample_logits], -1)
+    logits = torch.cat([true_logits[:, :, None], sample_logits], -1)
     return logits
 
 
@@ -3983,7 +3984,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
         if self.sample_softmax > 0 and self.training:
             assert self.config.tie_weight
             logit = sample_logits(self.transformer.word_emb, self.out_layer.bias, target, pred_hid, self.sampler)
-            softmax_output = -F.log_softmax(logit, -1)[:, :, (0)]
+            softmax_output = -F.log_softmax(logit, -1)[:, :, 0]
         else:
             softmax_output = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target)
             if target is None:
@@ -4053,86 +4054,22 @@ class ALBertModel(BertPreTrainedModel):
         return encoded_layers, pooled_output, attention_probs_sum
 
 
-class BertForGLUE(nn.Module):
-
-    def __init__(self, config, num_labels):
-        super(BertForGLUE, self).__init__()
-        self.num_labels = num_labels
-        output_sum = None if Conf.args.output_sum < 0 else Conf.args.output_sum
-        self.bert = BertModel(config, Conf.args.output_score, output_sum)
-        self.classifier = nn.Linear(config.hidden_size, num_labels)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        initializer = initializer_builder(config.initializer_range)
-        self.apply(initializer)
-
-    def forward(self, input_ids, token_type_ids, attention_mask, labels=None, logits_T=None, attention_probs_sum_layer=None, attention_probs_sum_T=None, hidden_match_layer=None, hidden_match_T=None):
-        if hidden_match_layer is not None:
-            sequence_output, pooled_output, attention_probs_sum = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=True, output_attention_layer=attention_probs_sum_layer)
-            hidden_states = [sequence_output[i] for i in hidden_match_layer]
-            sequence_output = sequence_output[-1]
-        else:
-            sequence_output, pooled_output, attention_probs_sum = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False, output_attention_layer=attention_probs_sum_layer)
-            hidden_states = []
-        output_for_cls = self.dropout(pooled_output)
-        logits = self.classifier(output_for_cls)
-        if logits_T is not None or labels is not None or attention_probs_sum_T is not None:
-            total_loss = 0
-            hidden_losses = None
-            att_losses = None
-            if logits_T is not None and self.num_labels != 1:
-                temp = Conf.args.temperature
-                logits_T /= temp
-                logits /= temp
-                prob_T = F.softmax(logits_T, dim=-1)
-                ce_loss = -(prob_T * F.log_softmax(logits, dim=-1)).sum(dim=-1)
-                ce_loss = ce_loss.mean()
-                total_loss += ce_loss
-            if attention_probs_sum_T:
-                if Conf.args.mask_inter == 1:
-                    mask = attention_mask
-                    valid_count = torch.pow(mask.sum(dim=1), 2).sum()
-                    att_losses = [((F.mse_loss(attention_probs_sum[i], attention_probs_sum_T[i], reduction='none') * mask.unsqueeze(-1) * mask.unsqueeze(1)).sum() / valid_count) for i in range(len(attention_probs_sum_T))]
-                else:
-                    att_losses = [F.mse_loss(attention_probs_sum[i], attention_probs_sum_T[i]) for i in range(len(attention_probs_sum_T))]
-                att_loss = sum(att_losses) * Conf.args.att_loss_weight
-                total_loss += att_loss
-            if hidden_match_T:
-                if Conf.args.mask_inter == 1:
-                    mask = attention_mask
-                    valid_count = mask.sum() * hidden_states[0].size(-1)
-                    hidden_losses = [((F.mse_loss(hidden_states[i], hidden_match_T[i], reduction='none') * mask.unsqueeze(-1)).sum() / valid_count) for i in range(len(hidden_match_layer))]
-                else:
-                    hidden_losses = [F.mse_loss(hidden_states[i], hidden_match_T[i]) for i in range(len(hidden_match_layer))]
-                hidden_loss = sum(hidden_losses) * Conf.args.hidden_loss_weight
-                total_loss += hidden_loss
-            if labels is not None:
-                if self.num_labels == 1:
-                    loss = F.mse_loss(logits.view(-1), labels.view(-1))
-                else:
-                    loss = F.cross_entropy(logits, labels)
-                total_loss += loss
-            return total_loss, att_losses, hidden_losses
-        elif attention_probs_sum_layer is not None or hidden_match_layer is not None:
-            return logits, attention_probs_sum, hidden_states
-        else:
-            return logits, None
-
-
 class BertForGLUESimple(nn.Module):
 
-    def __init__(self, config, num_labels, args):
+    def __init__(self, config, num_labels):
         super(BertForGLUESimple, self).__init__()
+        config.num_labels = num_labels
         self.num_labels = num_labels
-        self.output_encoded_layers = args.output_encoded_layers == 'true'
-        self.output_attention_layers = args.output_attention_layers == 'true'
-        self.bert = BertModel(config, output_score=args.output_att_score == 'true', output_sum=args.output_att_sum == 'true')
+        config.output_hidden_states = True
+        config.output_attentions = False
+        self.bert = BertModel(config)
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         initializer = initializer_builder(config.initializer_range)
         self.apply(initializer)
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels=None):
-        sequence_output, pooled_output, attention_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=self.output_encoded_layers, output_all_attention_layers=self.output_attention_layers)
+        last_hidden_state, pooled_output, hidden_states = self.bert(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
         output_for_cls = self.dropout(pooled_output)
         logits = self.classifier(output_for_cls)
         if labels is not None:
@@ -4140,7 +4077,7 @@ class BertForGLUESimple(nn.Module):
                 loss = F.mse_loss(logits.view(-1), labels.view(-1))
             else:
                 loss = F.cross_entropy(logits, labels)
-            return logits, sequence_output, attention_output, loss
+            return logits, hidden_states, loss
         else:
             return logits
 
@@ -4156,6 +4093,10 @@ TESTCASES = [
      lambda: ([], {'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
+    (BertAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, output_score=4, output_sum=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
     (BertIntermediate,
      lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4164,6 +4105,10 @@ TESTCASES = [
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (BertOutput,
+     lambda: ([], {'config': _mock_config(intermediate_size=4, hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (BertPooler,
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4171,6 +4116,10 @@ TESTCASES = [
     (BertSelfAttention,
      lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, output_score=4, output_sum=4)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertSelfOutput,
+     lambda: ([], {'config': _mock_config(hidden_size=4, layer_norm_eps=1, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -4189,4 +4138,13 @@ class Test_airaria_TextBrewer(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

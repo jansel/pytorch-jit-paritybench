@@ -477,7 +477,7 @@ class DecoderPointerGen(BaseRNN):
             attn_size = attn_words.size(1)
             combined_output, attn = self.attention(output, attn_ctxs)
             rnn_softmax = F.softmax(self.project(output.view(-1, self.hidden_size)), dim=1)
-            g = attn[:, :, (0)].contiguous()
+            g = attn[:, :, 0].contiguous()
             ptr_attn = attn[:, :, 1:].contiguous()
             ptr_softmax = Variable(torch.zeros((batch_size * seq_len * attn_size, self.vocab_size)))
             ptr_softmax = cast_type(ptr_softmax, FLOAT, self.use_gpu)
@@ -1241,7 +1241,7 @@ TESTCASES = [
      False),
     (EncoderRNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (Hidden2Feat,
      lambda: ([], {'input_size': 4, 'output_size': 4, 'is_lstm': 4}),

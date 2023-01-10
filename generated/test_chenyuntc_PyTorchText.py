@@ -395,7 +395,7 @@ class MultiModelAll(BasicModule):
                 out = t.sigmoid(model(*char))
             else:
                 out = t.sigmoid(model(*word))
-            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            out = out * weights[:, ii].contiguous().view(1, -1).expand_as(out)
             outs.append(out)
         return sum(outs)
 
@@ -440,7 +440,7 @@ class MultiModelAll2(BasicModule):
                 out = t.sigmoid(model(*word))
             if self.opt.static:
                 out = out.detach()
-            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            out = out * weights[:, ii].contiguous().view(1, -1).expand_as(out)
             outs.append(out)
         return sum(outs)
 
@@ -484,7 +484,7 @@ class MultiModelAll4zhihu(BasicModule):
                 out = t.sigmoid(model(*char))
             else:
                 out = t.sigmoid(model(*word))
-            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            out = out * weights[:, ii].contiguous().view(1, -1).expand_as(out)
             outs.append(out)
         return sum(outs)
 
@@ -679,7 +679,7 @@ class NCELoss(nn.Module):
         indices = Variable(torch.cat([target_idx.unsqueeze(1), noise_idx], dim=1))
         probs = self.decoder(embedding, indices)
         probs = probs.sub(self.norm_term).exp()
-        return probs[:, (0)], probs[:, 1:]
+        return probs[:, 0], probs[:, 1:]
 
 
 import torch

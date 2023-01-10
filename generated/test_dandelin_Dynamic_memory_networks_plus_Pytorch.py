@@ -101,8 +101,8 @@ class AttentionGRU(nn.Module):
         batch_num, sen_num, embedding_size = facts.size()
         C = Variable(torch.zeros(self.hidden_size))
         for sid in range(sen_num):
-            fact = facts[:, (sid), :]
-            g = G[:, (sid)]
+            fact = facts[:, sid, :]
+            g = G[:, sid]
             if sid == 0:
                 C = C.unsqueeze(0).expand_as(fact)
             C = self.AGRUCell(fact, C, g)

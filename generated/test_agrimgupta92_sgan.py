@@ -186,17 +186,17 @@ class SocialPooling(nn.Module):
         self.mlp_pool = make_mlp(mlp_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
     def get_bounds(self, ped_pos):
-        top_left_x = ped_pos[:, (0)] - self.neighborhood_size / 2
-        top_left_y = ped_pos[:, (1)] + self.neighborhood_size / 2
-        bottom_right_x = ped_pos[:, (0)] + self.neighborhood_size / 2
-        bottom_right_y = ped_pos[:, (1)] - self.neighborhood_size / 2
+        top_left_x = ped_pos[:, 0] - self.neighborhood_size / 2
+        top_left_y = ped_pos[:, 1] + self.neighborhood_size / 2
+        bottom_right_x = ped_pos[:, 0] + self.neighborhood_size / 2
+        bottom_right_y = ped_pos[:, 1] - self.neighborhood_size / 2
         top_left = torch.stack([top_left_x, top_left_y], dim=1)
         bottom_right = torch.stack([bottom_right_x, bottom_right_y], dim=1)
         return top_left, bottom_right
 
     def get_grid_locations(self, top_left, other_pos):
-        cell_x = torch.floor((other_pos[:, (0)] - top_left[:, (0)]) / self.neighborhood_size * self.grid_size)
-        cell_y = torch.floor((top_left[:, (1)] - other_pos[:, (1)]) / self.neighborhood_size * self.grid_size)
+        cell_x = torch.floor((other_pos[:, 0] - top_left[:, 0]) / self.neighborhood_size * self.grid_size)
+        cell_y = torch.floor((top_left[:, 1] - other_pos[:, 1]) / self.neighborhood_size * self.grid_size)
         grid_pos = cell_x + cell_y * self.grid_size
         return grid_pos
 
@@ -238,8 +238,8 @@ class SocialPooling(nn.Module):
             top_left = self.repeat(top_left, num_ped)
             bottom_right = self.repeat(bottom_right, num_ped)
             grid_pos = self.get_grid_locations(top_left, curr_end_pos).type_as(seq_start_end)
-            x_bound = (curr_end_pos[:, (0)] >= bottom_right[:, (0)]) + (curr_end_pos[:, (0)] <= top_left[:, (0)])
-            y_bound = (curr_end_pos[:, (1)] >= top_left[:, (1)]) + (curr_end_pos[:, (1)] <= bottom_right[:, (1)])
+            x_bound = (curr_end_pos[:, 0] >= bottom_right[:, 0]) + (curr_end_pos[:, 0] <= top_left[:, 0])
+            y_bound = (curr_end_pos[:, 1] >= top_left[:, 1]) + (curr_end_pos[:, 1] <= bottom_right[:, 1])
             within_bound = x_bound + y_bound
             within_bound[0::num_ped + 1] = 1
             within_bound = within_bound.view(-1)
@@ -412,7 +412,7 @@ class TrajectoryGenerator(nn.Module):
         batch = obs_traj_rel.size(1)
         final_encoder_h = self.encoder(obs_traj_rel)
         if self.pooling_type:
-            end_pos = obs_traj[(-1), :, :]
+            end_pos = obs_traj[-1, :, :]
             pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h], dim=1)
         else:

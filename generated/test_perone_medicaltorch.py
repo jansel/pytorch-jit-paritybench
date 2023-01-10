@@ -79,9 +79,6 @@ from torch.utils.data import Dataset
 from torch._six import string_classes
 
 
-from torch._six import int_classes
-
-
 from torch.nn import Module
 
 
@@ -261,7 +258,7 @@ class NoPoolASPP(Module):
         amort = self.amort_bn(amort)
         amort = self.amort_drop(amort)
         predictions = self.prediction(amort)
-        predictions = F.sigmoid(predictions)
+        predictions = torch.sigmoid(predictions)
         return predictions
 
 
@@ -446,10 +443,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
      False),
-    (UpConv,
-     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
-     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 8, 8])], {}),
-     False),
 ]
 
 class Test_perone_medicaltorch(_paritybench_base):
@@ -464,7 +457,4 @@ class Test_perone_medicaltorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

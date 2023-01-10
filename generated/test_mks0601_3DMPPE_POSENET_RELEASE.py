@@ -15,10 +15,13 @@ MSCOCO = _module
 MuCo = _module
 MuPoTS = _module
 dataset = _module
+multiple_datasets = _module
+demo = _module
 config = _module
 model = _module
 test = _module
 train = _module
+h36m2coco = _module
 coco_img_name = _module
 mupots_img_name = _module
 
@@ -90,10 +93,10 @@ import random
 from torch.utils.data.dataset import Dataset
 
 
-from torch.nn import functional as F
-
-
 import torch.backends.cudnn as cudnn
+
+
+from torch.nn import functional as F
 
 
 class ResNetBackbone(nn.Module):
@@ -192,12 +195,12 @@ def soft_argmax(heatmaps, joint_num):
     accu_x = heatmaps.sum(dim=(2, 3))
     accu_y = heatmaps.sum(dim=(2, 4))
     accu_z = heatmaps.sum(dim=(3, 4))
-    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.FloatTensor), devices=[accu_x.device.index])[0]
-    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.FloatTensor), devices=[accu_y.device.index])[0]
-    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.FloatTensor), devices=[accu_z.device.index])[0]
-    accu_x = accu_x.sum(dim=2, keepdim=True) - 1
-    accu_y = accu_y.sum(dim=2, keepdim=True) - 1
-    accu_z = accu_z.sum(dim=2, keepdim=True) - 1
+    accu_x = accu_x * torch.arange(cfg.output_shape[1]).float()[None, None, :]
+    accu_y = accu_y * torch.arange(cfg.output_shape[0]).float()[None, None, :]
+    accu_z = accu_z * torch.arange(cfg.depth_dim).float()[None, None, :]
+    accu_x = accu_x.sum(dim=2, keepdim=True)
+    accu_y = accu_y.sum(dim=2, keepdim=True)
+    accu_z = accu_z.sum(dim=2, keepdim=True)
     coord_out = torch.cat((accu_x, accu_y, accu_z), dim=2)
     return coord_out
 
@@ -221,6 +224,6 @@ class ResPoseNet(nn.Module):
             target_vis = target['vis']
             target_have_depth = target['have_depth']
             loss_coord = torch.abs(coord - target_coord) * target_vis
-            loss_coord = (loss_coord[:, :, (0)] + loss_coord[:, :, (1)] + loss_coord[:, :, (2)] * target_have_depth) / 3.0
+            loss_coord = (loss_coord[:, :, 0] + loss_coord[:, :, 1] + loss_coord[:, :, 2] * target_have_depth) / 3.0
             return loss_coord
 

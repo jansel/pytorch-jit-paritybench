@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 conf = _module
+eval_pretrained = _module
 sngan_example = _module
 ssgan_tutorial = _module
 setup = _module
@@ -61,7 +62,6 @@ data_utils = _module
 image_loader = _module
 imagenet = _module
 imagenet = _module
-imagenet_utils = _module
 metrics = _module
 compute_fid = _module
 compute_is = _module
@@ -103,6 +103,7 @@ infomax_gan_32 = _module
 infomax_gan_48 = _module
 infomax_gan_64 = _module
 infomax_gan_base = _module
+sagan = _module
 sagan_128 = _module
 sagan_32 = _module
 sagan_base = _module
@@ -186,16 +187,25 @@ import torchvision
 from torchvision import transforms
 
 
+import random
+
+
+import torchvision.transforms as transforms
+
+
 from torchvision.datasets import ImageFolder
 
 
-from torch._six import PY3
+from torchvision.datasets.utils import check_integrity
 
 
-from torch.utils.model_zoo import tqdm
+from torchvision.datasets.utils import download_and_extract_archive
 
 
-import random
+from torchvision.datasets.utils import extract_archive
+
+
+from torchvision.datasets.utils import verify_str_arg
 
 
 import time
@@ -298,15 +308,16 @@ class SelfAttention(nn.Module):
     def __init__(self, num_feat, spectral_norm=True):
         super().__init__()
         self.num_feat = num_feat
-        if spectral_norm:
-            self.f = SNConv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
-            self.g = SNConv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
-            self.h = SNConv2d(self.num_feat, self.num_feat >> 1, 1, 1, padding=0, bias=False)
+        self.spectral_norm = spectral_norm
+        if self.spectral_norm:
+            self.theta = SNConv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
+            self.phi = SNConv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
+            self.g = SNConv2d(self.num_feat, self.num_feat >> 1, 1, 1, padding=0, bias=False)
             self.o = SNConv2d(self.num_feat >> 1, self.num_feat, 1, 1, padding=0, bias=False)
         else:
-            self.f = nn.Conv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
-            self.g = nn.Conv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
-            self.h = nn.Conv2d(self.num_feat, self.num_feat >> 1, 1, 1, padding=0, bias=False)
+            self.theta = nn.Conv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
+            self.phi = nn.Conv2d(self.num_feat, self.num_feat >> 3, 1, 1, padding=0, bias=False)
+            self.g = nn.Conv2d(self.num_feat, self.num_feat >> 1, 1, 1, padding=0, bias=False)
             self.o = nn.Conv2d(self.num_feat >> 1, self.num_feat, 1, 1, padding=0, bias=False)
         self.gamma = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
@@ -315,16 +326,34 @@ class SelfAttention(nn.Module):
         Feedforward function. Implementation differs from actual SAGAN paper,
         see note from BigGAN:
         https://github.com/ajbrock/BigGAN-PyTorch/blob/master/layers.py#L142
+
+        See official TF Implementation:
+        https://github.com/brain-research/self-attention-gan/blob/master/non_local.py
+
+        Args:
+            x (Tensor): Input feature map.
+
+        Returns:
+            Tensor: Feature map weighed with attention map.
         """
-        f = self.f(x)
-        g = F.max_pool2d(self.g(x), [2, 2])
-        h = F.max_pool2d(self.h(x), [2, 2])
-        f = f.view(-1, self.num_feat >> 3, x.shape[2] * x.shape[3])
-        g = g.view(-1, self.num_feat >> 3, x.shape[2] * x.shape[3] >> 2)
-        h = h.view(-1, self.num_feat >> 1, x.shape[2] * x.shape[3] >> 2)
-        beta = F.softmax(torch.bmm(f.transpose(1, 2), g), -1)
-        o = self.o(torch.bmm(h, beta.transpose(1, 2)).view(-1, self.num_feat >> 1, x.shape[2], x.shape[3]))
-        return self.gamma * o + x
+        N, C, H, W = x.shape
+        location_num = H * W
+        downsampled_num = location_num >> 2
+        theta = self.theta(x)
+        theta = theta.view(N, C >> 3, location_num)
+        phi = self.phi(x)
+        phi = F.max_pool2d(phi, [2, 2], stride=2)
+        phi = phi.view(N, C >> 3, downsampled_num)
+        attn = torch.bmm(theta.transpose(1, 2), phi)
+        attn = F.softmax(attn, -1)
+        g = self.g(x)
+        g = F.max_pool2d(g, [2, 2], stride=2)
+        g = g.view(N, C >> 1, downsampled_num)
+        attn_g = torch.bmm(g, attn.transpose(1, 2))
+        attn_g = attn_g.view(N, C >> 1, H, W)
+        attn_g = self.o(attn_g)
+        output = x + self.gamma * attn_g
+        return output
 
 
 class ConditionalBatchNorm2d(nn.Module):
@@ -705,25 +734,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ConditionalBatchNorm2d,
-     lambda: ([], {'num_features': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
-     True),
     (SNConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (SNEmbedding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
     (SNLinear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (SelfAttention,
-     lambda: ([], {'num_feat': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      False),
 ]
 
@@ -733,13 +750,4 @@ class Test_kwotsin_mimicry(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

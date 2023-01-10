@@ -12,19 +12,30 @@ test_optimizer_with_nn = _module
 test_param_validation = _module
 utils = _module
 torch_optimizer = _module
+a2grad = _module
 accsgd = _module
+adabelief = _module
 adabound = _module
+adafactor = _module
+adahessian = _module
 adamod = _module
+adamp = _module
+aggmo = _module
+apollo = _module
 diffgrad = _module
 lamb = _module
+lars = _module
 lookahead = _module
+madgrad = _module
 novograd = _module
 pid = _module
 qhadam = _module
 qhm = _module
 radam = _module
+sgdp = _module
 sgdw = _module
 shampoo = _module
+swats = _module
 types = _module
 yogi = _module
 
@@ -57,6 +68,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torch.optim.lr_scheduler import StepLR
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
 from torchvision import datasets
 
 
@@ -66,19 +83,13 @@ from torchvision import transforms
 from torchvision import utils
 
 
-from torch.optim.lr_scheduler import StepLR
-
-
-from torch.utils.tensorboard import SummaryWriter
-
-
 import math
 
 
-import numpy as np
-
-
 import matplotlib.pyplot as plt
+
+
+import numpy as np
 
 
 import re
@@ -102,13 +113,13 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch import nn
 
 
-from typing import Type
+from typing import Dict
 
 
 from typing import List
 
 
-from typing import Dict
+from typing import Type
 
 
 from torch.optim.optimizer import Optimizer
@@ -117,25 +128,34 @@ from torch.optim.optimizer import Optimizer
 import copy
 
 
-from collections import defaultdict
+from typing import Optional
 
 
 from typing import Any
 
 
-from typing import Iterable
+from typing import Tuple
+
+
+from typing import TypeVar
 
 
 from typing import Union
 
 
+from collections import defaultdict
+
+
 from typing import Callable
 
 
-from typing import Optional
+import torch.optim
 
 
-from typing import Tuple
+import warnings
+
+
+from typing import Iterable
 
 
 from torch import Tensor

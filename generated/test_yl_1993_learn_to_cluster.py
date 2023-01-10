@@ -377,7 +377,7 @@ class lgcn(nn.Module):
         dout = x.size(-1)
         edge_feat = torch.zeros(B, k1, dout)
         for b in range(B):
-            edge_feat[(b), :, :] = x[b, one_hop_idxs[b]]
+            edge_feat[b, :, :] = x[b, one_hop_idxs[b]]
         edge_feat = edge_feat.view(-1, dout)
         pred = self.classifier(edge_feat)
         return pred

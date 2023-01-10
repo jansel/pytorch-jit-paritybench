@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+master = _module
 aws = _module
 auth = _module
 session = _module
@@ -14,48 +15,9 @@ create_redirect_md = _module
 main = _module
 echo = _module
 setup = _module
-test = _module
-server = _module
-api_test = _module
-local_elastic_agent_test = _module
-distributed = _module
-sleep_script = _module
-test_script = _module
-launch_test = _module
-rpc = _module
-api_test = _module
-events = _module
-metrics = _module
-rendezvous = _module
-etcd_rendezvous_test = _module
-etcd_server_test = _module
-parameters_test = _module
-suites = _module
-test_utils = _module
-timer = _module
-local_timer_example = _module
-local_timer_test = _module
-utils = _module
-data = _module
-cycling_iterator_test = _module
-version_test = _module
 torchelastic = _module
-agent = _module
-server = _module
-api = _module
-local_elastic_agent = _module
+distributed = _module
 launch = _module
-api = _module
-rendezvous = _module
-api = _module
-etcd_rendezvous = _module
-etcd_server = _module
-parameters = _module
-api = _module
-local_timer = _module
-cycling_iterator = _module
-elastic_distributed_sampler = _module
-version = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -77,9 +39,6 @@ xrange = range
 wraps = functools.wraps
 
 
-import torch
-
-
 import time
 
 
@@ -90,6 +49,9 @@ from typing import Tuple
 
 
 import numpy
+
+
+import torch
 
 
 import torch.backends.cudnn as cudnn
@@ -122,6 +84,9 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 
 
+from torch.distributed.elastic.utils.data import ElasticDistributedSampler
+
+
 from torch.nn.parallel import DistributedDataParallel
 
 
@@ -131,77 +96,14 @@ from torch.optim import SGD
 from torch.utils.data import DataLoader
 
 
-import uuid
+from torch.distributed.launcher.api import elastic_launch
 
 
-from typing import Any
+from torch.distributed.launcher.api import launch_agent
 
 
-from typing import Dict
+from torch.distributed.launcher.api import LaunchConfig
 
 
-import torch.distributed.rpc as rpc
-
-
-from torch.distributed.rpc.backend_registry import BackendType
-
-
-from torch.multiprocessing import start_processes
-
-
-from torch.distributed import register_rendezvous_handler
-
-
-import logging
-
-
-import torch.multiprocessing as torch_mp
-
-
-import abc
-
-
-from enum import Enum
-
-
-from typing import Callable
-
-
-import torch.multiprocessing as mp
-
-
-from typing import Iterable
-
-
-import torch.distributed.rpc as torch_rpc
-
-
-from torch.distributed.rpc.constants import UNSET_RPC_TIMEOUT
-
-
-import random
-
-
-from typing import Optional
-
-
-from torch.distributed import Store
-
-
-from torch.distributed import TCPStore
-
-
-from inspect import getframeinfo
-
-
-from inspect import stack
-
-
-from typing import Set
-
-
-import math
-
-
-from torch.utils.data.distributed import DistributedSampler
+from torch.distributed.run import main as run_main
 

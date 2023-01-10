@@ -43,9 +43,6 @@ import torch
 import numpy as np
 
 
-from torchvision.transforms import Scale
-
-
 import torch.nn as nn
 
 

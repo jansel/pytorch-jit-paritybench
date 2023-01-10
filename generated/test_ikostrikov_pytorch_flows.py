@@ -146,7 +146,7 @@ class MADESplit(nn.Module):
                 a = self.t_trunk(h)
                 if self.pre_exp_tanh:
                     a = torch.tanh(a)
-                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]) + m[:, (i_col)]
+                x[:, i_col] = inputs[:, i_col] * torch.exp(a[:, i_col]) + m[:, i_col]
             return x, -a.sum(-1, keepdim=True)
 
 
@@ -176,7 +176,7 @@ class MADE(nn.Module):
             for i_col in range(inputs.shape[1]):
                 h = self.joiner(x, cond_inputs)
                 m, a = self.trunk(h).chunk(2, 1)
-                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]) + m[:, (i_col)]
+                x[:, i_col] = inputs[:, i_col] * torch.exp(a[:, i_col]) + m[:, i_col]
             return x, -a.sum(-1, keepdim=True)
 
 
@@ -337,14 +337,14 @@ class Shuffle(nn.Module):
 
     def __init__(self, num_inputs):
         super(Shuffle, self).__init__()
-        self.perm = np.random.permutation(num_inputs)
-        self.inv_perm = np.argsort(self.perm)
+        self.register_buffer('perm', torch.randperm(num_inputs))
+        self.register_buffer('inv_perm', torch.argsort(self.perm))
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
-            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
+            return inputs[:, self.perm], torch.zeros(inputs.size(0), 1, device=inputs.device)
         else:
-            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
+            return inputs[:, self.inv_perm], torch.zeros(inputs.size(0), 1, device=inputs.device)
 
 
 class Reverse(nn.Module):
@@ -360,9 +360,9 @@ class Reverse(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
-            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
+            return inputs[:, self.perm], torch.zeros(inputs.size(0), 1, device=inputs.device)
         else:
-            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
+            return inputs[:, self.inv_perm], torch.zeros(inputs.size(0), 1, device=inputs.device)
 
 
 class CouplingLayer(nn.Module):

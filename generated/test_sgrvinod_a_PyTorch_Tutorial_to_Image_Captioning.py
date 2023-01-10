@@ -255,10 +255,10 @@ class DecoderWithAttention(nn.Module):
             attention_weighted_encoding, alpha = self.attention(encoder_out[:batch_size_t], h[:batch_size_t])
             gate = self.sigmoid(self.f_beta(h[:batch_size_t]))
             attention_weighted_encoding = gate * attention_weighted_encoding
-            h, c = self.decode_step(torch.cat([embeddings[:batch_size_t, (t), :], attention_weighted_encoding], dim=1), (h[:batch_size_t], c[:batch_size_t]))
+            h, c = self.decode_step(torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding], dim=1), (h[:batch_size_t], c[:batch_size_t]))
             preds = self.fc(self.dropout(h))
-            predictions[:batch_size_t, (t), :] = preds
-            alphas[:batch_size_t, (t), :] = alpha
+            predictions[:batch_size_t, t, :] = preds
+            alphas[:batch_size_t, t, :] = alpha
         return predictions, encoded_captions, decode_lengths, alphas, sort_ind
 
 

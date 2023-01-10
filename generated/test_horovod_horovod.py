@@ -1,36 +1,51 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+get_changed_code_files = _module
+build_utils = _module
 conf = _module
 mocks = _module
 adasum_small_model = _module
+pytorch_imagenet_resnet50_elastic = _module
 pytorch_mnist_elastic = _module
 pytorch_synthetic_benchmark_elastic = _module
+tensorflow_keras_mnist_elastic = _module
+tensorflow2_keras_mnist_elastic = _module
 tensorflow2_mnist_elastic = _module
 tensorflow2_synthetic_benchmark_elastic = _module
-tensorflow_keras_mnist_elastic = _module
 keras_imagenet_resnet50 = _module
 keras_mnist = _module
 keras_mnist_advanced = _module
+mxnet2_mnist = _module
+mxnet_imagenet_resnet50 = _module
+mxnet_mnist = _module
+pytorch_imagenet_resnet50 = _module
+pytorch_lightning_mnist = _module
+pytorch_mnist = _module
+pytorch_synthetic_benchmark = _module
+basic_ray_elastic = _module
+pytorch_ray_elastic = _module
+tensorflow2_mnist_ray = _module
 keras_spark3_rossmann = _module
 keras_spark_mnist = _module
 keras_spark_rossmann_estimator = _module
 keras_spark_rossmann_run = _module
-mxnet_imagenet_resnet50 = _module
-mxnet_mnist = _module
-pytorch_imagenet_resnet50 = _module
-pytorch_mnist = _module
+pytorch_lightning_spark_mnist = _module
+pytorch_lightning_spark_mnist_legacy = _module
 pytorch_spark_mnist = _module
-pytorch_synthetic_benchmark = _module
-tensorflow2_keras_mnist = _module
-tensorflow2_mnist = _module
-tensorflow2_synthetic_benchmark = _module
+tensorflow2_mnist_data_service = _module
 tensorflow_keras_mnist = _module
 tensorflow_mnist = _module
 tensorflow_mnist_eager = _module
 tensorflow_mnist_estimator = _module
 tensorflow_synthetic_benchmark = _module
 tensorflow_word2vec = _module
+tensorflow2_keras_mnist = _module
+tensorflow2_keras_synthetic_benchmark = _module
+tensorflow2_mnist = _module
+tensorflow2_mnist_data_service_train_fn_compute_side_dispatcher = _module
+tensorflow2_mnist_data_service_train_fn_training_side_dispatcher = _module
+tensorflow2_synthetic_benchmark = _module
 horovod = _module
 _keras = _module
 callbacks = _module
@@ -38,13 +53,26 @@ elastic = _module
 common = _module
 basics = _module
 exceptions = _module
+process_sets = _module
 util = _module
+data = _module
+data_loader_base = _module
 keras = _module
 mxnet = _module
+compression = _module
+functions = _module
 mpi_ops = _module
-run = _module
-service = _module
+ray = _module
+adapter = _module
 driver_service = _module
+elastic_v2 = _module
+ray_logger = _module
+runner = _module
+strategy = _module
+utils = _module
+worker = _module
+service = _module
+compute_service = _module
 task_service = _module
 codec = _module
 config_parser = _module
@@ -58,84 +86,124 @@ settings = _module
 timeout = _module
 tiny_shell_exec = _module
 driver = _module
+constants = _module
 discovery = _module
 registration = _module
 rendezvous = _module
-worker = _module
 gloo_run = _module
 http = _module
 http_client = _module
 http_server = _module
 js_run = _module
+launch = _module
 mpi_run = _module
 run_task = _module
-runner = _module
 task = _module
 task_fn = _module
 cache = _module
 lsf = _module
+remote = _module
+streams = _module
 threads = _module
 spark = _module
 _namedtuple_fix = _module
 backend = _module
-constants = _module
+datamodule = _module
 estimator = _module
 params = _module
 serialization = _module
 store = _module
+data_loaders = _module
+pytorch_data_loaders = _module
+host_discovery = _module
 job_id = _module
 mpirun_rsh = _module
 rsh = _module
 bare = _module
 optimizer = _module
-remote = _module
 tensorflow = _module
+lightning = _module
+estimator = _module
+legacy = _module
+remote = _module
+util = _module
 gloo_exec_fn = _module
 mpirun_exec_fn = _module
 task_info = _module
+compute_worker = _module
 estimator = _module
 remote = _module
 util = _module
-compression = _module
-functions = _module
+gradient_aggregation = _module
+gradient_aggregation_eager = _module
+sync_batch_norm = _module
 compression = _module
 elastic = _module
+sampler = _module
+state = _module
 functions = _module
-mpi_lib = _module
-mpi_lib_impl = _module
 mpi_ops = _module
 optimizer = _module
 sync_batch_norm = _module
 setup = _module
-run_safe_shell_exec = _module
-sleep = _module
+conftest = _module
 elastic_tensorflow2_main = _module
+elastic_tensorflow_keras_main = _module
 elastic_tensorflow_main = _module
 elastic_torch_main = _module
 elastic_common = _module
+elastic_spark_common = _module
+test_elastic_spark_tensorflow = _module
+test_elastic_spark_tensorflow2 = _module
+test_elastic_spark_torch = _module
 test_elastic_tensorflow = _module
 test_elastic_tensorflow2 = _module
+test_elastic_tensorflow_keras = _module
 test_elastic_torch = _module
-spark_common = _module
-test_adasum_pytorch = _module
-test_adasum_tensorflow = _module
-test_buildkite = _module
-test_common = _module
-test_elastic_driver = _module
 test_interactiverun = _module
-test_keras = _module
-test_mxnet = _module
-test_run = _module
-test_service = _module
 test_spark = _module
 test_spark_keras = _module
+test_spark_lightning = _module
 test_spark_torch = _module
 test_stall = _module
+test_static_run = _module
+base_test_mxnet = _module
+base_test_tensorflow = _module
+test_adasum_pytorch = _module
+test_adasum_tensorflow = _module
+test_common = _module
+test_compute_worker = _module
+test_keras = _module
+test_mxnet1 = _module
+test_mxnet2 = _module
+test_process_sets_multi_comm = _module
+test_process_sets_static = _module
 test_tensorflow = _module
 test_tensorflow2_keras = _module
+test_tensorflow2_keras_process_sets = _module
 test_tensorflow_keras = _module
+test_tensorflow_process_sets = _module
+test_tensorflow_process_sets_dynamic = _module
 test_timeline = _module
 test_torch = _module
+test_xla = _module
+test_xla_process_sets = _module
+run_safe_shell_exec = _module
+sleep = _module
+test_buildkite = _module
+test_compute_service = _module
+test_elastic_discovery = _module
+test_elastic_driver = _module
+test_elastic_run = _module
+test_ray = _module
+test_ray_elastic = _module
+test_ray_elastic_v2 = _module
+test_run = _module
+test_service = _module
+test_task_service = _module
+test_torch_elastic = _module
+test_util = _module
+spark_common = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -157,6 +225,18 @@ xrange = range
 wraps = functools.wraps
 
 
+import re
+
+
+from typing import List
+
+
+from typing import Dict
+
+
+from typing import Set
+
+
 import torch
 
 
@@ -166,7 +246,10 @@ import random
 import numpy as np
 
 
-import torch.nn as nn
+import torch.backends.cudnn as cudnn
+
+
+import torch.multiprocessing as mp
 
 
 import torch.nn.functional as F
@@ -175,34 +258,31 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+import torch.utils.data.distributed
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
 from torchvision import datasets
 
 
 from torchvision import transforms
 
 
-import torch.utils.data.distributed
-
-
-import torch.backends.cudnn as cudnn
-
-
 from torchvision import models
 
 
-import torch.multiprocessing as mp
-
-
 import math
+
+
+import torch.nn as nn
 
 
 import warnings
 
 
 import logging
-
-
-import re
 
 
 import copy
@@ -217,9 +297,6 @@ import time
 import torch.utils.data
 
 
-from torch.utils.tensorboard import SummaryWriter
-
-
 import collections
 
 
@@ -232,7 +309,7 @@ from torch.autograd.function import Function
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
-from copy import deepcopy
+import uuid
 
 
 import itertools
@@ -242,6 +319,12 @@ from torch.nn import functional as F
 
 
 import inspect
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 class Net(nn.Module):
@@ -264,12 +347,26 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
+version = __version__
+
+
 class HorovodInternalError(RuntimeError):
     """Internal error raised when a Horovod collective operation (e.g., allreduce) fails.
 
     This is handled in elastic mode as a recoverable error, and will result in a reset event.
     """
     pass
+
+
+def is_iterable(x):
+    try:
+        _ = iter(x)
+    except TypeError:
+        return False
+    return True
+
+
+_NULL = ''
 
 
 def _allgather_function_factory(tensor):
@@ -286,37 +383,6 @@ def _check_function(function_factory, tensor):
 
 
 _handle_map = {}
-
-
-def _allgather_async(tensor, output, name):
-    function = _check_function(_allgather_function_factory, tensor)
-    try:
-        handle = getattr(mpi_lib, function)(tensor, output, name.encode() if name is not None else _NULL)
-    except RuntimeError as e:
-        raise HorovodInternalError(e)
-    _handle_map[handle] = tensor, output
-    return handle
-
-
-def allgather_async(tensor, name=None):
-    """
-    A function that asynchronously concatenates the input tensor with the same input
-    tensor on all other Horovod processes. The input tensor is not modified.
-
-    The concatenation is done on the first dimension, so the input tensors on the
-    different processes must have the same rank and shape, except for the first
-    dimension, which is allowed to be different.
-
-    Arguments:
-        tensor: A tensor to allgather.
-        name: A name of the allgather operation.
-
-    Returns:
-        A handle to the allgather operation that can be used with `poll()` or
-        `synchronize()`.
-    """
-    output = tensor.new()
-    return _allgather_async(tensor, output, name)
 
 
 def _allreduce_function_factory(tensor):
@@ -382,38 +448,6 @@ def num_rank_is_power_2(num_rank):
     return num_rank != 0 and num_rank & num_rank - 1 == 0
 
 
-def _allreduce_async(tensor, output, name, op):
-    if tensor.dtype == torch.float16 and not _fp16_supported:
-        raise NotImplementedError('float16 allreduce is not supported for PyTorch version {} < 1.0.0'.format(torch.__version__))
-    if op == Average:
-        divisor = size()
-    elif op == Adasum:
-        if tensor.device.type != 'cpu' and gpu_available('torch'):
-            if nccl_built():
-                if not is_homogeneous():
-                    raise NotImplementedError('Running GPU Adasum on heterogeneous cluster is not supported yet.')
-                elif not num_rank_is_power_2(int(size() / local_size())):
-                    raise NotImplementedError('Running GPU Adasum with non-power of 2 nodes is not supported yet.')
-                divisor = local_size()
-            else:
-                warnings.warn('Adasum reduction does not currently support GPU reduction using MPI. Tensors are copied to CPU memory instead. To use Adasum for GPU reduction, please compile Horovod with HOROVOD_GPU_OPERATIONS=NCCL.')
-                divisor = 1
-        else:
-            if not num_rank_is_power_2(size()):
-                raise NotImplementedError('Running Adasum with non-power of 2 ranks is not supported yet.')
-            divisor = 1
-    else:
-        divisor = 1
-    true_op = Sum if op == Average else op
-    function = _check_function(_allreduce_function_factory, tensor)
-    try:
-        handle = getattr(mpi_lib, function)(tensor, output, divisor, name.encode() if name is not None else _NULL, true_op)
-    except RuntimeError as e:
-        raise HorovodInternalError(e)
-    _handle_map[handle] = tensor, output
-    return handle
-
-
 def get_average_backwards_compatibility_fun(reduce_ops):
     """
     Handle backwards compatibility between the old average and the new op parameters.
@@ -423,67 +457,38 @@ def get_average_backwards_compatibility_fun(reduce_ops):
     """
 
     def impl(op, average):
-        if op != None:
-            if average != None:
+        if op is not None:
+            if average is not None:
                 raise ValueError('The op parameter supersedes average. Please provide only one of them.')
             return op
-        elif average != None:
-            warnings.warn('Parameter `average` has been replaced with `op` and will be removed in v0.21.0', DeprecationWarning)
+        elif average is not None:
+            warnings.warn('Parameter `average` has been replaced with `op` and will be removed in v1.0', DeprecationWarning)
             return reduce_ops.Average if average else reduce_ops.Sum
         else:
             return reduce_ops.Average
     return impl
 
 
-def allreduce_async(tensor, average=None, name=None, op=None):
-    """
-    A function that performs asynchronous averaging or summation of the input tensor
-    over all the Horovod processes. The input tensor is not modified.
-
-    The reduction operation is keyed by the name. If name is not provided, an incremented
-    auto-generated name is used. The tensor type and shape must be the same on all
-    Horovod processes for a given name. The reduction will not start until all processes
-    are ready to send and receive the tensor.
-
-    Arguments:
-        tensor: A tensor to reduce.
-        average:
-            .. warning:: .. deprecated:: 0.19.0
-
-                Use `op` instead. Will be removed in v0.21.0.
-
-        name: A name of the reduction operation.
-        op: The reduction operation to combine tensors across different 
-                   ranks. Defaults to Average if None is given.
-
-    Returns:
-        A handle to the allreduce operation that can be used with `poll()` or
-        `synchronize()`.
-    """
-    op = handle_average_backwards_compatibility(op, average)
-    output = tensor.new(tensor.shape)
-    return _allreduce_async(tensor, output, name, op)
-
-
 def synchronize(handle):
     """
-    Synchronizes an asynchronous allreduce, allgather or broadcast operation until
-    it's completed. Returns the result of the operation.
+    Synchronizes an asynchronous allreduce, allgather, alltoall, broadcast, or reducescatter operation
+    until  it's completed. Returns the result of the operation.
 
     Arguments:
-        handle: A handle returned by an allreduce, allgather or broadcast asynchronous
-                operation.
+        handle: A handle returned by an allreduce, allgather, alltoall, broadcast, or reducescatter
+                asynchronous operation.
 
     Returns:
-        An output tensor of the operation.
+        A single output tensor of the operation or a tuple of multiple output tensors.
     """
     if handle not in _handle_map:
         return
     try:
         mpi_lib.horovod_torch_wait_and_clear(handle)
-        _, output = _handle_map.pop(handle)
+        output = _handle_map.pop(handle)[-1]
         return output
     except RuntimeError as e:
+        _handle_map.pop(handle, None)
         raise HorovodInternalError(e)
 
 
@@ -501,7 +506,7 @@ class _SyncBatchNorm(Function):
         count_all = synchronize(count_handle)
         mean_all = synchronize(mean_handle)
         invstd_all = synchronize(invstd_handle)
-        if _SYNC_BN_V2:
+        if _SYNC_BN_V3:
             counts_for_bngswc = count_all.view(-1).float()
         else:
             counts_for_bngswc = count_all.view(-1).tolist()
@@ -520,13 +525,16 @@ class _SyncBatchNorm(Function):
             sum_dy_xmu_handle = allreduce_async(sum_dy_xmu, op=Sum, name='sync_batch_norm.sum_dy_xmu')
             sum_dy = synchronize(sum_dy_handle)
             sum_dy_xmu = synchronize(sum_dy_xmu_handle)
-            if _SYNC_BN_V2:
-                mean_dy = sum_dy / count_all.sum()
-                mean_dy_xmu = sum_dy_xmu / count_all.sum()
+            if _SYNC_BN_V4:
+                count_all = count_all
+            elif _SYNC_BN_V2 or _SYNC_BN_V3:
+                count = count_all.sum()
             else:
-                mean_dy = sum_dy / size()
-                mean_dy_xmu = sum_dy_xmu / size()
-            grad_input = torch.batch_norm_backward_elemt(grad_output, saved_input, mean, invstd, weight, mean_dy, mean_dy_xmu)
+                count = size()
+            if _SYNC_BN_V4:
+                grad_input = torch.batch_norm_backward_elemt(grad_output, saved_input, mean, invstd, weight, sum_dy, sum_dy_xmu, count_all)
+            else:
+                grad_input = torch.batch_norm_backward_elemt(grad_output, saved_input, mean, invstd, weight, sum_dy / count, sum_dy_xmu / count)
         else:
             grad_input = None
         if weight is None or not need_weight_grad:
@@ -588,6 +596,22 @@ class SyncBatchNorm(_BatchNorm):
             return self._maybe_run_sync_bn(input)
 
 
+class LegacyXOR(nn.Module):
+
+    def __init__(self, input_dim, output_dim):
+        super(LegacyXOR, self).__init__()
+        self.lin1 = nn.Linear(input_dim, 8)
+        self.lin2 = nn.Linear(8, output_dim)
+
+    def forward(self, features):
+        x = features.float()
+        x = self.lin1(x)
+        x = torch.tanh(x)
+        x = self.lin2(x)
+        x = torch.sigmoid(x)
+        return x
+
+
 class XOR(nn.Module):
 
     def __init__(self, input_dim, output_dim):
@@ -611,6 +635,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (LegacyXOR,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (XOR,
      lambda: ([], {'input_dim': 4, 'output_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -620,4 +648,7 @@ TESTCASES = [
 class Test_horovod_horovod(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 
