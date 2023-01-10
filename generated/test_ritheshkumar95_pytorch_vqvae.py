@@ -247,8 +247,8 @@ class GatedPixelCNN(nn.Module):
         for i in range(shape[0]):
             for j in range(shape[1]):
                 logits = self.forward(x, label)
-                probs = F.softmax(logits[:, :, (i), (j)], -1)
-                x.data[:, (i), (j)].copy_(probs.multinomial(1).squeeze().data)
+                probs = F.softmax(logits[:, :, i, j], -1)
+                x.data[:, i, j].copy_(probs.multinomial(1).squeeze().data)
         return x
 
 
@@ -274,11 +274,7 @@ TESTCASES = [
     (VQEmbedding,
      lambda: ([], {'K': 4, 'D': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (VectorQuantizedVAE,
-     lambda: ([], {'input_dim': 4, 'dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_ritheshkumar95_pytorch_vqvae(_paritybench_base):
@@ -293,7 +289,4 @@ class Test_ritheshkumar95_pytorch_vqvae(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

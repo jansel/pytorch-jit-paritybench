@@ -330,7 +330,7 @@ TESTCASES = [
     (flatten_mlp,
      lambda: ([], {'input_dims': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (network,
      lambda: ([], {'num_states': 4, 'num_actions': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

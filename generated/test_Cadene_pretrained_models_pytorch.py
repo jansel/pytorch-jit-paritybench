@@ -2855,7 +2855,7 @@ TESTCASES = [
     (CatBnAct,
      lambda: ([], {'in_chs': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (DPN,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),

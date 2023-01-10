@@ -161,13 +161,13 @@ class RelationModuleMultiScale(torch.nn.Module):
         None
 
     def forward(self, input):
-        act_all = input[:, (self.relations_scales[0][0]), :]
+        act_all = input[:, self.relations_scales[0][0], :]
         act_all = act_all.view(act_all.size(0), self.scales[0] * self.img_feature_dim)
         act_all = self.fc_fusion_scales[0](act_all)
         for scaleID in range(1, len(self.scales)):
             idx_relations_randomsample = np.random.choice(len(self.relations_scales[scaleID]), self.subsample_scales[scaleID], replace=False)
             for idx in idx_relations_randomsample:
-                act_relation = input[:, (self.relations_scales[scaleID][idx]), :]
+                act_relation = input[:, self.relations_scales[scaleID][idx], :]
                 act_relation = act_relation.view(act_relation.size(0), self.scales[scaleID] * self.img_feature_dim)
                 act_relation = self.fc_fusion_scales[scaleID](act_relation)
                 act_all += act_relation
@@ -206,14 +206,14 @@ class RelationModuleMultiScaleWithClassifier(torch.nn.Module):
         None
 
     def forward(self, input):
-        act_all = input[:, (self.relations_scales[0][0]), :]
+        act_all = input[:, self.relations_scales[0][0], :]
         act_all = act_all.view(act_all.size(0), self.scales[0] * self.img_feature_dim)
         act_all = self.fc_fusion_scales[0](act_all)
         act_all = self.classifier_scales[0](act_all)
         for scaleID in range(1, len(self.scales)):
             idx_relations_randomsample = np.random.choice(len(self.relations_scales[scaleID]), self.subsample_scales[scaleID], replace=False)
             for idx in idx_relations_randomsample:
-                act_relation = input[:, (self.relations_scales[scaleID][idx]), :]
+                act_relation = input[:, self.relations_scales[scaleID][idx], :]
                 act_relation = act_relation.view(act_relation.size(0), self.scales[scaleID] * self.img_feature_dim)
                 act_relation = self.fc_fusion_scales[scaleID](act_relation)
                 act_relation = self.classifier_scales[scaleID](act_relation)
@@ -526,9 +526,9 @@ class TSN(nn.Module):
             new_data = input_view[:, :, 1:, :, :, :].clone()
         for x in reversed(list(range(1, self.new_length + 1))):
             if keep_rgb:
-                new_data[:, :, (x), :, :, :] = input_view[:, :, (x), :, :, :] - input_view[:, :, (x - 1), :, :, :]
+                new_data[:, :, x, :, :, :] = input_view[:, :, x, :, :, :] - input_view[:, :, x - 1, :, :, :]
             else:
-                new_data[:, :, (x - 1), :, :, :] = input_view[:, :, (x), :, :, :] - input_view[:, :, (x - 1), :, :, :]
+                new_data[:, :, x - 1, :, :, :] = input_view[:, :, x, :, :, :] - input_view[:, :, x - 1, :, :, :]
         return new_data
 
     def _construct_flow_model(self, base_model):

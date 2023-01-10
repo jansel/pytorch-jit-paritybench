@@ -175,6 +175,14 @@ mujoco_lstm_model = _module
 mlp = _module
 running_mean_std = _module
 utils = _module
+projects = _module
+safe = _module
+cppo_agent = _module
+cppo_model = _module
+cppo_pid = _module
+launch_cppo_main_point = _module
+train_cppo = _module
+safety_gym_env = _module
 replays = _module
 async_ = _module
 frame = _module
@@ -214,6 +222,141 @@ float_box = _module
 gym_wrapper = _module
 gym_wrapper_schema = _module
 int_box = _module
+ul = _module
+atari_dqn_agent = _module
+atari_pg_agent = _module
+dmc_sac_agent = _module
+dmlab_pg_agent = _module
+rl_from_ul = _module
+dqn_from_ul = _module
+rad_sac_from_ul = _module
+rl_with_ul = _module
+dqn_with_ul = _module
+ppo_with_ul = _module
+sac_with_ul = _module
+ul_for_rl = _module
+augmented_temporal_contrast = _module
+augmented_temporal_similarity = _module
+base = _module
+cpc = _module
+inverse = _module
+pixel_control = _module
+replay_saver = _module
+stdim = _module
+vae = _module
+data_augs = _module
+warmup_scheduler = _module
+weight_decay = _module
+dmcontrol = _module
+dmlab = _module
+atari_dqn_from_ul = _module
+atari_ppo_from_ul = _module
+dmc_sac_from_ul = _module
+dmlab_ppo_from_ul = _module
+launch_atari_ppo_from_atc_1 = _module
+launch_atari_ppo_from_atc_7game_1 = _module
+launch_atari_ppo_from_ats_1 = _module
+launch_atari_ppo_from_inv_first_1 = _module
+launch_atari_ppo_from_pc_first_1 = _module
+launch_atari_ppo_from_stdim_first_1 = _module
+launch_atari_ppo_from_vae_first_1a = _module
+launch_atari_ppo_from_vae_first_1b = _module
+atari_ppo_from_ul_serial = _module
+launch_dmc_sac_from_ac_1 = _module
+launch_dmc_sac_from_atc_multi4_1 = _module
+launch_dmc_sac_from_atc_multi4_1a = _module
+launch_dmc_sac_from_atc_multi4_1b = _module
+launch_dmc_sac_from_noload_multi4_1b = _module
+launch_dmc_sac_from_vae_1 = _module
+dmc_sac_from_ul_serial = _module
+launch_dmlab_ppo_from_cpc_1 = _module
+launch_dmlab_ppo_from_cpc_1a = _module
+launch_dmlab_ppo_from_cpc_1b = _module
+launch_dmlab_ppo_from_cpc_2 = _module
+dmlab_ppo_from_ul_alt = _module
+atari_dqn_ul = _module
+atari_ppo_ul = _module
+dmc_sac_with_ul = _module
+dmlab_ppo_with_ul = _module
+launch_atari_dqn_with_ul_schedule_1 = _module
+launch_atari_ppo_with_ul_final_1 = _module
+launch_atari_ppo_with_ul_final_1b = _module
+launch_atari_ppo_with_ul_priority_1 = _module
+launch_atari_ppo_with_ul_schedule_1 = _module
+launch_atari_ppo_with_ul_schedule_2 = _module
+launch_atari_ppo_with_ul_schedule_3 = _module
+launch_atari_ppo_with_ul_schedule_4 = _module
+launch_atari_ppo_with_ul_stpgrd_1 = _module
+launch_atari_ppo_with_ul_warmup_1 = _module
+atari_dqn_with_ul_serial = _module
+atari_ppo_with_ul_serial = _module
+atari_ppo_with_ul_serial_test = _module
+launch_dmc_sac_with_ul_cheetah_1 = _module
+launch_dmc_sac_with_ul_cheetah_2 = _module
+launch_dmc_sac_with_ul_final_1 = _module
+launch_dmc_sac_with_ul_priority_1 = _module
+launch_dmc_sac_with_ul_randconv_1 = _module
+launch_dmc_sac_with_ul_schedule_1 = _module
+launch_dmc_sac_with_ul_sparse_1 = _module
+launch_dmc_sac_with_ul_warmup_1 = _module
+dmc_sac_with_ul_serial = _module
+dmc_sac_with_ul_serial_test = _module
+launch_dmlab_ppo_with_ul_explore_1 = _module
+launch_dmlab_ppo_with_ul_exploresmall_1 = _module
+launch_dmlab_ppo_with_ul_large_baseline_1 = _module
+launch_dmlab_ppo_with_ul_large_baseline_2 = _module
+launch_dmlab_ppo_with_ul_lasertag_1 = _module
+launch_dmlab_ppo_with_ul_lasertagsmall_1 = _module
+launch_dmlab_ppo_with_ul_priority_1 = _module
+launch_dmlab_ppo_with_ul_priority_2 = _module
+launch_dmlab_ppo_with_ul_priority_3 = _module
+launch_dmlab_ppo_with_ul_priority_4 = _module
+launch_dmlab_ppo_with_ul_schedule_1 = _module
+dmlab_ppo_with_ul_alt = _module
+atari_atc = _module
+atari_ats = _module
+atari_inverse = _module
+atari_pc = _module
+atari_stdim = _module
+atari_vae = _module
+dmc_atc = _module
+dmc_vae = _module
+dmlab_atc = _module
+dmlab_cpc = _module
+dmlab_pc = _module
+launch_atari_atc_7game_1 = _module
+launch_atari_atc_final_single = _module
+launch_atari_ats_final_single = _module
+launch_atari_inv_first_1 = _module
+launch_atari_pc_first_1 = _module
+launch_atari_stdim_first_1 = _module
+launch_atari_vae_first_1 = _module
+launch_atari_vae_first_1b = _module
+atari_pixel_control = _module
+launch_dmc_ac_pretrain_1 = _module
+launch_dmc_atc_multi4_1 = _module
+launch_dmc_atc_pretrain_1 = _module
+launch_dmc_vae_pretrain_1 = _module
+launch_dmlab_atc_pretrain_1 = _module
+launch_dmlab_cpc_pretrain_1 = _module
+launch_dmlab_cpc_pretrain_2 = _module
+dmlab_conv2d = _module
+rl = _module
+atari_rl_models = _module
+dmlab_rl_models = _module
+sac_rl_models = _module
+ul_models = _module
+atc_models = _module
+encoders = _module
+inverse_models = _module
+pixel_control_models = _module
+stdim_models = _module
+vae_models = _module
+rl_with_ul_replay = _module
+ul_for_rl_replay = _module
+envstep_runner = _module
+minibatch_rl_replaysaver = _module
+unsupervised_learning = _module
 array = _module
 buffer = _module
 collections = _module
@@ -266,9 +409,6 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 
-from torch.nn.parallel import DistributedDataParallelCPU as DDPC
-
-
 import numpy as np
 
 
@@ -284,16 +424,28 @@ import torch.nn.functional as F
 import torch.distributed as dist
 
 
-import time
-
-
 from collections import deque
+
+
+import time
 
 
 import torch.distributed
 
 
+import copy
+
+
 from collections import OrderedDict
+
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import torch.nn as nn
 
 
 from inspect import Signature as Sig
@@ -384,6 +536,8 @@ class MlpModel(torch.nn.Module):
         super().__init__()
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes]
+        elif hidden_sizes is None:
+            hidden_sizes = []
         hidden_layers = [torch.nn.Linear(n_in, n_out) for n_in, n_out in zip([input_size] + hidden_sizes[:-1], hidden_sizes)]
         sequence = list()
         for layer in hidden_layers:
@@ -572,6 +726,118 @@ class AtariCatDqnModel(torch.nn.Module):
         return p
 
 
+class RunningMeanStdModel(torch.nn.Module):
+    """Adapted from OpenAI baselines.  Maintains a running estimate of mean
+    and variance of data along each dimension, accessible in the `mean` and
+    `var` attributes.  Supports multi-GPU training by all-reducing statistics
+    across GPUs."""
+
+    def __init__(self, shape):
+        super().__init__()
+        self.register_buffer('mean', torch.zeros(shape))
+        self.register_buffer('var', torch.ones(shape))
+        self.register_buffer('count', torch.zeros(()))
+        self.shape = shape
+
+    def update(self, x):
+        _, T, B, _ = infer_leading_dims(x, len(self.shape))
+        x = x.view(T * B, *self.shape)
+        batch_mean = x.mean(dim=0)
+        batch_var = x.var(dim=0, unbiased=False)
+        batch_count = T * B
+        if dist.is_initialized():
+            mean_var = torch.stack([batch_mean, batch_var])
+            dist.all_reduce(mean_var)
+            world_size = dist.get_world_size()
+            mean_var /= world_size
+            batch_count *= world_size
+            batch_mean, batch_var = mean_var[0], mean_var[1]
+        if self.count == 0:
+            self.mean[:] = batch_mean
+            self.var[:] = batch_var
+        else:
+            delta = batch_mean - self.mean
+            total = self.count + batch_count
+            self.mean[:] = self.mean + delta * batch_count / total
+            m_a = self.var * self.count
+            m_b = batch_var * batch_count
+            M2 = m_a + m_b + delta ** 2 * self.count * batch_count / total
+            self.var[:] = M2 / total
+        self.count += batch_count
+
+
+def weight_init(m):
+    """Kaiming_normal is standard for relu networks, sometimes."""
+    if isinstance(m, (torch.nn.Linear, torch.nn.Conv2d)):
+        torch.nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+        torch.nn.init.zeros_(m.bias)
+
+
+class AtariDqnModel(torch.nn.Module):
+    """Can feed in conv and/or fc1 layer from pre-trained model, or have it
+    initialize new ones (if initializing new, must provide image_shape)."""
+
+    def __init__(self, image_shape, action_size, hidden_sizes=512, stop_conv_grad=False, channels=None, kernel_sizes=None, strides=None, paddings=None, kiaming_init=True, normalize_conv_out=False):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings)
+        self._conv_out_size = self.conv.conv_out_size(h=h, w=w)
+        self.q_mlp = MlpModel(input_size=self._conv_out_size, hidden_sizes=hidden_sizes, output_size=action_size)
+        if kiaming_init:
+            self.apply(weight_init)
+        self.stop_conv_grad = stop_conv_grad
+        logger.log('Model stopping gradient at CONV.' if stop_conv_grad else 'Modeul using gradients on all parameters.')
+        if normalize_conv_out:
+            logger.log('Model normalizing conv output across all pixels.')
+            self.conv_rms = RunningMeanStdModel((1,))
+            self.var_clip = 1e-06
+        self.normalize_conv_out = normalize_conv_out
+
+    def forward(self, observation, prev_action, prev_reward):
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+        conv = self.conv(img.view(T * B, *img_shape))
+        if self.stop_conv_grad:
+            conv = conv.detach()
+        if self.normalize_conv_out:
+            conv_var = self.conv_rms.var
+            conv_var = torch.clamp(conv_var, min=self.var_clip)
+            conv = torch.clamp(0.29 * conv / conv_var.sqrt(), 0, 10)
+        q = self.q_mlp(conv.view(T * B, -1))
+        q, conv = restore_leading_dims((q, conv), lead_dim, T, B)
+        return q, conv
+
+    def update_conv_rms(self, observation):
+        if self.normalize_conv_out:
+            with torch.no_grad():
+                if observation.dtype == torch.uint8:
+                    img = observation.type(torch.float)
+                    img = img.mul_(1.0 / 255)
+                else:
+                    img = observation
+                lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+                conv = self.conv(img.view(T * B, *img_shape))
+                self.conv_rms.update(conv.view(-1, 1))
+
+    def parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.parameters()
+        yield from self.q_mlp.parameters()
+
+    def named_parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.named_parameters()
+        yield from self.q_mlp.named_parameters()
+
+    @property
+    def conv_out_size(self):
+        return self._conv_out_size
+
+
 class DuelingHeadModel(torch.nn.Module):
     """Model component for dueling DQN.  For each state Q-value, uses a scalar
     output for mean (bias), and vector output for relative advantages
@@ -603,44 +869,6 @@ class DuelingHeadModel(torch.nn.Module):
         """Computes shared-bias advantages."""
         x = self.advantage_hidden(input)
         return self.advantage_out(x) + self.advantage_bias
-
-
-class AtariDqnModel(torch.nn.Module):
-    """Standard convolutional network for DQN.  2-D convolution for multiple
-    video frames per observation, feeding an MLP for Q-value outputs for
-    the action set.
-    """
-
-    def __init__(self, image_shape, output_size, fc_sizes=512, dueling=False, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
-        """Instantiates the neural network according to arguments; network defaults
-        stored within this method."""
-        super().__init__()
-        self.dueling = dueling
-        c, h, w = image_shape
-        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool)
-        conv_out_size = self.conv.conv_out_size(h, w)
-        if dueling:
-            self.head = DuelingHeadModel(conv_out_size, fc_sizes, output_size)
-        else:
-            self.head = MlpModel(conv_out_size, fc_sizes, output_size)
-
-    def forward(self, observation, prev_action, prev_reward):
-        """
-        Compute action Q-value estimates from input state.
-        Infers leading dimensions of input: can be [T,B], [B], or []; provides
-        returns with same leading dims.  Convolution layers process as [T*B,
-        image_shape[0], image_shape[1],...,image_shape[-1]], with T=1,B=1 when not given.  Expects uint8 images in
-        [0,255] and converts them to float32 in [0,1] (to minimize image data
-        storage and transfer).  Used in both sampler and in algorithm (both
-        via the agent).
-        """
-        img = observation.type(torch.float)
-        img = img.mul_(1.0 / 255)
-        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
-        conv_out = self.conv(img.view(T * B, *img_shape))
-        q = self.head(conv_out.view(T * B, -1))
-        q = restore_leading_dims(q, lead_dim, T, B)
-        return q
 
 
 RESERVED_NAMES = 'get', 'items'
@@ -858,46 +1086,6 @@ class AtariLstmModel(torch.nn.Module):
         return pi, v, next_rnn_state
 
 
-class RunningMeanStdModel(torch.nn.Module):
-    """Adapted from OpenAI baselines.  Maintains a running estimate of mean
-    and variance of data along each dimension, accessible in the `mean` and
-    `var` attributes.  Supports multi-GPU training by all-reducing statistics
-    across GPUs."""
-
-    def __init__(self, shape):
-        super().__init__()
-        self.register_buffer('mean', torch.zeros(shape))
-        self.register_buffer('var', torch.ones(shape))
-        self.register_buffer('count', torch.zeros(()))
-        self.shape = shape
-
-    def update(self, x):
-        _, T, B, _ = infer_leading_dims(x, len(self.shape))
-        x = x.view(T * B, *self.shape)
-        batch_mean = x.mean(dim=0)
-        batch_var = x.var(dim=0, unbiased=False)
-        batch_count = T * B
-        if dist.is_initialized():
-            mean_var = torch.stack([batch_mean, batch_var])
-            dist.all_reduce(mean_var)
-            world_size = dist.get_world_size()
-            mean_var /= world_size
-            batch_count *= world_size
-            batch_mean, batch_var = mean_var[0], mean_var[1]
-        if self.count == 0:
-            self.mean[:] = batch_mean
-            self.var[:] = batch_var
-        else:
-            delta = batch_mean - self.mean
-            total = self.count + batch_count
-            self.mean[:] = self.mean + delta * batch_count / total
-            m_a = self.var * self.count
-            m_b = batch_var * batch_count
-            M2 = m_a + m_b + delta ** 2 * self.count * batch_count / total
-            self.var[:] = M2 / total
-        self.count += batch_count
-
-
 class MujocoFfModel(torch.nn.Module):
     """
     Model commonly used in Mujoco locomotion agents: an MLP which outputs
@@ -994,7 +1182,7 @@ class MujocoLstmModel(torch.nn.Module):
         outputs = self.head(lstm_out.view(T * B, -1))
         mu = outputs[:, :self._action_size]
         log_std = outputs[:, self._action_size:-1]
-        v = outputs[:, (-1)]
+        v = outputs[:, -1]
         mu, log_std, v = restore_leading_dims((mu, log_std, v), lead_dim, T, B)
         next_rnn_state = RnnState(h=hn, c=cn)
         return mu, log_std, v, next_rnn_state
@@ -1069,6 +1257,796 @@ class VMlpModel(torch.nn.Module):
         return v
 
 
+ValueInfo = namedarraytuple('ValueInfo', ['value', 'c_value'])
+
+
+class CppoModel(torch.nn.Module):
+
+    def __init__(self, observation_shape, action_size, hidden_sizes=None, lstm_size=None, lstm_skip=True, constraint=True, hidden_nonlinearity='tanh', mu_nonlinearity='tanh', init_log_std=0.0, normalize_observation=True, var_clip=1e-06):
+        super().__init__()
+        if hidden_nonlinearity == 'tanh':
+            hidden_nonlinearity = torch.nn.Tanh
+        elif hidden_nonlinearity == 'relu':
+            hidden_nonlinearity = torch.nn.ReLU
+        else:
+            raise ValueError(f'Unrecognized hidden_nonlinearity string: {hidden_nonlinearity}')
+        if mu_nonlinearity == 'tanh':
+            mu_nonlinearity = torch.nn.Tanh
+        elif mu_nonlinearity == 'relu':
+            mu_nonlinearity = torch.nn.ReLU
+        else:
+            raise ValueError(f'Unrecognized mu_nonlinearity string: {mu_nonlinearity}')
+        self._obs_ndim = len(observation_shape)
+        input_size = int(np.prod(observation_shape))
+        self.body = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes or [256, 256], nonlinearity=hidden_nonlinearity)
+        last_size = self.body.output_size
+        if lstm_size:
+            lstm_input_size = last_size + action_size + 1
+            self.lstm = torch.nn.LSTM(lstm_input_size, lstm_size)
+            last_size = lstm_size
+        else:
+            self.lstm = None
+        mu_linear = torch.nn.Linear(last_size, action_size)
+        if mu_nonlinearity is not None:
+            self.mu = torch.nn.Sequential(mu_linear, mu_nonlinearity())
+        else:
+            self.mu = mu_linear
+        self.value = torch.nn.Linear(last_size, 1)
+        if constraint:
+            self.constraint = torch.nn.Linear(last_size, 1)
+        else:
+            self.constraint = None
+        self.log_std = torch.nn.Parameter(init_log_std * torch.ones(action_size))
+        self._lstm_skip = lstm_skip
+        if normalize_observation:
+            self.obs_rms = RunningMeanStdModel(observation_shape)
+            self.var_clip = var_clip
+        self.normalize_observation = normalize_observation
+
+    def forward(self, observation, prev_action, prev_reward, init_rnn_state=None):
+        lead_dim, T, B, _ = infer_leading_dims(observation, self._obs_ndim)
+        if self.normalize_observation:
+            obs_var = self.obs_rms.var
+            if self.var_clip is not None:
+                obs_var = torch.clamp(obs_var, min=self.var_clip)
+            observation = torch.clamp((observation - self.obs_rms.mean) / obs_var.sqrt(), -10, 10)
+        fc_x = self.body(observation.view(T * B, -1))
+        if self.lstm is not None:
+            lstm_inputs = [fc_x, prev_action, prev_reward]
+            lstm_input = torch.cat([x.view(T, B, -1) for x in lstm_inputs], dim=2)
+            init_rnn_state = None if init_rnn_state is None else tuple(init_rnn_state)
+            lstm_out, (hn, cn) = self.lstm(lstm_input, init_rnn_state)
+            lstm_out = lstm_out.view(T * B, -1)
+            if self._lstm_skip:
+                fc_x = fc_x + lstm_out
+            else:
+                fc_x = lstm_out
+        mu = self.mu(fc_x)
+        log_std = self.log_std.repeat(T * B, 1)
+        v = self.value(fc_x).squeeze(-1)
+        mu, log_std, v = restore_leading_dims((mu, log_std, v), lead_dim, T, B)
+        if self.constraint is None:
+            value = ValueInfo(value=v, c_value=None)
+        else:
+            c = self.constraint(fc_x).squeeze(-1)
+            c = restore_leading_dims(c, lead_dim, T, B)
+            value = ValueInfo(value=v, c_value=c)
+        outputs = mu, log_std, value
+        if self.lstm is not None:
+            outputs += RnnState(h=hn, c=cn),
+        return outputs
+
+    def update_obs_rms(self, observation):
+        if not self.normalize_observation:
+            return
+        self.obs_rms.update(observation)
+
+
+class DmlabConv2dModel(torch.nn.Module):
+
+    def __init__(self, in_channels, use_fourth_layer=True, skip_connections=True, use_maxpool=False):
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(in_channels=in_channels, out_channels=32, kernel_size=8, stride=1 if use_maxpool else 4, padding=2 if use_maxpool else 0)
+        self.maxpool1 = torch.nn.MaxPool2d(kernel_size=4, stride=4) if use_maxpool else None
+        self.conv2 = torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=1 if use_maxpool else 2, padding=1 if use_maxpool else 0)
+        self.maxpool2 = torch.nn.MaxPool2d(kernel_size=2, stride=2) if use_maxpool else None
+        self.conv3 = torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+        if use_fourth_layer:
+            self.conv4 = torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+        else:
+            self.conv4 = None
+        self.skip_connections = skip_connections
+
+    def forward(self, input):
+        conv1 = F.relu(self.conv1(input))
+        if self.maxpool1 is not None:
+            conv1 = self.maxpool1(conv1)
+        conv2 = F.relu(self.conv2(conv1))
+        if self.maxpool2 is not None:
+            conv2 = self.maxpool2(conv2)
+        conv3_pre = self.conv3(conv2)
+        if self.skip_connections:
+            conv3_pre = conv3_pre + conv2
+        conv3 = F.relu(conv3_pre)
+        if self.conv4 is None:
+            return conv3
+        conv4_pre = self.conv4(conv3)
+        if self.skip_connections:
+            conv4_pre = conv4_pre + conv3_pre
+        conv4 = F.relu(conv4_pre)
+        return conv4
+
+    def output_shape(self, h, w, c=None):
+        """Helper function ot return the output shape for a given input shape,
+        without actually performing a forward pass through the model."""
+        for child in self.children():
+            try:
+                h, w = conv2d_output_shape(h, w, child.kernel_size, child.stride, child.padding)
+            except AttributeError:
+                pass
+            try:
+                c = child.out_channels
+            except AttributeError:
+                pass
+        return c, h, w
+
+    def output_size(self, h, w, c=None):
+        """Helper function ot return the output size for a given input shape,
+        without actually performing a forward pass through the model."""
+        c, h, w = self.output_shape(h=h, w=w, c=c)
+        return c * h * w
+
+
+class AtariPgModel(torch.nn.Module):
+    """Can feed in conv and/or fc1 layer from pre-trained model, or have it
+    initialize new ones (if initializing new, must provide image_shape)."""
+
+    def __init__(self, image_shape, action_size, hidden_sizes=512, stop_conv_grad=False, channels=None, kernel_sizes=None, strides=None, paddings=None, kiaming_init=True, normalize_conv_out=False):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings)
+        self._conv_out_size = self.conv.conv_out_size(h=h, w=w)
+        self.pi_v_mlp = MlpModel(input_size=self._conv_out_size, hidden_sizes=hidden_sizes, output_size=action_size + 1)
+        if kiaming_init:
+            self.apply(weight_init)
+        self.stop_conv_grad = stop_conv_grad
+        logger.log('Model stopping gradient at CONV.' if stop_conv_grad else 'Modeul using gradients on all parameters.')
+        if normalize_conv_out:
+            logger.log('Model normalizing conv output across all pixels.')
+            self.conv_rms = RunningMeanStdModel((1,))
+            self.var_clip = 1e-06
+        self.normalize_conv_out = normalize_conv_out
+
+    def forward(self, observation, prev_action, prev_reward):
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+        conv = self.conv(img.view(T * B, *img_shape))
+        if self.stop_conv_grad:
+            conv = conv.detach()
+        if self.normalize_conv_out:
+            conv_var = self.conv_rms.var
+            conv_var = torch.clamp(conv_var, min=self.var_clip)
+            conv = torch.clamp(0.29 * conv / conv_var.sqrt(), 0, 10)
+        pi_v = self.pi_v_mlp(conv.view(T * B, -1))
+        pi = F.softmax(pi_v[:, :-1], dim=-1)
+        v = pi_v[:, -1]
+        pi, v, conv = restore_leading_dims((pi, v, conv), lead_dim, T, B)
+        return pi, v, conv
+
+    def update_conv_rms(self, observation):
+        if self.normalize_conv_out:
+            with torch.no_grad():
+                if observation.dtype == torch.uint8:
+                    img = observation.type(torch.float)
+                    img = img.mul_(1.0 / 255)
+                else:
+                    img = observation
+                lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+                conv = self.conv(img.view(T * B, *img_shape))
+                self.conv_rms.update(conv.view(-1, 1))
+
+    def parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.parameters()
+        yield from self.pi_v_mlp.parameters()
+
+    def named_parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.named_parameters()
+        yield from self.pi_v_mlp.named_parameters()
+
+    @property
+    def conv_out_size(self):
+        return self._conv_out_size
+
+
+class DmlabPgLstmModel(torch.nn.Module):
+
+    def __init__(self, image_shape, output_size, lstm_size, skip_connections=True, hidden_sizes=None, kiaming_init=True, stop_conv_grad=False, skip_lstm=True):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = DmlabConv2dModel(in_channels=c, use_fourth_layer=True, use_maxpool=False, skip_connections=skip_connections)
+        self._conv_out_size = self.conv.output_size(h=h, w=w)
+        self.fc1 = torch.nn.Linear(in_features=self._conv_out_size, out_features=lstm_size)
+        self.lstm = torch.nn.LSTM(lstm_size + output_size + 1, lstm_size)
+        self.pi_v_head = MlpModel(input_size=lstm_size, hidden_sizes=hidden_sizes, output_size=output_size + 1)
+        if kiaming_init:
+            self.apply(weight_init)
+        self.stop_conv_grad = stop_conv_grad
+        logger.log('Model stopping gradient at CONV.' if stop_conv_grad else 'Modeul using gradients on all parameters.')
+        self._skip_lstm = skip_lstm
+
+    def forward(self, observation, prev_action, prev_reward, init_rnn_state):
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+        conv = self.conv(img.view(T * B, *img_shape))
+        if self.stop_conv_grad:
+            conv = conv.detach()
+        fc1 = F.relu(self.fc1(conv.view(T * B, -1)))
+        lstm_input = torch.cat([fc1.view(T, B, -1), prev_action.view(T, B, -1), prev_reward.view(T, B, 1)], dim=2)
+        init_rnn_state = None if init_rnn_state is None else tuple(init_rnn_state)
+        lstm_out, (hn, cn) = self.lstm(lstm_input, init_rnn_state)
+        if self._skip_lstm:
+            lstm_out = lstm_out.view(T * B, -1) + fc1
+        pi_v = self.pi_v_head(lstm_out.view(T * B, -1))
+        pi = F.softmax(pi_v[:, :-1], dim=-1)
+        v = pi_v[:, -1]
+        pi, v, conv = restore_leading_dims((pi, v, conv), lead_dim, T, B)
+        next_rnn_state = RnnState(h=hn, c=cn)
+        return pi, v, next_rnn_state, conv
+
+    def parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.parameters()
+        yield from self.fc1.parameters()
+        yield from self.lstm.parameters()
+        yield from self.pi_v_head.parameters()
+
+    def named_parameters(self):
+        if not self.stop_conv_grad:
+            yield from self.conv.named_parameters()
+        yield from self.fc1.named_parameters()
+        yield from self.lstm.named_parameters()
+        yield from self.pi_v_head.named_parameters()
+
+    @property
+    def conv_out_size(self):
+        return self._conv_out_size
+
+
+class SacModel(nn.Module):
+    """To keep the standard agent.model interface for shared params, etc."""
+
+    def __init__(self, conv, pi_fc1, pi_mlp):
+        super().__init__()
+        self.conv = conv
+        self.pi_fc1 = pi_fc1
+        self.pi_mlp = pi_mlp
+
+    def forward(self, observation, prev_action, prev_reward):
+        """Just to keep the standard obs, prev_action, prev_rew interface."""
+        conv = self.conv(observation)
+        latent = self.pi_fc1(conv)
+        mu, log_std = self.pi_mlp(latent, prev_action, prev_reward)
+        return mu, log_std, latent, conv
+
+
+class SacConvModel(nn.Module):
+
+    def __init__(self, image_shape, channels=None, kernel_sizes=None, strides=None, paddings=None, final_nonlinearity=True):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 32, 32, 32], kernel_sizes=kernel_sizes or [3, 3, 3, 3], strides=strides or [2, 1, 1, 1], paddings=paddings, final_nonlinearity=final_nonlinearity)
+        self._output_shape = self.conv.conv_out_shape(h=h, w=w, c=c)
+        self._output_size = self.conv.conv_out_size(h=h, w=w, c=c)
+
+    def forward(self, observation):
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
+        conv = self.conv(img.view(T * B, *img_shape))
+        conv = restore_leading_dims(conv, lead_dim, T, B)
+        return conv
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+
+class SacFc1Model(nn.Module):
+
+    def __init__(self, input_size, latent_size, layer_norm=True):
+        super().__init__()
+        self.linear = nn.Linear(input_size, latent_size)
+        self.layer_norm = nn.LayerNorm(latent_size) if layer_norm else None
+        self._output_size = latent_size
+
+    def forward(self, conv_out):
+        if conv_out.dtype == torch.uint8:
+            conv_out = conv_out.type(torch.float)
+            conv_out = conv_out.mul_(1.0 / 255)
+        lead_dim, T, B, _ = infer_leading_dims(conv_out, 3)
+        conv_out = F.relu(conv_out.view(T * B, -1))
+        latent = self.linear(conv_out)
+        if self.layer_norm is not None:
+            latent = self.layer_norm(latent)
+        latent = restore_leading_dims(latent, lead_dim, T, B)
+        return latent
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+
+class SacActorModel(nn.Module):
+
+    def __init__(self, input_size, action_size, hidden_sizes, min_log_std=-10.0, max_log_std=2.0):
+        super().__init__()
+        self.mlp = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes, output_size=action_size * 2)
+        self.apply(weight_init)
+        self.min_log_std = min_log_std
+        self.max_log_std = max_log_std
+
+    def forward(self, latent, prev_action=None, prev_reward=None):
+        lead_dim, T, B, _ = infer_leading_dims(latent, 1)
+        out = self.mlp(latent.view(T * B, -1))
+        mu, log_std = out.chunk(chunks=2, dim=-1)
+        log_std = torch.tanh(log_std)
+        log_std = self.min_log_std + 0.5 * (self.max_log_std - self.min_log_std) * (1 + log_std)
+        mu, log_std = restore_leading_dims((mu, log_std), lead_dim, T, B)
+        return mu, log_std
+
+
+class SacCriticModel(nn.Module):
+
+    def __init__(self, input_size, action_size, hidden_sizes):
+        super().__init__()
+        self.mlp1 = MlpModel(input_size=input_size + action_size, hidden_sizes=hidden_sizes, output_size=1)
+        self.mlp2 = MlpModel(input_size=input_size + action_size, hidden_sizes=hidden_sizes, output_size=1)
+        self.apply(weight_init)
+
+    def forward(self, latent, action, prev_action=None, prev_reward=None):
+        lead_dim, T, B, _ = infer_leading_dims(latent, 1)
+        q_input = torch.cat([latent.view(T * B, -1), action.view(T * B, -1)], dim=1)
+        q1 = self.mlp1(q_input).squeeze(-1)
+        q2 = self.mlp2(q_input).squeeze(-1)
+        q1, q2 = restore_leading_dims((q1, q2), lead_dim, T, B)
+        return q1, q2
+
+
+class SacNoConvModel(nn.Module):
+    """To keep the standard agent.model interface for shared params, etc.
+
+    RESULT: yeah this didn't work in most envs, except a bit in walker.
+    """
+
+    def __init__(self, pi_fc1, pi_mlp):
+        super().__init__()
+        self.pi_fc1 = pi_fc1
+        self.pi_mlp = pi_mlp
+
+    def forward(self, observation, prev_action, prev_reward):
+        """Just to keep the standard obs, prev_action, prev_rew interface."""
+        conv = observation
+        latent = self.pi_fc1(conv)
+        mu, log_std = self.pi_mlp(latent, prev_action, prev_reward)
+        return mu, log_std, latent
+
+
+class UlEncoderModel(torch.nn.Module):
+
+    def __init__(self, conv, latent_size, conv_out_size):
+        super().__init__()
+        self.conv = conv
+        self.head = torch.nn.Linear(conv_out_size, latent_size)
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        conv = self.conv(img.view(T * B, *img_shape))
+        c = self.head(conv.view(T * B, -1))
+        c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
+        return c, conv
+
+
+class ContrastModel(torch.nn.Module):
+
+    def __init__(self, latent_size, anchor_hidden_sizes):
+        super().__init__()
+        if anchor_hidden_sizes is not None:
+            self.anchor_mlp = MlpModel(input_size=latent_size, hidden_sizes=anchor_hidden_sizes, output_size=latent_size)
+        else:
+            self.anchor_mlp = None
+        self.W = torch.nn.Linear(latent_size, latent_size, bias=False)
+
+    def forward(self, anchor, positive):
+        lead_dim, T, B, _ = infer_leading_dims(anchor, 1)
+        assert lead_dim == 1
+        if self.anchor_mlp is not None:
+            anchor = anchor + self.anchor_mlp(anchor)
+        pred = self.W(anchor)
+        logits = torch.matmul(pred, positive.T)
+        logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
+        return logits
+
+
+class EncoderModel(torch.nn.Module):
+
+    def __init__(self, image_shape, latent_size, channels, kernel_sizes, strides, paddings=None, hidden_sizes=None, kiaming_init=True):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = Conv2dModel(in_channels=c, channels=channels, kernel_sizes=kernel_sizes, strides=strides, paddings=paddings, use_maxpool=False)
+        self._output_size = self.conv.conv_out_size(h, w)
+        self._output_shape = self.conv.conv_out_shape(h, w)
+        self.head = MlpModel(input_size=self._output_size, hidden_sizes=hidden_sizes, output_size=latent_size)
+        if kiaming_init:
+            self.apply(weight_init)
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        conv = self.conv(img.view(T * B, *img_shape))
+        c = self.head(conv.view(T * B, -1))
+        c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
+        return c, conv
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+
+class DmlabEncoderModel(torch.nn.Module):
+
+    def __init__(self, image_shape, latent_size, use_fourth_layer=True, skip_connections=True, hidden_sizes=None, kiaming_init=True):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = DmlabConv2dModel(in_channels=c, use_fourth_layer=True, skip_connections=skip_connections, use_maxpool=False)
+        self._output_size = self.conv.output_size(h, w)
+        self._output_shape = self.conv.output_shape(h, w)
+        self.head = MlpModel(input_size=self._output_size, hidden_sizes=hidden_sizes, output_size=latent_size)
+        if kiaming_init:
+            self.apply(weight_init)
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        conv = self.conv(img.view(T * B, *img_shape))
+        c = self.head(conv.view(T * B, -1))
+        c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
+        return c, conv
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+
+class InverseModel(torch.nn.Module):
+
+    def __init__(self, input_size, hidden_sizes, action_size, num_actions, subtract=False, use_input='conv'):
+        super().__init__()
+        if use_input != 'conv':
+            raise NotImplementedError
+        self.mlp = MlpModel(input_size=2 * input_size, hidden_sizes=hidden_sizes, output_size=action_size * num_actions)
+        self._action_size = action_size
+        self._num_actions = num_actions
+        self._use_input = use_input
+        self._subtract = subtract
+
+    def forward(self, conv_obs, conv_last):
+        lead_dim, T, B, _ = infer_leading_dims(conv_obs, 3)
+        assert lead_dim == 1
+        obs = conv_obs.view(B, -1)
+        last = conv_last.view(B, -1)
+        if self._subtract:
+            last = last - obs
+        mlp_input = torch.cat([obs, last], dim=-1)
+        act_logits = self.mlp(mlp_input)
+        act_logits = act_logits.view(B, self._num_actions, self._action_size)
+        return act_logits
+
+
+class ConvTranspose2dModel(torch.nn.Module):
+
+    def __init__(self, in_channels, channels, kernel_sizes, strides, paddings=None, output_paddings=None, nonlinearity=torch.nn.ReLU, sigmoid_output=False):
+        super().__init__()
+        if paddings is None:
+            paddings = [(0) for _ in range(len(channels))]
+        if output_paddings is None:
+            output_paddings = [(0) for _ in range(len(channels))]
+        assert len(channels) == len(kernel_sizes) == len(strides) == len(paddings) == len(output_paddings)
+        in_channels = [in_channels] + list(channels[:-1])
+        convt_layers = [torch.nn.ConvTranspose2d(in_channels=ic, out_channels=oc, kernel_size=k, stride=s, padding=p, output_padding=op) for ic, oc, k, s, p, op in zip(in_channels, channels, kernel_sizes, strides, paddings, output_paddings)]
+        sequence = list()
+        for convt_layer in convt_layers:
+            sequence.append(convt_layer)
+            sequence.append(nonlinearity())
+        sequence.pop(-1)
+        if sigmoid_output:
+            sequence.append(torch.nn.Sigmoid())
+        self.convt = torch.nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Assumes shape is already [B,C,H,W]."""
+        return self.convt(input)
+
+
+class PixelControlModel(torch.nn.Module):
+
+    def __init__(self, input_shape, fc_sizes, reshape, channels, kernel_sizes, strides, paddings=None, output_paddings=None, dueling=True):
+        super().__init__()
+        if isinstance(input_shape, int):
+            input_shape = input_shape,
+        self.input_shape = input_shape
+        input_size = int(np.prod(input_shape))
+        if fc_sizes is None:
+            self.mlp = None
+            if reshape is None:
+                assert len(input_shape) == 3
+                in_channels = input_shape[0]
+            else:
+                assert input_size == int(np.prod(reshape))
+        else:
+            self.mlp = MlpModel(input_size=input_size, hidden_sizes=fc_sizes)
+            assert self.mlp.output_size == int(np.prod(reshape))
+            in_channels = reshape[0]
+        self.reshape = reshape
+        self.dueling = dueling
+        if dueling:
+            channels[-1] = channels[-1] + 1
+        self.convt = ConvTranspose2dModel(in_channels=in_channels, channels=channels, kernel_sizes=kernel_sizes, strides=strides, paddings=paddings, output_paddings=output_paddings, sigmoid_output=False)
+
+    def forward(self, input):
+        lead_dim, T, B, in_shape = infer_leading_dims(input, len(self.input_shape))
+        x = input.view(T * B, *in_shape)
+        if self.mlp is not None:
+            x = self.mlp(input.view(T * B, -1))
+        if self.reshape is not None:
+            x = x.view(T * B, *self.reshape)
+        x = self.convt(x)
+        if self.dueling:
+            value = x[:, :1]
+            advantage = x[:, 1:]
+            x = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        x = restore_leading_dims(x, lead_dim, T, B)
+        return x
+
+
+class Conv2dStdimModel(torch.nn.Module):
+
+    def __init__(self, in_channels, channels, kernel_sizes, strides, paddings=None, nonlinearity=torch.nn.ReLU, use_maxpool=False):
+        super().__init__()
+        if paddings is None:
+            paddings = [(0) for _ in range(len(channels))]
+        assert len(channels) == len(kernel_sizes) == len(strides) == len(paddings)
+        in_channels = [in_channels] + channels[:-1]
+        ones = [(1) for _ in range(len(strides))]
+        if use_maxpool:
+            maxp_strides = strides
+            strides = ones
+        else:
+            maxp_strides = ones
+        conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc, kernel_size=k, stride=s, padding=p) for ic, oc, k, s, p in zip(in_channels, channels, kernel_sizes, strides, paddings)]
+        sequence = list()
+        maxp_layers = list()
+        for conv_layer, maxp_stride in zip(conv_layers, maxp_strides):
+            sequence.append(conv_layer)
+            sequence.append(nonlinearity())
+            if maxp_stride > 1:
+                maxp_layer = torch.nn.MaxPool2d(maxp_stride)
+                sequence.append(maxp_layer)
+                maxp_layers.append(maxp_layer)
+            else:
+                maxp_layers.append(None)
+        self.conv = torch.nn.Sequential(*sequence)
+        self.conv_layers = conv_layers
+        self.maxp_layers = maxp_layers
+
+    def forward(self, input):
+        conv_outs = list()
+        x = input
+        for conv, maxp in zip(self.conv_layers, self.maxp_layers):
+            x = F.relu(conv(x))
+            conv_outs.append(x)
+            if maxp is not None:
+                x = maxp(x)
+        return x, conv_outs
+
+    def conv_out_size(self, h, w, c=None):
+        """Helper function ot return the output size for a given input shape,
+        without actually performing a forward pass through the model."""
+        for child in self.conv.children():
+            try:
+                h, w = conv2d_output_shape(h, w, child.kernel_size, child.stride, child.padding)
+            except AttributeError:
+                pass
+            try:
+                c = child.out_channels
+            except AttributeError:
+                pass
+        return h * w * c
+
+    def conv_layer_shapes(self, h, w, c=None):
+        """Helper function ot return the output size for a given input shape,
+        without actually performing a forward pass through the model."""
+        shapes = list()
+        for child in self.conv.children():
+            try:
+                h, w = conv2d_output_shape(h, w, child.kernel_size, child.stride, child.padding)
+            except AttributeError:
+                pass
+            try:
+                c = child.out_channels
+                shapes.append((c, h, w))
+            except AttributeError:
+                pass
+        return shapes
+
+    def conv_out_shape(self, h, w, c=None):
+        shapes = self.conv_layer_shapes(h=h, w=w, c=c)
+        return shapes[-1]
+
+    def conv_out_shapes(self, *args, **kwargs):
+        return self.conv_layer_shapes(*args, **kwargs)
+
+
+class StDimEncoderModel(torch.nn.Module):
+
+    def __init__(self, image_shape, latent_size, channels=None, kernel_sizes=None, strides=None, paddings=None, hidden_sizes=None, kiaming_init=True):
+        super().__init__()
+        c, h, w = image_shape
+        self.conv = Conv2dStdimModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings, use_maxpool=False)
+        self._output_size = self.conv.conv_out_size(h, w)
+        self._output_shape = self.conv.conv_out_shape(h, w)
+        self._conv_layer_shapes = self.conv.conv_layer_shapes(h, w)
+        self.head = MlpModel(input_size=self._output_size, hidden_sizes=hidden_sizes, output_size=latent_size)
+        if kiaming_init:
+            self.apply(weight_init)
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1.0 / 255)
+        else:
+            img = observation
+        conv, conv_layers = self.conv(img.view(T * B, *img_shape))
+        c = self.head(conv_layers[-1].view(T * B, -1))
+        c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
+        conv_layers = restore_leading_dims(conv_layers, lead_dim, T, B)
+        return c, conv, conv_layers
+
+    @property
+    def conv_layer_shapes(self):
+        return self._conv_layer_shapes
+
+    @property
+    def conv_out_shapes(self):
+        return self._conv_layer_shapes
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+
+class StDimGlobalLocalContrastModel(torch.nn.Module):
+    """The anchor gets contrasted over the batch for each location in the
+    positive."""
+
+    def __init__(self, latent_size, local_size, anchor_hidden_sizes):
+        super().__init__()
+        self.anchor_mlp = MlpModel(input_size=latent_size, hidden_sizes=anchor_hidden_sizes, output_size=latent_size)
+        self.W = torch.nn.Linear(latent_size, local_size, bias=False)
+
+    def forward(self, anchor, positive):
+        anchor = anchor + self.anchor_mlp(anchor)
+        b, c, h, w = positive.shape
+        logits_list = list()
+        pred = self.W(anchor)
+        for y in range(h):
+            for x in range(w):
+                logits = torch.matmul(pred, positive[:, :, y, x].T)
+                logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
+                logits_list.append(logits)
+        return logits_list
+
+
+class StDimLocalLocalContrastModel(torch.nn.Module):
+
+    def __init__(self, local_size, anchor_hidden_sizes):
+        super().__init__()
+        self.anchor_mlp = MlpModel(input_size=local_size, hidden_sizes=anchor_hidden_sizes, output_size=local_size)
+        self.W = torch.nn.Linear(local_size, local_size, bias=False)
+
+    def forward(self, anchor, positive):
+        b, c, h, w = anchor.shape
+        logits_list = list()
+        for y in range(h):
+            for x in range(w):
+                anchor_xy = anchor[:, :, y, x]
+                anchor_xy = anchor_xy + self.anchor_mlp(anchor_xy)
+                pred_xy = self.W(anchor_xy)
+                logits = torch.matmul(pred_xy, positive[:, :, y, x].T)
+                logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
+                logits_list.append(logits)
+        return logits_list
+
+
+class VaeHeadModel(torch.nn.Module):
+
+    def __init__(self, latent_size, action_size, hidden_sizes):
+        super().__init__()
+        self.head = MlpModel(input_size=latent_size + action_size, hidden_sizes=hidden_sizes, output_size=latent_size * 2)
+        self._latent_size = latent_size
+
+    def forward(self, h, action=None):
+        """Assume [B] leading dimension."""
+        h = F.relu(h)
+        x = h if action is None else torch.cat([h, action], dim=-1)
+        head = self.head(x)
+        mu = head[:, :-self._latent_size]
+        logvar = head[:, self._latent_size:]
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = eps * std + mu
+        return z, mu, logvar
+
+
+class VaeDecoderModel(torch.nn.Module):
+
+    def __init__(self, latent_size, reshape, channels=None, kernel_sizes=None, strides=None, paddings=None, output_paddings=None):
+        super().__init__()
+        self.linear = torch.nn.Linear(latent_size, int(np.prod(reshape)))
+        self.convt = ConvTranspose2dModel(in_channels=reshape[0], channels=channels or [32, 32, 32, 9], kernel_sizes=kernel_sizes or [3, 3, 3, 3], strides=strides or [2, 2, 2, 1], paddings=paddings or [0, 0, 0, 0], output_paddings=output_paddings or [0, 1, 1, 0], sigmoid_output=True)
+        self.reshape = reshape
+
+    def forward(self, latent):
+        """Assume [B] leading dimension."""
+        x = self.linear(latent)
+        b, h = x.shape
+        x = x.reshape(b, *self.reshape)
+        convt = self.convt(x)
+        return convt
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1076,22 +2054,42 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (ContrastModel,
+     lambda: ([], {'latent_size': 4, 'anchor_hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
     (Conv2dModel,
      lambda: ([], {'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
+    (Conv2dStdimModel,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (ConvTranspose2dModel,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CppoModel,
+     lambda: ([], {'observation_shape': [4, 4], 'action_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DistributionalDuelingHeadModel,
      lambda: ([], {'input_size': 4, 'hidden_sizes': 4, 'output_size': 4, 'n_atoms': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (DistributionalHeadModel,
      lambda: ([], {'input_size': 4, 'layer_sizes': 1, 'output_size': 4, 'n_atoms': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DmlabConv2dModel,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
     (DuelingHeadModel,
      lambda: ([], {'input_size': 4, 'hidden_sizes': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (MlpModel,
      lambda: ([], {'input_size': 4, 'hidden_sizes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1108,9 +2106,29 @@ TESTCASES = [
      lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SacActorModel,
+     lambda: ([], {'input_size': 4, 'action_size': 4, 'hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (SacCriticModel,
+     lambda: ([], {'input_size': 4, 'action_size': 4, 'hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (StDimGlobalLocalContrastModel,
+     lambda: ([], {'latent_size': 4, 'local_size': 4, 'anchor_hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StDimLocalLocalContrastModel,
+     lambda: ([], {'local_size': 4, 'anchor_hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (VMlpModel,
      lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VaeDecoderModel,
+     lambda: ([], {'latent_size': 4, 'reshape': [4, 4]}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
 ]
 
@@ -1141,4 +2159,34 @@ class Test_astooke_rlpyt(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

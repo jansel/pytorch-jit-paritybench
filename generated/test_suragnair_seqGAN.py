@@ -167,7 +167,7 @@ class Generator(nn.Module):
         for i in range(self.max_seq_len):
             out, h = self.forward(inp, h)
             out = torch.multinomial(torch.exp(out), 1)
-            samples[:, (i)] = out.view(-1).data
+            samples[:, i] = out.view(-1).data
             inp = out.view(-1)
         return samples
 
@@ -215,29 +215,4 @@ class Generator(nn.Module):
             for j in range(batch_size):
                 loss += -out[j][target.data[i][j]] * reward[j]
         return loss / batch_size
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (Discriminator,
-     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
-     True),
-    (Generator,
-     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
-     True),
-]
-
-class Test_suragnair_seqGAN(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

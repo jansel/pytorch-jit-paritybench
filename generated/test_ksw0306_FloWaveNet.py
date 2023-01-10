@@ -400,11 +400,11 @@ TESTCASES = [
      False),
     (Conv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
     (ZeroConv1d,
      lambda: ([], {'in_channel': 4, 'out_channel': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
 ]
 

@@ -122,7 +122,7 @@ def th_batch_map_coordinates(input, coords, order=1):
 
     def _get_vals_by_coords(input, coords):
         indices = torch.stack([idx, th_flatten(coords[..., 0]), th_flatten(coords[..., 1])], 1)
-        inds = indices[:, (0)] * input.size(1) * input.size(2) + indices[:, (1)] * input.size(2) + indices[:, (2)]
+        inds = indices[:, 0] * input.size(1) * input.size(2) + indices[:, 1] * input.size(2) + indices[:, 2]
         vals = th_flatten(input).index_select(0, inds)
         vals = vals.view(batch_size, n_coords)
         return vals

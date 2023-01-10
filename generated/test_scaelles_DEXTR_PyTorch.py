@@ -262,7 +262,7 @@ class ResNet(nn.Module):
                     module.weight[:, :3, :, :].data = deepcopy(module_ori.weight.data)
                     module.bias = deepcopy(module_ori.bias)
                     for i in range(3, int(module.weight.data.shape[1])):
-                        module.weight[:, (i), :, :].data = deepcopy(module_ori.weight[:, (-1), :, :][:, (np.newaxis), :, :].data)
+                        module.weight[:, i, :, :].data = deepcopy(module_ori.weight[:, -1, :, :][:, np.newaxis, :, :].data)
                     flag = 1
                 elif module.weight.data.shape == module_ori.weight.data.shape:
                     module.weight.data = deepcopy(module_ori.weight.data)

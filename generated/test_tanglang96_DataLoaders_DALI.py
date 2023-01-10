@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+base = _module
 cifar10 = _module
 imagenet = _module
 
@@ -42,8 +43,5 @@ from torchvision.datasets import CIFAR10
 import torchvision.transforms as transforms
 
 
-import torch.utils.data
-
-
-import torchvision.datasets as datasets
+from torchvision import datasets
 

@@ -3,31 +3,62 @@ _module = sys.modules[__name__]
 del sys
 allennlp = _module
 commands = _module
+_checklist_internal = _module
+build_vocab = _module
+cached_path = _module
+checklist = _module
+count_instances = _module
+diff = _module
 evaluate = _module
 find_learning_rate = _module
 predict = _module
 print_results = _module
+push_to_hf = _module
 subcommand = _module
 test_install = _module
 train = _module
 common = _module
+cached_transformers = _module
 checks = _module
 file_utils = _module
 from_params = _module
 lazy = _module
 logging = _module
+meta = _module
+model_card = _module
 params = _module
 plugins = _module
 registrable = _module
-tee = _module
+sequences = _module
+task_card = _module
 testing = _module
+checklist_test = _module
+confidence_check_test = _module
+distributed_test = _module
+interpret_test = _module
 model_test_case = _module
 test_case = _module
 tqdm = _module
 util = _module
+confidence_checks = _module
+normalization_bias_verification = _module
+task_checklists = _module
+question_answering_suite = _module
+sentiment_analysis_suite = _module
+task_suite = _module
+textual_entailment_suite = _module
+utils = _module
+verification_base = _module
 data = _module
 batch = _module
-dataloader = _module
+data_loaders = _module
+data_collator = _module
+data_loader = _module
+multiprocess_data_loader = _module
+multitask_data_loader = _module
+multitask_epoch_sampler = _module
+multitask_scheduler = _module
+simple_data_loader = _module
 dataset_readers = _module
 babi = _module
 conll2003 = _module
@@ -35,6 +66,7 @@ dataset_reader = _module
 dataset_utils = _module
 span_utils = _module
 interleaving_dataset_reader = _module
+multitask = _module
 sequence_tagging = _module
 sharded_dataset_reader = _module
 text_classification_json = _module
@@ -52,12 +84,15 @@ namespace_swapping_field = _module
 sequence_field = _module
 sequence_label_field = _module
 span_field = _module
+tensor_field = _module
 text_field = _module
+transformer_text_field = _module
+image_loader = _module
 instance = _module
 samplers = _module
+batch_sampler = _module
 bucket_batch_sampler = _module
 max_tokens_batch_sampler = _module
-samplers = _module
 token_indexers = _module
 elmo_indexer = _module
 pretrained_transformer_indexer = _module
@@ -72,16 +107,32 @@ letters_digits_tokenizer = _module
 pretrained_transformer_tokenizer = _module
 sentence_splitter = _module
 spacy_tokenizer = _module
-token = _module
+token_class = _module
 tokenizer = _module
 whitespace_tokenizer = _module
 vocabulary = _module
+evaluation = _module
+evaluator = _module
+postprocessors = _module
+serializers = _module
+fairness = _module
+adversarial_bias_mitigator = _module
+bias_direction = _module
+bias_direction_wrappers = _module
+bias_metrics = _module
+bias_mitigator_applicator = _module
+bias_mitigator_wrappers = _module
+bias_mitigators = _module
+bias_utils = _module
+fairness_metrics = _module
 interpret = _module
 attackers = _module
 attacker = _module
 hotflip = _module
 input_reduction = _module
-utils = _module
+influence_interpreters = _module
+influence_interpreter = _module
+simple_influence = _module
 saliency_interpreters = _module
 integrated_gradient = _module
 saliency_interpreter = _module
@@ -90,7 +141,11 @@ smooth_gradient = _module
 models = _module
 archival = _module
 basic_classifier = _module
+heads = _module
+classifier_head = _module
+head = _module
 model = _module
+multitask = _module
 simple_tagger = _module
 modules = _module
 attention = _module
@@ -100,9 +155,18 @@ bilinear_attention = _module
 cosine_attention = _module
 dot_product_attention = _module
 linear_attention = _module
+scaled_dot_product_attention = _module
 augmented_lstm = _module
+backbones = _module
+backbone = _module
+pretrained_transformer_backbone = _module
+vilbert_backbone = _module
 bimpm_matching = _module
 conditional_random_field = _module
+conditional_random_field = _module
+conditional_random_field_wemission = _module
+conditional_random_field_wlannoy = _module
+conditional_random_field_wtrans = _module
 elmo = _module
 elmo_lstm = _module
 encoder_base = _module
@@ -119,6 +183,7 @@ cosine_matrix_attention = _module
 dot_product_matrix_attention = _module
 linear_matrix_attention = _module
 matrix_attention = _module
+scaled_dot_product_matrix_attention = _module
 maxout = _module
 residual_with_layer_dropout = _module
 sampled_softmax_loss = _module
@@ -143,8 +208,10 @@ softmax_loss = _module
 span_extractors = _module
 bidirectional_endpoint_span_extractor = _module
 endpoint_span_extractor = _module
+max_pooling_span_extractor = _module
 self_attentive_span_extractor = _module
 span_extractor = _module
+span_extractor_with_span_width_embedding = _module
 stacked_alternating_lstm = _module
 stacked_bidirectional_lstm = _module
 text_field_embedders = _module
@@ -161,11 +228,40 @@ pretrained_transformer_embedder = _module
 pretrained_transformer_mismatched_embedder = _module
 token_characters_encoder = _module
 token_embedder = _module
+transformer = _module
+activation_layer = _module
+attention_module = _module
+bimodal_attention = _module
+bimodal_connection_layer = _module
+bimodal_encoder = _module
+layer_norm = _module
+output_layer = _module
+positional_encoding = _module
+t5 = _module
+transformer_embeddings = _module
+transformer_layer = _module
+transformer_module = _module
+transformer_pooler = _module
+transformer_stack = _module
+util = _module
+util = _module
+vision = _module
+grid_embedder = _module
+image2image = _module
+region_detector = _module
 nn = _module
 activations = _module
 beam_search = _module
+checkpoint = _module
+checkpoint_wrapper = _module
+fairscale_checkpoint_wrapper = _module
 chu_liu_edmonds = _module
 initializers = _module
+module = _module
+parallel = _module
+ddp_accelerator = _module
+fairscale_fsdp_accelerator = _module
+sharded_module_mixin = _module
 regularizers = _module
 regularizer = _module
 regularizer_applicator = _module
@@ -175,17 +271,31 @@ predictors = _module
 predictor = _module
 sentence_tagger = _module
 text_classifier = _module
+sanity_checks = _module
 tools = _module
 archive_surgery = _module
 create_elmo_embeddings_from_vocab = _module
 inspect_cache = _module
 training = _module
+callbacks = _module
+backward = _module
+callback = _module
+console_logger = _module
+log_writer = _module
+should_validate = _module
+tensorboard = _module
+track_epoch = _module
+wandb = _module
 checkpointer = _module
+gradient_descent_trainer = _module
 learning_rate_schedulers = _module
+combined = _module
 cosine = _module
 learning_rate_scheduler = _module
+linear_with_warmup = _module
 noam = _module
 polynomial_decay = _module
+pytorch_lr_schedulers = _module
 slanted_triangular = _module
 metric_tracker = _module
 metrics = _module
@@ -200,6 +310,8 @@ entropy = _module
 evalb_bracketing_scorer = _module
 f1_measure = _module
 fbeta_measure = _module
+fbeta_multi_label_measure = _module
+fbeta_verbose_measure = _module
 mean_absolute_error = _module
 metric = _module
 pearson_correlation = _module
@@ -216,18 +328,22 @@ moving_average = _module
 no_op_trainer = _module
 optimizers = _module
 scheduler = _module
-tensorboard_writer = _module
 trainer = _module
 util = _module
 version = _module
 benchmarks = _module
 character_tokenizer_bench = _module
+util_bench = _module
 resume_daemon = _module
 run_with_beaker = _module
 build_docs_config = _module
 check_links = _module
+check_torch_version = _module
+close_stale_issues = _module
 get_version = _module
+ping_issue_assignees = _module
 py2md = _module
+release_notes = _module
 resume_daemon_test = _module
 basic_example = _module
 py2md_test = _module
@@ -236,6 +352,9 @@ setup = _module
 test_fixtures = _module
 d = _module
 tests = _module
+build_vocab_test = _module
+cached_path_test = _module
+diff_test = _module
 evaluate_test = _module
 find_learning_rate_test = _module
 main_test = _module
@@ -244,25 +363,36 @@ predict_test = _module
 print_results_test = _module
 test_install_test = _module
 train_test = _module
+cached_transformers_test = _module
 file_utils_test = _module
 from_params_test = _module
 logging_test = _module
+model_card_test = _module
 params_test = _module
 plugins_test = _module
+push_to_hub_test = _module
 registrable_test = _module
+sequences_test = _module
+task_card_test = _module
 testing = _module
 util_test = _module
+normalization_bias_verification_test = _module
+sentiment_analysis_suite_test = _module
+task_suite_test = _module
+utils_test = _module
+multiprocess_data_loader_test = _module
+multitask_data_loader_test = _module
+multitask_scheduler_test = _module
 babi_reader_test = _module
+conll2003_test = _module
 dataset_reader_test = _module
 span_utils_test = _module
 interleaving_dataset_reader_test = _module
-lazy_dataset_reader_test = _module
 sequence_tagging_test = _module
 sharded_dataset_reader_test = _module
 text_classification_json_test = _module
 dataset_test = _module
 adjacency_field_test = _module
-array_field_test = _module
 field_test = _module
 flag_field_test = _module
 index_field_test = _module
@@ -272,7 +402,10 @@ metadata_field_test = _module
 multilabel_field_test = _module
 sequence_label_field_test = _module
 span_field_test = _module
+tensor_field_test = _module
 text_field_test = _module
+transformer_text_field_test = _module
+image_loader_test = _module
 instance_test = _module
 bucket_batch_sampler_test = _module
 max_tokens_batch_sampler_test = _module
@@ -289,21 +422,32 @@ pretrained_transformer_tokenizer_test = _module
 sentence_splitter_test = _module
 spacy_tokenizer_test = _module
 vocabulary_test = _module
+evaluator_tests = _module
+serializer_test = _module
+bias_direction_test = _module
+bias_metrics_test = _module
+bias_mitigators_test = _module
+bias_utils_test = _module
+fairness_metrics_test = _module
 hotflip_test = _module
 input_reduction_test = _module
 integrated_gradient_test = _module
 simple_gradient_test = _module
+simple_influence_test = _module
 smooth_gradient_test = _module
 archival_test = _module
 basic_classifier_test = _module
 model_test = _module
+multitask_test = _module
 simple_tagger_test = _module
 test_model_test_case = _module
 additive_attention_test = _module
+attention_test = _module
 bilinear_attention_test = _module
 cosine_attention_test = _module
 dot_product_attention_test = _module
 linear_attention_test = _module
+scaled_dot_product_attention_test = _module
 augmented_lstm_test = _module
 bimpm_matching_test = _module
 conditional_random_field_test = _module
@@ -318,6 +462,8 @@ bilinear_matrix_attention_test = _module
 cosine_matrix_attention_test = _module
 dot_product_matrix_attention_test = _module
 linear_matrix_attention_test = _module
+matrix_attention_test = _module
+scaled_dot_product_matrix_attention_test = _module
 maxout_test = _module
 residual_with_layer_dropout_test = _module
 sampled_softmax_loss_test = _module
@@ -330,6 +476,7 @@ pass_through_encoder_test = _module
 pytorch_seq2seq_wrapper_test = _module
 pytorch_transformer_wrapper_test = _module
 seq2vec_encoder_test = _module
+bert_pooler_test = _module
 boe_encoder_test = _module
 cls_pooler_test = _module
 cnn_encoder_test = _module
@@ -337,6 +484,7 @@ cnn_highway_encoder_test = _module
 pytorch_seq2vec_wrapper_test = _module
 bidirectional_endpoint_span_extractor_test = _module
 endpoint_span_extractor_test = _module
+max_pooling_span_extractor_test = _module
 self_attentive_span_extractor_test = _module
 stacked_alternating_lstm_test = _module
 stacked_bidirectional_lstm_test = _module
@@ -350,9 +498,28 @@ pass_through_embedder_test = _module
 pretrained_transformer_embedder_test = _module
 pretrained_transformer_mismatched_embedder_test = _module
 token_characters_encoder_test = _module
+activation_layer_test = _module
+bimodal_attention_test = _module
+bimodal_encoder_test = _module
+output_layer_test = _module
+positional_encoding_test = _module
+self_attention_test = _module
+t5_self_attention_test = _module
+t5_test = _module
+toolkit_test = _module
+transformer_embeddings_test = _module
+transformer_layer_test = _module
+transformer_module_test = _module
+transformer_pooler_test = _module
+transformer_stack_test = _module
+grid_embedder_test = _module
+region_detector_test = _module
 beam_search_test = _module
+checkpoint_wrapper_test = _module
+fairscale_checkpoint_wrapper_test = _module
 chu_liu_edmonds_test = _module
 initializers_test = _module
+fairscale_fsdp_accelerator_test = _module
 pretrained_model_initializer_test = _module
 regularizers_test = _module
 util_test = _module
@@ -360,11 +527,13 @@ predictor_test = _module
 sentence_tagger_test = _module
 text_classifier_test = _module
 checkpointer_test = _module
+combined_test = _module
 cosine_test = _module
 learning_rate_scheduler_test = _module
 slanted_triangular_test = _module
 attachment_scores_test = _module
 auc_test = _module
+average_test = _module
 bleu_test = _module
 boolean_accuracy_test = _module
 categorical_accuracy_test = _module
@@ -373,6 +542,8 @@ entropy_test = _module
 evalb_bracketing_scorer_test = _module
 f1_measure_test = _module
 fbeta_measure_test = _module
+fbeta_multi_label_measure_test = _module
+fbeta_verbose_measure_test = _module
 mean_absolute_error_test = _module
 pearson_correlation_test = _module
 rouge_test = _module
@@ -416,16 +587,28 @@ import warnings
 import logging
 
 
-import torch
-
-
-from typing import Any
+from typing import Union
 
 
 from typing import Dict
 
 
 from typing import List
+
+
+from typing import Tuple
+
+
+from typing import NamedTuple
+
+
+from typing import cast
+
+
+import torch
+
+
+from typing import Any
 
 
 from typing import Optional
@@ -437,28 +620,55 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 
-from typing import Union
-
-
 import re
 
 
 from torch import cuda
 
 
-import copy
+from abc import ABC
 
 
-from typing import Iterable
+from collections import defaultdict
+
+
+from typing import Callable
 
 
 from typing import Set
 
 
-from numpy.testing import assert_allclose
+from typing import Iterator
+
+
+from typing import Iterable
+
+
+from typing import MutableMapping
+
+
+import time
+
+
+import numpy as np
+
+
+from torch import Tensor
+
+
+from torch.testing import assert_allclose
+
+
+import copy
 
 
 import random
+
+
+import numpy
+
+
+from numpy.testing import assert_allclose
 
 
 from itertools import islice
@@ -467,70 +677,88 @@ from itertools import islice
 from itertools import zip_longest
 
 
-from typing import Callable
-
-
 from typing import Generator
-
-
-from typing import Iterator
-
-
-from typing import Tuple
 
 
 from typing import TypeVar
 
 
-import numpy
+from typing import Sequence
 
 
-from collections import defaultdict
+from torch import nn as nn
 
 
-from torch.utils import data
-
-
-import itertools
-
-
-from torch.utils.data import Dataset
-
-
-from torch.utils.data import IterableDataset
+from abc import abstractmethod
 
 
 from copy import deepcopy
 
 
-from typing import Generic
+import torch.nn as nn
 
 
-from typing import Sequence
+from collections import Counter
 
 
-from typing import cast
+from collections import deque
 
 
-from typing import MutableMapping
+from queue import Full
 
 
-from typing import Mapping
+import itertools
 
 
 import math
 
 
-import numpy as np
+from typing import Generic
 
 
-from typing import NamedTuple
+import torch.nn.functional
+
+
+import torchvision
+
+
+from torch import FloatTensor
+
+
+from torch import IntTensor
+
+
+from typing import Mapping
+
+
+import sklearn
+
+
+import scipy
+
+
+from scipy.stats import wasserstein_distance
+
+
+from torch.distributions.categorical import Categorical
+
+
+from torch.distributions.kl import kl_divergence
+
+
+from torch import autograd
+
+
+import torch.autograd as autograd
 
 
 from torch.nn import Module
 
 
 from typing import Type
+
+
+import inspect
 
 
 from torch.nn.modules.linear import Linear
@@ -554,9 +782,6 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
-import torch.nn as nn
-
-
 from torch.nn.modules import Dropout
 
 
@@ -575,34 +800,61 @@ from torch.nn import Conv1d
 from torch.nn import Linear
 
 
-import inspect
-
-
 from typing import BinaryIO
 
 
 from torch.nn.functional import embedding
 
 
+from typing import TYPE_CHECKING
+
+
+from torch.nn import CrossEntropyLoss
+
+
+from collections import OrderedDict
+
+
+import torchvision.ops.boxes as box_ops
+
+
+from inspect import signature
+
+
+import functools
+
+
+from torch.utils.checkpoint import CheckpointFunction
+
+
 import torch.nn.init
+
+
+from typing import OrderedDict
+
+
+from torch.cuda import amp
+
+
+from torch.nn.utils import clip_grad_norm_
+
+
+from itertools import chain
 
 
 from torch.utils.hooks import RemovableHandle
 
 
-from torch import Tensor
-
-
 from torch import backends
 
 
-import time
+from typing import Deque
+
+
+from torch.cuda.amp.grad_scaler import OptState
 
 
 from sklearn import metrics
-
-
-from collections import Counter
 
 
 import scipy.stats as stats
@@ -611,16 +863,7 @@ import scipy.stats as stats
 import torch.optim.lr_scheduler
 
 
-from torch.nn.parallel import DistributedDataParallel
-
-
-from torch.nn.utils import clip_grad_norm_
-
-
-from torch.utils.data import DataLoader
-
-
-from collections import OrderedDict
+from torch import allclose
 
 
 from numpy.testing import assert_almost_equal
@@ -647,9 +890,6 @@ from torch.nn import Embedding
 from numpy.testing import assert_array_almost_equal
 
 
-from torch.testing import assert_allclose
-
-
 from sklearn.metrics import precision_recall_fscore_support
 
 
@@ -662,7 +902,10 @@ class ConfigurationError(Exception):
     (e.g. missing properties, invalid properties, unknown properties).
     """
 
-    def __init__(self, message):
+    def __reduce__(self) ->Union[str, Tuple[Any, ...]]:
+        return type(self), (self.message,)
+
+    def __init__(self, message: str):
         super().__init__()
         self.message = message
 
@@ -725,170 +968,25 @@ def _replace_none(params: Any) ->Any:
     return params
 
 
-def url_to_filename(url: str, etag: str=None) ->str:
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def _find_latest_cached(url: str, cache_dir: str) ->Optional[str]:
-    filename = url_to_filename(url)
-    cache_path = os.path.join(cache_dir, filename)
-    candidates: List[Tuple[str, float]] = []
-    for path in glob.glob(cache_path + '*'):
-        if path.endswith('.json'):
-            continue
-        mtime = os.path.getmtime(path)
-        candidates.append((path, mtime))
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    if candidates:
-        return candidates[0][0]
-    return None
-
-
-def _http_etag(url: str) ->Optional[str]:
-    with _session_with_backoff() as session:
-        response = session.head(url, allow_redirects=True)
-    if response.status_code != 200:
-        raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
-    return response.headers.get('ETag')
-
-
-class Tqdm:
-    default_mininterval: float = 0.1
-
-    @staticmethod
-    def set_default_mininterval(value: float) ->None:
-        Tqdm.default_mininterval = value
-
-    @staticmethod
-    def set_slower_interval(use_slower_interval: bool) ->None:
-        """
-        If `use_slower_interval` is `True`, we will dramatically slow down `tqdm's` default
-        output rate.  `tqdm's` default output rate is great for interactively watching progress,
-        but it is not great for log files.  You might want to set this if you are primarily going
-        to be looking at output through log files, not the terminal.
-        """
-        if use_slower_interval:
-            Tqdm.default_mininterval = 10.0
-        else:
-            Tqdm.default_mininterval = 0.1
-
-    @staticmethod
-    def tqdm(*args, **kwargs):
-        new_kwargs = {'mininterval': Tqdm.default_mininterval, **kwargs}
-        return _tqdm(*args, **new_kwargs)
-
-
-def _get_s3_resource():
-    session = boto3.session.Session()
-    if session.get_credentials() is None:
-        s3_resource = session.resource('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
-    else:
-        s3_resource = session.resource('s3')
-    return s3_resource
-
-
-def _s3_request(func: Callable):
-    """
-    Wrapper function for s3 requests in order to create more helpful error
-    messages.
-    """
-
-    @wraps(func)
-    def wrapper(url: str, *args, **kwargs):
-        try:
-            return func(url, *args, **kwargs)
-        except ClientError as exc:
-            if int(exc.response['Error']['Code']) == 404:
-                raise FileNotFoundError('file {} not found'.format(url))
-            else:
-                raise
-    return wrapper
-
-
-def _split_s3_path(url: str) ->Tuple[str, str]:
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
-
-
-@_s3_request
-def _s3_etag(url: str) ->Optional[str]:
-    """Check ETag on S3 object."""
-    s3_resource = _get_s3_resource()
-    bucket_name, s3_path = _split_s3_path(url)
-    s3_object = s3_resource.Object(bucket_name, s3_path)
-    return s3_object.e_tag
-
-
 logger = logging.getLogger(__name__)
 
 
-def get_from_cache(url: str, cache_dir: str=None) ->str:
-    """
-    Given a URL, look for the corresponding dataset in the local cache.
-    If it's not there, download it. Then return the path to the cached file.
-    """
-    if cache_dir is None:
-        cache_dir = CACHE_DIRECTORY
-    os.makedirs(cache_dir, exist_ok=True)
-    try:
-        if url.startswith('s3://'):
-            etag = _s3_etag(url)
-        else:
-            etag = _http_etag(url)
-    except (ConnectionError, EndpointConnectionError):
-        logger.warning('Connection error occured while trying to fetch ETag for %s. Will attempt to use latest cached version of resource', url)
-        latest_cached = _find_latest_cached(url, cache_dir)
-        if latest_cached:
-            logger.info('ETag request failed with connection error, using latest cached version of %s: %s', url, latest_cached)
-            return latest_cached
-        else:
-            logger.error('Connection failed while trying to fetch ETag, and no cached version of %s could be found', url)
-            raise
-    filename = url_to_filename(url, etag)
-    cache_path = os.path.join(cache_dir, filename)
-    logger.info('checking cache for %s at %s', url, cache_path)
-    logger.info('waiting to acquire lock on %s', cache_path)
-    with FileLock(cache_path + '.lock'):
-        if os.path.exists(cache_path):
-            logger.info('cache of %s is up-to-date', url)
-        else:
-            with tempfile.NamedTemporaryFile() as temp_file:
-                logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
-                if url.startswith('s3://'):
-                    _s3_get(url, temp_file)
-                else:
-                    _http_get(url, temp_file)
-                temp_file.flush()
-                temp_file.seek(0)
-                logger.info('copying %s to cache at %s', temp_file.name, cache_path)
-                with open(cache_path, 'wb') as cache_file:
-                    shutil.copyfileobj(temp_file, cache_file)
-                logger.info('creating metadata file for %s', cache_path)
-                meta = {'url': url, 'etag': etag}
-                meta_path = cache_path + '.json'
-                with open(meta_path, 'w') as meta_file:
-                    json.dump(meta, meta_file)
-                logger.info('removing temp file %s', temp_file.name)
-    return cache_path
+def _cached_path(args: argparse.Namespace):
+    logger.info('Cache directory: %s', args.cache_dir)
+    if args.inspect:
+        if args.extract_archive or args.force_extract or args.remove:
+            raise RuntimeError('cached-path cannot accept --extract-archive, --force-extract, or --remove options when --inspect flag is used.')
+        inspect_cache(patterns=args.resources, cache_dir=args.cache_dir)
+    elif args.remove:
+        if args.extract_archive or args.force_extract or args.inspect:
+            raise RuntimeError('cached-path cannot accept --extract-archive, --force-extract, or --inspect options when --remove flag is used.')
+        if not args.resources:
+            raise RuntimeError("Missing positional argument(s) 'resources'. 'resources' is required when using the --remove option. If you really want to remove everything, pass '*' for 'resources'.")
+        reclaimed_space = remove_cache_entries(args.resources, cache_dir=args.cache_dir)
+        None
+    else:
+        for resource in args.resources:
+            None
 
 
 def infer_and_cast(value: Any):
@@ -923,77 +1021,41 @@ def infer_and_cast(value: Any):
         raise ValueError(f'cannot infer type of {value}')
 
 
-def unflatten(flat_dict: Dict[str, Any]) ->Dict[str, Any]:
-    """
-    Given a "flattened" dict with compound keys, e.g.
-        {"a.b": 0}
-    unflatten it:
-        {"a": {"b": 0}}
-    """
-    unflat: Dict[str, Any] = {}
-    for compound_key, value in flat_dict.items():
-        curr_dict = unflat
-        parts = compound_key.split('.')
-        for key in parts[:-1]:
-            curr_value = curr_dict.get(key)
-            if key not in curr_dict:
-                curr_dict[key] = {}
-                curr_dict = curr_dict[key]
-            elif isinstance(curr_value, dict):
-                curr_dict = curr_value
-            else:
-                raise ConfigurationError('flattened dictionary is invalid')
-        if not isinstance(curr_dict, dict) or parts[-1] in curr_dict:
-            raise ConfigurationError('flattened dictionary is invalid')
-        curr_dict[parts[-1]] = value
-    return unflat
-
-
-def parse_overrides(serialized_overrides: str) ->Dict[str, Any]:
-    if serialized_overrides:
-        ext_vars = _environment_variables()
-        return unflatten(json.loads(evaluate_snippet('', serialized_overrides, ext_vars=ext_vars)))
-    else:
-        return {}
-
-
-def with_fallback(preferred: Dict[str, Any], fallback: Dict[str, Any]) ->Dict[str, Any]:
-    """
-    Deep merge two dicts, preferring values from `preferred`.
-    """
-
-    def merge(preferred_value: Any, fallback_value: Any) ->Any:
-        if isinstance(preferred_value, dict) and isinstance(fallback_value, dict):
-            return with_fallback(preferred_value, fallback_value)
-        elif isinstance(preferred_value, dict) and isinstance(fallback_value, list):
-            merged_list = fallback_value
-            for elem_key, preferred_element in preferred_value.items():
-                try:
-                    index = int(elem_key)
-                    merged_list[index] = merge(preferred_element, fallback_value[index])
-                except ValueError:
-                    raise ConfigurationError(f'could not merge dicts - the preferred dict contains invalid keys (key {elem_key} is not a valid list index)')
-                except IndexError:
-                    raise ConfigurationError(f'could not merge dicts - the preferred dict contains invalid keys (key {index} is out of bounds)')
-            return merged_list
-        else:
-            return copy.deepcopy(preferred_value)
-    preferred_keys = set(preferred.keys())
-    fallback_keys = set(fallback.keys())
-    common_keys = preferred_keys & fallback_keys
-    merged: Dict[str, Any] = {}
-    for key in (preferred_keys - fallback_keys):
-        merged[key] = copy.deepcopy(preferred[key])
-    for key in (fallback_keys - preferred_keys):
-        merged[key] = copy.deepcopy(fallback[key])
-    for key in common_keys:
-        preferred_value = preferred[key]
-        fallback_value = fallback[key]
-        merged[key] = merge(preferred_value, fallback_value)
-    return merged
-
-
 T = TypeVar('T')
+
+
+def with_overrides(original: T, overrides_dict: Dict[str, Any], prefix: str='') ->T:
+    merged: T
+    keys: Union[Iterable[str], Iterable[int]]
+    if isinstance(original, list):
+        merged = [None] * len(original)
+        keys = range(len(original))
+    elif isinstance(original, dict):
+        merged = {}
+        keys = chain(original.keys(), (k for k in overrides_dict if '.' not in k and k not in original))
+    elif prefix:
+        raise ValueError(f"overrides for '{prefix[:-1]}.*' expected list or dict in original, found {type(original)} instead")
+    else:
+        raise ValueError(f'expected list or dict, found {type(original)} instead')
+    used_override_keys: Set[str] = set()
+    for key in keys:
+        if str(key) in overrides_dict:
+            merged[key] = copy.deepcopy(overrides_dict[str(key)])
+            used_override_keys.add(str(key))
+        else:
+            overrides_subdict = {}
+            for o_key in overrides_dict:
+                if o_key.startswith(f'{key}.'):
+                    overrides_subdict[o_key[len(f'{key}.'):]] = overrides_dict[o_key]
+                    used_override_keys.add(o_key)
+            if overrides_subdict:
+                merged[key] = with_overrides(original[key], overrides_subdict, prefix=prefix + f'{key}.')
+            else:
+                merged[key] = copy.deepcopy(original[key])
+    unused_override_keys = [(prefix + key) for key in set(overrides_dict.keys()) - used_override_keys]
+    if unused_override_keys:
+        raise ValueError(f'overrides dict contains unused keys: {unused_override_keys}')
+    return merged
 
 
 def takes_arg(obj, arg: str) ->bool:
@@ -1046,15 +1108,18 @@ def create_extras(cls: Type[T], extras: Dict[str, Any]) ->Dict[str, Any]:
     return subextras
 
 
-def infer_params(cls: Type[T], constructor: Callable[..., T]=None):
-    if constructor is None:
-        constructor = cls.__init__
-    signature = inspect.signature(constructor)
+def infer_method_params(cls: Type[T], method: Callable) ->Dict[str, inspect.Parameter]:
+    signature = inspect.signature(method)
     parameters = dict(signature.parameters)
     has_kwargs = False
+    var_positional_key = None
     for param in parameters.values():
         if param.kind == param.VAR_KEYWORD:
             has_kwargs = True
+        elif param.kind == param.VAR_POSITIONAL:
+            var_positional_key = param.name
+    if var_positional_key:
+        del parameters[var_positional_key]
     if not has_kwargs:
         return parameters
     super_class = None
@@ -1062,53 +1127,20 @@ def infer_params(cls: Type[T], constructor: Callable[..., T]=None):
         if issubclass(super_class_candidate, FromParams):
             super_class = super_class_candidate
             break
-    if not super_class:
-        raise RuntimeError('found a kwargs parameter with no inspectable super class')
-    super_parameters = infer_params(super_class)
+    if super_class:
+        super_parameters = infer_params(super_class)
+    else:
+        super_parameters = {}
     return {**super_parameters, **parameters}
 
 
-class Lazy(Generic[T]):
-    """
-    This class is for use when constructing objects using `FromParams`, when an argument to a
-    constructor has a _sequential dependency_ with another argument to the same constructor.  For
-    example, in a `Trainer` class you might want to take a `Model` and an `Optimizer` as arguments,
-    but the `Optimizer` needs to be constructed using the parameters from the `Model`.  You can give
-    the type annotation `Lazy[Optimizer]` to the optimizer argument, then inside the constructor
-    call `optimizer.construct(parameters=model.parameters)`.
+def infer_constructor_params(cls: Type[T], constructor: Union[Callable[..., T], Callable[[T], None]]=None) ->Dict[str, inspect.Parameter]:
+    if constructor is None:
+        constructor = cls.__init__
+    return infer_method_params(cls, constructor)
 
-    This is only recommended for use when you have registered a `@classmethod` as the constructor
-    for your class, instead of using `__init__`.  Having a `Lazy[]` type annotation on an argument
-    to an `__init__` method makes your class completely dependent on being constructed using the
-    `FromParams` pipeline, which is not a good idea.
 
-    The actual implementation here is incredibly simple; the logic that handles the lazy
-    construction is actually found in `FromParams`, where we have a special case for a `Lazy` type
-    annotation.
-
-    !!! Warning
-        The way this class is used in from_params means that optional constructor arguments CANNOT
-        be compared to `None` _before_ it is constructed. See the example below for correct usage.
-
-    ```
-    @classmethod
-    def my_constructor(cls, some_object: Lazy[MyObject] = None) -> MyClass:
-        ...
-        # WRONG! some_object will never be None at this point, it will be
-        # a Lazy[] that returns None
-        obj = some_object or MyObjectDefault()
-        # CORRECT:
-        obj = some_object.construct(kwarg=kwarg) or MyObjectDefault()
-        ...
-    ```
-
-    """
-
-    def __init__(self, constructor: Callable[..., T]):
-        self._constructor = constructor
-
-    def construct(self, **kwargs) ->Optional[T]:
-        return self._constructor(**kwargs)
+infer_params = infer_constructor_params
 
 
 _NO_DEFAULT = inspect.Parameter.empty
@@ -1136,8 +1168,8 @@ def remove_optional(annotation: type):
     """
     origin = getattr(annotation, '__origin__', None)
     args = getattr(annotation, '__args__', ())
-    if origin == Union and len(args) == 2 and args[1] == type(None):
-        return args[0]
+    if origin == Union:
+        return Union[tuple([arg for arg in args if arg != type(None)])]
     else:
         return annotation
 
@@ -1154,6 +1186,82 @@ def is_base_registrable(cls) ->bool:
         if issubclass(base_class, Registrable) and base_class is not Registrable:
             return False
     return True
+
+
+_RegistrableT = TypeVar('_RegistrableT', bound='Registrable')
+
+
+_SubclassRegistry = Dict[str, Tuple[type, Optional[str]]]
+
+
+_T = TypeVar('_T')
+
+
+def _get_suggestion(name: str, available: List[str]) ->Optional[str]:
+    for ch, repl_ch in (('_', '-'), ('-', '_')):
+        suggestion = name.replace(ch, repl_ch)
+        if suggestion in available:
+            return suggestion
+    for suggestion in available:
+        if edit_distance(name, suggestion, transpositions=True) == 1:
+            return suggestion
+    return None
+
+
+def replace_cr_with_newline(message: str) ->str:
+    """
+    TQDM and requests use carriage returns to get the training line to update for each batch
+    without adding more lines to the terminal output. Displaying those in a file won't work
+    correctly, so we'll just make sure that each batch shows up on its one line.
+    """
+    message = message.replace('\r', '').replace('\n', '').replace('\x1b[A', '')
+    if message and message[-1] != '\n':
+        message += '\n'
+    return message
+
+
+class TqdmToLogsWriter(object):
+
+    def __init__(self):
+        self.last_message_written_time = 0.0
+
+    def write(self, message):
+        file_friendly_message: Optional[str] = None
+        if common_logging.FILE_FRIENDLY_LOGGING:
+            file_friendly_message = replace_cr_with_newline(message)
+            if file_friendly_message.strip():
+                sys.stderr.write(file_friendly_message)
+        else:
+            sys.stderr.write(message)
+        now = time()
+        if now - self.last_message_written_time >= 10 or '100%' in message:
+            if file_friendly_message is None:
+                file_friendly_message = replace_cr_with_newline(message)
+            for message in file_friendly_message.split('\n'):
+                message = message.strip()
+                if len(message) > 0:
+                    logger.info(message)
+                    self.last_message_written_time = now
+
+    def flush(self):
+        sys.stderr.flush()
+
+
+class Tqdm:
+
+    @staticmethod
+    def tqdm(*args, **kwargs):
+        default_mininterval = 2.0 if common_logging.FILE_FRIENDLY_LOGGING else 0.1
+        new_kwargs = {'file': TqdmToLogsWriter(), 'mininterval': default_mininterval, **kwargs}
+        return _tqdm(*args, **new_kwargs)
+
+    @staticmethod
+    def set_lock(lock):
+        _tqdm.set_lock(lock)
+
+    @staticmethod
+    def get_lock():
+        return _tqdm.get_lock()
 
 
 def namespace_match(pattern: str, namespace: str):
@@ -1253,6 +1361,9 @@ def _read_pretrained_tokens(embeddings_file_uri: str) ->List[str]:
     return tokens
 
 
+JsonDict = Dict[str, Any]
+
+
 A = TypeVar('A')
 
 
@@ -1267,7 +1378,108 @@ def ensure_list(iterable: Iterable[A]) ->List[A]:
         return list(iterable)
 
 
+class LoadStateDictReturnType(NamedTuple):
+    missing_keys: List[str]
+    unexpected_keys: List[str]
+
+
+class ShardedModuleMixin:
+    """
+    Mixin class for sharded data parallel wrappers. Subclasses should implement
+    `get_original_module()` which returns a reference the original inner wrapped module.
+    """
+
+    def get_original_module(self) ->torch.nn.Module:
+        """
+        Get the original
+        """
+        raise NotImplementedError
+
+
+StateDictType = Union[Dict[str, torch.Tensor], 'OrderedDict[str, torch.Tensor]']
+
+
+def int_to_device(device: Union[int, torch.device]) ->torch.device:
+    if isinstance(device, torch.device):
+        return device
+    if device < 0:
+        return torch.device('cpu')
+    return torch.device(device)
+
+
 _DEFAULT_WEIGHTS = 'best.th'
+
+
+TextFieldTensors = Dict[str, Dict[str, torch.Tensor]]
+
+
+def get_forward_arguments(module: torch.nn.Module) ->Set[str]:
+    signature = inspect.signature(module.forward)
+    return set([arg for arg in signature.parameters if arg != 'self'])
+
+
+_V = TypeVar('_V', int, float, torch.Tensor)
+
+
+def is_distributed() ->bool:
+    """
+    Checks if the distributed process group is available and has been initialized
+    """
+    return dist.is_available() and dist.is_initialized()
+
+
+def distributed_device() ->torch.device:
+    """
+    Get the correct `torch.device` of the current process to use for distributed point-to-point communication.
+    """
+    if not is_distributed():
+        raise RuntimeError("'distributed_device()' can only be called within a distributed process group")
+    return int_to_device(-1 if dist.get_backend() != 'nccl' else torch.cuda.current_device())
+
+
+def dist_reduce(value: _V, reduce_op) ->_V:
+    """
+    Reduces the given `value` across all distributed worker nodes according the given
+    reduction operation.
+
+    If called outside of a distributed context, it will just return `value`.
+
+    # Parameters
+
+    value : `_V`
+        The value to reduce across distributed nodes.
+    reduce_op : `torch.distributed.ReduceOp`
+        The [reduction operation](https://pytorch.org/docs/stable/distributed.html#torch.distributed.ReduceOp)
+        to use.
+    **kwargs : `Any`
+        Additional arguments used to construct the tensor that will wrap `value`.
+
+    # Returns
+
+    `_V`
+        The final value.
+    """
+    if not is_distributed():
+        return value
+    device = distributed_device()
+    if isinstance(value, torch.Tensor):
+        value_tensor = value.clone()
+    else:
+        value_tensor = torch.tensor(value, device=device)
+    dist.all_reduce(value_tensor, op=reduce_op)
+    if isinstance(value, torch.Tensor):
+        return value_tensor
+    return value_tensor.item()
+
+
+def dist_reduce_sum(value: _V) ->_V:
+    """
+    Sums the given `value` across distributed worker nodes.
+    This is equivalent to calling `dist_reduce(v, dist.ReduceOp.SUM)`.
+    """
+    if not is_distributed():
+        return value
+    return dist_reduce(value, dist.ReduceOp.SUM)
 
 
 RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
@@ -1400,7 +1612,7 @@ class _EncoderBase(torch.nn.Module):
             the outputs back to their original batch order.
         """
         batch_size = mask.size(0)
-        num_valid = torch.sum(mask[:, (0)]).int().item()
+        num_valid = torch.sum(mask[:, 0]).int().item()
         sequence_lengths = get_lengths_from_binary_sequence_mask(mask)
         sorted_inputs, sorted_sequence_lengths, restoration_indices, sorting_indices = sort_batch_by_length(inputs, sequence_lengths)
         packed_sequence_input = pack_padded_sequence(sorted_inputs[:num_valid, :, :], sorted_sequence_lengths[:num_valid].data.tolist(), batch_first=True)
@@ -1502,7 +1714,7 @@ class _EncoderBase(torch.nn.Module):
         else:
             current_state_batch_size = self._states[0].size(1)
             new_state_batch_size = final_states[0].size(1)
-            used_new_rows_mask = [(state[(0), :, :].sum(-1) != 0.0).float().view(1, new_state_batch_size, 1) for state in new_unsorted_states]
+            used_new_rows_mask = [(state[0, :, :].sum(-1) != 0.0).float().view(1, new_state_batch_size, 1) for state in new_unsorted_states]
             new_states = []
             if current_state_batch_size > new_state_batch_size:
                 for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
@@ -1533,6 +1745,7 @@ class _EncoderBase(torch.nn.Module):
             mask_batch_size = mask.size(0)
             mask = mask.view(1, mask_batch_size, 1)
             new_states = []
+            assert self._states is not None
             for old_state in self._states:
                 old_state_batch_size = old_state.size(1)
                 if old_state_batch_size != mask_batch_size:
@@ -1765,7 +1978,58 @@ def iob1_tags_to_spans(tag_sequence: List[str], classes_to_ignore: List[str]=Non
     return list(spans)
 
 
-TextFieldTensors = Dict[str, Dict[str, torch.Tensor]]
+class TimeDistributed(torch.nn.Module):
+    """
+    Given an input shaped like `(batch_size, time_steps, [rest])` and a `Module` that takes
+    inputs like `(batch_size, [rest])`, `TimeDistributed` reshapes the input to be
+    `(batch_size * time_steps, [rest])`, applies the contained `Module`, then reshapes it back.
+
+    Note that while the above gives shapes with `batch_size` first, this `Module` also works if
+    `batch_size` is second - we always just combine the first two dimensions, then split them.
+
+    It also reshapes keyword arguments unless they are not tensors or their name is specified in
+    the optional `pass_through` iterable.
+    """
+
+    def __init__(self, module):
+        super().__init__()
+        self._module = module
+
+    def forward(self, *inputs, pass_through: List[str]=None, **kwargs):
+        pass_through = pass_through or []
+        reshaped_inputs = [self._reshape_tensor(input_tensor) for input_tensor in inputs]
+        some_input = None
+        if inputs:
+            some_input = inputs[-1]
+        reshaped_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor) and key not in pass_through:
+                if some_input is None:
+                    some_input = value
+                value = self._reshape_tensor(value)
+            reshaped_kwargs[key] = value
+        reshaped_outputs = self._module(*reshaped_inputs, **reshaped_kwargs)
+        if some_input is None:
+            raise RuntimeError('No input tensor to time-distribute')
+        tuple_output = True
+        if not isinstance(reshaped_outputs, tuple):
+            tuple_output = False
+            reshaped_outputs = reshaped_outputs,
+        outputs = []
+        for reshaped_output in reshaped_outputs:
+            new_size = some_input.size()[:2] + reshaped_output.size()[1:]
+            outputs.append(reshaped_output.contiguous().view(new_size))
+        if not tuple_output:
+            outputs = outputs[0]
+        return outputs
+
+    @staticmethod
+    def _reshape_tensor(input_tensor):
+        input_size = input_tensor.size()
+        if len(input_size) <= 2:
+            raise RuntimeError(f'No dimension to distribute: {input_size}')
+        squashed_shape = [-1] + list(input_size[2:])
+        return input_tensor.contiguous().view(*squashed_shape)
 
 
 def check_dimensions_match(dimension_1: int, dimension_2: int, dim_1_name: str, dim_2_name: str) ->None:
@@ -1883,7 +2147,7 @@ def sequence_cross_entropy_with_logits(logits: torch.FloatTensor, targets: torch
 
     """
     if average not in {None, 'token', 'batch'}:
-        raise ValueError("Got average f{average}, expected one of None, 'token', or 'batch'")
+        raise ValueError(f"Got average f{average}, expected one of None, 'token', or 'batch'")
     weights = weights
     non_batch_dims = tuple(range(1, len(weights.shape)))
     weights_batch_sum = weights.sum(dim=non_batch_dims)
@@ -1911,8 +2175,7 @@ def sequence_cross_entropy_with_logits(logits: torch.FloatTensor, targets: torch
     if label_smoothing is not None and label_smoothing > 0.0:
         num_classes = logits.size(-1)
         smoothing_value = label_smoothing / num_classes
-        one_hot_targets = torch.zeros_like(log_probs_flat).scatter_(-1, targets_flat, 1.0 - label_smoothing)
-        smoothed_targets = one_hot_targets + smoothing_value
+        smoothed_targets = torch.full_like(log_probs_flat, smoothing_value).scatter_(-1, targets_flat, 1.0 - label_smoothing + smoothing_value)
         negative_log_likelihood_flat = -log_probs_flat * smoothed_targets
         negative_log_likelihood_flat = negative_log_likelihood_flat.sum(-1, keepdim=True)
     else:
@@ -2223,13 +2486,13 @@ class AugmentedLstm(torch.nn.Module):
                     current_length_index += 1
             previous_memory = full_batch_previous_memory[0:current_length_index + 1].clone()
             previous_state = full_batch_previous_state[0:current_length_index + 1].clone()
-            timestep_input = sequence_tensor[0:current_length_index + 1, (index)]
+            timestep_input = sequence_tensor[0:current_length_index + 1, index]
             timestep_output, memory = self.cell(timestep_input, (previous_state, previous_memory), dropout_mask[0:current_length_index + 1] if dropout_mask is not None else None)
             full_batch_previous_memory = full_batch_previous_memory.data.clone()
             full_batch_previous_state = full_batch_previous_state.data.clone()
             full_batch_previous_memory[0:current_length_index + 1] = memory
             full_batch_previous_state[0:current_length_index + 1] = timestep_output
-            output_accumulator[0:current_length_index + 1, (index), :] = timestep_output
+            output_accumulator[0:current_length_index + 1, index, :] = timestep_output
         output_accumulator = pack_padded_sequence(output_accumulator, batch_lengths, batch_first=True)
         final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
@@ -2385,6 +2648,260 @@ class BiAugmentedLstm(torch.nn.Module):
         return output_sequence, final_state_tuple
 
 
+def sanitize_wordpiece(wordpiece: str) ->str:
+    """
+    Sanitizes wordpieces from BERT, RoBERTa or ALBERT tokenizers.
+    """
+    if wordpiece.startswith('##'):
+        return wordpiece[2:]
+    elif wordpiece.startswith('Ġ'):
+        return wordpiece[1:]
+    elif wordpiece.startswith('▁'):
+        return wordpiece[1:]
+    else:
+        return wordpiece
+
+
+class ScalarMix(torch.nn.Module):
+    """
+    Computes a parameterised scalar mixture of N tensors, `mixture = gamma * sum(s_k * tensor_k)`
+    where `s = softmax(w)`, with `w` and `gamma` scalar parameters.
+
+    In addition, if `do_layer_norm=True` then apply layer normalization to each tensor
+    before weighting.
+    """
+
+    def __init__(self, mixture_size: int, do_layer_norm: bool=False, initial_scalar_parameters: List[float]=None, trainable: bool=True) ->None:
+        super().__init__()
+        self.mixture_size = mixture_size
+        self.do_layer_norm = do_layer_norm
+        if initial_scalar_parameters is None:
+            initial_scalar_parameters = [0.0] * mixture_size
+        elif len(initial_scalar_parameters) != mixture_size:
+            raise ConfigurationError('Length of initial_scalar_parameters {} differs from mixture_size {}'.format(initial_scalar_parameters, mixture_size))
+        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor([initial_scalar_parameters[i]]), requires_grad=trainable) for i in range(mixture_size)])
+        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=trainable)
+
+    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None) ->torch.Tensor:
+        """
+        Compute a weighted average of the `tensors`.  The input tensors an be any shape
+        with at least two dimensions, but must all be the same shape.
+
+        When `do_layer_norm=True`, the `mask` is required input.  If the `tensors` are
+        dimensioned  `(dim_0, ..., dim_{n-1}, dim_n)`, then the `mask` is dimensioned
+        `(dim_0, ..., dim_{n-1})`, as in the typical case with `tensors` of shape
+        `(batch_size, timesteps, dim)` and `mask` of shape `(batch_size, timesteps)`.
+
+        When `do_layer_norm=False` the `mask` is ignored.
+        """
+        if len(tensors) != self.mixture_size:
+            raise ConfigurationError('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
+
+        def _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked):
+            tensor_masked = tensor * broadcast_mask
+            mean = torch.sum(tensor_masked) / num_elements_not_masked
+            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2) / num_elements_not_masked
+            return (tensor - mean) / torch.sqrt(variance + util.tiny_value_of_dtype(variance.dtype))
+        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
+        normed_weights = torch.split(normed_weights, split_size_or_sections=1)
+        if not self.do_layer_norm:
+            pieces = []
+            for weight, tensor in zip(normed_weights, tensors):
+                pieces.append(weight * tensor)
+            return self.gamma * sum(pieces)
+        else:
+            assert mask is not None
+            broadcast_mask = mask.unsqueeze(-1)
+            input_dim = tensors[0].size(-1)
+            num_elements_not_masked = torch.sum(mask) * input_dim
+            pieces = []
+            for weight, tensor in zip(normed_weights, tensors):
+                pieces.append(weight * _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked))
+            return self.gamma * sum(pieces)
+
+
+def get_device_of(tensor: torch.Tensor) ->int:
+    """
+    Returns the device of the tensor.
+    """
+    if not tensor.is_cuda:
+        return -1
+    else:
+        return tensor.get_device()
+
+
+def get_range_vector(size: int, device: int) ->torch.Tensor:
+    """
+    Returns a range vector with the desired size, starting at 0. The CUDA implementation
+    is meant to avoid copy data from CPU to GPU.
+    """
+    if device > -1:
+        return torch.LongTensor(size, device=device).fill_(1).cumsum(0) - 1
+    else:
+        return torch.arange(0, size, dtype=torch.long)
+
+
+def flatten_and_batch_shift_indices(indices: torch.Tensor, sequence_length: int) ->torch.Tensor:
+    """
+    This is a subroutine for [`batched_index_select`](./util.md#batched_index_select).
+    The given `indices` of size `(batch_size, d_1, ..., d_n)` indexes into dimension 2 of a
+    target tensor, which has size `(batch_size, sequence_length, embedding_size)`. This
+    function returns a vector that correctly indexes into the flattened target. The sequence
+    length of the target must be provided to compute the appropriate offsets.
+
+    ```python
+        indices = torch.ones([2,3], dtype=torch.long)
+        # Sequence length of the target tensor.
+        sequence_length = 10
+        shifted_indices = flatten_and_batch_shift_indices(indices, sequence_length)
+        # Indices into the second element in the batch are correctly shifted
+        # to take into account that the target tensor will be flattened before
+        # the indices are applied.
+        assert shifted_indices == [1, 1, 1, 11, 11, 11]
+    ```
+
+    # Parameters
+
+    indices : `torch.LongTensor`, required.
+    sequence_length : `int`, required.
+        The length of the sequence the indices index into.
+        This must be the second dimension of the tensor.
+
+    # Returns
+
+    offset_indices : `torch.LongTensor`
+    """
+    if torch.max(indices) >= sequence_length or torch.min(indices) < 0:
+        raise ConfigurationError(f'All elements in indices should be in range (0, {sequence_length - 1})')
+    offsets = get_range_vector(indices.size(0), get_device_of(indices)) * sequence_length
+    for _ in range(len(indices.size()) - 1):
+        offsets = offsets.unsqueeze(1)
+    offset_indices = indices + offsets
+    offset_indices = offset_indices.view(-1)
+    return offset_indices
+
+
+def batched_index_select(target: torch.Tensor, indices: torch.LongTensor, flattened_indices: Optional[torch.LongTensor]=None) ->torch.Tensor:
+    """
+    The given `indices` of size `(batch_size, d_1, ..., d_n)` indexes into the sequence
+    dimension (dimension 2) of the target, which has size `(batch_size, sequence_length,
+    embedding_size)`.
+
+    This function returns selected values in the target with respect to the provided indices, which
+    have size `(batch_size, d_1, ..., d_n, embedding_size)`. This can use the optionally
+    precomputed `flattened_indices` with size `(batch_size * d_1 * ... * d_n)` if given.
+
+    An example use case of this function is looking up the start and end indices of spans in a
+    sequence tensor. This is used in the
+    [CoreferenceResolver](https://docs.allennlp.org/models/main/models/coref/models/coref/)
+    model to select contextual word representations corresponding to the start and end indices of
+    mentions.
+
+    The key reason this can't be done with basic torch functions is that we want to be able to use look-up
+    tensors with an arbitrary number of dimensions (for example, in the coref model, we don't know
+    a-priori how many spans we are looking up).
+
+    # Parameters
+
+    target : `torch.Tensor`, required.
+        A 3 dimensional tensor of shape (batch_size, sequence_length, embedding_size).
+        This is the tensor to be indexed.
+    indices : `torch.LongTensor`
+        A tensor of shape (batch_size, ...), where each element is an index into the
+        `sequence_length` dimension of the `target` tensor.
+    flattened_indices : `Optional[torch.Tensor]`, optional (default = `None`)
+        An optional tensor representing the result of calling `flatten_and_batch_shift_indices`
+        on `indices`. This is helpful in the case that the indices can be flattened once and
+        cached for many batch lookups.
+
+    # Returns
+
+    selected_targets : `torch.Tensor`
+        A tensor with shape [indices.size(), target.size(-1)] representing the embedded indices
+        extracted from the batch flattened target tensor.
+    """
+    if flattened_indices is None:
+        flattened_indices = flatten_and_batch_shift_indices(indices, target.size(1))
+    flattened_target = target.view(-1, target.size(-1))
+    flattened_selected = flattened_target.index_select(0, flattened_indices)
+    selected_shape = list(indices.size()) + [target.size(-1)]
+    selected_targets = flattened_selected.view(*selected_shape)
+    return selected_targets
+
+
+def _check_incompatible_keys(module, missing_keys: List[str], unexpected_keys: List[str], strict: bool):
+    error_msgs: List[str] = []
+    if missing_keys:
+        error_msgs.append('Missing key(s) in state_dict: {}'.format(', '.join(f'"{k}"' for k in missing_keys)))
+    if unexpected_keys:
+        error_msgs.append('Unexpected key(s) in state_dict: {}'.format(', '.join(f'"{k}"' for k in unexpected_keys)))
+    if error_msgs and strict:
+        raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(module.__class__.__name__, '\n\t'.join(error_msgs)))
+
+
+def is_global_primary() ->bool:
+    """
+    Checks if the distributed process group is the global primary (rank = 0).
+    If the distributed process group is not available or has not been initialized,
+    this trivially returns `True`.
+    """
+    if not is_distributed():
+        return True
+    else:
+        return dist.get_rank() == 0
+
+
+def device_mapping(cuda_device: int):
+    """
+    In order to `torch.load()` a GPU-trained model onto a CPU (or specific GPU),
+    you have to supply a `map_location` function. Call this with
+    the desired `cuda_device` to get the function that `torch.load()` needs.
+    """
+
+    def inner_device_mapping(storage: torch.Storage, location) ->torch.Storage:
+        if cuda_device >= 0:
+            return storage
+        else:
+            return storage
+    return inner_device_mapping
+
+
+def apply_mask(values: torch.FloatTensor, mask: Union[torch.BoolTensor, torch.IntTensor, torch.FloatTensor]) ->torch.FloatTensor:
+    """
+    # Parameters
+
+    values : `torch.FloatTensor`
+        Shape `batch_size x num_attention_heads x source_seq_len x target_seq_len`
+    mask : `torch.BoolTensor`
+        Shape `batch_size x target_seq_len` OR `batch_size x 1 x 1 x target_seq_len`
+    """
+    if mask.dim() == 2:
+        mask = mask[:, None, None, :]
+    elif mask.dim() == 3:
+        mask = mask[:, None, :, :]
+    mask = mask
+    mask = (1.0 - mask) * min_value_of_dtype(values.dtype)
+    return values + mask
+
+
+FloatT = Union[torch.FloatTensor]
+
+
+IntT = Union[torch.IntTensor]
+
+
+def replicate_layers(layer: torch.nn.Module, num_copies: int):
+    """
+    # Parameters
+            layer (torch.nn.Module) - The torch layer that needs to be replicated.
+            num_copies (int) - Number of copies to create.
+
+    # Returns
+            A ModuleList that contains `num_copies` of the `layer`.
+    """
+    return torch.nn.ModuleList([deepcopy(layer) for _ in range(num_copies)])
+
+
 def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int, keepdim: bool=False) ->torch.Tensor:
     """
     To calculate max along certain dimensions on masked values
@@ -2524,11 +3041,11 @@ class ConditionalRandomField(torch.nn.Module):
     def __init__(self, num_tags: int, constraints: List[Tuple[int, int]]=None, include_start_end_transitions: bool=True) ->None:
         super().__init__()
         self.num_tags = num_tags
-        self.transitions = torch.nn.Parameter(torch.Tensor(num_tags, num_tags))
+        self.transitions = torch.nn.Parameter(torch.empty(num_tags, num_tags))
         if constraints is None:
-            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(1.0)
+            constraint_mask = torch.full((num_tags + 2, num_tags + 2), 1.0)
         else:
-            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(0.0)
+            constraint_mask = torch.full((num_tags + 2, num_tags + 2), 0.0)
             for i, j in constraints:
                 constraint_mask[i, j] = 1.0
         self._constraint_mask = torch.nn.Parameter(constraint_mask, requires_grad=False)
@@ -2544,10 +3061,19 @@ class ConditionalRandomField(torch.nn.Module):
             torch.nn.init.normal_(self.start_transitions)
             torch.nn.init.normal_(self.end_transitions)
 
-    def _input_likelihood(self, logits: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
-        """
-        Computes the (batch_size,) denominator term for the log-likelihood, which is the
-        sum of the likelihoods across all possible state sequences.
+    def _input_likelihood(self, logits: torch.Tensor, transitions: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
+        """Computes the (batch_size,) denominator term $Z(x)$, per example, for the log-likelihood
+
+        This is the sum of the likelihoods across all possible state sequences.
+
+        Args:
+            logits (torch.Tensor): a (batch_size, sequence_length num_tags) tensor of
+                unnormalized log-probabilities
+            transitions (torch.Tensor): a (batch_size, num_tags, num_tags) tensor of transition scores
+            mask (torch.BoolTensor): a (batch_size, sequence_length) tensor of masking flags
+
+        Returns:
+            torch.Tensor: (batch_size,) denominator term $Z(x)$, per example, for the log-likelihood
         """
         batch_size, sequence_length, num_tags = logits.size()
         mask = mask.transpose(0, 1).contiguous()
@@ -2558,7 +3084,7 @@ class ConditionalRandomField(torch.nn.Module):
             alpha = logits[0]
         for i in range(1, sequence_length):
             emit_scores = logits[i].view(batch_size, 1, num_tags)
-            transition_scores = self.transitions.view(1, num_tags, num_tags)
+            transition_scores = transitions.view(1, num_tags, num_tags)
             broadcast_alpha = alpha.view(batch_size, num_tags, 1)
             inner = broadcast_alpha + emit_scores + transition_scores
             alpha = util.logsumexp(inner, 1) * mask[i].view(batch_size, 1) + alpha * (~mask[i]).view(batch_size, 1)
@@ -2568,9 +3094,18 @@ class ConditionalRandomField(torch.nn.Module):
             stops = alpha
         return util.logsumexp(stops)
 
-    def _joint_likelihood(self, logits: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
-        """
-        Computes the numerator term for the log-likelihood, which is just score(inputs, tags)
+    def _joint_likelihood(self, logits: torch.Tensor, transitions: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
+        """Computes the numerator term for the log-likelihood, which is just score(inputs, tags)
+
+        Args:
+            logits (torch.Tensor): a (batch_size, sequence_length num_tags) tensor of unnormalized
+                log-probabilities
+            transitions (torch.Tensor): a (batch_size, num_tags, num_tags) tensor of transition scores
+            tags (torch.Tensor): output tag sequences (batch_size, sequence_length) $y$ for each input sequence
+            mask (torch.BoolTensor): a (batch_size, sequence_length) tensor of masking flags
+
+        Returns:
+            torch.Tensor: numerator term for the log-likelihood, which is just score(inputs, tags)
         """
         batch_size, sequence_length, _ = logits.data.shape
         logits = logits.transpose(0, 1).contiguous()
@@ -2582,7 +3117,7 @@ class ConditionalRandomField(torch.nn.Module):
             score = 0.0
         for i in range(sequence_length - 1):
             current_tag, next_tag = tags[i], tags[i + 1]
-            transition_score = self.transitions[current_tag.view(-1), next_tag.view(-1)]
+            transition_score = transitions[current_tag.view(-1), next_tag.view(-1)]
             emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
             score = score + transition_score * mask[i + 1] + emit_score * mask[i]
         last_tag_index = mask.sum(0).long() - 1
@@ -2598,13 +3133,23 @@ class ConditionalRandomField(torch.nn.Module):
         return score
 
     def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor=None) ->torch.Tensor:
-        """
-        Computes the log likelihood.
+        """Computes the log likelihood for the given batch of input sequences $(x,y)$
+
+        Args:
+            inputs (torch.Tensor): (batch_size, sequence_length, num_tags) tensor of logits for the inputs $x$
+            tags (torch.Tensor): (batch_size, sequence_length) tensor of tags $y$
+            mask (torch.BoolTensor, optional): (batch_size, sequence_length) tensor of masking flags.
+                Defaults to None.
+
+        Returns:
+            torch.Tensor: (batch_size,) log likelihoods $log P(y|x)$ for each input
         """
         if mask is None:
-            mask = torch.ones(*tags.size(), dtype=torch.bool)
-        log_denominator = self._input_likelihood(inputs, mask)
-        log_numerator = self._joint_likelihood(inputs, tags, mask)
+            mask = torch.ones(*tags.size(), dtype=torch.bool, device=inputs.device)
+        else:
+            mask = mask
+        log_denominator = self._input_likelihood(inputs, self.transitions, mask)
+        log_numerator = self._joint_likelihood(inputs, self.transitions, tags, mask)
         return torch.sum(log_numerator - log_denominator)
 
     def viterbi_tags(self, logits: torch.Tensor, mask: torch.BoolTensor=None, top_k: int=None) ->Union[List[VITERBI_DECODING], List[List[VITERBI_DECODING]]]:
@@ -2630,19 +3175,19 @@ class ConditionalRandomField(torch.nn.Module):
         logits, mask = logits.data, mask.data
         start_tag = num_tags
         end_tag = num_tags + 1
-        transitions = torch.Tensor(num_tags + 2, num_tags + 2).fill_(-10000.0)
+        transitions = torch.full((num_tags + 2, num_tags + 2), -10000.0, device=logits.device)
         constrained_transitions = self.transitions * self._constraint_mask[:num_tags, :num_tags] + -10000.0 * (1 - self._constraint_mask[:num_tags, :num_tags])
         transitions[:num_tags, :num_tags] = constrained_transitions.data
         if self.include_start_end_transitions:
-            transitions[(start_tag), :num_tags] = self.start_transitions.detach() * self._constraint_mask[(start_tag), :num_tags].data + -10000.0 * (1 - self._constraint_mask[(start_tag), :num_tags].detach())
-            transitions[:num_tags, (end_tag)] = self.end_transitions.detach() * self._constraint_mask[:num_tags, (end_tag)].data + -10000.0 * (1 - self._constraint_mask[:num_tags, (end_tag)].detach())
+            transitions[start_tag, :num_tags] = self.start_transitions.detach() * self._constraint_mask[start_tag, :num_tags].data + -10000.0 * (1 - self._constraint_mask[start_tag, :num_tags].detach())
+            transitions[:num_tags, end_tag] = self.end_transitions.detach() * self._constraint_mask[:num_tags, end_tag].data + -10000.0 * (1 - self._constraint_mask[:num_tags, end_tag].detach())
         else:
-            transitions[(start_tag), :num_tags] = -10000.0 * (1 - self._constraint_mask[(start_tag), :num_tags].detach())
-            transitions[:num_tags, (end_tag)] = -10000.0 * (1 - self._constraint_mask[:num_tags, (end_tag)].detach())
+            transitions[start_tag, :num_tags] = -10000.0 * (1 - self._constraint_mask[start_tag, :num_tags].detach())
+            transitions[:num_tags, end_tag] = -10000.0 * (1 - self._constraint_mask[:num_tags, end_tag].detach())
         best_paths = []
-        tag_sequence = torch.Tensor(max_seq_length + 2, num_tags + 2)
+        tag_sequence = torch.empty(max_seq_length + 2, num_tags + 2, device=logits.device)
         for prediction, prediction_mask in zip(logits, mask):
-            mask_indices = prediction_mask.nonzero().squeeze()
+            mask_indices = prediction_mask.nonzero(as_tuple=False).squeeze()
             masked_prediction = torch.index_select(prediction, 0, mask_indices)
             sequence_length = masked_prediction.shape[0]
             tag_sequence.fill_(-10000.0)
@@ -2660,61 +3205,269 @@ class ConditionalRandomField(torch.nn.Module):
         return best_paths
 
 
-class ScalarMix(torch.nn.Module):
+class ConditionalRandomFieldWeightEmission(ConditionalRandomField):
     """
-    Computes a parameterised scalar mixture of N tensors, `mixture = gamma * sum(s_k * tensor_k)`
-    where `s = softmax(w)`, with `w` and `gamma` scalar parameters.
+    This module uses the "forward-backward" algorithm to compute
+    the log-likelihood of its inputs assuming a conditional random field model.
 
-    In addition, if `do_layer_norm=True` then apply layer normalization to each tensor
-    before weighting.
+    See, e.g. http://www.cs.columbia.edu/~mcollins/fb.pdf
+
+    This is a weighted version of `ConditionalRandomField` which accepts a `label_weights`
+    parameter to be used in the loss function in order to give different weights for each
+    token depending on its label. The method implemented here is based on the simple idea
+    of weighting emission scores using the weight given for the corresponding tag.
+
+    There are two other sample weighting methods implemented. You can find more details
+    about them in: https://eraldoluis.github.io/2022/05/10/weighted-crf.html
+
+    # Parameters
+
+    num_tags : `int`, required
+        The number of tags.
+    label_weights : `List[float]`, required
+        A list of weights to be used in the loss function in order to
+        give different weights for each token depending on its label.
+        `len(label_weights)` must be equal to `num_tags`. This is useful to
+        deal with highly unbalanced datasets. The method implemented here is
+        based on the simple idea of weighting emission scores using the weight
+        given for the corresponding tag.
+    constraints : `List[Tuple[int, int]]`, optional (default = `None`)
+        An optional list of allowed transitions (from_tag_id, to_tag_id).
+        These are applied to `viterbi_tags()` but do not affect `forward()`.
+        These should be derived from `allowed_transitions` so that the
+        start and end transitions are handled correctly for your tag type.
+    include_start_end_transitions : `bool`, optional (default = `True`)
+        Whether to include the start and end transition parameters.
     """
 
-    def __init__(self, mixture_size: int, do_layer_norm: bool=False, initial_scalar_parameters: List[float]=None, trainable: bool=True) ->None:
-        super().__init__()
-        self.mixture_size = mixture_size
-        self.do_layer_norm = do_layer_norm
-        if initial_scalar_parameters is None:
-            initial_scalar_parameters = [0.0] * mixture_size
-        elif len(initial_scalar_parameters) != mixture_size:
-            raise ConfigurationError('Length of initial_scalar_parameters {} differs from mixture_size {}'.format(initial_scalar_parameters, mixture_size))
-        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor([initial_scalar_parameters[i]]), requires_grad=trainable) for i in range(mixture_size)])
-        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=trainable)
+    def __init__(self, num_tags: int, label_weights: List[float], constraints: List[Tuple[int, int]]=None, include_start_end_transitions: bool=True) ->None:
+        super().__init__(num_tags, constraints, include_start_end_transitions)
+        if label_weights is None:
+            raise ConfigurationError('label_weights must be given')
+        self.register_buffer('label_weights', torch.Tensor(label_weights))
 
-    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor=None) ->torch.Tensor:
+        """Computes the log likelihood for the given batch of input sequences $(x,y)$
+
+        Args:
+            inputs (torch.Tensor): (batch_size, sequence_length, num_tags) tensor of logits for the inputs $x$
+            tags (torch.Tensor): (batch_size, sequence_length) tensor of tags $y$
+            mask (torch.BoolTensor, optional): (batch_size, sequence_length) tensor of masking flags.
+                Defaults to None.
+
+        Returns:
+            torch.Tensor: (batch_size,) log likelihoods $log P(y|x)$ for each input
         """
-        Compute a weighted average of the `tensors`.  The input tensors an be any shape
-        with at least two dimensions, but must all be the same shape.
-
-        When `do_layer_norm=True`, the `mask` is required input.  If the `tensors` are
-        dimensioned  `(dim_0, ..., dim_{n-1}, dim_n)`, then the `mask` is dimensioned
-        `(dim_0, ..., dim_{n-1})`, as in the typical case with `tensors` of shape
-        `(batch_size, timesteps, dim)` and `mask` of shape `(batch_size, timesteps)`.
-
-        When `do_layer_norm=False` the `mask` is ignored.
-        """
-        if len(tensors) != self.mixture_size:
-            raise ConfigurationError('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
-
-        def _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked):
-            tensor_masked = tensor * broadcast_mask
-            mean = torch.sum(tensor_masked) / num_elements_not_masked
-            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2) / num_elements_not_masked
-            return (tensor - mean) / torch.sqrt(variance + util.tiny_value_of_dtype(variance.dtype))
-        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
-        normed_weights = torch.split(normed_weights, split_size_or_sections=1)
-        if not self.do_layer_norm:
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * tensor)
-            return self.gamma * sum(pieces)
+        if mask is None:
+            mask = torch.ones(*tags.size(), dtype=torch.bool, device=inputs.device)
         else:
-            broadcast_mask = mask.unsqueeze(-1)
-            input_dim = tensors[0].size(-1)
-            num_elements_not_masked = torch.sum(mask) * input_dim
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked))
-            return self.gamma * sum(pieces)
+            mask = mask
+        label_weights = self.label_weights
+        inputs = inputs * label_weights.view(1, 1, -1)
+        log_denominator = self._input_likelihood(inputs, self.transitions, mask)
+        log_numerator = self._joint_likelihood(inputs, self.transitions, tags, mask)
+        return torch.sum(log_numerator - log_denominator)
+
+
+class ConditionalRandomFieldWeightLannoy(ConditionalRandomField):
+    """
+    This module uses the "forward-backward" algorithm to compute
+    the log-likelihood of its inputs assuming a conditional random field model.
+
+    See, e.g. http://www.cs.columbia.edu/~mcollins/fb.pdf
+
+    This is a weighted version of `ConditionalRandomField` which accepts a `label_weights`
+    parameter to be used in the loss function in order to give different weights for each
+    token depending on its label. The method implemented here is based on the paper
+    *Weighted conditional random fields for supervised interpatient heartbeat
+    classification* proposed by De Lannoy et. al (2019).
+    See https://perso.uclouvain.be/michel.verleysen/papers/ieeetbe12gdl.pdf for more details.
+
+    There are two other sample weighting methods implemented. You can find more details
+    about them in: https://eraldoluis.github.io/2022/05/10/weighted-crf.html
+
+    # Parameters
+
+    num_tags : `int`, required
+        The number of tags.
+    label_weights : `List[float]`, required
+        A list of weights to be used in the loss function in order to
+        give different weights for each token depending on its label.
+        `len(label_weights)` must be equal to `num_tags`. This is useful to
+        deal with highly unbalanced datasets. The method implemented here was based on
+        the paper *Weighted conditional random fields for supervised interpatient heartbeat
+        classification* proposed by De Lannoy et. al (2019).
+        See https://perso.uclouvain.be/michel.verleysen/papers/ieeetbe12gdl.pdf
+    constraints : `List[Tuple[int, int]]`, optional (default = `None`)
+        An optional list of allowed transitions (from_tag_id, to_tag_id).
+        These are applied to `viterbi_tags()` but do not affect `forward()`.
+        These should be derived from `allowed_transitions` so that the
+        start and end transitions are handled correctly for your tag type.
+    include_start_end_transitions : `bool`, optional (default = `True`)
+        Whether to include the start and end transition parameters.
+    """
+
+    def __init__(self, num_tags: int, label_weights: List[float], constraints: List[Tuple[int, int]]=None, include_start_end_transitions: bool=True) ->None:
+        super().__init__(num_tags, constraints, include_start_end_transitions)
+        if label_weights is None:
+            raise ConfigurationError('label_weights must be given')
+        self.register_buffer('label_weights', torch.Tensor(label_weights))
+
+    def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor=None) ->torch.Tensor:
+        """Computes the log likelihood for the given batch of input sequences $(x,y)$
+
+        Args:
+            inputs (torch.Tensor): (batch_size, sequence_length, num_tags) tensor of logits for the inputs $x$
+            tags (torch.Tensor): (batch_size, sequence_length) tensor of tags $y$
+            mask (torch.BoolTensor, optional): (batch_size, sequence_length) tensor of masking flags.
+                Defaults to None.
+
+        Returns:
+            torch.Tensor: (batch_size,) log likelihoods $log P(y|x)$ for each input
+        """
+        if mask is None:
+            mask = torch.ones(*tags.size(), dtype=torch.bool, device=inputs.device)
+        else:
+            mask = mask
+        log_denominator = self._input_likelihood_lannoy(inputs, tags, mask)
+        log_numerator = self._joint_likelihood_lannoy(inputs, tags, mask)
+        return torch.sum(log_numerator - log_denominator)
+
+    def _input_likelihood_lannoy(self, logits: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
+        """
+        Computes the (batch_size,) denominator term for the log-likelihood, which is the
+        sum of the likelihoods across all possible state sequences.
+
+        Compute this value using the scaling trick instead of the log domain trick, since
+        this is necessary to implement the label-weighting method by Lannoy et al. (2012).
+        """
+        batch_size, sequence_length, num_tags = logits.size()
+        mask = mask.transpose(0, 1).contiguous()
+        logits = logits.transpose(0, 1).contiguous()
+        tags = tags.transpose(0, 1).contiguous()
+        label_weights = self.label_weights.view(num_tags, 1)
+        emit_scores = logits[0]
+        if self.include_start_end_transitions:
+            alpha = torch.exp(self.start_transitions.view(1, num_tags) + emit_scores)
+        else:
+            alpha = torch.exp(emit_scores)
+        z = alpha.sum(dim=1, keepdim=True)
+        alpha = alpha / z
+        sum_log_z = torch.log(z) * label_weights[tags[0]]
+        for i in range(1, sequence_length):
+            emit_scores = logits[i]
+            emit_scores = emit_scores.view(batch_size, 1, num_tags)
+            transition_scores = self.transitions.view(1, num_tags, num_tags)
+            broadcast_alpha = alpha.view(batch_size, num_tags, 1)
+            inner = broadcast_alpha * torch.exp(emit_scores + transition_scores)
+            alpha = inner.sum(dim=1) * mask[i].view(batch_size, 1) + alpha * (~mask[i]).view(batch_size, 1)
+            z = alpha.sum(dim=1, keepdim=True)
+            alpha = alpha / z
+            sum_log_z += torch.log(z) * label_weights[tags[i]]
+        if self.include_start_end_transitions:
+            alpha = alpha * torch.exp(self.end_transitions.view(1, num_tags))
+            z = alpha.sum(dim=1, keepdim=True)
+            sum_log_z += torch.log(z)
+        return sum_log_z.squeeze(1)
+
+    def _joint_likelihood_lannoy(self, logits: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
+        """
+        Computes the numerator term for the log-likelihood, which is just score(inputs, tags)
+        """
+        batch_size, sequence_length, _ = logits.data.shape
+        logits = logits.transpose(0, 1).contiguous()
+        mask = mask.transpose(0, 1).contiguous()
+        tags = tags.transpose(0, 1).contiguous()
+        if self.include_start_end_transitions:
+            score = self.start_transitions.index_select(0, tags[0])
+        else:
+            score = 0.0
+        label_weights = self.label_weights
+        transitions = self.transitions * label_weights.view(-1, 1)
+        for i in range(sequence_length - 1):
+            current_tag, next_tag = tags[i], tags[i + 1]
+            transition_score = transitions[current_tag.view(-1), next_tag.view(-1)]
+            emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
+            emit_score *= label_weights[current_tag.view(-1)]
+            score = score + transition_score * mask[i + 1] + emit_score * mask[i]
+        last_tag_index = mask.sum(0).long() - 1
+        last_tags = tags.gather(0, last_tag_index.view(1, batch_size)).squeeze(0)
+        if self.include_start_end_transitions:
+            last_transition_score = self.end_transitions.index_select(0, last_tags)
+        else:
+            last_transition_score = 0.0
+        last_inputs = logits[-1]
+        last_input_score = last_inputs.gather(1, last_tags.view(-1, 1))
+        last_input_score = last_input_score.squeeze()
+        last_input_score = last_input_score * label_weights[last_tags.view(-1)]
+        score = score + last_transition_score + last_input_score * mask[-1]
+        return score
+
+
+class ConditionalRandomFieldWeightTrans(ConditionalRandomField):
+    """
+    This module uses the "forward-backward" algorithm to compute
+    the log-likelihood of its inputs assuming a conditional random field model.
+
+    See, e.g. http://www.cs.columbia.edu/~mcollins/fb.pdf
+
+    This is a weighted version of `ConditionalRandomField` which accepts a `label_weights`
+    parameter to be used in the loss function in order to give different weights for each
+    token depending on its label. The method implemented here is based on the simple idea
+    of weighting emission and transition scores using the weight given for the
+    corresponding tag.
+
+    There are two other sample weighting methods implemented. You can find more details
+    about them in: https://eraldoluis.github.io/2022/05/10/weighted-crf.html
+
+    # Parameters
+
+    num_tags : `int`, required
+        The number of tags.
+    label_weights : `List[float]`, required
+        A list of weights to be used in the loss function in order to
+        give different weights for each token depending on its label.
+        `len(label_weights)` must be equal to `num_tags`. This is useful to
+        deal with highly unbalanced datasets. The method implemented here is
+        based on the simple idea of weighting emission and transition scores
+        using the weight given for the corresponding tag.
+    constraints : `List[Tuple[int, int]]`, optional (default = `None`)
+        An optional list of allowed transitions (from_tag_id, to_tag_id).
+        These are applied to `viterbi_tags()` but do not affect `forward()`.
+        These should be derived from `allowed_transitions` so that the
+        start and end transitions are handled correctly for your tag type.
+    include_start_end_transitions : `bool`, optional (default = `True`)
+        Whether to include the start and end transition parameters.
+    """
+
+    def __init__(self, num_tags: int, label_weights: List[float], constraints: List[Tuple[int, int]]=None, include_start_end_transitions: bool=True) ->None:
+        super().__init__(num_tags, constraints, include_start_end_transitions)
+        if label_weights is None:
+            raise ConfigurationError('label_weights must be given')
+        self.register_buffer('label_weights', torch.Tensor(label_weights))
+
+    def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor=None) ->torch.Tensor:
+        """Computes the log likelihood for the given batch of input sequences $(x,y)$
+
+        Args:
+            inputs (torch.Tensor): (batch_size, sequence_length, num_tags) tensor of logits for the inputs $x$
+            tags (torch.Tensor): (batch_size, sequence_length) tensor of tags $y$
+            mask (torch.BoolTensor, optional): (batch_size, sequence_length) tensor of masking flags.
+                Defaults to None.
+
+        Returns:
+            torch.Tensor: (batch_size,) log likelihoods $log P(y|x)$ for each input
+        """
+        if mask is None:
+            mask = torch.ones(*tags.size(), dtype=torch.bool, device=inputs.device)
+        else:
+            mask = mask
+        label_weights = self.label_weights
+        transitions = self.transitions * label_weights.view(-1, 1)
+        inputs = inputs * label_weights.view(1, 1, -1)
+        log_denominator = self._input_likelihood(inputs, transitions, mask)
+        log_numerator = self._joint_likelihood(inputs, transitions, tags, mask)
+        return torch.sum(log_numerator - log_denominator)
 
 
 def _make_bos_eos(character: int, padding_character: int, beginning_of_word_character: int, end_of_word_character: int, max_word_length: int):
@@ -2888,7 +3641,7 @@ class LstmCellWithProjection(torch.nn.Module):
                     current_length_index += 1
             previous_memory = full_batch_previous_memory[0:current_length_index + 1].clone()
             previous_state = full_batch_previous_state[0:current_length_index + 1].clone()
-            timestep_input = inputs[0:current_length_index + 1, (index)]
+            timestep_input = inputs[0:current_length_index + 1, index]
             projected_input = self.input_linearity(timestep_input)
             projected_state = self.state_linearity(previous_state)
             input_gate = torch.sigmoid(projected_input[:, 0 * self.cell_size:1 * self.cell_size] + projected_state[:, 0 * self.cell_size:1 * self.cell_size])
@@ -2908,7 +3661,7 @@ class LstmCellWithProjection(torch.nn.Module):
             full_batch_previous_state = full_batch_previous_state.clone()
             full_batch_previous_memory[0:current_length_index + 1] = memory
             full_batch_previous_state[0:current_length_index + 1] = timestep_output
-            output_accumulator[0:current_length_index + 1, (index)] = timestep_output
+            output_accumulator[0:current_length_index + 1, index] = timestep_output
         final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
 
@@ -3045,14 +3798,13 @@ class ElmoLstm(_EncoderBase):
             backward_layer = getattr(self, 'backward_layer_{}'.format(layer_index))
             forward_cache = forward_output_sequence
             backward_cache = backward_output_sequence
+            forward_state: Optional[Tuple[Any, Any]] = None
+            backward_state: Optional[Tuple[Any, Any]] = None
             if state is not None:
                 forward_hidden_state, backward_hidden_state = state[0].split(self.hidden_size, 2)
                 forward_memory_state, backward_memory_state = state[1].split(self.cell_size, 2)
                 forward_state = forward_hidden_state, forward_memory_state
                 backward_state = backward_hidden_state, backward_memory_state
-            else:
-                forward_state = None
-                backward_state = None
             forward_output_sequence, forward_state = forward_layer(forward_output_sequence, batch_lengths, forward_state)
             backward_output_sequence, backward_state = backward_layer(backward_output_sequence, batch_lengths, backward_state)
             if layer_index != 0:
@@ -3101,6 +3853,47 @@ class ElmoLstm(_EncoderBase):
                     lstm.state_projection.weight.requires_grad = requires_grad
 
 
+class Highway(torch.nn.Module):
+    """
+    A [Highway layer](https://arxiv.org/abs/1505.00387) does a gated combination of a linear
+    transformation and a non-linear transformation of its input.  :math:`y = g * x + (1 - g) *
+    f(A(x))`, where :math:`A` is a linear transformation, :math:`f` is an element-wise
+    non-linearity, and :math:`g` is an element-wise gate, computed as :math:`sigmoid(B(x))`.
+
+    This module will apply a fixed number of highway layers to its input, returning the final
+    result.
+
+    # Parameters
+
+    input_dim : `int`, required
+        The dimensionality of :math:`x`.  We assume the input has shape `(batch_size, ...,
+        input_dim)`.
+    num_layers : `int`, optional (default=`1`)
+        The number of highway layers to apply to the input.
+    activation : `Callable[[torch.Tensor], torch.Tensor]`, optional (default=`torch.nn.functional.relu`)
+        The non-linearity to use in the highway layers.
+    """
+
+    def __init__(self, input_dim: int, num_layers: int=1, activation: Callable[[torch.Tensor], torch.Tensor]=torch.nn.functional.relu) ->None:
+        super().__init__()
+        self._input_dim = input_dim
+        self._layers = torch.nn.ModuleList([torch.nn.Linear(input_dim, input_dim * 2) for _ in range(num_layers)])
+        self._activation = activation
+        for layer in self._layers:
+            layer.bias[input_dim:].data.fill_(1)
+
+    def forward(self, inputs: torch.Tensor) ->torch.Tensor:
+        current_input = inputs
+        for layer in self._layers:
+            projected_input = layer(current_input)
+            linear_part = current_input
+            nonlinear_part, gate = projected_input.chunk(2, dim=-1)
+            nonlinear_part = self._activation(nonlinear_part)
+            gate = torch.sigmoid(gate)
+            current_input = gate * linear_part + (1 - gate) * nonlinear_part
+        return current_input
+
+
 def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.BoolTensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[torch.Tensor, torch.BoolTensor]:
     """
     Add begin/end of sentence tokens to the batch of sentences.
@@ -3137,28 +3930,194 @@ def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.BoolTensor
     tensor_shape = list(tensor.data.shape)
     new_shape = list(tensor_shape)
     new_shape[1] = tensor_shape[1] + 2
-    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape)
+    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape, device=tensor.device)
     if len(tensor_shape) == 2:
         tensor_with_boundary_tokens[:, 1:-1] = tensor
-        tensor_with_boundary_tokens[:, (0)] = sentence_begin_token
+        tensor_with_boundary_tokens[:, 0] = sentence_begin_token
         for i, j in enumerate(sequence_lengths):
             tensor_with_boundary_tokens[i, j + 1] = sentence_end_token
         new_mask = tensor_with_boundary_tokens != 0
     elif len(tensor_shape) == 3:
         tensor_with_boundary_tokens[:, 1:-1, :] = tensor
+        sentence_begin_token = sentence_begin_token.detach()
+        sentence_end_token = sentence_end_token.detach()
         for i, j in enumerate(sequence_lengths):
-            tensor_with_boundary_tokens[(i), (0), :] = sentence_begin_token
-            tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
+            tensor_with_boundary_tokens[i, 0, :] = sentence_begin_token
+            tensor_with_boundary_tokens[i, j + 1, :] = sentence_end_token
         new_mask = (tensor_with_boundary_tokens > 0).sum(dim=-1) > 0
     else:
         raise ValueError('add_sentence_boundary_token_ids only accepts 2D and 3D input')
     return tensor_with_boundary_tokens, new_mask
 
 
+class _ElmoCharacterEncoder(torch.nn.Module):
+    """
+    Compute context insensitive token representation using pretrained biLM.
+
+    This embedder has input character ids of size (batch_size, sequence_length, 50)
+    and returns (batch_size, sequence_length + 2, embedding_dim), where embedding_dim
+    is specified in the options file (typically 512).
+
+    We add special entries at the beginning and end of each sequence corresponding
+    to <S> and </S>, the beginning and end of sentence tokens.
+
+    Note: this is a lower level class useful for advanced usage.  Most users should
+    use `ElmoTokenEmbedder` or `allennlp.modules.Elmo` instead.
+
+    # Parameters
+
+    options_file : `str`
+        ELMo JSON options file
+    weight_file : `str`
+        ELMo hdf5 weight file
+    requires_grad : `bool`, optional, (default = `False`).
+        If True, compute gradient of ELMo parameters for fine tuning.
+
+
+    The relevant section of the options file is something like:
+
+    ```
+    {'char_cnn': {
+        'activation': 'relu',
+        'embedding': {'dim': 4},
+        'filters': [[1, 4], [2, 8], [3, 16], [4, 32], [5, 64]],
+        'max_characters_per_token': 50,
+        'n_characters': 262,
+        'n_highway': 2
+        }
+    }
+    ```
+    """
+
+    def __init__(self, options_file: str, weight_file: str, requires_grad: bool=False) ->None:
+        super().__init__()
+        with open(cached_path(options_file), 'r') as fin:
+            self._options = json.load(fin)
+        self._weight_file = weight_file
+        self.output_dim = self._options['lstm']['projection_dim']
+        self.requires_grad = requires_grad
+        self._load_weights()
+        self._beginning_of_sentence_characters = torch.from_numpy(numpy.array(ELMoCharacterMapper.beginning_of_sentence_characters) + 1)
+        self._end_of_sentence_characters = torch.from_numpy(numpy.array(ELMoCharacterMapper.end_of_sentence_characters) + 1)
+
+    def get_output_dim(self):
+        return self.output_dim
+
+    def forward(self, inputs: torch.Tensor) ->Dict[str, torch.Tensor]:
+        """
+        Compute context insensitive token embeddings for ELMo representations.
+
+        # Parameters
+
+        inputs : `torch.Tensor`
+            Shape `(batch_size, sequence_length, 50)` of character ids representing the
+            current batch.
+
+        # Returns
+
+        Dict with keys:
+        `'token_embedding'` : `torch.Tensor`
+            Shape `(batch_size, sequence_length + 2, embedding_dim)` tensor with context
+            insensitive token representations.
+        `'mask'`:  `torch.BoolTensor`
+            Shape `(batch_size, sequence_length + 2)` long tensor with sequence mask.
+        """
+        mask = (inputs > 0).sum(dim=-1) > 0
+        character_ids_with_bos_eos, mask_with_bos_eos = add_sentence_boundary_token_ids(inputs, mask, self._beginning_of_sentence_characters, self._end_of_sentence_characters)
+        max_chars_per_token = self._options['char_cnn']['max_characters_per_token']
+        character_embedding = torch.nn.functional.embedding(character_ids_with_bos_eos.view(-1, max_chars_per_token), self._char_embedding_weights)
+        cnn_options = self._options['char_cnn']
+        if cnn_options['activation'] == 'tanh':
+            activation = torch.tanh
+        elif cnn_options['activation'] == 'relu':
+            activation = torch.nn.functional.relu
+        else:
+            raise ConfigurationError('Unknown activation')
+        character_embedding = torch.transpose(character_embedding, 1, 2)
+        convs = []
+        for i in range(len(self._convolutions)):
+            conv = getattr(self, 'char_conv_{}'.format(i))
+            convolved = conv(character_embedding)
+            convolved, _ = torch.max(convolved, dim=-1)
+            convolved = activation(convolved)
+            convs.append(convolved)
+        token_embedding = torch.cat(convs, dim=-1)
+        token_embedding = self._highways(token_embedding)
+        token_embedding = self._projection(token_embedding)
+        batch_size, sequence_length, _ = character_ids_with_bos_eos.size()
+        return {'mask': mask_with_bos_eos, 'token_embedding': token_embedding.view(batch_size, sequence_length, -1)}
+
+    def _load_weights(self):
+        self._load_char_embedding()
+        self._load_cnn_weights()
+        self._load_highway()
+        self._load_projection()
+
+    def _load_char_embedding(self):
+        with h5py.File(cached_path(self._weight_file), 'r') as fin:
+            char_embed_weights = fin['char_embed'][...]
+        weights = numpy.zeros((char_embed_weights.shape[0] + 1, char_embed_weights.shape[1]), dtype='float32')
+        weights[1:, :] = char_embed_weights
+        self._char_embedding_weights = torch.nn.Parameter(torch.FloatTensor(weights), requires_grad=self.requires_grad)
+
+    def _load_cnn_weights(self):
+        cnn_options = self._options['char_cnn']
+        filters = cnn_options['filters']
+        char_embed_dim = cnn_options['embedding']['dim']
+        convolutions = []
+        for i, (width, num) in enumerate(filters):
+            conv = torch.nn.Conv1d(in_channels=char_embed_dim, out_channels=num, kernel_size=width, bias=True)
+            with h5py.File(cached_path(self._weight_file), 'r') as fin:
+                weight = fin['CNN']['W_cnn_{}'.format(i)][...]
+                bias = fin['CNN']['b_cnn_{}'.format(i)][...]
+            w_reshaped = numpy.transpose(weight.squeeze(axis=0), axes=(2, 1, 0))
+            if w_reshaped.shape != tuple(conv.weight.data.shape):
+                raise ValueError('Invalid weight file')
+            conv.weight.data.copy_(torch.FloatTensor(w_reshaped))
+            conv.bias.data.copy_(torch.FloatTensor(bias))
+            conv.weight.requires_grad = self.requires_grad
+            conv.bias.requires_grad = self.requires_grad
+            convolutions.append(conv)
+            self.add_module('char_conv_{}'.format(i), conv)
+        self._convolutions = convolutions
+
+    def _load_highway(self):
+        cnn_options = self._options['char_cnn']
+        filters = cnn_options['filters']
+        n_filters = sum(f[1] for f in filters)
+        n_highway = cnn_options['n_highway']
+        self._highways = Highway(n_filters, n_highway, activation=torch.nn.functional.relu)
+        for k in range(n_highway):
+            with h5py.File(cached_path(self._weight_file), 'r') as fin:
+                w_transform = numpy.transpose(fin['CNN_high_{}'.format(k)]['W_transform'][...])
+                w_carry = -1.0 * numpy.transpose(fin['CNN_high_{}'.format(k)]['W_carry'][...])
+                weight = numpy.concatenate([w_transform, w_carry], axis=0)
+                self._highways._layers[k].weight.data.copy_(torch.FloatTensor(weight))
+                self._highways._layers[k].weight.requires_grad = self.requires_grad
+                b_transform = fin['CNN_high_{}'.format(k)]['b_transform'][...]
+                b_carry = -1.0 * fin['CNN_high_{}'.format(k)]['b_carry'][...]
+                bias = numpy.concatenate([b_transform, b_carry], axis=0)
+                self._highways._layers[k].bias.data.copy_(torch.FloatTensor(bias))
+                self._highways._layers[k].bias.requires_grad = self.requires_grad
+
+    def _load_projection(self):
+        cnn_options = self._options['char_cnn']
+        filters = cnn_options['filters']
+        n_filters = sum(f[1] for f in filters)
+        self._projection = torch.nn.Linear(n_filters, self.output_dim, bias=True)
+        with h5py.File(cached_path(self._weight_file), 'r') as fin:
+            weight = fin['CNN_proj']['W_proj'][...]
+            bias = fin['CNN_proj']['b_proj'][...]
+            self._projection.weight.data.copy_(torch.FloatTensor(numpy.transpose(weight)))
+            self._projection.bias.data.copy_(torch.FloatTensor(bias))
+            self._projection.weight.requires_grad = self.requires_grad
+            self._projection.bias.requires_grad = self.requires_grad
+
+
 IndexedTokenList = Dict[str, List[Any]]
 
 
-def pad_sequence_to_length(sequence: List, desired_length: int, default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True) ->List:
+def pad_sequence_to_length(sequence: Sequence, desired_length: int, default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True) ->List:
     """
     Take a list of objects and pads it to the desired length, returning the padded list.  The
     original list is not modified.
@@ -3185,6 +4144,7 @@ def pad_sequence_to_length(sequence: List, desired_length: int, default_value: C
 
     padded_sequence : `List`
     """
+    sequence = list(sequence)
     if padding_on_right:
         padded_sequence = sequence[:desired_length]
     else:
@@ -3223,16 +4183,6 @@ def batch_to_ids(batch: List[List[str]]) ->torch.Tensor:
     vocab = Vocabulary()
     dataset.index_instances(vocab)
     return dataset.as_tensor_dict()['elmo']['character_ids']['elmo_tokens']
-
-
-def get_device_of(tensor: torch.Tensor) ->int:
-    """
-    Returns the device of the tensor.
-    """
-    if not tensor.is_cuda:
-        return -1
-    else:
-        return tensor.get_device()
 
 
 def lazy_groups_of(iterable: Iterable[A], group_size: int) ->Iterator[List[A]]:
@@ -3284,8 +4234,8 @@ def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor) ->T
     new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.bool)
     for i, j in enumerate(sequence_lengths):
         if j > 2:
-            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
-            new_mask[(i), :j - 2] = True
+            tensor_without_boundary_tokens[i, :j - 2, :] = tensor[i, 1:j - 1, :]
+            new_mask[i, :j - 2] = True
     return tensor_without_boundary_tokens, new_mask
 
 
@@ -3418,9 +4368,20 @@ class _ElmoBiLm(torch.nn.Module):
         full_embedding = full_embedding[:len(tokens), :]
         embedding = full_embedding[2:len(tokens), :]
         vocab_size, embedding_dim = list(embedding.size())
-        self._bos_embedding = full_embedding[(0), :]
-        self._eos_embedding = full_embedding[(1), :]
+        self._bos_embedding = full_embedding[0, :]
+        self._eos_embedding = full_embedding[1, :]
         self._word_embedding = Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim, weight=embedding.data, trainable=self._requires_grad, padding_index=0)
+
+
+class FeedForward(torch.nn.Module):
+
+    def __init__(self) ->None:
+        super().__init__()
+        self.linear = torch.nn.Linear(4, 4)
+        self.activation = torch.nn.ReLU()
+
+    def forward(self, x):
+        return self.activation(self.linear(x))
 
 
 class InputVariationalDropout(torch.nn.Dropout):
@@ -3455,37 +4416,6 @@ class InputVariationalDropout(torch.nn.Dropout):
             return None
         else:
             return dropout_mask.unsqueeze(1) * input_tensor
-
-
-class LayerNorm(torch.nn.Module):
-    """
-    An implementation of [Layer Normalization](
-    https://www.semanticscholar.org/paper/Layer-Normalization-Ba-Kiros/97fb4e3d45bb098e27e0071448b6152217bd35a5).
-
-    Layer Normalization stabilises the training of deep neural networks by
-    normalising the outputs of neurons from a particular layer. It computes:
-
-    output = (gamma * (tensor - mean) / (std + eps)) + beta
-
-    # Parameters
-
-    dimension : `int`, required.
-        The dimension of the layer output to normalize.
-
-    # Returns
-
-    The normalized layer output.
-    """
-
-    def __init__(self, dimension: int) ->None:
-        super().__init__()
-        self.gamma = torch.nn.Parameter(torch.ones(dimension))
-        self.beta = torch.nn.Parameter(torch.zeros(dimension))
-
-    def forward(self, tensor: torch.Tensor):
-        mean = tensor.mean(-1, keepdim=True)
-        std = tensor.std(-1, unbiased=False, keepdim=True)
-        return self.gamma * (tensor - mean) / (std + util.tiny_value_of_dtype(std.dtype)) + self.beta
 
 
 class MaskedLayerNorm(torch.nn.Module):
@@ -3658,7 +4588,7 @@ class SampledSoftmaxLoss(torch.nn.Module):
 
     def forward(self, embeddings: torch.Tensor, targets: torch.Tensor, target_token_embedding: torch.Tensor=None) ->torch.Tensor:
         if embeddings.shape[0] == 0:
-            return torch.tensor(0.0)
+            return torch.tensor(0.0, device=embeddings.device)
         if not self.training:
             return self._forward_eval(embeddings, targets)
         else:
@@ -3687,7 +4617,7 @@ class SampledSoftmaxLoss(torch.nn.Module):
         masked_sampled_logits = sampled_logits.masked_fill(true_in_sample_mask, -10000.0)
         logits = torch.cat([true_logits.unsqueeze(1), masked_sampled_logits], dim=1)
         log_softmax = torch.nn.functional.log_softmax(logits, dim=1)
-        nll_loss = -1.0 * log_softmax[:, (0)].sum()
+        nll_loss = -1.0 * log_softmax[:, 0].sum()
         return nll_loss
 
     def _forward_eval(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
@@ -3769,7 +4699,9 @@ class SoftmaxLoss(torch.nn.Module):
     """
     Given some embeddings and some targets, applies a linear layer
     to create logits over possible words and then returns the
-    negative log likelihood.
+    negative log likelihood. Does not add a padding ID into the
+    vocabulary, and input `targets` to `forward` should not include
+    a padding ID.
     """
 
     def __init__(self, num_words: int, embedding_dim: int) ->None:
@@ -3779,6 +4711,19 @@ class SoftmaxLoss(torch.nn.Module):
         self.softmax_b = torch.nn.Parameter(torch.zeros(num_words))
 
     def forward(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """
+        # Parameters
+
+        embeddings : `torch.Tensor`
+            A tensor of shape `(sequence_length, embedding_dim)`
+        targets : `torch.Tensor`
+            A tensor of shape `(batch_size, )`
+
+        # Returns
+
+        loss : `torch.FloatTensor`
+            A scalar loss to be optimized.
+        """
         probs = torch.nn.functional.log_softmax(torch.matmul(embeddings, self.softmax_w) + self.softmax_b, dim=-1)
         return torch.nn.functional.nll_loss(probs, targets.long(), reduction='sum')
 
@@ -3790,7 +4735,7 @@ class StackedAlternatingLstm(torch.nn.Module):
     """
     A stacked LSTM with LSTM layers which alternate between going forwards over
     the sequence and going backwards. This implementation is based on the
-    description in [Deep Semantic Role Labelling - What works and what's next][0].
+    description in [Deep Semantic Role Labeling - What works and what's next][0].
 
     [0]: https://www.aclweb.org/anthology/P17-1044.pdf
     [1]: https://arxiv.org/abs/1512.05287
@@ -3968,12 +4913,126 @@ class StackedBidirectionalLstm(torch.nn.Module):
         return output_sequence, final_state_tuple
 
 
+class RegionDetectorOutput(NamedTuple):
+    """
+    The output type from the forward pass of a `RegionDetector`.
+    """
+    features: List[Tensor]
+    """
+    A list of tensors, each with shape `(num_boxes, feature_dim)`.
+    """
+    boxes: List[Tensor]
+    """
+    A list of tensors containing the coordinates for each box. Each has shape `(num_boxes, 4)`.
+    """
+    class_probs: Optional[List[Tensor]] = None
+    """
+    An optional list of tensors. These tensors can have shape `(num_boxes,)` or
+    `(num_boxes, *)` if probabilities for multiple classes are given.
+    """
+    class_labels: Optional[List[Tensor]] = None
+    """
+    An optional list of tensors that give the labels corresponding to the `class_probs`
+    tensors. This should be non-`None` whenever `class_probs` is, and each tensor
+    should have the same shape as the corresponding tensor from `class_probs`.
+    """
+
+
+class _IncompatibleKeys(NamedTuple):
+    missing_keys: List[str]
+    unexpected_keys: List[str]
+
+    def __repr__(self):
+        if not self.missing_keys and not self.unexpected_keys:
+            return '<All keys matched successfully>'
+        return f'(missing_keys = {self.missing_keys}, unexpected_keys = {self.unexpected_keys})'
+
+
+class Module(torch.nn.Module):
+    """
+    This is just `torch.nn.Module` with some extra functionality.
+    """
+
+    def _post_load_state_dict(self, missing_keys: List[str], unexpected_keys: List[str]) ->Tuple[List[str], List[str]]:
+        """
+        Subclasses can override this and potentially modify `missing_keys` or `unexpected_keys`.
+        """
+        return missing_keys, unexpected_keys
+
+    def load_state_dict(self, state_dict: StateDictType, strict: bool=True) ->_IncompatibleKeys:
+        """
+        Same as [`torch.nn.Module.load_state_dict()`]
+        (https://pytorch.org/docs/master/generated/torch.nn.Module.html#torch.nn.Module.load_state_dict)
+        except we also run the [`_post_load_state_dict`](#_post_load_state_dict) method before returning,
+        which can be implemented by subclasses to customize the behavior.
+        """
+        missing_keys, unexpected_keys = super().load_state_dict(state_dict, strict=False)
+        missing_keys, unexpected_keys = self._post_load_state_dict(missing_keys, unexpected_keys)
+        _check_incompatible_keys(self, missing_keys, unexpected_keys, strict)
+        return _IncompatibleKeys(missing_keys, unexpected_keys)
+
+    def load_state_dict_distributed(self, state_dict: Optional[StateDictType], strict: bool=True) ->_IncompatibleKeys:
+        missing_keys, unexpected_keys = load_state_dict_distributed(self, state_dict, strict=strict)
+        missing_keys, unexpected_keys = self._post_load_state_dict(missing_keys, unexpected_keys)
+        _check_incompatible_keys(self, missing_keys, unexpected_keys, strict)
+        return _IncompatibleKeys(missing_keys, unexpected_keys)
+
+
+class LinearForTesting(nn.Linear):
+
+    def forward(self, *args, **kwargs):
+        global forward_calls
+        forward_calls += 1
+        return super().forward(*args, **kwargs)
+
+
+class SubmoduleWithKwargs(nn.Module):
+
+    def __init__(self) ->None:
+        super().__init__()
+        self.linear1 = nn.Linear(3, 3)
+        self.linear2 = nn.Linear(3, 3)
+
+    def forward(self, x, y=None) ->torch.Tensor:
+        out = self.linear1(x)
+        if y is not None:
+            out = x + self.linear2(y)
+        return out.sum(-1)
+
+
+class FeedForwardForTesting(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.linear1 = nn.Linear(3, 3)
+        self.dropout = nn.Dropout(p=0.5)
+        self.linear2 = nn.Linear(3, 3)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        global forward_calls
+        forward_calls += 1
+        return self.linear2(self.dropout(self.linear1(x)))
+
+
+class Encoder(torch.nn.Module):
+
+    def __init__(self) ->None:
+        super().__init__()
+        self.ff1 = FeedForward()
+        self.ff2 = FeedForward()
+        self.register_buffer('buffer', torch.randn(4, 4))
+
+    def forward(self, x):
+        return self.ff2(self.ff1(x))
+
+
 class _Net1(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
         self.linear_1 = torch.nn.Linear(5, 10)
         self.linear_2 = torch.nn.Linear(10, 5)
+        self.scalar = torch.nn.Parameter(torch.rand(()))
 
     def forward(self, inputs):
         pass
@@ -3985,8 +5044,44 @@ class _Net2(torch.nn.Module):
         super().__init__()
         self.linear_1 = torch.nn.Linear(5, 10)
         self.linear_3 = torch.nn.Linear(10, 5)
+        self.scalar = torch.nn.Parameter(torch.rand(()))
 
     def forward(self, inputs):
+        pass
+
+
+class DistributedFixtureSubmodule(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.direct_param = torch.nn.Parameter(torch.randn(3, 5))
+        self.register_buffer('direct_buffer', torch.randn(2, 2))
+        self.linear_submodule = torch.nn.Linear(3, 5)
+
+    def forward(self, x):
+        pass
+
+
+class ShardedDistributedFixtureSubmodule(DistributedFixtureSubmodule, ShardedModuleMixin):
+
+    def get_original_module(self):
+        return self
+
+
+class DistributedFixtureModel(torch.nn.Module):
+    """
+    Fake model for testing `load_state_dict_distributed()`.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.direct_param = torch.nn.Parameter(torch.randn(3, 5))
+        self.register_buffer('direct_buffer', torch.randn(2, 2))
+        self.custom_submodule = DistributedFixtureSubmodule()
+        self.custom_sharded_submodule = ShardedDistributedFixtureSubmodule()
+        self.linear_submodule = torch.nn.Linear(3, 5)
+
+    def forward(self, x):
         pass
 
 
@@ -3997,18 +5092,38 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConditionalRandomFieldWeightLannoy,
+     lambda: ([], {'num_tags': 4, 'label_weights': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.ones([4, 4], dtype=torch.int64)], {}),
+     False),
+    (DistributedFixtureModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DistributedFixtureSubmodule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ElmoLstm,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'cell_size': 4, 'num_layers': 1}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeedForward,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Highway,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (InputVariationalDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (LayerNorm,
-     lambda: ([], {'dimension': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (LstmCellWithProjection,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'cell_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), [4, 4, 4, 4]], {}),
@@ -4024,6 +5139,14 @@ TESTCASES = [
     (ScalarMix,
      lambda: ([], {'mixture_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShardedDistributedFixtureSubmodule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TimeDistributed,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4, 4])}),
      False),
     (_Net1,
      lambda: ([], {}),
@@ -4062,4 +5185,25 @@ class Test_allenai_allennlp(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

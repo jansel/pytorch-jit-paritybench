@@ -596,7 +596,7 @@ class SegmentationModule(SegmentationModuleBase):
             if pred['part'] is not None:
                 part_loss = 0
                 for idx_part, object_label in enumerate(self.object_with_part):
-                    part_loss += self.part_loss(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                    part_loss += self.part_loss(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, idx_part])
                 loss_dict['part'] = part_loss
             if pred['scene'] is not None:
                 loss_dict['scene'] = self.crit_dict['scene'](pred['scene'], feed_dict['scene_label'])
@@ -611,7 +611,7 @@ class SegmentationModule(SegmentationModuleBase):
             if pred['part'] is not None:
                 acc_sum, pixel_sum = 0, 0
                 for idx_part, object_label in enumerate(self.object_with_part):
-                    acc, pixel = self.part_pixel_acc(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                    acc, pixel = self.part_pixel_acc(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, idx_part])
                     acc_sum += acc
                     pixel_sum += pixel
                 metric_dict['part'] = acc_sum.float() / (pixel_sum.float() + 1e-10)

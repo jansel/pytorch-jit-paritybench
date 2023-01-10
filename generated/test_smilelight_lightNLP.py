@@ -184,21 +184,6 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from torch.utils.tensorboard import SummaryWriter
 
 
-from torchtext.data import Dataset
-
-
-from torchtext.data import Field
-
-
-from torchtext.data import BucketIterator
-
-
-from torchtext.data import ReversibleField
-
-
-from torchtext.datasets import SequenceTaggingDataset
-
-
 from sklearn.metrics import f1_score
 
 
@@ -238,22 +223,10 @@ import torch.autograd as ag
 import re
 
 
-from torchtext.data import TabularDataset
-
-
-from torchtext.data import Iterator
-
-
 import random
 
 
 from torch.nn.utils import clip_grad_norm_
-
-
-from torchtext.data import BPTTIterator
-
-
-from torchtext.datasets import LanguageModelingDataset
 
 
 from typing import List
@@ -477,20 +450,8 @@ def bis_cws(words, tags):
     return poses
 
 
-WORD = Field(tokenize=lambda x: [x], batch_first=True)
-
-
-Fields = [('context', WORD), ('target', WORD)]
-
-
 def light_tokenize(text):
     return [word for word in jieba.cut(text) if word.strip()]
-
-
-TAG = Field(sequential=True, tokenize=light_tokenize, is_target=True, unk_token=None)
-
-
-TEXT = Field(lower=True, tokenize=light_tokenize, include_lengths=True, batch_first=True, init_token='<sos>', eos_token='<eos>')
 
 
 def get_free_tcp_port():
@@ -520,8 +481,8 @@ class CWS(Module):
             word_vocab, tag_vocab = cws_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
         self._tag_vocab = tag_vocab
-        train_iter = cws_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, tag_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = cws_tool.get_iterator(train_dataset, config.batch_size)
         bilstmcrf = BiLstmCrf(config)
         self._model = bilstmcrf
         optim = torch.optim.Adam(bilstmcrf.parameters(), lr=config.lr)
@@ -631,8 +592,8 @@ class NER(Module):
             word_vocab, tag_vocab = ner_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
         self._tag_vocab = tag_vocab
-        train_iter = ner_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, tag_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = ner_tool.get_iterator(train_dataset, config.batch_size)
         bilstmcrf = BiLstmCrf(config)
         self._model = bilstmcrf
         optim = torch.optim.Adam(bilstmcrf.parameters(), lr=config.lr)
@@ -704,9 +665,6 @@ class NER(Module):
 ROOT = '<ROOT>'
 
 
-POS = Field(sequential=True, tokenize=light_tokenize, unk_token=None, batch_first=True, init_token=ROOT)
-
-
 def iobes_iob(tags):
     """
     IOBES -> IOB
@@ -756,8 +714,8 @@ class SRL(Module):
         self._word_vocab = word_vocab
         self._pos_vocab = pos_vocab
         self._tag_vocab = tag_vocab
-        train_iter = srl_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, pos_vocab, tag_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = srl_tool.get_iterator(train_dataset, batch_size=config.batch_size)
         bilstmcrf = BiLstmCrf(config)
         self._model = bilstmcrf
         optim = torch.optim.Adam(bilstmcrf.parameters(), lr=config.lr)
@@ -882,7 +840,7 @@ class SharedDropout(nn.Module):
     def forward(self, x):
         if self.training:
             if self.batch_first:
-                mask = self.get_mask(x[:, (0)], self.p)
+                mask = self.get_mask(x[:, 0], self.p)
             else:
                 mask = self.get_mask(x[0], self.p)
             x *= mask.unsqueeze(1) if self.batch_first else mask
@@ -1132,14 +1090,8 @@ class AttachmentMethod(Metric):
         return self.correct_rels / (self.total + self.eps)
 
 
-REF = Field(sequential=True, tokenize=light_tokenize, unk_token=None, batch_first=True, init_token=ROOT)
-
-
 def post_process(arr, _):
     return [[int(item) for item in arr_item] for arr_item in arr]
-
-
-HEAD = Field(sequential=True, use_vocab=False, unk_token=None, pad_token=0, postprocessing=post_process, batch_first=True, init_token=0)
 
 
 class GDP(Module):
@@ -1164,8 +1116,8 @@ class GDP(Module):
         self._word_vocab = word_vocab
         self._pos_vocab = pos_vocab
         self._ref_vocab = ref_vocab
-        train_iter = gdp_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, pos_vocab, ref_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = gdp_tool.get_iterator(train_dataset, batch_size=config.batch_size)
         biaffine_parser = BiaffineParser(config)
         self._model = biaffine_parser
         self._pad_index = config.pad_index
@@ -1181,7 +1133,7 @@ class GDP(Module):
                 refs = item.ref
                 arcs = item.head
                 mask = words.ne(config.pad_index)
-                mask[:, (0)] = 0
+                mask[:, 0] = 0
                 s_arc, s_rel = self._model(words, tags)
                 s_arc, s_rel = s_arc[mask], s_rel[mask]
                 gold_arcs, gold_rels = arcs[mask], refs[mask]
@@ -1234,7 +1186,7 @@ class GDP(Module):
         dev_iter = gdp_tool.get_iterator(dev_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         for dev_item in tqdm(dev_iter):
             mask = dev_item.word.ne(self._pad_index)
-            mask[:, (0)] = 0
+            mask[:, 0] = 0
             s_arc, s_rel = self._model(dev_item.word, dev_item.pos)
             s_arc, s_rel = s_arc[mask], s_rel[mask]
             gold_arcs, gold_rels = dev_item.head[mask], dev_item.ref[mask]
@@ -1588,9 +1540,6 @@ def action_tokenize(sequence: str):
     return [sequence]
 
 
-ACTION = ReversibleField(sequential=True, tokenize=action_tokenize, is_target=True, unk_token=None, pad_token=None)
-
-
 class TransitionDataset(Dataset):
     """Defines a Dataset of transition-based denpendency parsing format.
     eg:
@@ -1628,8 +1577,8 @@ class TDP(Module):
             word_vocab, action_vocab = tdp_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
         self._action_vocab = action_vocab
-        train_iter = tdp_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, action_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = tdp_tool.get_iterator(train_dataset, batch_size=config.batch_size)
         trainsition_parser = TransitionParser(config)
         self._model = trainsition_parser
         optim = torch.optim.Adam(trainsition_parser.parameters(), lr=config.lr)
@@ -1755,9 +1704,6 @@ class MaLSTM(BaseModel):
         return torch.exp(-self.pwd(left, right))
 
 
-LABEL = Field(sequential=False, unk_token=None)
-
-
 def pad_sequnce(sequence, seq_length, pad_token='<pad>'):
     padded_seq = sequence[:]
     if len(padded_seq) < seq_length:
@@ -1784,8 +1730,8 @@ class SS(Module):
             word_vocab, tag_vocab = ss_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
         self._label_vocab = tag_vocab
-        train_iter = ss_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, tag_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = ss_tool.get_iterator(train_dataset, batch_size=config.batch_size)
         malstm = MaLSTM(config)
         self._model = malstm
         optim = torch.optim.Adam(self._model.parameters(), lr=config.lr)
@@ -1927,8 +1873,8 @@ class TE(Module):
             word_vocab, label_vocab = te_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
         self._label_vocab = label_vocab
-        train_iter = te_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'])
         config = Config(word_vocab, label_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = te_tool.get_iterator(train_dataset, batch_size=config.batch_size)
         shared_lstm = SharedLSTM(config)
         self._model = shared_lstm
         optim = torch.optim.Adam(self._model.parameters(), lr=config.lr)
@@ -2227,14 +2173,14 @@ class Seq2Seq(nn.Module):
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         encoder_output, hidden = self.encoder(src, src_lens)
         hidden = hidden[:self.decoder.n_layers]
-        decoder_input = trg.data[:, (0)]
+        decoder_input = trg.data[:, 0]
         for t in range(1, max_len):
             output, hidden, attn_weights = self.decoder(decoder_input, hidden, encoder_output)
             outputs[t] = output
             teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.data.max(1)[1]
             if teacher_force:
-                decoder_input = trg.data[:, (t)].clone().detach()
+                decoder_input = trg.data[:, t].clone().detach()
             else:
                 decoder_input = top1
         return outputs
@@ -2366,8 +2312,8 @@ class LM(Module):
         else:
             word_vocab = lm_tool.get_vocab(train_dataset)
         self._word_vocab = word_vocab
-        train_iter = lm_tool.get_iterator(train_dataset, batch_size=DEFAULT_CONFIG['batch_size'], bptt_len=DEFAULT_CONFIG['bptt_len'])
         config = LMConfig(word_vocab, save_path=save_path, vector_path=vectors_path, **kwargs)
+        train_iter = lm_tool.get_iterator(train_dataset, batch_size=config.batch_size, bptt_len=config.bptt_len)
         rnnlm = RNNLM(config)
         self._model = rnnlm
         optim = torch.optim.Adam(rnnlm.parameters(), lr=config.lr)
@@ -2563,12 +2509,6 @@ class MTSeq2Seq(BaseModel):
 
 def eng_tokenize(text):
     return nltk.word_tokenize(text)
-
-
-SOURCE = Field(lower=True, tokenize=eng_tokenize, include_lengths=True, batch_first=True, init_token='<sos>', eos_token='<eos>')
-
-
-TARGET = Field(lower=True, tokenize=light_tokenize, include_lengths=True, batch_first=True, init_token='<sos>', eos_token='<eos>')
 
 
 class TSConfig(BaseConfig):
@@ -2909,27 +2849,11 @@ TESTCASES = [
     (Biaffine,
      lambda: ([], {'n_in': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (CBOWBase,
-     lambda: ([], {'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      True),
     (CBOWHierarchicalSoftmax,
      lambda: ([], {'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CBOWNegativeSampling,
-     lambda: ([], {'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (Decoder,
-     lambda: ([], {'embed_size': 4, 'hidden_size': 4, 'output_size': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-    (Encoder,
-     lambda: ([], {'input_size': 4, 'embed_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     False),
     (IndependentDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -2941,18 +2865,6 @@ TESTCASES = [
     (SharedDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (SkipGramBase,
-     lambda: ([], {'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
-    (SkipGramNegativeSampling,
-     lambda: ([], {'args': _mock_config(save_path=4, vocabulary_size=4, embedding_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (VanillaWordEmbeddingLookup,
-     lambda: ([], {'vocabulary_size': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
 ]
 
@@ -2974,25 +2886,4 @@ class Test_smilelight_lightNLP(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

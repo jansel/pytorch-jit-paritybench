@@ -432,8 +432,8 @@ class Easy_PCD(nn.Module):
         L1_fea = L1_fea.view(B, N, -1, H, W)
         L2_fea = L2_fea.view(B, N, -1, H // 2, W // 2)
         L3_fea = L3_fea.view(B, N, -1, H // 4, W // 4)
-        fea1 = [L1_fea[:, (0), :, :, :].clone(), L2_fea[:, (0), :, :, :].clone(), L3_fea[:, (0), :, :, :].clone()]
-        fea2 = [L1_fea[:, (1), :, :, :].clone(), L2_fea[:, (1), :, :, :].clone(), L3_fea[:, (1), :, :, :].clone()]
+        fea1 = [L1_fea[:, 0, :, :, :].clone(), L2_fea[:, 0, :, :, :].clone(), L3_fea[:, 0, :, :, :].clone()]
+        fea2 = [L1_fea[:, 1, :, :, :].clone(), L2_fea[:, 1, :, :, :].clone(), L3_fea[:, 1, :, :, :].clone()]
         aligned_fea = self.pcd_align(fea1, fea2)
         fusion_fea = self.fusion(aligned_fea)
         return fusion_fea
@@ -444,7 +444,7 @@ class ConvLSTMCell(nn.Module):
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias):
         """
         Initialize ConvLSTM cell.
-        
+
         Parameters
         ----------
         input_size: (int, int)
@@ -510,14 +510,14 @@ class ConvLSTM(nn.Module):
 
     def forward(self, input_tensor, hidden_state=None):
         """
-        
+
         Parameters
         ----------
         input_tensor: todo 
             5-D Tensor either of shape (t, b, c, h, w) or (b, t, c, h, w)
         hidden_state: todo
             None. todo implement stateful
-            
+
         Returns
         -------
         last_state_list, layer_output
@@ -537,7 +537,7 @@ class ConvLSTM(nn.Module):
             h, c = hidden_state[layer_idx]
             output_inner = []
             for t in range(seq_len):
-                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, (t), :, :, :], cur_state=[h, c])
+                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, t, :, :, :], cur_state=[h, c])
                 output_inner.append(h)
             layer_output = torch.stack(output_inner, dim=1)
             cur_layer_input = layer_output
@@ -588,7 +588,7 @@ class DeformableConvLSTM(ConvLSTM):
             5-D Tensor either of shape (t, b, c, h, w) or (b, t, c, h, w)
         hidden_state: 
             None. 
-            
+
         Returns
         -------
         last_state_list, layer_output
@@ -608,7 +608,7 @@ class DeformableConvLSTM(ConvLSTM):
             h, c = hidden_state[layer_idx]
             output_inner = []
             for t in range(seq_len):
-                in_tensor = cur_layer_input[:, (t), :, :, :]
+                in_tensor = cur_layer_input[:, t, :, :, :]
                 h_temp = self.pcd_h(in_tensor, h)
                 c_temp = self.pcd_c(in_tensor, c)
                 h, c = self.cell_list[layer_idx](input_tensor=in_tensor, cur_state=[h_temp, c_temp])
@@ -635,10 +635,10 @@ class BiDeformableConvLSTM(nn.Module):
 
     def forward(self, x):
         reversed_idx = list(reversed(range(x.shape[1])))
-        x_rev = x[:, (reversed_idx), (...)]
+        x_rev = x[:, reversed_idx, ...]
         out_fwd, _ = self.forward_net(x)
         out_rev, _ = self.forward_net(x_rev)
-        rev_rev = out_rev[0][:, (reversed_idx), (...)]
+        rev_rev = out_rev[0][:, reversed_idx, ...]
         B, N, C, H, W = out_fwd[0].size()
         result = torch.cat((out_fwd[0], rev_rev), dim=2)
         result = result.view(B * N, -1, H, W)
@@ -695,8 +695,8 @@ class LunaTokis(nn.Module):
         2: + ...    ...        ...    ...       ...   fusion_fea, fea2
         """
         for idx in range(N - 1):
-            fea1 = [L1_fea[:, (idx), :, :, :].clone(), L2_fea[:, (idx), :, :, :].clone(), L3_fea[:, (idx), :, :, :].clone()]
-            fea2 = [L1_fea[:, (idx + 1), :, :, :].clone(), L2_fea[:, (idx + 1), :, :, :].clone(), L3_fea[:, (idx + 1), :, :, :].clone()]
+            fea1 = [L1_fea[:, idx, :, :, :].clone(), L2_fea[:, idx, :, :, :].clone(), L3_fea[:, idx, :, :, :].clone()]
+            fea2 = [L1_fea[:, idx + 1, :, :, :].clone(), L2_fea[:, idx + 1, :, :, :].clone(), L3_fea[:, idx + 1, :, :, :].clone()]
             aligned_fea = self.pcd_align(fea1, fea2)
             fusion_fea = self.fusion(aligned_fea)
             if idx == 0:
@@ -734,7 +734,7 @@ class ConvBLSTM(nn.Module):
             y_out_fwd = y_out_fwd[-1]
             y_out_rev = y_out_rev[-1]
         reversed_idx = list(reversed(range(y_out_rev.shape[1])))
-        y_out_rev = y_out_rev[:, (reversed_idx), (...)]
+        y_out_rev = y_out_rev[:, reversed_idx, ...]
         ycat = torch.cat((y_out_fwd, y_out_rev), dim=2)
         return ycat
 
@@ -756,11 +756,13 @@ def build_gauss_kernel(size=5, sigma=1.0, n_channels=1, cuda=False):
     if size % 2 != 1:
         raise ValueError('kernel size must be uneven')
     grid = np.float32(np.mgrid[0:size, 0:size].T)
-    gaussian = lambda x: np.exp((x - size // 2) ** 2 / (-2 * sigma ** 2)) ** 2
+
+    def gaussian(x):
+        return np.exp((x - size // 2) ** 2 / (-2 * sigma ** 2)) ** 2
     kernel = np.sum(gaussian(grid), axis=2)
     kernel /= np.sum(kernel)
     kernel = np.tile(kernel, (n_channels, 1, 1))
-    kernel = torch.FloatTensor(kernel[:, (None), :, :])
+    kernel = torch.FloatTensor(kernel[:, None, :, :])
     if cuda:
         kernel = kernel
     return Variable(kernel, requires_grad=False)
@@ -856,10 +858,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ConvLSTMCell,
-     lambda: ([], {'input_size': [4, 4], 'input_dim': 4, 'hidden_dim': 4, 'kernel_size': [4, 4], 'bias': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 65, 65]))], {}),
-     False),
     (LapLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 512, 512]), torch.rand([4, 4, 512, 512])], {}),
@@ -879,7 +877,4 @@ class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

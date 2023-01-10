@@ -769,10 +769,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 1, 1])], {}),
      True),
-    (GeneratorUNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 256, 256])], {}),
-     True),
     (LayerNorm,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -780,10 +776,6 @@ TESTCASES = [
     (MLP,
      lambda: ([], {'input_dim': 4, 'output_dim': 4}),
      lambda: ([torch.rand([4, 4])], {}),
-     True),
-    (MultiDiscriminator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
     (Reshape,
      lambda: ([], {}),
@@ -804,10 +796,6 @@ TESTCASES = [
     (UNetDown,
      lambda: ([], {'in_size': 4, 'out_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (UNetUp,
-     lambda: ([], {'in_size': 4, 'out_size': 4}),
-     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
      True),
 ]
 
@@ -844,13 +832,4 @@ class Test_eriklindernoren_PyTorch_GAN(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

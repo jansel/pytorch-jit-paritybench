@@ -2,11 +2,11 @@ import sys
 _module = sys.modules[__name__]
 del sys
 conf = _module
-evaluate = _module
-pytorch_resnet18 = _module
-spatial_attack = _module
-substituion_model = _module
-tensorflow_resnet50 = _module
+multiple_attacks_pytorch_resnet18 = _module
+single_attack_pytorch_resnet18 = _module
+single_attack_tensorflow_resnet50 = _module
+spatial_attack_pytorch_resnet18 = _module
+substituion_model_pytorch_resnet18 = _module
 foolbox_model = _module
 foolbox = _module
 attacks = _module
@@ -26,19 +26,25 @@ ddn = _module
 deepfool = _module
 ead = _module
 fast_gradient_method = _module
+fast_minimum_norm = _module
 gen_attack = _module
 gen_attack_utils = _module
 gradient_descent_base = _module
+hop_skip_jump = _module
 inversion = _module
 newtonfool = _module
+pointwise = _module
 projected_gradient_descent = _module
 saltandpepper = _module
 sparse_l1_descent_attack = _module
+spatial_attack = _module
 spatial_attack_transformations = _module
 virtual_adversarial_attack = _module
 criteria = _module
 devutils = _module
 distances = _module
+external = _module
+clipping_aware_rescaling = _module
 gradient_estimators = _module
 models = _module
 jax = _module
@@ -66,11 +72,13 @@ test_criteria = _module
 test_dataset_attack = _module
 test_devutils = _module
 test_distances = _module
-test_evaluate = _module
+test_fast_minimum_norm_attack = _module
 test_fetch_weights = _module
 test_gen_attack_utils = _module
+test_hsj_attack = _module
 test_models = _module
 test_plot = _module
+test_pointwise_attack = _module
 test_spatial_attack = _module
 test_tensorboard = _module
 test_utils = _module
@@ -133,6 +141,9 @@ from typing import Callable
 
 
 from typing import Dict
+
+
+from typing import NamedTuple
 
 
 import functools

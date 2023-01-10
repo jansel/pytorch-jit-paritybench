@@ -304,7 +304,7 @@ def intersect(box_a, box_b):
     max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
     min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    return inter[:, :, 0] * inter[:, :, 1]
 
 
 def jaccard(box_a, box_b):
@@ -320,8 +320,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -436,7 +436,7 @@ class MultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             if self.num_classes == 2:
                 labels = labels > 0
             defaults = priors.data
@@ -619,7 +619,7 @@ class RefineMultiBoxLoss(nn.Module):
         defaults = priors.data
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             if self.num_classes == 2:
                 labels = labels > 0
             if use_arm:
@@ -632,7 +632,7 @@ class RefineMultiBoxLoss(nn.Module):
         conf_t = Variable(conf_t, requires_grad=False)
         if use_arm and filter_object:
             P = F.softmax(arm_conf_data, 2)
-            arm_conf_data_temp = P[:, :, (1)]
+            arm_conf_data_temp = P[:, :, 1]
             object_score_index = arm_conf_data_temp <= self.object_score
             pos = conf_t > 0
             pos[object_score_index.detach()] = 0

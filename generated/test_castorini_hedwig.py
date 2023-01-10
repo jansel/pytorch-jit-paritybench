@@ -20,6 +20,7 @@ relevance_transfer_trainer = _module
 trainer = _module
 datasets = _module
 aapd = _module
+ag_news = _module
 bert_processors = _module
 aapd_processor = _module
 abstract_processor = _module
@@ -32,13 +33,25 @@ sst_processor = _module
 yelp2014_processor = _module
 bow_processors = _module
 abstract_processor = _module
+dbpedia = _module
+download_datasets = _module
 imdb = _module
+imdb_torchtext = _module
+ohsumed = _module
+process_datasets = _module
+r52 = _module
+r8 = _module
 reuters = _module
 robust04 = _module
 robust05 = _module
 robust45 = _module
+sogou_news = _module
 sst = _module
+trec6 = _module
+twenty_news = _module
+yahoo_answers = _module
 yelp2014 = _module
+yelp_review_polarity = _module
 models = _module
 args = _module
 bert = _module
@@ -123,28 +136,19 @@ from torch.utils.data import RandomSampler
 import time
 
 
-from torchtext.data import NestedField
-
-
-from torchtext.data import Field
-
-
-from torchtext.data import TabularDataset
-
-
-from torchtext.data.iterator import BucketIterator
-
-
 from torchtext.vocab import Vectors
+
+
+import functools
+
+
+import re
 
 
 from torch import tensor
 
 
 from torch.utils.data import Dataset
-
-
-import re
 
 
 import random
@@ -293,7 +297,7 @@ class WordLevelRNN(nn.Module):
         words_dim = config.words_dim
         self.mode = config.mode
         if self.mode == 'rand':
-            rand_embed_init = torch.Tensor(words_num, words_dim).uniform(-0.25, 0.25)
+            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-0.25, 0.25)
             self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif self.mode == 'static':
             self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
@@ -341,7 +345,7 @@ class HAN(nn.Module):
         num_sentences = x.size(0)
         word_attentions = None
         for i in range(num_sentences):
-            word_attn = self.word_attention_rnn(x[(i), :, :])
+            word_attn = self.word_attention_rnn(x[i, :, :])
             if word_attentions is None:
                 word_attentions = word_attn
             else:
@@ -685,36 +689,4 @@ class XmlCNN(nn.Module):
         x = self.dropout(x)
         logit = self.fc1(x)
         return logit
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (LockedDropout,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (LogisticRegression,
-     lambda: ([], {'config': _mock_config(dropout=0.5, vocab_size=4, num_labels=4)}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (SentLevelRNN,
-     lambda: ([], {'config': _mock_config(sentence_num_hidden=4, word_num_hidden=4, target_class=4)}),
-     lambda: ([torch.rand([4, 4, 8])], {}),
-     True),
-]
-
-class Test_castorini_hedwig(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

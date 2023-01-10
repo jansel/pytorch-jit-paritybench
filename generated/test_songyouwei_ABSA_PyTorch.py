@@ -2,8 +2,8 @@ import sys
 _module = sys.modules[__name__]
 del sys
 data_utils = _module
+dependency_graph = _module
 infer_example = _module
-infer_example_bert_models = _module
 layers = _module
 attention = _module
 dynamic_rnn = _module
@@ -12,6 +12,7 @@ squeeze_embedding = _module
 models = _module
 aen = _module
 aoa = _module
+asgcn = _module
 atae_lstm = _module
 bert_spc = _module
 cabasc = _module
@@ -74,16 +75,16 @@ import numpy
 import logging
 
 
-from time import strftime
-
-
-from time import localtime
-
-
 import random
 
 
 from sklearn import metrics
+
+
+from time import strftime
+
+
+from time import localtime
 
 
 from torch.utils.data import DataLoader
@@ -299,7 +300,7 @@ class SqueezeEmbedding(nn.Module):
         x_len = x_len[x_sort_idx]
         x = x[x_sort_idx]
         """pack"""
-        x_emb_p = torch.nn.utils.rnn.pack_padded_sequence(x, x_len, batch_first=self.batch_first)
+        x_emb_p = torch.nn.utils.rnn.pack_padded_sequence(x, x_len.cpu(), batch_first=self.batch_first)
         """unpack: out"""
         out = torch.nn.utils.rnn.pad_packed_sequence(x_emb_p, batch_first=self.batch_first)
         out = out[0]
@@ -334,43 +335,6 @@ class CrossEntropyLoss_LSR(nn.Module):
             return torch.sum(loss)
 
 
-class AEN_GloVe(nn.Module):
-
-    def __init__(self, embedding_matrix, opt):
-        super(AEN, self).__init__()
-        self.opt = opt
-        self.embed = nn.Embedding.from_pretrained(torch.tensor(embedding_matrix, dtype=torch.float))
-        self.squeeze_embedding = SqueezeEmbedding()
-        self.attn_k = Attention(opt.embed_dim, out_dim=opt.hidden_dim, n_head=8, score_function='mlp', dropout=opt.dropout)
-        self.attn_q = Attention(opt.embed_dim, out_dim=opt.hidden_dim, n_head=8, score_function='mlp', dropout=opt.dropout)
-        self.ffn_c = PositionwiseFeedForward(opt.hidden_dim, dropout=opt.dropout)
-        self.ffn_t = PositionwiseFeedForward(opt.hidden_dim, dropout=opt.dropout)
-        self.attn_s1 = Attention(opt.hidden_dim, n_head=8, score_function='mlp', dropout=opt.dropout)
-        self.dense = nn.Linear(opt.hidden_dim * 3, opt.polarities_dim)
-
-    def forward(self, inputs):
-        text_raw_indices, target_indices = inputs[0], inputs[1]
-        context_len = torch.sum(text_raw_indices != 0, dim=-1)
-        target_len = torch.sum(target_indices != 0, dim=-1)
-        context = self.embed(text_raw_indices)
-        context = self.squeeze_embedding(context, context_len)
-        target = self.embed(target_indices)
-        target = self.squeeze_embedding(target, target_len)
-        hc, _ = self.attn_k(context, context)
-        hc = self.ffn_c(hc)
-        ht, _ = self.attn_q(context, target)
-        ht = self.ffn_t(ht)
-        s1, _ = self.attn_s1(hc, ht)
-        context_len = torch.tensor(context_len, dtype=torch.float)
-        target_len = torch.tensor(target_len, dtype=torch.float)
-        hc_mean = torch.div(torch.sum(hc, dim=1), context_len.view(context_len.size(0), 1))
-        ht_mean = torch.div(torch.sum(ht, dim=1), target_len.view(target_len.size(0), 1))
-        s1_mean = torch.div(torch.sum(s1, dim=1), context_len.view(context_len.size(0), 1))
-        x = torch.cat((hc_mean, s1_mean, ht_mean), dim=-1)
-        out = self.dense(x)
-        return out
-
-
 class AEN_BERT(nn.Module):
 
     def __init__(self, bert, opt):
@@ -401,11 +365,9 @@ class AEN_BERT(nn.Module):
         ht, _ = self.attn_q(context, target)
         ht = self.ffn_t(ht)
         s1, _ = self.attn_s1(hc, ht)
-        context_len = torch.tensor(context_len, dtype=torch.float)
-        target_len = torch.tensor(target_len, dtype=torch.float)
-        hc_mean = torch.div(torch.sum(hc, dim=1), context_len.view(context_len.size(0), 1))
-        ht_mean = torch.div(torch.sum(ht, dim=1), target_len.view(target_len.size(0), 1))
-        s1_mean = torch.div(torch.sum(s1, dim=1), context_len.view(context_len.size(0), 1))
+        hc_mean = torch.div(torch.sum(hc, dim=1), context_len.unsqueeze(1).float())
+        ht_mean = torch.div(torch.sum(ht, dim=1), target_len.unsqueeze(1).float())
+        s1_mean = torch.div(torch.sum(s1, dim=1), context_len.unsqueeze(1).float())
         x = torch.cat((hc_mean, s1_mean, ht_mean), dim=-1)
         out = self.dense(x)
         return out
@@ -422,9 +384,9 @@ class AOA(nn.Module):
         self.dense = nn.Linear(2 * opt.hidden_dim, opt.polarities_dim)
 
     def forward(self, inputs):
-        text_raw_indices = inputs[0]
+        text_indices = inputs[0]
         aspect_indices = inputs[1]
-        ctx_len = torch.sum(text_raw_indices != 0, dim=1)
+        ctx_len = torch.sum(text_indices != 0, dim=1)
         asp_len = torch.sum(aspect_indices != 0, dim=1)
         ctx = self.embed(text_raw_indices)
         asp = self.embed(aspect_indices)
@@ -440,6 +402,98 @@ class AOA(nn.Module):
         return out
 
 
+class GraphConvolution(nn.Module):
+    """
+    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    """
+
+    def __init__(self, in_features, out_features, bias=True):
+        super(GraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features))
+        if bias:
+            self.bias = nn.Parameter(torch.FloatTensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+
+    def forward(self, text, adj):
+        hidden = torch.matmul(text, self.weight)
+        denom = torch.sum(adj, dim=2, keepdim=True) + 1
+        output = torch.matmul(adj, hidden) / denom
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
+
+
+class ASGCN(nn.Module):
+
+    def __init__(self, embedding_matrix, opt):
+        super(ASGCN, self).__init__()
+        self.opt = opt
+        self.embed = nn.Embedding.from_pretrained(torch.tensor(embedding_matrix, dtype=torch.float))
+        self.text_lstm = DynamicLSTM(opt.embed_dim, opt.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
+        self.gc1 = GraphConvolution(2 * opt.hidden_dim, 2 * opt.hidden_dim)
+        self.gc2 = GraphConvolution(2 * opt.hidden_dim, 2 * opt.hidden_dim)
+        self.fc = nn.Linear(2 * opt.hidden_dim, opt.polarities_dim)
+        self.text_embed_dropout = nn.Dropout(0.3)
+
+    def position_weight(self, x, aspect_double_idx, text_len, aspect_len):
+        batch_size = x.shape[0]
+        seq_len = x.shape[1]
+        aspect_double_idx = aspect_double_idx.cpu().numpy()
+        text_len = text_len.cpu().numpy()
+        aspect_len = aspect_len.cpu().numpy()
+        weight = [[] for i in range(batch_size)]
+        for i in range(batch_size):
+            context_len = text_len[i] - aspect_len[i]
+            for j in range(aspect_double_idx[i, 0]):
+                weight[i].append(1 - (aspect_double_idx[i, 0] - j) / context_len)
+            for j in range(aspect_double_idx[i, 0], aspect_double_idx[i, 1] + 1):
+                weight[i].append(0)
+            for j in range(aspect_double_idx[i, 1] + 1, text_len[i]):
+                weight[i].append(1 - (j - aspect_double_idx[i, 1]) / context_len)
+            for j in range(text_len[i], seq_len):
+                weight[i].append(0)
+        weight = torch.tensor(weight, dtype=torch.float).unsqueeze(2)
+        return weight * x
+
+    def mask(self, x, aspect_double_idx):
+        batch_size, seq_len = x.shape[0], x.shape[1]
+        aspect_double_idx = aspect_double_idx.cpu().numpy()
+        mask = [[] for i in range(batch_size)]
+        for i in range(batch_size):
+            for j in range(aspect_double_idx[i, 0]):
+                mask[i].append(0)
+            for j in range(aspect_double_idx[i, 0], aspect_double_idx[i, 1] + 1):
+                mask[i].append(1)
+            for j in range(aspect_double_idx[i, 1] + 1, seq_len):
+                mask[i].append(0)
+        mask = torch.tensor(mask, dtype=torch.float).unsqueeze(2)
+        return mask * x
+
+    def forward(self, inputs):
+        text_indices, aspect_indices, left_indices, adj = inputs
+        text_len = torch.sum(text_indices != 0, dim=-1)
+        aspect_len = torch.sum(aspect_indices != 0, dim=-1)
+        left_len = torch.sum(left_indices != 0, dim=-1)
+        aspect_double_idx = torch.cat([left_len.unsqueeze(1), (left_len + aspect_len - 1).unsqueeze(1)], dim=1)
+        text = self.embed(text_indices)
+        text = self.text_embed_dropout(text)
+        text_out, (_, _) = self.text_lstm(text, text_len)
+        seq_len = text_out.shape[1]
+        adj = adj[:, :seq_len, :seq_len]
+        x = F.relu(self.gc1(self.position_weight(text_out, aspect_double_idx, text_len, aspect_len), adj))
+        x = F.relu(self.gc2(self.position_weight(x, aspect_double_idx, text_len, aspect_len), adj))
+        x = self.mask(x, aspect_double_idx)
+        alpha_mat = torch.matmul(x, text_out.transpose(1, 2))
+        alpha = F.softmax(alpha_mat.sum(1, keepdim=True), dim=2)
+        x = torch.matmul(alpha, text_out).squeeze(1)
+        output = self.fc(x)
+        return output
+
+
 class ATAE_LSTM(nn.Module):
 
     def __init__(self, embedding_matrix, opt):
@@ -452,15 +506,15 @@ class ATAE_LSTM(nn.Module):
         self.dense = nn.Linear(opt.hidden_dim, opt.polarities_dim)
 
     def forward(self, inputs):
-        text_raw_indices, aspect_indices = inputs[0], inputs[1]
-        x_len = torch.sum(text_raw_indices != 0, dim=-1)
+        text_indices, aspect_indices = inputs[0], inputs[1]
+        x_len = torch.sum(text_indices != 0, dim=-1)
         x_len_max = torch.max(x_len)
-        aspect_len = torch.tensor(torch.sum(aspect_indices != 0, dim=-1), dtype=torch.float)
-        x = self.embed(text_raw_indices)
+        aspect_len = torch.sum(aspect_indices != 0, dim=-1).float()
+        x = self.embed(text_indices)
         x = self.squeeze_embedding(x, x_len)
         aspect = self.embed(aspect_indices)
-        aspect_pool = torch.div(torch.sum(aspect, dim=1), aspect_len.view(aspect_len.size(0), 1))
-        aspect = torch.unsqueeze(aspect_pool, dim=1).expand(-1, x_len_max, -1)
+        aspect_pool = torch.div(torch.sum(aspect, dim=1), aspect_len.unsqueeze(1))
+        aspect = aspect_pool.unsqueeze(1).expand(-1, x_len_max, -1)
         x = torch.cat((aspect, x), dim=-1)
         h, (_, _) = self.lstm(x, x_len)
         ha = torch.cat((h, aspect), dim=-1)
@@ -480,7 +534,7 @@ class BERT_SPC(nn.Module):
 
     def forward(self, inputs):
         text_bert_indices, bert_segments_ids = inputs[0], inputs[1]
-        _, pooled_output = self.bert(text_bert_indices, bert_segments_ids)
+        _, pooled_output = self.bert(text_bert_indices, token_type_ids=bert_segments_ids)
         pooled_output = self.dropout(pooled_output)
         logits = self.dense(pooled_output)
         return logits
@@ -694,7 +748,7 @@ class LCF_BERT(nn.Module):
         bert_segments_ids = inputs[1]
         text_local_indices = inputs[2]
         aspect_indices = inputs[3]
-        bert_spc_out, _ = self.bert_spc(text_bert_indices, bert_segments_ids)
+        bert_spc_out, _ = self.bert_spc(text_bert_indices, token_type_ids=bert_segments_ids)
         bert_spc_out = self.dropout(bert_spc_out)
         bert_local_out, _ = self.bert_local(text_local_indices)
         bert_local_out = self.dropout(bert_local_out)
@@ -822,7 +876,7 @@ class AlignmentMatrix(nn.Module):
         for i, ctx_chunk in enumerate(ctx_chunks):
             for j, asp_chunk in enumerate(asp_chunks):
                 feat = torch.cat([ctx_chunk, asp_chunk, ctx_chunk * asp_chunk], dim=2)
-                alignment_mat[:, (i), (j)] = feat.matmul(self.w_u.expand(batch_size, -1, -1)).squeeze(-1).squeeze(-1)
+                alignment_mat[:, i, j] = feat.matmul(self.w_u.expand(batch_size, -1, -1)).squeeze(-1).squeeze(-1)
         return alignment_mat
 
 
@@ -944,7 +998,7 @@ class TC_LSTM(nn.Module):
     def forward(self, inputs):
         x_l, x_r, target = inputs[0], inputs[1], inputs[2]
         x_l_len, x_r_len = torch.sum(x_l != 0, dim=-1), torch.sum(x_r != 0, dim=-1)
-        target_len = torch.sum(target != 0, dim=-1, dtype=torch.float)[:, (None), (None)]
+        target_len = torch.sum(target != 0, dim=-1, dtype=torch.float)[:, None, None]
         x_l, x_r, target = self.embed(x_l), self.embed(x_r), self.embed(target)
         v_target = torch.div(target.sum(dim=1, keepdim=True), target_len)
         x_l = torch.cat((x_l, torch.cat([v_target] * x_l.shape[1], 1)), 2)
@@ -1055,14 +1109,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AOA,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
-    (ATAE_LSTM,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
     (Absolute_Position_Embedding,
      lambda: ([], {'opt': _mock_config()}),
      lambda: ([torch.rand([4, 4]), torch.ones([4, 4], dtype=torch.int64)], {}),
@@ -1070,10 +1116,6 @@ TESTCASES = [
     (Attention,
      lambda: ([], {'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 1, 4]), torch.rand([4, 4, 1, 4])], {}),
-     False),
-    (Cabasc,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, polarities_dim=4, hidden_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (CrossEntropyLoss_LSR,
      lambda: ([], {'device': 0}),
@@ -1083,21 +1125,13 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      False),
-    (IAN,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
-    (LSTM,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
+    (GraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (LocationEncoding,
      lambda: ([], {'opt': _mock_config()}),
      lambda: ([torch.rand([4, 4]), torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (MemNet,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, polarities_dim=4, hops=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      False),
     (NoQueryAttention,
      lambda: ([], {'embed_dim': 4}),
@@ -1111,14 +1145,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      True),
-    (TC_LSTM,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
-    (TD_LSTM,
-     lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     False),
 ]
 
 class Test_songyouwei_ABSA_PyTorch(_paritybench_base):
@@ -1148,25 +1174,4 @@ class Test_songyouwei_ABSA_PyTorch(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

@@ -1,13 +1,17 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+diagnose_model = _module
 abstract_game = _module
+atari = _module
 breakout = _module
 cartpole = _module
 connect4 = _module
 gomoku = _module
 gridworld = _module
 lunarlander = _module
+simple_grid = _module
+spiel = _module
 tictactoe = _module
 twentyone = _module
 models = _module
@@ -37,6 +41,9 @@ xrange = range
 wraps = functools.wraps
 
 
+import matplotlib.pyplot as plt
+
+
 import numpy
 
 
@@ -46,7 +53,7 @@ import torch
 import math
 
 
-from random import randint
+import numpy as np
 
 
 from abc import ABC
@@ -64,7 +71,16 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 
 
-import collections
+def dict_to_cpu(dictionary):
+    cpu_dict = {}
+    for key, value in dictionary.items():
+        if isinstance(value, torch.Tensor):
+            cpu_dict[key] = value.cpu()
+        elif isinstance(value, dict):
+            cpu_dict[key] = dict_to_cpu(value)
+        else:
+            cpu_dict[key] = value
+    return cpu_dict
 
 
 class AbstractNetwork(ABC, torch.nn.Module):
@@ -82,30 +98,19 @@ class AbstractNetwork(ABC, torch.nn.Module):
         pass
 
     def get_weights(self):
-        return {key: value.cpu() for key, value in self.state_dict().items()}
+        return dict_to_cpu(self.state_dict())
 
     def set_weights(self, weights):
         self.load_state_dict(weights)
 
 
-class FullyConnectedNetwork(torch.nn.Module):
-
-    def __init__(self, input_size, layer_sizes, output_size, activation=None):
-        super().__init__()
-        size_list = [input_size] + layer_sizes
-        layers = []
-        if 1 < len(size_list):
-            for i in range(len(size_list) - 1):
-                layers.extend([torch.nn.Linear(size_list[i], size_list[i + 1]), torch.nn.LeakyReLU()])
-        layers.append(torch.nn.Linear(size_list[-1], output_size))
-        if activation:
-            layers.append(activation)
-        self.layers = torch.nn.ModuleList(layers)
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
+def mlp(input_size, layer_sizes, output_size, output_activation=torch.nn.Identity, activation=torch.nn.ELU):
+    sizes = [input_size] + layer_sizes + [output_size]
+    layers = []
+    for i in range(len(sizes) - 1):
+        act = activation if i < len(sizes) - 2 else output_activation
+        layers += [torch.nn.Linear(sizes[i], sizes[i + 1]), act()]
+    return torch.nn.Sequential(*layers)
 
 
 class MuZeroFullyConnectedNetwork(AbstractNetwork):
@@ -114,11 +119,11 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
         super().__init__()
         self.action_space_size = action_space_size
         self.full_support_size = 2 * support_size + 1
-        self.representation_network = FullyConnectedNetwork(observation_shape[0] * observation_shape[1] * observation_shape[2] * (stacked_observations + 1) + stacked_observations * observation_shape[1] * observation_shape[2], fc_representation_layers, encoding_size)
-        self.dynamics_encoded_state_network = FullyConnectedNetwork(encoding_size + self.action_space_size, fc_dynamics_layers, encoding_size)
-        self.dynamics_reward_network = FullyConnectedNetwork(encoding_size, fc_reward_layers, self.full_support_size)
-        self.prediction_policy_network = FullyConnectedNetwork(encoding_size, fc_policy_layers, self.action_space_size)
-        self.prediction_value_network = FullyConnectedNetwork(encoding_size, fc_value_layers, self.full_support_size)
+        self.representation_network = torch.nn.DataParallel(mlp(observation_shape[0] * observation_shape[1] * observation_shape[2] * (stacked_observations + 1) + stacked_observations * observation_shape[1] * observation_shape[2], fc_representation_layers, encoding_size))
+        self.dynamics_encoded_state_network = torch.nn.DataParallel(mlp(encoding_size + self.action_space_size, fc_dynamics_layers, encoding_size))
+        self.dynamics_reward_network = torch.nn.DataParallel(mlp(encoding_size, fc_reward_layers, self.full_support_size))
+        self.prediction_policy_network = torch.nn.DataParallel(mlp(encoding_size, fc_policy_layers, self.action_space_size))
+        self.prediction_value_network = torch.nn.DataParallel(mlp(encoding_size, fc_value_layers, self.full_support_size))
 
     def prediction(self, encoded_state):
         policy_logits = self.prediction_policy_network(encoded_state)
@@ -150,7 +155,7 @@ class MuZeroFullyConnectedNetwork(AbstractNetwork):
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
         policy_logits, value = self.prediction(encoded_state)
-        reward = torch.zeros(1, self.full_support_size).scatter(1, torch.tensor([[self.full_support_size // 2]]).long(), 1.0).repeat(len(observation), 1)
+        reward = torch.log(torch.zeros(1, self.full_support_size).scatter(1, torch.tensor([[self.full_support_size // 2]]).long(), 1.0).repeat(len(observation), 1))
         return value, reward, policy_logits, encoded_state
 
     def recurrent_inference(self, encoded_state, action):
@@ -196,40 +201,59 @@ class DownSample(torch.nn.Module):
         self.pooling2 = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
-        out = self.conv1(x)
+        x = self.conv1(x)
         for block in self.resblocks1:
-            out = block(out)
-        out = self.conv2(out)
+            x = block(x)
+        x = self.conv2(x)
         for block in self.resblocks2:
-            out = block(out)
-        out = self.pooling1(out)
+            x = block(x)
+        x = self.pooling1(x)
         for block in self.resblocks3:
-            out = block(out)
-        out = self.pooling2(out)
-        return out
+            x = block(x)
+        x = self.pooling2(x)
+        return x
+
+
+class DownsampleCNN(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels, h_w):
+        super().__init__()
+        mid_channels = (in_channels + out_channels) // 2
+        self.features = torch.nn.Sequential(torch.nn.Conv2d(in_channels, mid_channels, kernel_size=h_w[0] * 2, stride=4, padding=2), torch.nn.ReLU(inplace=True), torch.nn.MaxPool2d(kernel_size=3, stride=2), torch.nn.Conv2d(mid_channels, out_channels, kernel_size=5, padding=2), torch.nn.ReLU(inplace=True), torch.nn.MaxPool2d(kernel_size=3, stride=2))
+        self.avgpool = torch.nn.AdaptiveAvgPool2d(h_w)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        return x
 
 
 class RepresentationNetwork(torch.nn.Module):
 
     def __init__(self, observation_shape, stacked_observations, num_blocks, num_channels, downsample):
         super().__init__()
-        self.use_downsample = downsample
-        if self.use_downsample:
-            self.downsample = DownSample(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels)
+        self.downsample = downsample
+        if self.downsample:
+            if self.downsample == 'resnet':
+                self.downsample_net = DownSample(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels)
+            elif self.downsample == 'CNN':
+                self.downsample_net = DownsampleCNN(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels, (math.ceil(observation_shape[1] / 16), math.ceil(observation_shape[2] / 16)))
+            else:
+                raise NotImplementedError('downsample should be "resnet" or "CNN".')
         self.conv = conv3x3(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels)
         self.bn = torch.nn.BatchNorm2d(num_channels)
         self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels) for _ in range(num_blocks)])
 
     def forward(self, x):
-        if self.use_downsample:
-            out = self.downsample(x)
+        if self.downsample:
+            x = self.downsample_net(x)
         else:
-            out = self.conv(x)
-            out = self.bn(out)
-            out = torch.nn.functional.relu(out)
+            x = self.conv(x)
+            x = self.bn(x)
+            x = torch.nn.functional.relu(x)
         for block in self.resblocks:
-            out = block(out)
-        return out
+            x = block(x)
+        return x
 
 
 class DynamicsNetwork(torch.nn.Module):
@@ -241,18 +265,18 @@ class DynamicsNetwork(torch.nn.Module):
         self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels - 1) for _ in range(num_blocks)])
         self.conv1x1_reward = torch.nn.Conv2d(num_channels - 1, reduced_channels_reward, 1)
         self.block_output_size_reward = block_output_size_reward
-        self.fc = FullyConnectedNetwork(self.block_output_size_reward, fc_reward_layers, full_support_size)
+        self.fc = mlp(self.block_output_size_reward, fc_reward_layers, full_support_size)
 
     def forward(self, x):
-        out = self.conv(x)
-        out = self.bn(out)
-        out = torch.nn.functional.relu(out)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = torch.nn.functional.relu(x)
         for block in self.resblocks:
-            out = block(out)
-        state = out
-        out = self.conv1x1_reward(out)
-        out = out.view(-1, self.block_output_size_reward)
-        reward = self.fc(out)
+            x = block(x)
+        state = x
+        x = self.conv1x1_reward(x)
+        x = x.view(-1, self.block_output_size_reward)
+        reward = self.fc(x)
         return state, reward
 
 
@@ -265,15 +289,14 @@ class PredictionNetwork(torch.nn.Module):
         self.conv1x1_policy = torch.nn.Conv2d(num_channels, reduced_channels_policy, 1)
         self.block_output_size_value = block_output_size_value
         self.block_output_size_policy = block_output_size_policy
-        self.fc_value = FullyConnectedNetwork(self.block_output_size_value, fc_value_layers, full_support_size)
-        self.fc_policy = FullyConnectedNetwork(self.block_output_size_policy, fc_policy_layers, action_space_size)
+        self.fc_value = mlp(self.block_output_size_value, fc_value_layers, full_support_size)
+        self.fc_policy = mlp(self.block_output_size_policy, fc_policy_layers, action_space_size)
 
     def forward(self, x):
-        out = x
         for block in self.resblocks:
-            out = block(out)
-        value = self.conv1x1_value(out)
-        policy = self.conv1x1_policy(out)
+            x = block(x)
+        value = self.conv1x1_value(x)
+        policy = self.conv1x1_policy(x)
         value = value.view(-1, self.block_output_size_value)
         policy = policy.view(-1, self.block_output_size_policy)
         value = self.fc_value(value)
@@ -287,12 +310,12 @@ class MuZeroResidualNetwork(AbstractNetwork):
         super().__init__()
         self.action_space_size = action_space_size
         self.full_support_size = 2 * support_size + 1
-        block_output_size_reward = reduced_channels_reward * (observation_shape[1] // 16) * (observation_shape[2] // 16) if downsample else reduced_channels_reward * observation_shape[1] * observation_shape[2]
-        block_output_size_value = reduced_channels_value * (observation_shape[1] // 16) * (observation_shape[2] // 16) if downsample else reduced_channels_value * observation_shape[1] * observation_shape[2]
-        block_output_size_policy = reduced_channels_policy * (observation_shape[1] // 16) * (observation_shape[2] // 16) if downsample else reduced_channels_policy * observation_shape[1] * observation_shape[2]
-        self.representation_network = RepresentationNetwork(observation_shape, stacked_observations, num_blocks, num_channels, downsample)
-        self.dynamics_network = DynamicsNetwork(num_blocks, num_channels + 1, reduced_channels_reward, fc_reward_layers, self.full_support_size, block_output_size_reward)
-        self.prediction_network = PredictionNetwork(action_space_size, num_blocks, num_channels, reduced_channels_value, reduced_channels_policy, fc_value_layers, fc_policy_layers, self.full_support_size, block_output_size_value, block_output_size_policy)
+        block_output_size_reward = reduced_channels_reward * math.ceil(observation_shape[1] / 16) * math.ceil(observation_shape[2] / 16) if downsample else reduced_channels_reward * observation_shape[1] * observation_shape[2]
+        block_output_size_value = reduced_channels_value * math.ceil(observation_shape[1] / 16) * math.ceil(observation_shape[2] / 16) if downsample else reduced_channels_value * observation_shape[1] * observation_shape[2]
+        block_output_size_policy = reduced_channels_policy * math.ceil(observation_shape[1] / 16) * math.ceil(observation_shape[2] / 16) if downsample else reduced_channels_policy * observation_shape[1] * observation_shape[2]
+        self.representation_network = torch.nn.DataParallel(RepresentationNetwork(observation_shape, stacked_observations, num_blocks, num_channels, downsample))
+        self.dynamics_network = torch.nn.DataParallel(DynamicsNetwork(num_blocks, num_channels + 1, reduced_channels_reward, fc_reward_layers, self.full_support_size, block_output_size_reward))
+        self.prediction_network = torch.nn.DataParallel(PredictionNetwork(action_space_size, num_blocks, num_channels, reduced_channels_value, reduced_channels_policy, fc_value_layers, fc_policy_layers, self.full_support_size, block_output_size_value, block_output_size_policy))
 
     def prediction(self, encoded_state):
         policy, value = self.prediction_network(encoded_state)
@@ -309,7 +332,7 @@ class MuZeroResidualNetwork(AbstractNetwork):
 
     def dynamics(self, encoded_state, action):
         action_one_hot = torch.ones((encoded_state.shape[0], 1, encoded_state.shape[2], encoded_state.shape[3])).float()
-        action_one_hot = action[:, :, (None), (None)] * action_one_hot / self.action_space_size
+        action_one_hot = action[:, :, None, None] * action_one_hot / self.action_space_size
         x = torch.cat((encoded_state, action_one_hot), dim=1)
         next_encoded_state, reward = self.dynamics_network(x)
         min_next_encoded_state = next_encoded_state.view(-1, next_encoded_state.shape[1], next_encoded_state.shape[2] * next_encoded_state.shape[3]).min(2, keepdim=True)[0].unsqueeze(-1)
@@ -322,7 +345,7 @@ class MuZeroResidualNetwork(AbstractNetwork):
     def initial_inference(self, observation):
         encoded_state = self.representation(observation)
         policy_logits, value = self.prediction(encoded_state)
-        reward = torch.zeros(1, self.full_support_size).scatter(1, torch.tensor([[self.full_support_size // 2]]).long(), 1.0).repeat(len(observation), 1)
+        reward = torch.log(torch.zeros(1, self.full_support_size).scatter(1, torch.tensor([[self.full_support_size // 2]]).long(), 1.0).repeat(len(observation), 1))
         return value, reward, policy_logits, encoded_state
 
     def recurrent_inference(self, encoded_state, action):
@@ -342,10 +365,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (RepresentationNetwork,
-     lambda: ([], {'observation_shape': [4, 4], 'stacked_observations': 4, 'num_blocks': 4, 'num_channels': 4, 'downsample': 4}),
-     lambda: ([torch.rand([4, 24, 64, 64])], {}),
-     True),
     (ResidualBlock,
      lambda: ([], {'num_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -358,7 +377,4 @@ class Test_werner_duvaud_muzero_general(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

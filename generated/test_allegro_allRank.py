@@ -2,10 +2,18 @@ import sys
 _module = sys.modules[__name__]
 del sys
 allrank = _module
+click_models = _module
+base = _module
+cascade_models = _module
+click_utils = _module
+duplicate_aware = _module
 config = _module
 data = _module
 dataset_loading = _module
+dataset_saving = _module
 generate_dummy_data = _module
+inference = _module
+inference_utils = _module
 main = _module
 models = _module
 losses = _module
@@ -15,6 +23,8 @@ binary_listNet = _module
 lambdaLoss = _module
 listMLE = _module
 listNet = _module
+loss_utils = _module
+neuralNDCG = _module
 ordinal = _module
 pointwise = _module
 rankNet = _module
@@ -23,17 +33,32 @@ model = _module
 model_utils = _module
 positional = _module
 transformer = _module
+rank_and_click = _module
 training = _module
 early_stop = _module
 train_utils = _module
 utils = _module
+args_utils = _module
 command_executor = _module
+config_utils = _module
 experiments = _module
 file_utils = _module
 ltr_logging = _module
 python_utils = _module
 tensorboard_utils = _module
+normalize_features = _module
 setup = _module
+tests = _module
+click_models = _module
+test_alternative_click_models = _module
+test_apply_click_model = _module
+test_base_cascade_model = _module
+test_diverse_clicks_model = _module
+test_duplicate_click_model = _module
+test_feature_click_model = _module
+test_fixed_click_model = _module
+test_masked_click_model = _module
+test_random_click_model = _module
 test_approxndcg = _module
 test_binary_listnet = _module
 test_lambdaloss = _module
@@ -43,7 +68,10 @@ test_loss_ordinal = _module
 test_loss_pointwise = _module
 test_mrr = _module
 test_ndcg = _module
+test_neuralndcg = _module
 test_ranknet = _module
+utils = _module
+test_rank_slates = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -65,10 +93,34 @@ xrange = range
 wraps = functools.wraps
 
 
+import math
+
+
+from abc import ABC
+
+
+from abc import abstractmethod
+
+
+from typing import List
+
+
+from typing import Tuple
+
+
+from typing import Callable
+
+
 import numpy as np
 
 
 import torch
+
+
+from scipy.spatial.distance import cdist
+
+
+from typing import Union
 
 
 from sklearn.datasets import load_svmlight_file
@@ -84,6 +136,15 @@ from torchvision import transforms
 
 
 from torchvision.transforms import Compose
+
+
+from typing import Dict
+
+
+from typing import Generator
+
+
+from torch.utils.data.dataloader import DataLoader
 
 
 from functools import partial
@@ -107,7 +168,7 @@ from torch.nn import BCEWithLogitsLoss
 import torch.nn as nn
 
 
-import math
+from typing import Any
 
 
 from typing import Optional
@@ -116,16 +177,20 @@ from typing import Optional
 import copy
 
 
+import pandas as pd
+
+
 from torch.nn.utils import clip_grad_norm_
 
 
 from scipy.special import softmax
 
 
-def instantiate_class(module_name: str, class_name: str):
+def instantiate_class(full_name: str, **kwargs):
+    module_name, class_name = full_name.rsplit('.', 1)
     module = importlib.import_module(module_name)
     class_ = getattr(module, class_name)
-    return class_()
+    return class_(**kwargs)
 
 
 class FCModel(nn.Module):
@@ -143,12 +208,12 @@ class FCModel(nn.Module):
         """
         super(FCModel, self).__init__()
         sizes.insert(0, n_features)
-        self.layers = [nn.Linear(size_in, size_out) for size_in, size_out in zip(sizes[:-1], sizes[1:])]
+        layers = [nn.Linear(size_in, size_out) for size_in, size_out in zip(sizes[:-1], sizes[1:])]
         self.input_norm = nn.LayerNorm(n_features) if input_norm else nn.Identity()
         self.activation = nn.Identity() if activation is None else instantiate_class('torch.nn.modules.activation', activation)
         self.dropout = nn.Dropout(dropout or 0.0)
         self.output_size = sizes[-1]
-        self.layers = nn.ModuleList(self.layers)
+        self.layers = nn.ModuleList(layers)
 
     def forward(self, x):
         """
@@ -157,8 +222,8 @@ class FCModel(nn.Module):
         :return: output of shape [batch_size, slate_length, self.output_size]
         """
         x = self.input_norm(x)
-        for l in self.layers:
-            x = self.dropout(self.activation(l(x)))
+        for layer in self.layers:
+            x = self.dropout(self.activation(layer(x)))
         return x
 
 
@@ -299,7 +364,7 @@ class FixedPositionalEncoding(nn.Module):
         """
         padded_indices = indices.masked_fill(mask, self.padding_idx)
         padded_indices[padded_indices > self.padding_idx] = self.padding_idx
-        x = math.sqrt(self.pe.shape[1]) * x + self.pe[(padded_indices), :]
+        x = math.sqrt(self.pe.shape[1]) * x + self.pe[padded_indices, :]
         return x
 
 
@@ -503,7 +568,7 @@ class MultiHeadedAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
+        query, key, value = [linear(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for linear, x in zip(self.linears, (query, key, value))]
         x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
@@ -541,10 +606,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CustomDataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (LayerNorm,
      lambda: ([], {'features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -582,7 +643,4 @@ class Test_allegro_allRank(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

@@ -100,21 +100,3 @@ class NEG_loss(nn.Module):
     def input_embeddings(self):
         return self.in_embed.weight.data.cpu().numpy()
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (NEG_loss,
-     lambda: ([], {'num_classes': 4, 'embed_size': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), 4], {}),
-     False),
-]
-
-class Test_kefirski_pytorch_NEG_loss(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-

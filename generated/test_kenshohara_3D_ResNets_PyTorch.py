@@ -488,7 +488,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BasicBlock,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (DenseNet,
      lambda: ([], {}),

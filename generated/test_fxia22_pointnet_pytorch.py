@@ -251,10 +251,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64])], {}),
      False),
-    (STNkd,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 64, 64])], {}),
-     False),
 ]
 
 class Test_fxia22_pointnet_pytorch(_paritybench_base):
@@ -269,7 +265,4 @@ class Test_fxia22_pointnet_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

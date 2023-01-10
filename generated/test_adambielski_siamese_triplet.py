@@ -101,8 +101,8 @@ class OnlineContrastiveLoss(nn.Module):
         if embeddings.is_cuda:
             positive_pairs = positive_pairs
             negative_pairs = negative_pairs
-        positive_loss = (embeddings[positive_pairs[:, (0)]] - embeddings[positive_pairs[:, (1)]]).pow(2).sum(1)
-        negative_loss = F.relu(self.margin - (embeddings[negative_pairs[:, (0)]] - embeddings[negative_pairs[:, (1)]]).pow(2).sum(1).sqrt()).pow(2)
+        positive_loss = (embeddings[positive_pairs[:, 0]] - embeddings[positive_pairs[:, 1]]).pow(2).sum(1)
+        negative_loss = F.relu(self.margin - (embeddings[negative_pairs[:, 0]] - embeddings[negative_pairs[:, 1]]).pow(2).sum(1).sqrt()).pow(2)
         loss = torch.cat([positive_loss, negative_loss], dim=0)
         return loss.mean()
 
@@ -124,8 +124,8 @@ class OnlineTripletLoss(nn.Module):
         triplets = self.triplet_selector.get_triplets(embeddings, target)
         if embeddings.is_cuda:
             triplets = triplets
-        ap_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[:, (1)]]).pow(2).sum(1)
-        an_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[:, (2)]]).pow(2).sum(1)
+        ap_distances = (embeddings[triplets[:, 0]] - embeddings[triplets[:, 1]]).pow(2).sum(1)
+        an_distances = (embeddings[triplets[:, 0]] - embeddings[triplets[:, 2]]).pow(2).sum(1)
         losses = F.relu(ap_distances - an_distances + self.margin)
         return losses.mean(), len(triplets)
 

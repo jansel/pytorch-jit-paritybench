@@ -457,7 +457,7 @@ TESTCASES = [
      True),
     (RNNDec,
      lambda: ([], {'input_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
     (RNNEnc,
      lambda: ([], {'input_dim': 4, 'context_length': 4}),

@@ -113,6 +113,9 @@ import torch.nn.functional as F
 from math import ceil
 
 
+from collections import OrderedDict
+
+
 from torchvision import models
 
 
@@ -120,6 +123,9 @@ import torch.utils.model_zoo as model_zoo
 
 
 from itertools import chain
+
+
+import collections
 
 
 import torchvision
@@ -146,9 +152,6 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import _LRScheduler
 
 
-import collections
-
-
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
@@ -159,9 +162,6 @@ import functools
 
 
 from torch.nn.parallel.data_parallel import DataParallel
-
-
-from collections import OrderedDict
 
 
 import numbers
@@ -241,6 +241,306 @@ class ResNet(nn.Module):
         x3 = self.layer3(x2)
         x4 = self.layer4(x3)
         return [x1, x2, x3, x4]
+
+
+_BATCH_NORM_PARAMS = {'eps': 0.001, 'momentum': 0.9997, 'affine': True}
+
+
+def fixed_padding(inputs, kernel_size, rate=1):
+    """Pads the input along the spatial dimensions independently of input size.
+    
+    Args:
+        inputs: A tensor of size [batch, height_in, width_in, channels].
+        kernel_size: The kernel to be used in the conv2d or max_pool2d 
+            operation. Should be a positive integer.
+        rate: An integer, rate for atrous convolution.
+        
+    Returns:
+        padded_inputs: A tensor of size [batch, height_out, width_out, 
+            channels] with the input, either intact (if kernel_size == 1) or 
+            padded (if kernel_size > 1).
+    """
+    kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
+    pad_total = kernel_size_effective - 1
+    pad_beg = pad_total // 2
+    pad_end = pad_total - pad_beg
+    padded_inputs = torch.nn.functional.pad(inputs, pad=(pad_beg, pad_end, pad_beg, pad_end))
+    return padded_inputs
+
+
+class Conv2dSame(torch.nn.Module):
+    """Strided 2-D convolution with 'SAME' padding."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, rate=1):
+        """Constructor.
+        
+        If stride > 1 and use_explicit_padding is True, then we do explicit
+        zero-padding, followed by conv2d with 'VALID' padding.
+        
+        Args:
+            in_channels: An integer, the number of input filters.
+            out_channels: An integer, the number of output filters.
+            kernel_size: An integer with the kernel_size of the filters.
+            stride: An integer, the output stride.
+            rate: An integer, rate for atrous convolution.
+        """
+        super(Conv2dSame, self).__init__()
+        self._kernel_size = kernel_size
+        self._rate = rate
+        self._without_padding = stride == 1
+        if self._without_padding:
+            padding = (kernel_size - 1) * rate // 2
+            self._conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1, dilation=rate, padding=padding, bias=False)
+        else:
+            self._conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, dilation=rate, bias=False)
+        self._batch_norm = torch.nn.BatchNorm2d(out_channels, **_BATCH_NORM_PARAMS)
+        self._relu = torch.nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        """
+        Args:
+            x: A 4-D tensor with shape [batch, height_in, width_in, channels].
+        
+        Returns:
+            A 4-D tensor of size [batch, height_out, width_out, channels] with 
+                the convolution output.
+        """
+        if not self._without_padding:
+            x = fixed_padding(x, self._kernel_size, self._rate)
+        x = self._conv(x)
+        x = self._batch_norm(x)
+        x = self._relu(x)
+        return x
+
+
+class SeparableConv2dSame(torch.nn.Module):
+    """Strided 2-D separable convolution with 'SAME' padding."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, depth_multiplier, stride, rate, use_explicit_padding=True, activation_fn=None, regularize_depthwise=False, **kwargs):
+        """Constructor.
+        
+        If stride > 1 and use_explicit_padding is True, then we do explicit
+        zero-padding, followed by conv2d with 'VALID' padding.
+        
+        Args:
+            in_channels: An integer, the number of input filters.
+            out_channels: An integer, the number of output filters.
+            kernel_size: An integer with the kernel_size of the filters.
+            depth_multiplier: The number of depthwise convolution output
+                channels for each input channel. The total number of depthwise
+                convolution output channels will be equal to `num_filters_in *
+                depth_multiplier`.
+            stride: An integer, the output stride.
+            rate: An integer, rate for atrous convolution.
+            use_explicit_padding: If True, use explicit padding to make the
+                model fully compatible with the open source version, otherwise
+                use the nattive Pytorch 'SAME' padding.
+            activation_fn: Activation function.
+            regularize_depthwise: Whether or not apply L2-norm regularization
+                on the depthwise convolution weights.
+            **kwargs: Additional keyword arguments to pass to torch.nn.Conv2d.
+        """
+        super(SeparableConv2dSame, self).__init__()
+        self._kernel_size = kernel_size
+        self._rate = rate
+        self._without_padding = stride == 1 or not use_explicit_padding
+        out_channels_depthwise = in_channels * depth_multiplier
+        if self._without_padding:
+            padding = (kernel_size - 1) * rate // 2
+            self._conv_depthwise = torch.nn.Conv2d(in_channels, out_channels_depthwise, kernel_size=kernel_size, stride=stride, dilation=rate, groups=in_channels, padding=padding, bias=False, **kwargs)
+        else:
+            self._conv_depthwise = torch.nn.Conv2d(in_channels, out_channels_depthwise, kernel_size=kernel_size, stride=stride, dilation=rate, groups=in_channels, bias=False, **kwargs)
+        self._batch_norm_depthwise = torch.nn.BatchNorm2d(out_channels_depthwise, **_BATCH_NORM_PARAMS)
+        self._conv_pointwise = torch.nn.Conv2d(out_channels_depthwise, out_channels, kernel_size=1, stride=1, bias=False, **kwargs)
+        self._batch_norm_pointwise = torch.nn.BatchNorm2d(out_channels, **_BATCH_NORM_PARAMS)
+        self._activation_fn = activation_fn
+
+    def forward(self, x):
+        """
+        Args:
+            x: A 4-D tensor with shape [batch, height_in, width_in, channels].
+        
+        Returns:
+            A 4-D tensor of size [batch, height_out, width_out, channels] with 
+                the convolution output.
+        """
+        if not self._without_padding:
+            x = fixed_padding(x, self._kernel_size, self._rate)
+        x = self._conv_depthwise(x)
+        x = self._batch_norm_depthwise(x)
+        if self._activation_fn is not None:
+            x = self._activation_fn(x)
+        x = self._conv_pointwise(x)
+        x = self._batch_norm_pointwise(x)
+        if self._activation_fn is not None:
+            x = self._activation_fn(x)
+        return x
+
+
+_CLIP_CAP = 6
+
+
+class XceptionModule(torch.nn.Module):
+    """An Xception module.
+    
+    The output of one Xception module is equal to the sum of `residual` and
+    `shortcut`, where `residual` is the feature computed by three seperable
+    convolution. The `shortcut` is the feature computed by 1x1 convolution
+    with or without striding. In some cases, the `shortcut` path could be a
+    simple identity function or none (i.e, no shortcut).
+    """
+
+    def __init__(self, in_channels, depth_list, skip_connection_type, stride, unit_rate_list, rate=1, activation_fn_in_separable_conv=False, regularize_depthwise=False, use_bounded_activation=False, use_explicit_padding=True):
+        """Constructor.
+        
+        Args:
+            in_channels: An integer, the number of input filters.
+            depth_list: A list of three integers specifying the depth values
+                of one Xception module.
+            skip_connection_type: Skip connection type for the residual path.
+                Only supports 'conv', 'sum', or 'none'.
+            stride: The block unit's stride. Detemines the amount of 
+                downsampling of the units output compared to its input.
+            unit_rate_list: A list of three integers, determining the unit 
+                rate for each separable convolution in the Xception module.
+            rate: An integer, rate for atrous convolution.
+            activation_fn_in_separable_conv: Includes activation function in
+                the seperable convolution or not.
+            regularize_depthwise: Whether or not apply L2-norm regularization
+                on the depthwise convolution weights.
+            use_bounded_activation: Whether or not to use bounded activations.
+                Bounded activations better lend themselves to quantized 
+                inference.
+            use_explicit_padding: If True, use explicit padding to make the
+                model fully compatible with the open source version, otherwise
+                use the nattive Pytorch 'SAME' padding.
+                
+        Raises:
+            ValueError: If depth_list and unit_rate_list do not contain three
+                integers, or if stride != 1 for the third seperable convolution
+                operation in the residual path, or unsupported skip connection
+                type.
+        """
+        super(XceptionModule, self).__init__()
+        if len(depth_list) != 3:
+            raise ValueError('Expect three elements in `depth_list`.')
+        if len(unit_rate_list) != 3:
+            raise ValueError('Expect three elements in `unit_rate_list`.')
+        if skip_connection_type not in ['conv', 'sum', 'none']:
+            raise ValueError('Unsupported skip connection type.')
+        self._input_activation_fn = None
+        if activation_fn_in_separable_conv:
+            activation_fn = torch.nn.ReLU6(inplace=False) if use_bounded_activation else torch.nn.ReLU(inplace=False)
+        elif use_bounded_activation:
+            activation_fn = lambda x: torch.clamp(x, -_CLIP_CAP, _CLIP_CAP)
+            self._input_activation_fn = torch.nn.ReLU6(inplace=False)
+        else:
+            activation_fn = None
+            self._input_activation_fn = torch.nn.ReLU(inplace=False)
+        self._use_bounded_activation = use_bounded_activation
+        self._output_activation_fn = None
+        if use_bounded_activation:
+            self._output_activation_fn = torch.nn.ReLU6(inplace=True)
+        layers = []
+        in_channels_ = in_channels
+        for i in range(3):
+            if self._input_activation_fn is not None:
+                layers += [self._input_activation_fn]
+            layers += [SeparableConv2dSame(in_channels_, depth_list[i], kernel_size=3, depth_multiplier=1, regularize_depthwise=regularize_depthwise, rate=rate * unit_rate_list[i], stride=stride if i == 2 else 1, activation_fn=activation_fn, use_explicit_padding=use_explicit_padding)]
+            in_channels_ = depth_list[i]
+        self._separable_conv_block = torch.nn.Sequential(*layers)
+        self._skip_connection_type = skip_connection_type
+        if skip_connection_type == 'conv':
+            self._conv_skip_connection = torch.nn.Conv2d(in_channels, depth_list[-1], kernel_size=1, stride=stride)
+            self._batch_norm_shortcut = torch.nn.BatchNorm2d(depth_list[-1], **_BATCH_NORM_PARAMS)
+
+    def forward(self, x):
+        """
+        Args:
+            x: A 4-D tensor with shape [batch, height, width, channels].
+        
+        Returns:
+            The Xception module's output.
+        """
+        residual = self._separable_conv_block(x)
+        if self._skip_connection_type == 'conv':
+            shortcut = self._conv_skip_connection(x)
+            shortcut = self._batch_norm_shortcut(shortcut)
+            if self._use_bounded_activation:
+                residual = torch.clamp(residual, -_CLIP_CAP, _CLIP_CAP)
+                shortcut = torch.clamp(shortcut, -_CLIP_CAP, _CLIP_CAP)
+            outputs = residual + shortcut
+            if self._use_bounded_activation:
+                outputs = self._output_activation_fn(outputs)
+        elif self._skip_connection_type == 'sum':
+            if self._use_bounded_activation:
+                residual = torch.clamp(residual, -_CLIP_CAP, _CLIP_CAP)
+                x = torch.clamp(x, -_CLIP_CAP, _CLIP_CAP)
+            outputs = residual + x
+            if self._use_bounded_activation:
+                outputs = self._output_activation_fn(outputs)
+        else:
+            outputs = residual
+        return outputs
+
+
+class StackBlocksDense(torch.nn.Module):
+    """Stacks Xception blocks and controls output feature density.
+    
+    This class allows the user to explicitly control the output stride, which
+    is the ratio of the input to output spatial resolution. This is useful for
+    dense prediction tasks such as semantic segmentation or object detection.
+    
+    Control of the output feature density is implemented by atrous convolution.
+    """
+
+    def __init__(self, blocks, output_stride=None):
+        """Constructor.
+        
+        Args:
+            blocks: A list of length equal to the number of Xception blocks.
+                Each element is an Xception Block object describing the units
+                in the block.
+            output_stride: If None, then the output will be computed at the
+                nominal network stride. If output_stride is not None, it 
+                specifies the requested ratio of input to output spatial
+                resolution, which needs to be equal to the product of unit
+                strides from the start up to some level of Xception. For
+                example, if the Xception employs units with strides 1, 2, 1,
+                3, 4, 1, then valid values for the output_stride are 1, 2, 6,
+                24 or None (which is equivalent to output_stride=24).
+                
+        Raises:
+            ValueError: If the target output_stride is not valid.
+        """
+        super(StackBlocksDense, self).__init__()
+        current_stride = 1
+        rate = 1
+        layers = []
+        for block in blocks:
+            for i, unit in enumerate(block.args):
+                if output_stride is not None and current_stride > output_stride:
+                    raise ValueError('The target output_stride cannot be reached.')
+                if output_stride is not None and current_stride == output_stride:
+                    layers += [block.unit_fn(rate=rate, **dict(unit, stride=1))]
+                    rate *= unit.get('stride', 1)
+                else:
+                    layers += [block.unit_fn(rate=1, **unit)]
+                    current_stride *= unit.get('stride', 1)
+        if output_stride is not None and current_stride != output_stride:
+            raise ValueError('The target ouput_stride cannot be reached.')
+        self._blocks = torch.nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        Args:
+            x: A tensor of shape [batch, height, widht, channels].
+            
+        Returns:
+            Output tensor with stride equal to the specified output_stride.
+        """
+        x = self._blocks(x)
+        return x
 
 
 class SeparableConv2d(nn.Module):
@@ -500,9 +800,28 @@ class Decoder(nn.Module):
         return x
 
 
+def apply_leaf(m, f):
+    c = m if isinstance(m, (list, tuple)) else list(m.children())
+    if isinstance(m, nn.Module):
+        f(m)
+    if len(c) > 0:
+        for l in c:
+            apply_leaf(l, f)
+
+
+def set_trainable_attr(m, b):
+    m.trainable = b
+    for p in m.parameters():
+        p.requires_grad = b
+
+
+def set_trainable(l, b):
+    apply_leaf(l, lambda m: set_trainable_attr(m, b))
+
+
 class DeepLab(BaseModel):
 
-    def __init__(self, num_classes, in_channels=3, backbone='xception', pretrained=True, output_stride=16, freeze_bn=False, **_):
+    def __init__(self, num_classes, in_channels=3, backbone='xception', pretrained=True, output_stride=16, freeze_bn=False, freeze_backbone=False, **_):
         super(DeepLab, self).__init__()
         assert 'xception' or 'resnet' in backbone
         if 'resnet' in backbone:
@@ -515,6 +834,8 @@ class DeepLab(BaseModel):
         self.decoder = Decoder(low_level_channels, num_classes)
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.backbone], False)
 
     def forward(self, x):
         H, W = x.size(2), x.size(3)
@@ -597,6 +918,8 @@ class DeepLab_DUC_HDC(BaseModel):
         self.DUC_out = DUC(num_classes, num_classes, 4)
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.backbone], False)
 
     def forward(self, x):
         H, W = x.size(2), x.size(3)
@@ -813,7 +1136,7 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
     og = np.ogrid[:kernel_size, :kernel_size]
     filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
     weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float64)
-    weight[(list(range(in_channels))), (list(range(out_channels))), :, :] = filt
+    weight[list(range(in_channels)), list(range(out_channels)), :, :] = filt
     return torch.from_numpy(weight).float()
 
 
@@ -852,6 +1175,8 @@ class FCN8(BaseModel):
                 m.weight.requires_grad = False
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.pool3, self.pool4, self.pool5], False)
 
     def forward(self, x):
         imh_H, img_W = x.size()[2], x.size()[3]
@@ -922,7 +1247,7 @@ class BottleneckGCN(nn.Module):
         else:
             self.downsample = None
         self.gcn = Block_Resnet_GCN(kernel_size, in_channels, out_channels_gcn)
-        self.conv1x1 = nn.Conv2d(out_channels_gcn, out_channels, 1, bias=False)
+        self.conv1x1 = nn.Conv2d(out_channels_gcn, out_channels, 1, stride=stride, bias=False)
         self.bn1x1 = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -1063,6 +1388,8 @@ class GCN(BaseModel):
         self.final_conv = nn.Conv2d(num_classes, num_classes, kernel_size=1)
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.backbone], False)
 
     def forward(self, x):
         x1, x2, x3, x4, conv1_sz = self.backbone(x)
@@ -1126,25 +1453,6 @@ class _PSPModule(nn.Module):
         pyramids.extend([F.interpolate(stage(features), size=(h, w), mode='bilinear', align_corners=True) for stage in self.stages])
         output = self.bottleneck(torch.cat(pyramids, dim=1))
         return output
-
-
-def apply_leaf(m, f):
-    c = m if isinstance(m, (list, tuple)) else list(m.children())
-    if isinstance(m, nn.Module):
-        f(m)
-    if len(c) > 0:
-        for l in c:
-            apply_leaf(l, f)
-
-
-def set_trainable_attr(m, b):
-    m.trainable = b
-    for p in m.parameters():
-        p.requires_grad = b
-
-
-def set_trainable(l, b):
-    apply_leaf(l, lambda m: set_trainable_attr(m, b))
 
 
 class PSPNet(BaseModel):
@@ -1367,6 +1675,8 @@ class SegNet(BaseModel):
         self._initialize_weights(self.stage1_decoder, self.stage2_decoder, self.stage3_decoder, self.stage4_decoder, self.stage5_decoder)
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.stage1_encoder, self.stage2_encoder, self.stage3_encoder, self.stage4_encoder, self.stage5_encoder], False)
 
     def _initialize_weights(self, *stages):
         for modules in stages:
@@ -1500,6 +1810,8 @@ class SegResNet(BaseModel):
         self.last_conv = nn.Sequential(nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2, bias=False), nn.Conv2d(64, num_classes, kernel_size=3, stride=1, padding=1))
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.first_conv, self.encoder], False)
 
     def forward(self, x):
         inputsize = x.size()
@@ -1536,34 +1848,41 @@ class SegResNet(BaseModel):
                 module.eval()
 
 
+def x2conv(in_channels, out_channels, inner_channels=None):
+    inner_channels = out_channels // 2 if inner_channels is None else inner_channels
+    down_conv = nn.Sequential(nn.Conv2d(in_channels, inner_channels, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(inner_channels), nn.ReLU(inplace=True), nn.Conv2d(inner_channels, out_channels, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+    return down_conv
+
+
 class encoder(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(encoder, self).__init__()
-        self.down_conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+        self.down_conv = x2conv(in_channels, out_channels)
         self.pool = nn.MaxPool2d(kernel_size=2, ceil_mode=True)
 
     def forward(self, x):
         x = self.down_conv(x)
-        x_pooled = self.pool(x)
-        return x, x_pooled
+        x = self.pool(x)
+        return x
 
 
 class decoder(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(decoder, self).__init__()
-        self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
-        self.up_conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+        self.up_conv = x2conv(in_channels, out_channels)
 
     def forward(self, x_copy, x, interpolate=True):
         x = self.up(x)
-        if interpolate:
-            x = F.interpolate(x, size=(x_copy.size(2), x_copy.size(3)), mode='bilinear', align_corners=True)
-        else:
-            diffY = x_copy.size()[2] - x.size()[2]
-            diffX = x_copy.size()[3] - x.size()[3]
-            x = F.pad(x, (diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2))
+        if x.size(2) != x_copy.size(2) or x.size(3) != x_copy.size(3):
+            if interpolate:
+                x = F.interpolate(x, size=(x_copy.size(2), x_copy.size(3)), mode='bilinear', align_corners=True)
+            else:
+                diffY = x_copy.size()[2] - x.size()[2]
+                diffX = x_copy.size()[3] - x.size()[3]
+                x = F.pad(x, (diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2))
         x = torch.cat([x_copy, x], dim=1)
         x = self.up_conv(x)
         return x
@@ -1573,11 +1892,12 @@ class UNet(BaseModel):
 
     def __init__(self, num_classes, in_channels=3, freeze_bn=False, **_):
         super(UNet, self).__init__()
-        self.down1 = encoder(in_channels, 64)
-        self.down2 = encoder(64, 128)
-        self.down3 = encoder(128, 256)
-        self.down4 = encoder(256, 512)
-        self.middle_conv = nn.Sequential(nn.Conv2d(512, 1024, kernel_size=3, padding=1), nn.BatchNorm2d(1024), nn.ReLU(inplace=True), nn.Conv2d(1024, 1024, kernel_size=3, padding=1), nn.BatchNorm2d(1024), nn.ReLU(inplace=True))
+        self.start_conv = x2conv(in_channels, 64)
+        self.down1 = encoder(64, 128)
+        self.down2 = encoder(128, 256)
+        self.down3 = encoder(256, 512)
+        self.down4 = encoder(512, 1024)
+        self.middle_conv = x2conv(1024, 1024)
         self.up1 = decoder(1024, 512)
         self.up2 = decoder(512, 256)
         self.up3 = decoder(256, 128)
@@ -1598,11 +1918,11 @@ class UNet(BaseModel):
                 module.bias.data.zero_()
 
     def forward(self, x):
-        x1, x = self.down1(x)
-        x2, x = self.down2(x)
-        x3, x = self.down3(x)
-        x4, x = self.down4(x)
-        x = self.middle_conv(x)
+        x1 = self.start_conv(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x = self.middle_conv(self.down4(x4))
         x = self.up1(x4, x)
         x = self.up2(x3, x)
         x = self.up3(x2, x)
@@ -1615,6 +1935,71 @@ class UNet(BaseModel):
 
     def get_decoder_params(self):
         return self.parameters()
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
+class UNetResnet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, backbone='resnet50', pretrained=True, freeze_bn=False, freeze_backbone=False, **_):
+        super(UNetResnet, self).__init__()
+        model = getattr(resnet, backbone)(pretrained, norm_layer=nn.BatchNorm2d)
+        self.initial = list(model.children())[:4]
+        if in_channels != 3:
+            self.initial[0] = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.initial = nn.Sequential(*self.initial)
+        self.layer1 = model.layer1
+        self.layer2 = model.layer2
+        self.layer3 = model.layer3
+        self.layer4 = model.layer4
+        self.conv1 = nn.Conv2d(2048, 192, kernel_size=3, stride=1, padding=1)
+        self.upconv1 = nn.ConvTranspose2d(192, 128, 4, 2, 1, bias=False)
+        self.conv2 = nn.Conv2d(1152, 128, kernel_size=3, stride=1, padding=1)
+        self.upconv2 = nn.ConvTranspose2d(128, 96, 4, 2, 1, bias=False)
+        self.conv3 = nn.Conv2d(608, 96, kernel_size=3, stride=1, padding=1)
+        self.upconv3 = nn.ConvTranspose2d(96, 64, 4, 2, 1, bias=False)
+        self.conv4 = nn.Conv2d(320, 64, kernel_size=3, stride=1, padding=1)
+        self.upconv4 = nn.ConvTranspose2d(64, 48, 4, 2, 1, bias=False)
+        self.conv5 = nn.Conv2d(48, 48, kernel_size=3, stride=1, padding=1)
+        self.upconv5 = nn.ConvTranspose2d(48, 32, 4, 2, 1, bias=False)
+        self.conv6 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
+        self.conv7 = nn.Conv2d(32, num_classes, kernel_size=1, bias=False)
+        initialize_weights(self)
+        if freeze_bn:
+            self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.initial, self.layer1, self.layer2, self.layer3, self.layer4], False)
+
+    def forward(self, x):
+        H, W = x.size(2), x.size(3)
+        x1 = self.layer1(self.initial(x))
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+        x = self.upconv1(self.conv1(x4))
+        x = F.interpolate(x, size=(x3.size(2), x3.size(3)), mode='bilinear', align_corners=True)
+        x = torch.cat([x, x3], dim=1)
+        x = self.upconv2(self.conv2(x))
+        x = F.interpolate(x, size=(x2.size(2), x2.size(3)), mode='bilinear', align_corners=True)
+        x = torch.cat([x, x2], dim=1)
+        x = self.upconv3(self.conv3(x))
+        x = F.interpolate(x, size=(x1.size(2), x1.size(3)), mode='bilinear', align_corners=True)
+        x = torch.cat([x, x1], dim=1)
+        x = self.upconv4(self.conv4(x))
+        x = self.upconv5(self.conv5(x))
+        if x.size(2) != H or x.size(3) != W:
+            x = F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True)
+        x = self.conv7(self.conv6(x))
+        return x
+
+    def get_backbone_params(self):
+        return chain(self.initial.parameters(), self.layer1.parameters(), self.layer2.parameters(), self.layer3.parameters(), self.layer4.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.conv1.parameters(), self.upconv1.parameters(), self.conv2.parameters(), self.upconv2.parameters(), self.conv3.parameters(), self.upconv3.parameters(), self.conv4.parameters(), self.upconv4.parameters(), self.conv5.parameters(), self.upconv5.parameters(), self.conv6.parameters(), self.conv7.parameters())
 
     def freeze_bn(self):
         for module in self.modules():
@@ -1684,6 +2069,8 @@ class UperNet(BaseModel):
         self.head = nn.Conv2d(fpn_out, num_classes, kernel_size=3, padding=1)
         if freeze_bn:
             self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.backbone], False)
 
     def forward(self, x):
         input_size = x.size()[2], x.size()[3]
@@ -1850,9 +2237,9 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
         if C == 1:
             if len(classes) > 1:
                 raise ValueError('Sigmoid output possible only with 1 class')
-            class_pred = probas[:, (0)]
+            class_pred = probas[:, 0]
         else:
-            class_pred = probas[:, (c)]
+            class_pred = probas[:, c]
         errors = (Variable(fg) - class_pred).abs()
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
@@ -2413,13 +2800,9 @@ TESTCASES = [
      lambda: ([], {'kernel_size': 4, 'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DUC,
-     lambda: ([], {'in_channels': 4, 'out_channles': 4, 'upscale': 4}),
+    (Conv2dSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
      False),
     (Decoder,
      lambda: ([], {'low_level_channels': 4, 'num_classes': 4}),
@@ -2429,19 +2812,7 @@ TESTCASES = [
      lambda: ([], {'inchannels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DeepLab_DUC_HDC,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
     (ENet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (FCN8,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (GCN,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
@@ -2473,18 +2844,14 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'output_stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SegNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (SegResNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SeparableConv2dSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'depth_multiplier': 1, 'stride': 1, 'rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (StableBCELoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -2493,14 +2860,6 @@ TESTCASES = [
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (UperNet,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (Xception,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
     (_PSPModule,
      lambda: ([], {'in_channels': 4, 'bin_sizes': [4, 4], 'norm_layer': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2577,25 +2936,4 @@ class Test_yassouali_pytorch_segmentation(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
-
-    def test_025(self):
-        self._check(*TESTCASES[25])
-
-    def test_026(self):
-        self._check(*TESTCASES[26])
-
-    def test_027(self):
-        self._check(*TESTCASES[27])
-
-    def test_028(self):
-        self._check(*TESTCASES[28])
 

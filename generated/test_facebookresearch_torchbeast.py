@@ -4,6 +4,7 @@ del sys
 nest_test = _module
 setup = _module
 setup = _module
+py = _module
 batching_queue_test = _module
 contiguous_arrays_env = _module
 contiguous_arrays_test = _module
@@ -24,6 +25,7 @@ vtrace = _module
 monobeast = _module
 polybeast = _module
 polybeast_env = _module
+polybeast_learner = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -48,13 +50,10 @@ wraps = functools.wraps
 import torch
 
 
-import numpy as np
-
-
-from torch.utils import cpp_extension
-
-
 import time
+
+
+import numpy as np
 
 
 from torch import nn

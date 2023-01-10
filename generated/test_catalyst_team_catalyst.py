@@ -3,83 +3,76 @@ _module = sys.modules[__name__]
 del sys
 catalyst = _module
 __version__ = _module
+callbacks = _module
+backward = _module
+batch_overfit = _module
+batch_transform = _module
+checkpoint = _module
+control_flow = _module
+criterion = _module
+metric = _module
+metric_aggregation = _module
+metrics = _module
+accuracy = _module
+auc = _module
+classification = _module
+cmc_score = _module
+confusion_matrix = _module
+functional_metric = _module
+r2_squared = _module
+recsys = _module
+scikit_learn = _module
+segmentation = _module
+misc = _module
+mixup = _module
+onnx = _module
+optimizer = _module
+optuna = _module
+periodic_loader = _module
+profiler = _module
+pruning = _module
+quantization = _module
+scheduler = _module
+sklearn_model = _module
+soft_update = _module
+tracing = _module
 contrib = _module
 data = _module
-cv = _module
-mixins = _module
-blur = _module
-flare = _module
-rotate = _module
-tests = _module
-test_mixin = _module
-reader = _module
-transforms = _module
-tensor = _module
-nlp = _module
+_misc = _module
+collate_fn = _module
 dataset = _module
-language_modeling = _module
-test_language_modeling_dataset = _module
-test_text_classification_dataset = _module
-text_classification = _module
+dataset_cv = _module
+dataset_ml = _module
+reader = _module
+reader_cv = _module
+sampler = _module
+sampler_inbatch = _module
 transforms = _module
 datasets = _module
+cifar = _module
+imagecar = _module
+imagenette = _module
+imagewang = _module
+imagewoof = _module
+market1501 = _module
+misc = _module
+misc_cv = _module
 mnist = _module
-utils = _module
-dl = _module
-callbacks = _module
-alchemy_logger = _module
-cutmix_callback = _module
-gradnorm_logger = _module
-knn_metric = _module
-mask_inference = _module
-neptune_logger = _module
-periodic_loader_callback = _module
-perplexity_metric = _module
-telegram_logger = _module
-test_gradnorm_logger = _module
-test_perplexity_callback = _module
-test_tracer_callback = _module
-tracer_callback = _module
-visdom_logger = _module
-wandb_logger = _module
-experiment = _module
-runner = _module
-models = _module
-classification = _module
-encoders = _module
-resnet = _module
-segmentation = _module
-abn = _module
-blocks = _module
-core = _module
-fpn = _module
-psp = _module
-unet = _module
-bridge = _module
-core = _module
-unet = _module
-core = _module
-decoder = _module
-core = _module
-fpn = _module
-psp = _module
-unet = _module
-encoder = _module
-core = _module
-resnet = _module
-unet = _module
-head = _module
-core = _module
-fpn = _module
-unet = _module
-linknet = _module
-functional = _module
-hydra = _module
-bert = _module
-sequential = _module
-test_hydra = _module
-nn = _module
-criterion = _module
+movielens = _module
+layers = _module
+amsoftmax = _module
+arcface = _module
+arcmargin = _module
+common = _module
+cosface = _module
+curricularface = _module
+factorized = _module
+lama = _module
+pooling = _module
+rms_norm = _module
+se = _module
+softmax = _module
+losses = _module
 ce = _module
 circle = _module
 contrastive = _module
@@ -87,223 +80,235 @@ dice = _module
 focal = _module
 functional = _module
 gan = _module
-huber = _module
 iou = _module
 lovasz = _module
 margin = _module
+ntxent = _module
+recsys = _module
+regression = _module
+smoothing_dice = _module
+supervised_contrastive = _module
+trevsky = _module
 triplet = _module
 wing = _module
-modules = _module
-common = _module
-lama = _module
-pooling = _module
-rms_norm = _module
-se = _module
+models = _module
+mnist = _module
+resnet_encoder = _module
 optimizers = _module
+adamp = _module
 lamb = _module
 lookahead = _module
 qhadamw = _module
 radam = _module
 ralamb = _module
+sgdp = _module
 schedulers = _module
 base = _module
 onecycle = _module
-test_criterion = _module
-test_optimizer = _module
-registry = _module
 scripts = _module
-check_index_model = _module
 collect_env = _module
-create_index_model = _module
-find_thresholds = _module
-tools = _module
-tensorboard = _module
-test_tensorboard = _module
-argparse = _module
-compression = _module
-confusion_matrix = _module
-image = _module
-tensor = _module
-test_image = _module
-misc = _module
-text = _module
-pandas = _module
-parallel = _module
-plotly = _module
-serialization = _module
-test_argparse = _module
-test_dataset = _module
-test_misc = _module
-test_pandas = _module
-visualization = _module
-callback = _module
-checkpoint = _module
-early_stop = _module
-exception = _module
-formatters = _module
-logging = _module
-metrics = _module
-optimizer = _module
-scheduler = _module
-timer = _module
-validation = _module
-experiment = _module
-legacy = _module
-runner = _module
-state = _module
-data = _module
-augmentor = _module
-collate_fn = _module
-dataset = _module
-sampler = _module
-image2embedding = _module
-process_images = _module
 project_embeddings = _module
-split_dataframe = _module
-tag2label = _module
-test_tag2label = _module
-text2embedding = _module
-test_sampler = _module
-confusion_matrix = _module
-inference = _module
-meter = _module
-accuracy = _module
-auc = _module
-f1_score = _module
-iou = _module
-ppv_tpr_f1 = _module
-mixup = _module
-config = _module
-experiment = _module
-supervised = _module
-test_config = _module
-test_core = _module
-test_supervised = _module
+run = _module
+tune = _module
+utils = _module
+compression = _module
+image = _module
+numpy = _module
+report = _module
+serialization = _module
+swa = _module
+thresholds = _module
+visualization = _module
+core = _module
+callback = _module
+engine = _module
+logger = _module
+misc = _module
+runner = _module
+dataset = _module
+loader = _module
+sampler = _module
+dl = _module
+engines = _module
+extras = _module
+forward_wrapper = _module
+frozen_class = _module
+metric_handler = _module
+time_manager = _module
+loggers = _module
+comet = _module
+console = _module
+csv = _module
+mlflow = _module
+neptune = _module
+tensorboard = _module
+wandb = _module
+_accumulative = _module
+_accuracy = _module
+_additive = _module
+_auc = _module
+_classification = _module
+_cmc_score = _module
+_confusion_matrix = _module
+_functional_metric = _module
+_hitrate = _module
+_map = _module
+_metric = _module
+_mrr = _module
+_ndcg = _module
+_r2_squared = _module
+_segmentation = _module
+_topk_metric = _module
+_accuracy = _module
+_auc = _module
+_average_precision = _module
+_classification = _module
+_cmc_score = _module
+_f1_score = _module
+_focal = _module
+_hitrate = _module
+_misc = _module
+_mrr = _module
+_ndcg = _module
+_precision = _module
+_r2_squared = _module
+_recall = _module
+_segmentation = _module
+registry = _module
+runners = _module
 runner = _module
 supervised = _module
-init = _module
-run = _module
-trace = _module
-test_main = _module
-utils = _module
-trace = _module
-wizard = _module
-frozen_class = _module
-meters = _module
-apmeter = _module
-aucmeter = _module
-averagevaluemeter = _module
-classerrormeter = _module
-confusionmeter = _module
-mapmeter = _module
-movingaveragevaluemeter = _module
-msemeter = _module
-ppv_tpr_f1_meter = _module
-test_averagevaluemeter = _module
-test_ppv_tpr_f1 = _module
 settings = _module
-time_manager = _module
 typing = _module
 utils = _module
-checkpoint = _module
-components = _module
-dict = _module
+config = _module
 distributed = _module
-hash = _module
-initialization = _module
-loader = _module
-accuracy = _module
-dice = _module
-f1_score = _module
-focal = _module
-iou = _module
-test_dice = _module
-test_iou = _module
-numpy = _module
-parser = _module
-pipelines = _module
-scripts = _module
-seed = _module
-sys = _module
-registery_foo = _module
-test_hash = _module
-test_registry = _module
-test_torch = _module
+misc = _module
+onnx = _module
+pruning = _module
+quantization = _module
+tracing = _module
+collect_dependencies_hash = _module
 conf = _module
+buffer = _module
+db = _module
+ddpg = _module
+dqn = _module
+misc = _module
+sampler = _module
+detection = _module
+callbacks = _module
+criterion = _module
+custom_runner = _module
+dataset = _module
+centernet = _module
+ssd = _module
+yolo_x = _module
+to_coco = _module
+utils = _module
 src = _module
-dataset = _module
-model = _module
-cifar_simple = _module
-experiments = _module
-simple_experiment = _module
-model = _module
-cifar_stages = _module
-experiment = _module
-model = _module
-distilbert_text_classification = _module
+train_albert = _module
+train_resnet = _module
+macridvae = _module
+multidae = _module
+multivae = _module
+ddpg = _module
+dqn = _module
+reinforce = _module
+barlow_twins = _module
+byol = _module
+simCLR = _module
+common = _module
+runner = _module
+supervised_contrastive = _module
 setup = _module
-_tests_contrib_dl_callbacks = _module
-experiment = _module
-model = _module
-_tests_cv_classification = _module
-model = _module
-test1 = _module
-model = _module
-test2 = _module
-SimpleExperiment1 = _module
-SimpleExperiment2 = _module
-model = _module
-_tests_cv_classification_transforms = _module
-model = _module
-_tests_cv_segmentation = _module
-dataset = _module
-_tests_dl_callbacks = _module
-experiment = _module
-model = _module
-_tests_scripts = _module
-core_contrib_data = _module
-core_contrib_dl = _module
-core_contrib_models = _module
-core_contrib_nn = _module
-core_data = _module
-cv_contrib_models = _module
-cv_z_segmentation = _module
-cv_z_unets = _module
-dl_callbacks = _module
-dl_experiment = _module
-dl_runner = _module
-dl_utils = _module
-dl_z_classification = _module
-dl_z_contirb_functional = _module
-dl_z_distributed_01 = _module
-dl_z_distributed_02 = _module
-dl_z_distributed_03 = _module
-dl_z_distributed_04 = _module
-dl_z_distributed_05 = _module
-dl_z_distributed_06 = _module
-dl_z_distributed_07 = _module
-dl_z_distributed_08 = _module
-dl_z_distributed_09 = _module
-dl_z_distributed_10 = _module
-dl_z_distributed_11 = _module
-dl_z_distributed_12 = _module
-dl_z_distributed_13 = _module
-dl_z_distributed_14 = _module
-dl_z_distributed_15 = _module
-dl_z_distributed_16 = _module
-dl_z_distributed_17 = _module
-dl_z_docs_distributed_0 = _module
-dl_z_docs_distributed_1 = _module
-dl_z_docs_distributed_2 = _module
-dl_z_docs_distributed_3 = _module
-dl_z_mvp_distributed_mnist_ae = _module
-dl_z_mvp_mnist = _module
-dl_z_mvp_mnist_ae = _module
-dl_z_mvp_mnist_gan = _module
-dl_z_mvp_mnist_unet = _module
-dl_z_mvp_mnist_vae = _module
-dl_z_mvp_projector = _module
-nlp_contrib_models = _module
+tests = _module
+benchmarks = _module
+test_benchmark = _module
+test_batch_overfit = _module
+test_batch_transform = _module
+test_checkpoint = _module
+test_control_flow = _module
+test_metric_aggregation = _module
+test_misc = _module
+test_mixup = _module
+test_optimizer = _module
+test_optuna = _module
+test_periodic_loader = _module
+test_profiler = _module
+test_pruning = _module
+test_quantization = _module
+test_sklearn_model = _module
+test_soft_update = _module
+test_tracing = _module
+test_wrapper = _module
+test_data = _module
+test_loader = _module
+test_sampler = _module
+test_accuracy = _module
+test_auc = _module
+test_average_precision = _module
+test_classification = _module
+test_cmc_metric = _module
+test_dice = _module
+test_fbeta_precision_recall = _module
+test_hitrate = _module
+test_iou = _module
+test_misc = _module
+test_mrr = _module
+test_ndcg = _module
+test_r2_squared = _module
+test_region_statictics = _module
+test_accuracy = _module
+test_additive = _module
+test_classification = _module
+test_cmc_score = _module
+test_functional_metric = _module
+test_r2squared = _module
+test_segmentation = _module
+test_profiler = _module
+test_reid = _module
+test_runner = _module
+test_sklearn_classifier = _module
+test_sklearn_classifier_mnist = _module
+test_config = _module
+test_hash = _module
+test_onnx = _module
+test_quantization = _module
+test_dataset = _module
+test_nifti = _module
+test_sampler_inbatch = _module
+test_movielens = _module
+test_movielens_20m = _module
+nn = _module
+test_criterion = _module
+test_modules = _module
+test_onecyle = _module
+test_optimizer = _module
+test_main = _module
+test_tag2label = _module
+test_tune = _module
+test_image = _module
+test_swa = _module
+test_torch = _module
+misc = _module
+pipelines = _module
+test_classification = _module
+test_contrastive = _module
+test_distillation = _module
+test_gan = _module
+test_metric_learning = _module
+test_mnist = _module
+test_mnist_custom = _module
+test_mnist_multicriterion = _module
+test_mnist_multimodel = _module
+test_mnist_multioptimizer = _module
+test_multihead_classification = _module
+test_multilabel_classification = _module
+test_optuna = _module
+test_recsys = _module
+test_regression = _module
+test_vae = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -325,94 +330,49 @@ xrange = range
 wraps = functools.wraps
 
 
-import numpy as np
-
-
 import torch
 
 
-from typing import Iterable
-
-
-from typing import Union
-
-
-from torch.utils.data import Dataset
-
-
-from typing import List
-
-
-from typing import Mapping
-
-
-import logging
-
-
-from torch.utils.model_zoo import tqdm
-
-
-from typing import Dict
-
-
-from torch.nn import DataParallel
-
-
-from torch.nn.parallel import DistributedDataParallel
-
-
-from math import ceil
-
-
-from scipy import stats
-
-
-from sklearn.metrics import accuracy_score
-
-
-from sklearn.metrics import f1_score
-
-
-from sklearn.metrics import precision_score
-
-
-from sklearn.metrics import recall_score
-
-
-from sklearn.neighbors import NearestNeighbors
-
-
-import torch.nn.functional as F
+from typing import TYPE_CHECKING
 
 
 from collections import OrderedDict
 
 
-import copy
+from typing import Any
 
 
-from torch.utils.data import DataLoader
+from typing import Callable
 
 
-from torch import nn
+from typing import Dict
+
+
+from typing import List
+
+
+from typing import Union
+
+
+from functools import partial
+
+
+from collections import namedtuple
+
+
+from typing import Mapping
+
+
+from typing import Sequence
+
+
+from typing import Iterable
+
+
+from typing import Optional
 
 
 from typing import Tuple
-
-
-import collections
-
-
-from numbers import Number
-
-
-import torch.nn as nn
-
-
-from torch.optim import Adam
-
-
-import torchvision
 
 
 from abc import ABC
@@ -421,94 +381,31 @@ from abc import ABC
 from abc import abstractmethod
 
 
-from torch.nn import functional as F
+from torch.utils.data import DataLoader
 
 
-from functools import partial
+import numpy as np
 
 
-from copy import deepcopy
+from torch import int as tint
 
 
-from typing import Optional
+from torch import long
 
 
-from torch.nn.modules.loss import *
+from torch import short
 
 
 from torch import Tensor
 
 
-from torch.nn.modules.loss import _Loss
-
-
-from itertools import filterfalse as ifilterfalse
-
-
-import math
-
-
-from torch.nn.modules import *
-
-
-from torch.optim import *
-
-
-from typing import Callable
-
-
-from torch.optim.optimizer import Optimizer
-
-
-from collections import defaultdict
-
-
-from torch.optim import Optimizer
-
-
-from torch.optim.lr_scheduler import *
-
-
-from torch.optim.lr_scheduler import _LRScheduler
-
-
-from torch import optim
-
-
-from collections import namedtuple
-
-
-import re
-
-
-from typing import BinaryIO
-
-
-from collections.abc import Iterable
-
-
-from torch import __version__ as torch_version
-
-
-import string
-
-
-from typing import Any
-
-
-from torch.utils.data import DistributedSampler
-
-
-from copy import copy
-
-
-import warnings
+import collections.abc
 
 
 from torch.utils.data.dataloader import default_collate
 
 
-from torch.utils.data import Sampler
+from torch.utils.data import Dataset
 
 
 from typing import Iterator
@@ -517,10 +414,10 @@ from typing import Iterator
 from collections import Counter
 
 
-from random import choices
+import logging
 
 
-from random import sample
+import random
 
 
 from torch.utils.data.sampler import BatchSampler
@@ -529,849 +426,554 @@ from torch.utils.data.sampler import BatchSampler
 from torch.utils.data.sampler import Sampler
 
 
-from typing import Sequence
+from itertools import combinations
+
+
+from itertools import product
+
+
+from random import sample
+
+
+from torch.nn import functional as F
+
+
+import torch.utils.data as data
+
+
+from torch.utils.model_zoo import tqdm
+
+
+import itertools
 
 
 import pandas as pd
 
 
-from sklearn.metrics import confusion_matrix as confusion_matrix_fn
+import scipy.sparse as sp
 
 
-import torch.distributed
+from torch.nn.modules import *
 
 
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+import torch.nn as nn
 
 
-from typing import Generator
+import torch.nn.functional as F
 
 
-from torch.jit import ScriptModule
+import math
 
 
-from torch.utils.data.dataloader import default_collate as default_collate_fn
+from torch import nn
 
 
-import inspect
+from torch.nn.modules.loss import *
 
 
-from torch.jit import load
+from torch.nn.modules.loss import _Loss
 
 
-from torch.jit import save
+from itertools import filterfalse as ifilterfalse
 
 
-from torch.jit import trace
+from math import e
 
 
-import numbers
+from torch.autograd import Function
 
 
-from torch.optim import lr_scheduler
+from torch.autograd import Variable
 
 
-from torch.utils import data
+from torch.nn import TripletMarginLoss
 
 
-import random
+import torchvision
+
+
+from torchvision.models import ResNet
+
+
+from torch.optim import *
+
+
+from torch.optim.optimizer import Optimizer
+
+
+import collections
+
+
+from collections import defaultdict
+
+
+from torch.optim import Optimizer
+
+
+from torch.optim.optimizer import required
+
+
+from torch.optim.lr_scheduler import *
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import re
 
 
 import torch.backends
 
 
+from functools import lru_cache
+
+
+import warnings
+
+
+from torch.utils.data import BatchSampler
+
+
+from torch.utils.data import DistributedSampler
+
+
+from torch.utils.data import Sampler
+
+
+from itertools import tee
+
+
+import queue
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+import functools
+
+
+from typing import Generator
+
+
+from numbers import Number
+
+
+from torch import optim
+
+
+from torch.optim import lr_scheduler
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from torch.utils import data
+
+
+from torch.utils.data import sampler
+
+
+from typing import TypeVar
+
+
+import copy
+
+
+from torch.nn import Module
+
+
+from torch.nn.utils import prune
+
+
+from torch import quantization
+
+
 from torch.backends import cudnn
 
 
-from torch.utils.data import Subset
+from torch import jit
 
 
-import matplotlib
+from torch.utils.data.dataset import Dataset
 
 
-import matplotlib.pyplot as plt
+import time
 
 
-import torch.optim as optim
+from torchvision.models import mobilenet
+
+
+from torchvision.models import resnet
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from torch.optim.lr_scheduler import StepLR
+
+
+from collections import deque
+
+
+from torch.utils.data.dataset import IterableDataset
+
+
+from sklearn.linear_model import LogisticRegression
+
+
+from torch.optim import Adam
+
+
+import enum
+
+
+from torch.utils.data.dataloader import DataLoader
 
 
 from torch.utils.data import TensorDataset
 
 
-class _SimpleNet(nn.Module):
-
-    def __init__(self, input_shape: Tuple[int]):
-        super().__init__()
-        assert len(input_shape) == 3
-        c, h, w = input_shape
-        self.conv1 = nn.Conv2d(in_channels=c, out_channels=64, kernel_size=3)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=2)
-        self.flatten = nn.Flatten()
-        for conv in [self.conv1, self.conv2]:
-            h_kernel, w_kernel = conv.kernel_size
-            h_stride, w_stride = conv.stride
-            c = conv.out_channels
-            h, w = self.conv2d_size_out(size=(h, w), kernel_size=(h_kernel, w_kernel), stride=(h_stride, w_stride))
-        self.fc1 = nn.Linear(in_features=c * h * w, out_features=10)
-
-    def forward(self, x: torch.Tensor):
-        for conv in [self.conv1, self.conv2]:
-            x = conv(x)
-            x = self.relu(x)
-        x = self.flatten(x)
-        x = self.fc1(x)
-        return x
-
-    @staticmethod
-    def conv2d_size_out(*, size: Tuple[int], kernel_size: Tuple[int], stride: Tuple[int]):
-        """Computes output size for 2D convolution layer.
-        cur_layer_img_w = conv2d_size_out(cur_layer_img_w, kernel_size, stride)
-        cur_layer_img_h = conv2d_size_out(cur_layer_img_h, kernel_size, stride)
-        to understand the shape for dense layer's input.
-
-        Args:
-            size (Tuple[int]): size of input.
-            kernel_size (Tuple[int]): size of convolution kernel.
-            stride (Tuple[int]): size of convolution stride.
-
-        Returns:
-            int: output size
-        """
-        size, kernel_size, stride = map(lambda x: torch.tensor(x, dtype=torch.int32), (size, kernel_size, stride))
-        output_size = (size - (kernel_size - 1) - 1) / stride + 1
-        h, w = map(lambda x: x.item(), output_size)
-        return h, w
+from random import randint
 
 
-class _TracedNet(nn.Module):
-    """
-    Simple model for the testing.
+from random import shuffle
+
+
+from itertools import chain
+
+
+from torch import tensor
+
+
+class AMSoftmax(nn.Module):
+    """Implementation of
+    `AMSoftmax: Additive Margin Softmax for Face Verification`_.
+
+    .. _AMSoftmax\\: Additive Margin Softmax for Face Verification:
+        https://arxiv.org/pdf/1801.05599.pdf
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        s: norm of input feature.
+            Default: ``64.0``.
+        m: margin.
+            Default: ``0.5``.
+        eps: operation accuracy.
+            Default: ``1e-6``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = AMSoftmax(5, 10, s=1.31, m=0.5)
+        >>> loss_fn = nn.CrossEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
     """
 
-    def __init__(self, input_shape: Tuple[int]):
-        """
-        Args:
-            input_shape (Tuple[int]): Shape of input tensor.
-        """
-        super().__init__()
-        assert len(input_shape) == 3
-        c, h, w = input_shape
-        self.conv1 = nn.Conv2d(in_channels=c, out_channels=64, kernel_size=3)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=2)
-        self.flatten = nn.Flatten()
-        for conv in [self.conv1, self.conv2]:
-            h_kernel, w_kernel = conv.kernel_size
-            h_stride, w_stride = conv.stride
-            c = conv.out_channels
-            h, w = self.conv2d_size_out(size=(h, w), kernel_size=(h_kernel, w_kernel), stride=(h_stride, w_stride))
-        self.fc1 = nn.Linear(in_features=c * h * w, out_features=10)
+    def __init__(self, in_features: int, out_features: int, s: float=64.0, m: float=0.5, eps: float=1e-06):
+        super(AMSoftmax, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.eps = eps
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
 
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'ArcFace(in_features={self.in_features},out_features={self.out_features},s={self.s},m={self.m},eps={self.eps})'
+        return rep
+
+    def forward(self, input: torch.Tensor, target: torch.LongTensor=None) ->torch.Tensor:
         """
         Args:
-            x (torch.Tensor): Input tensor
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            target: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
 
         Returns:
-            (torch.Tensor): Output tensor
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
         """
-        for conv in [self.conv1, self.conv2]:
-            x = conv(x)
-            x = self.relu(x)
-        x = self.flatten(x)
-        x = self.fc1(x)
-        return x
+        cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
+        if target is None:
+            return cos_theta
+        cos_theta = torch.clamp(cos_theta, -1.0 + self.eps, 1.0 - self.eps)
+        one_hot = torch.zeros_like(cos_theta)
+        one_hot.scatter_(1, target.view(-1, 1).long(), 1)
+        logits = torch.where(one_hot.bool(), cos_theta - self.m, cos_theta)
+        logits *= self.s
+        return logits
 
-    @staticmethod
-    def conv2d_size_out(*, size: Tuple[int], kernel_size: Tuple[int], stride: Tuple[int]) ->Tuple[int, int]:
+
+class ArcFace(nn.Module):
+    """Implementation of
+    `ArcFace: Additive Angular Margin Loss for Deep Face Recognition`_.
+
+    .. _ArcFace\\: Additive Angular Margin Loss for Deep Face Recognition:
+        https://arxiv.org/abs/1801.07698v1
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        s: norm of input feature.
+            Default: ``64.0``.
+        m: margin.
+            Default: ``0.5``.
+        eps: operation accuracy.
+            Default: ``1e-6``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = ArcFace(5, 10, s=1.31, m=0.5)
+        >>> loss_fn = nn.CrossEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int, s: float=64.0, m: float=0.5, eps: float=1e-06):
+        super(ArcFace, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.threshold = math.pi - m
+        self.eps = eps
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'ArcFace(in_features={self.in_features},out_features={self.out_features},s={self.s},m={self.m},eps={self.eps})'
+        return rep
+
+    def forward(self, input: torch.Tensor, target: torch.LongTensor=None) ->torch.Tensor:
         """
-        Computes output size for 2D convolution layer.
-        cur_layer_img_w = conv2d_size_out(cur_layer_img_w, kernel_size, stride)
-        cur_layer_img_h = conv2d_size_out(cur_layer_img_h, kernel_size, stride)
-        to understand the shape for dense layer's input.
-
         Args:
-            size (Tuple[int]): size of input.
-            kernel_size (Tuple[int]): size of convolution kernel.
-            stride (Tuple[int]): size of convolution stride.
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            target: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
 
         Returns:
-            (Tuple[int, int]): output size
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
         """
-        size, kernel_size, stride = map(lambda x: torch.tensor(x, dtype=torch.int32), (size, kernel_size, stride))
-        output_size = (size - (kernel_size - 1) - 1) / stride + 1
-        h, w = map(lambda x: x.item(), output_size)
-        return h, w
+        cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
+        if target is None:
+            return cos_theta
+        theta = torch.acos(torch.clamp(cos_theta, -1.0 + self.eps, 1.0 - self.eps))
+        one_hot = torch.zeros_like(cos_theta)
+        one_hot.scatter_(1, target.view(-1, 1).long(), 1)
+        mask = torch.where(theta > self.threshold, torch.zeros_like(one_hot), one_hot)
+        logits = torch.cos(torch.where(mask.bool(), theta + self.m, theta))
+        logits *= self.s
+        return logits
 
 
-class EncoderSpec(ABC, nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
+class SubCenterArcFace(nn.Module):
+    """Implementation of
+    `Sub-center ArcFace: Boosting Face Recognition
+    by Large-scale Noisy Web Faces`_.
 
-    @property
-    @abstractmethod
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        pass
+    .. _Sub-center ArcFace\\: Boosting Face Recognition         by Large-scale Noisy Web Faces:
+        https://ibug.doc.ic.ac.uk/media/uploads/documents/eccv_1445.pdf
 
-    @property
-    @abstractmethod
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        s: norm of input feature,
+            Default: ``64.0``.
+        m: margin.
+            Default: ``0.5``.
+        k: number of possible class centroids.
+            Default: ``3``.
+        eps (float, optional): operation accuracy.
+            Default: ``1e-6``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = SubCenterArcFace(5, 10, s=1.31, m=0.35, k=2)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int, s: float=64.0, m: float=0.5, k: int=3, eps: float=1e-06):
+        super(SubCenterArcFace, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.k = k
+        self.eps = eps
+        self.weight = nn.Parameter(torch.FloatTensor(k, in_features, out_features))
+        nn.init.xavier_uniform_(self.weight)
+        self.threshold = math.pi - self.m
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'SubCenterArcFace(in_features={self.in_features},out_features={self.out_features},s={self.s},m={self.m},k={self.k},eps={self.eps})'
+        return rep
+
+    def forward(self, input: torch.Tensor, target: torch.LongTensor=None) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            target: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes.
+        """
+        feats = F.normalize(input).unsqueeze(0).expand(self.k, *input.shape)
+        wght = F.normalize(self.weight, dim=1)
+        cos_theta = torch.bmm(feats, wght)
+        cos_theta = torch.max(cos_theta, dim=0)[0]
+        theta = torch.acos(torch.clamp(cos_theta, -1.0 + self.eps, 1.0 - self.eps))
+        if target is None:
+            return cos_theta
+        one_hot = torch.zeros_like(cos_theta)
+        one_hot.scatter_(1, target.view(-1, 1).long(), 1)
+        selected = torch.where(theta > self.threshold, torch.zeros_like(one_hot), one_hot)
+        logits = torch.cos(torch.where(selected.bool(), theta + self.m, theta))
+        logits *= self.s
+        return logits
 
 
-RESNET_PARAMS = {'resnet18': {'channels': [64, 64, 128, 256, 512], 'strides': [2, 4, 8, 16, 32]}, 'resnet34': {'channels': [64, 64, 128, 256, 512], 'strides': [2, 4, 8, 16, 32]}, 'resnet50': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}, 'resnet101': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}, 'resnet152': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}}
+class ArcMarginProduct(nn.Module):
+    """Implementation of Arc Margin Product.
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = ArcMarginProduct(5, 10)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int):
+        super(ArcMarginProduct, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'ArcMarginProduct(in_features={self.in_features},out_features={self.out_features})'
+        return rep
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
+        """
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        return cosine
 
 
-def _take(elements, indexes):
-    return [elements[i] for i in indexes]
-
-
-class ABN(nn.Module):
-    """Activated Batch Normalization.
-
-    This gathers a `BatchNorm2d` and an activation function in a single module.
+class Flatten(nn.Module):
+    """Flattens the input. Does not affect the batch size.
 
     @TODO: Docs (add `Example`). Contribution is welcome.
     """
 
-    def __init__(self, num_features: int, activation: str='leaky_relu', batchnorm_params: Dict=None, activation_params: Dict=None, use_batchnorm: bool=True):
-        """
-        Args:
-            num_features (int): number of feature channels
-                in the input and output
-            activation (str): name of the activation functions, one of:
-                ``'leaky_relu'``, ``'elu'`` or ``'none'``.
-            batchnorm_params (dict): additional ``nn.BatchNorm2d`` params
-            activation_params (dict): additional params for activation fucntion
-            use_batchnorm (bool): @TODO: Docs. Contribution is welcome
-        """
+    def __init__(self):
+        """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        batchnorm_params = batchnorm_params or {}
-        activation_params = activation_params or {}
-        layers = []
-        if use_batchnorm:
-            layers.append(nn.BatchNorm2d(num_features=num_features, **batchnorm_params))
-        if activation is not None and activation.lower() != 'none':
-            layers.append(nn.__dict__[activation](inplace=True, **activation_params))
-        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         """Forward call."""
-        x = self.net(x)
-        return x
+        return x.view(x.shape[0], -1)
 
 
-class EncoderBlock(ABC, nn.Module):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
+class Lambda(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None):
-        """
-        Args:
-            @TODO: Docs. Contribution is welcome.
-        """
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.in_strides = in_strides
-
-    @property
-    @abstractmethod
-    def out_strides(self) ->int:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
-
-    @property
-    @abstractmethod
-    def block(self) ->nn.Module:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        return self.block(x)
-
-
-class DecoderBlock(ABC, nn.Module):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
-
-    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, *args, **kwargs):
-        """
-        Args:
-            @TODO: Docs. Contribution is welcome.
-        """
-        super().__init__()
-        self.in_channels = in_channels
-        self.enc_channels = enc_channels
-        self.out_channels = out_channels
-        self.in_strides = in_strides
-        self.block = self._get_block(*args, **kwargs)
-
-    @abstractmethod
-    def _get_block(self, *args, **kwargs) ->nn.Module:
-        pass
-
-    @property
-    def out_strides(self) ->int:
-        """@TODO: Docs. Contribution is welcome."""
-        return self.in_strides // 2 if self.in_strides is not None else None
-
-    @abstractmethod
-    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        pass
-
-
-class DecoderFPNBlock(DecoderBlock):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
-
-    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, upsample_scale: int=2, interpolation_mode: str='nearest', align_corners: bool=None, aggregate_first: bool=False, **kwargs):
-        """
-        Args:
-            @TODO: Docs. Contribution is welcome.
-        """
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        super().__init__(in_channels, enc_channels, out_channels, in_strides, **kwargs)
-
-    def _get_block(self):
-        block = nn.Conv2d(self.enc_channels, self.out_channels, kernel_size=1)
-        return block
-
-    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        x = F.interpolate(bottom, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
-        left = self.block(left)
-        x = x + left
-        return x
-
-
-class Conv3x3GNReLU(nn.Module):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
-
-    def __init__(self, in_channels, out_channels, upsample=False, upsample_scale: int=2, interpolation_mode: str='bilinear', align_corners: bool=True):
-        """
-        Args:
-            @TODO: Docs. Contribution is welcome.
-        """
-        super().__init__()
-        self.upsample = upsample
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        self.block = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.GroupNorm(32, out_channels), nn.ReLU(inplace=True))
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        x = self.block(x)
-        if self.upsample:
-            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
-        return x
-
-
-class SegmentationBlock(nn.Module):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
-
-    def __init__(self, in_channels: int, out_channels: int, num_upsamples: int=0):
+    def __init__(self, lambda_fn):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        blocks = [Conv3x3GNReLU(in_channels, out_channels, upsample=bool(num_upsamples))]
-        if num_upsamples > 1:
-            for _ in range(1, num_upsamples):
-                blocks.append(Conv3x3GNReLU(out_channels, out_channels, upsample=True))
-        self.block = nn.Sequential(*blocks)
+        self.lambda_fn = lambda_fn
 
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
+    def forward(self, x):
         """Forward call."""
-        return self.block(x)
-
-
-def _get_block(in_channels: int, out_channels: int, abn_block: nn.Module=ABN, activation: str='ReLU', kernel_size: int=3, padding: int=1, first_stride: int=1, second_stride: int=1, complexity: int=1, **kwargs):
-    layers = [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=first_stride, bias=False, **kwargs), abn_block(out_channels, activation=activation)]
-    if complexity > 0:
-        layers_ = [nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=second_stride, bias=False, **kwargs), abn_block(out_channels, activation=activation)] * complexity
-        layers = layers + layers_
-    block = nn.Sequential(*layers)
-    return block
-
-
-class PyramidBlock(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, out_channels: int, pool_size: int, use_batchnorm: bool=True, interpolation_mode: str='bilinear', align_corners: bool=True, complexity: int=0):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        if pool_size == 1:
-            use_batchnorm = False
-        self._block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(pool_size, pool_size)), _get_block(in_channels, out_channels, abn_block=partial(ABN, use_batchnorm=use_batchnorm), complexity=complexity))
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        h, w = x.shape[-2:]
-        x = self._block(x)
-        x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=self.align_corners)
-        return x
-
-
-class PSPBlock(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, pool_sizes: Tuple[int]=(1, 2, 3, 6), use_batchnorm: bool=True):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.stages = nn.ModuleList([PyramidBlock(in_channels, in_channels // len(pool_sizes), pool_size, use_batchnorm=use_batchnorm) for pool_size in pool_sizes])
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        xs = [stage(x) for stage in self.stages] + [x]
-        x = torch.cat(xs, dim=1)
-        return x
-
-
-class EncoderDownsampleBlock(EncoderBlock):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', first_stride: int=2, second_stride: int=1, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, out_channels, in_strides)
-        self._out_strides = in_strides * first_stride * second_stride if in_strides is not None else None
-        self._block = _get_block(in_channels=in_channels, out_channels=out_channels, abn_block=abn_block, activation=activation, first_stride=first_stride, second_stride=second_stride, **kwargs)
-
-    @property
-    def out_strides(self) ->int:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._out_strides
-
-    @property
-    def block(self):
-        """@TODO: Docs. Contribution is welcome."""
-        return self._block
-
-
-class EncoderUpsampleBlock(EncoderBlock):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', first_stride: int=1, second_stride: int=1, pool_first: bool=False, upsample_scale: int=2, interpolation_mode: str='nearest', align_corners: bool=None, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, out_channels, in_strides)
-        if in_strides is None:
-            self._out_strides = None
-        elif pool_first:
-            self._out_strides = in_strides * first_stride * second_stride * 2 // upsample_scale
-        else:
-            self._out_strides = in_strides * first_stride * second_stride // upsample_scale
-        self.pool_first = pool_first
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        self._block = _get_block(in_channels=in_channels, out_channels=out_channels, abn_block=abn_block, activation=activation, first_stride=first_stride, second_stride=second_stride, **kwargs)
-
-    @property
-    def out_strides(self) ->int:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._out_strides
-
-    @property
-    def block(self):
-        """@TODO: Docs. Contribution is welcome."""
-        return self._block
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        if self.pool_first:
-            x = F.max_pool2d(x, kernel_size=self.upsample_scale, stride=self.upsample_scale)
-        x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
-        return self.block(x)
-
-
-def _upsample(x: torch.Tensor, scale: int=None, size: int=None, interpolation_mode: str='bilinear', align_corners: bool=True) ->torch.Tensor:
-    if scale is None:
-        x = F.interpolate(x, size=size, mode=interpolation_mode, align_corners=align_corners)
-    else:
-        x = F.interpolate(x, scale_factor=scale, mode=interpolation_mode, align_corners=align_corners)
-    return x
-
-
-class DecoderConcatBlock(DecoderBlock):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', pre_dropout_rate: float=0.0, post_dropout_rate: float=0.0, upsample_scale: int=None, interpolation_mode: str='bilinear', align_corners: bool=True, aggregate_first: bool=False, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        self.aggregate_first = aggregate_first
-        super().__init__(in_channels, enc_channels, out_channels, in_strides, abn_block=abn_block, activation=activation, pre_dropout_rate=pre_dropout_rate, post_dropout_rate=post_dropout_rate, **kwargs)
-
-    def _get_block(self, abn_block: nn.Module=ABN, activation: str='ReLU', pre_dropout_rate: float=0.0, post_dropout_rate: float=0.0, **kwargs):
-        layers = []
-        if pre_dropout_rate > 0:
-            layers.append(nn.Dropout2d(pre_dropout_rate, inplace=True))
-        layers.append(_get_block(in_channels=self.in_channels + self.enc_channels, out_channels=self.out_channels, abn_block=abn_block, activation=activation, first_stride=1, second_stride=1, **kwargs))
-        if post_dropout_rate > 0:
-            layers.append(nn.Dropout2d(pre_dropout_rate, inplace=True))
-        block = nn.Sequential(*layers)
-        return block
-
-    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        if self.aggregate_first:
-            x = torch.cat([bottom, left], 1)
-            x = _upsample(x, scale=self.upsample_scale, interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
-        else:
-            x = _upsample(bottom, scale=self.upsample_scale, size=left.shape[2:], interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
-            x = torch.cat([x, left], 1)
-        return self.block(x)
-
-
-class DecoderSumBlock(DecoderConcatBlock):
-    """@TODO: Docs (add description, `Example`). Contribution is welcome"""
-
-    def __init__(self, enc_channels: int, **kwargs):
-        """
-        Args:
-            @TODO: Docs. Contribution is welcome.
-        """
-        super().__init__(enc_channels=0, **kwargs)
-
-    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        if self.aggregate_first:
-            x = bottom + left
-            x = _upsample(x, scale=self.upsample_scale, interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
-            x = self.block(x)
-        else:
-            x = _upsample(bottom, scale=self.upsample_scale, size=left.shape[2:], interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
-            x = self.block(x)
-            x = x + left
-        return x
-
-
-class BridgeSpec(ABC, nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int]):
-        """
-        Args:
-            in_channels (List[int]): number of channels in the input sample
-            in_strides (List[int]): the stride of the block
-        """
-        super().__init__()
-        self._in_channels = in_channels
-        self._in_strides = in_strides
-
-    @property
-    def in_channels(self) ->List[int]:
-        """Number of channels in the input sample."""
-        return self._in_channels
-
-    @property
-    def in_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._in_strides
-
-    @property
-    @abstractmethod
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        pass
-
-    @property
-    @abstractmethod
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
-
-    @abstractmethod
-    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
-        """Forward call."""
-        pass
-
-
-class UnetBridge(BridgeSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int], out_channels: int, block_fn: EncoderBlock=EncoderDownsampleBlock, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, in_strides)
-        self.block = block_fn(in_channels=in_channels[-1], in_strides=in_strides[-1], out_channels=out_channels, **kwargs)
-        self._out_channels = in_channels + [self.block.out_channels]
-        self._out_strides = in_strides + [self.block.out_strides]
-
-    @property
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        return self._out_channels
-
-    @property
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._out_strides
-
-    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
-        """Forward call."""
-        x_: torch.Tensor = x[-1]
-        x_: torch.Tensor = self.block(x_)
-        output = x + [x_]
-        return output
-
-
-class DecoderSpec(ABC, nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int]):
-        """
-        Args:
-            in_channels (List[int]): number of channels in the input sample
-            in_strides (List[int]): the stride of the block
-        """
-        super().__init__()
-        self.in_channels = in_channels
-        self.in_strides = in_strides
-
-    @property
-    @abstractmethod
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        pass
-
-    @property
-    @abstractmethod
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
-
-    @abstractmethod
-    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
-        """Forward call."""
-        pass
-
-
-class HeadSpec(ABC, nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], out_channles: int, in_strides: List[int]=None):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.in_channels = in_channels
-        self.in_strides = in_strides
-        self.out_channles = out_channles
-
-    @abstractmethod
-    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
-        """Forward call."""
-        pass
-
-
-class UnetEncoder(EncoderSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: int, num_channels: int, num_blocks: int, layers_indices: List[int]=None, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.num_filters = num_channels
-        self.num_blocks = num_blocks
-        self._layers_indices = layers_indices or list(range(num_blocks))
-        self._channels = [(self.num_filters * 2 ** i) for i in range(self.num_blocks)]
-        self._strides = [(2 ** i) for i in range(self.num_blocks)]
-        self._channels = _take(self._channels, self._layers_indices)
-        self._strides = _take(self._strides, self._layers_indices)
-        for i in range(num_blocks):
-            in_channels = in_channels if not i else num_channels * 2 ** (i - 1)
-            out_channels = num_channels * 2 ** i
-            self.add_module(f'block{i + 1}', EncoderDownsampleBlock(in_channels, out_channels, first_stride=1, **kwargs))
-            if i != self.num_blocks - 1:
-                self.add_module(f'pool{i + 1}', nn.MaxPool2d(2, 2))
-
-    @property
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        return self._channels
-
-    @property
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._strides
-
-    def forward(self, x: torch.Tensor) ->List[torch.Tensor]:
-        """Forward call."""
-        output = []
-        for i in range(self.num_blocks):
-            x = self.__getattr__(f'block{i + 1}')(x)
-            output.append(x)
-            if i != self.num_blocks - 1:
-                x = self.__getattr__(f'pool{i + 1}')(x)
-        output = _take(output, self._layers_indices)
-        return output
-
-
-class FPNDecoder(DecoderSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int], pyramid_channels: int=256, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, in_strides)
-        out_strides_ = [in_strides[-1]]
-        self.center_conv = nn.Conv2d(in_channels[-1], pyramid_channels, kernel_size=1)
-        reversed_features = list(reversed(in_channels[:-1]))
-        blocks = []
-        for encoder_features in reversed_features:
-            blocks.append(DecoderFPNBlock(in_channels=pyramid_channels, enc_channels=encoder_features, out_channels=pyramid_channels, in_strides=out_strides_[-1], **kwargs))
-            out_strides_.append(blocks[-1].out_strides)
-        self.blocks = nn.ModuleList(blocks)
-        self._out_channels = [pyramid_channels] * len(in_channels)
-        self._out_strides = out_strides_
-
-    @property
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        return self._out_channels
-
-    @property
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._out_strides
-
-    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
-        """Forward call."""
-        fpn_features = [self.center_conv(x[-1])]
-        reversed_features = list(reversed(x[:-1]))
-        for _i, (fpn_block, encoder_output) in enumerate(zip(self.blocks, reversed_features)):
-            fpn_features.append(fpn_block(fpn_features[-1], encoder_output))
-        return fpn_features
-
-
-class PSPDecoder(DecoderSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int], downsample_factor: int=8, use_batchnorm: bool=True, out_channels: int=512):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, in_strides)
-        self.block_offset = self._get_block_offset(downsample_factor)
-        psp_out_channels: int = self._get(in_channels)
-        self.psp = PSPBlock(psp_out_channels, pool_sizes=(1, 2, 3, 6), use_batchnorm=use_batchnorm)
-        self.conv = _get_block(psp_out_channels * 2, out_channels, kernel_size=1, padding=0, abn_block=partial(ABN, use_batchnorm=use_batchnorm), complexity=0)
-        self._out_channels = out_channels
-        self.downsample_factor = downsample_factor
-
-    @property
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        return [self._out_channels]
-
-    @property
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return [self.downsample_factor]
-
-    def _get_block_offset(self, downsample_factor: int):
-        offset = self.in_strides.index(downsample_factor)
-        return offset
-
-    def _get(self, xs: List):
-        return xs[self.block_offset]
-
-    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
-        """Forward call."""
-        features = self._get(x)
-        x = self.psp(features)
-        x = self.conv(x)
-        return [x]
-
-
-class UNetDecoder(DecoderSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], in_strides: List[int], block_fn: DecoderBlock=DecoderConcatBlock, **kwargs):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, in_strides)
-        out_channels_ = [in_channels[-1]]
-        out_strides_ = [in_strides[-1]]
-        reversed_channels = list(reversed(in_channels[:-1]))
-        blocks: List[DecoderBlock] = []
-        for encoder_channels in reversed_channels:
-            out_channels_.append(encoder_channels)
-            blocks.append(block_fn(in_channels=out_channels_[-2], enc_channels=encoder_channels, out_channels=out_channels_[-1], in_strides=out_strides_[-1], **kwargs))
-            out_strides_.append(blocks[-1].out_strides)
-        self.blocks = nn.ModuleList(blocks)
-        self._out_channels = out_channels_
-        self._out_strides = out_strides_
-
-    @property
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        return self._out_channels
-
-    @property
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        return self._out_strides
-
-    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
-        """Forward call."""
-        decoder_outputs = [x[-1]]
-        reversed_features = list(reversed(x[:-1]))
-        for _i, (decoder_block, encoder_output) in enumerate(zip(self.blocks, reversed_features)):
-            decoder_outputs.append(decoder_block(decoder_outputs[-1], encoder_output))
-        return decoder_outputs
-
-
-class FPNHead(HeadSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], out_channels: int, hid_channel: int=256, in_strides: List[int]=None, dropout: float=0.0, num_upsample_blocks: int=0, upsample_scale: int=1, interpolation_mode: str='bilinear', align_corners: bool=True):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, out_channels, in_strides)
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        segmentation_blocks = []
-        for i, in_channels_ in enumerate(in_channels):
-            if in_strides is not None:
-                i = np.log2(in_strides[i]) - num_upsample_blocks - np.log2(upsample_scale)
-            segmentation_blocks.append(SegmentationBlock(in_channels=in_channels_, out_channels=hid_channel, num_upsamples=int(i)))
-        self.segmentation_blocks = nn.ModuleList(segmentation_blocks)
-        additional_layers = [EncoderUpsampleBlock(hid_channel, hid_channel)] * num_upsample_blocks
-        if dropout > 0:
-            additional_layers.append(nn.Dropout2d(p=dropout, inplace=True))
-        self.head = nn.Sequential(*additional_layers, nn.Conv2d(hid_channel, out_channels, 1))
-
-    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
-        """Forward call."""
-        x = list(map(lambda block, features: block(features), self.segmentation_blocks, x))
-        x = sum(x)
-        x = self.head(x)
-        if self.upsample_scale > 1:
-            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
-        return x
-
-
-class UnetHead(HeadSpec):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_channels: List[int], out_channels: int, in_strides: List[int]=None, dropout: float=0.0, num_upsample_blocks: int=0, upsample_scale: int=1, interpolation_mode: str='bilinear', align_corners: bool=True):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__(in_channels, out_channels, in_strides)
-        self.upsample_scale = upsample_scale
-        self.interpolation_mode = interpolation_mode
-        self.align_corners = align_corners
-        in_channels_ = in_channels[-1]
-        additional_layers = [EncoderUpsampleBlock(in_channels_, in_channels_)] * num_upsample_blocks
-        if dropout > 0:
-            additional_layers.append(nn.Dropout2d(p=dropout, inplace=True))
-        self.head = nn.Sequential(*additional_layers, nn.Conv2d(in_channels_, out_channels, 1))
-
-    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
-        """Forward call."""
-        x_ = x[-1]
-        x = self.head(x_)
-        if self.upsample_scale > 1:
-            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
-        return x
+        return self.lambda_fn(x)
 
 
 class Normalize(nn.Module):
@@ -1393,23 +995,439 @@ class Normalize(nn.Module):
         return F.normalize(x, **self.normalize_kwargs)
 
 
-LateAddCallbak = Callable[['Registry'], None]
+class GaussianNoise(nn.Module):
+    """
+    A gaussian noise module.
 
+    Shape:
 
-class RegistryException(Exception):
-    """Exception class for all registry errors."""
+    - Input: (batch, \\*)
+    - Output: (batch, \\*) (same shape as input)
+    """
 
-    def __init__(self, message):
+    def __init__(self, stddev: float=0.1):
         """
-        Init.
+        Args:
+            stddev: The standard deviation of the normal distribution.
+                Default: 0.1.
+        """
+        super().__init__()
+        self.stddev = stddev
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        noise = torch.empty_like(x)
+        noise.normal_(0, self.stddev)
+
+
+class ResidualBlock(nn.Module):
+    """ResidualBlock"""
+
+    def __init__(self, block):
+        """ResidualBlock"""
+        super().__init__()
+        self.block = block
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        return self.block(x) + x
+
+
+class CosFace(nn.Module):
+    """Implementation of
+    `CosFace\\: Large Margin Cosine Loss for Deep Face Recognition`_.
+
+    .. _CosFace\\: Large Margin Cosine Loss for Deep Face Recognition:
+        https://arxiv.org/abs/1801.09414
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        s: norm of input feature.
+            Default: ``64.0``.
+        m: margin.
+            Default: ``0.35``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = CosFaceLoss(5, 10, s=1.31, m=0.1)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int, s: float=64.0, m: float=0.35):
+        super(CosFace, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'CosFace(in_features={self.in_features},out_features={self.out_features},s={self.s},m={self.m})'
+        return rep
+
+    def forward(self, input: torch.Tensor, target: torch.LongTensor=None) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            target: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
+        """
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        phi = cosine - self.m
+        if target is None:
+            return cosine
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, target.view(-1, 1).long(), 1)
+        logits = one_hot * phi + (1.0 - one_hot) * cosine
+        logits *= self.s
+        return logits
+
+
+class AdaCos(nn.Module):
+    """Implementation of
+    `AdaCos\\: Adaptively Scaling Cosine Logits for Effectively Learning Deep Face Representations`_.
+
+    .. _AdaCos\\: Adaptively Scaling Cosine Logits for        Effectively Learning Deep Face Representations:
+        https://arxiv.org/abs/1905.00292
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        dynamical_s: option to use dynamical scale parameter.
+            If ``False`` then will be used initial scale.
+            Default: ``True``.
+        eps: operation accuracy.
+            Default: ``1e-6``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = AdaCos(5, 10)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int, dynamical_s: bool=True, eps: float=1e-06):
+        super(AdaCos, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = math.sqrt(2) * math.log(out_features - 1)
+        self.eps = eps
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'AdaCos(in_features={self.in_features},out_features={self.out_features},s={self.s},eps={self.eps})'
+        return rep
+
+    def forward(self, input: torch.Tensor, target: torch.LongTensor=None) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            target: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
+        """
+        cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
+        theta = torch.acos(torch.clamp(cos_theta, -1.0 + self.eps, 1.0 - self.eps))
+        if target is None:
+            return cos_theta
+        one_hot = torch.zeros_like(cos_theta)
+        one_hot.scatter_(1, target.view(-1, 1).long(), 1)
+        if self.train:
+            with torch.no_grad():
+                b_avg = torch.where(one_hot < 1, torch.exp(self.s * cos_theta), torch.zeros_like(cos_theta)).sum(1).mean()
+                theta_median = theta[one_hot > 0].median()
+                theta_median = torch.min(torch.full_like(theta_median, math.pi / 4), theta_median)
+                self.s = (torch.log(b_avg) / torch.cos(theta_median)).item()
+        logits = self.s * cos_theta
+        return logits
+
+
+class CurricularFace(nn.Module):
+    """Implementation of
+    `CurricularFace: Adaptive Curriculum Learning        Loss for Deep Face Recognition`_.
+
+    .. _CurricularFace\\: Adaptive Curriculum Learning        Loss for Deep Face Recognition:
+        https://arxiv.org/abs/2004.00288
+
+    Official `pytorch implementation`_.
+
+    .. _pytorch implementation:
+        https://github.com/HuangYG123/CurricularFace
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+        s: norm of input feature.
+            Default: ``64.0``.
+        m: margin.
+            Default: ``0.5``.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = CurricularFace(5, 10, s=1.31, m=0.5)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, out_features: int, s: float=64.0, m: float=0.5):
+        super(CurricularFace, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.m = m
+        self.s = s
+        self.cos_m = math.cos(m)
+        self.sin_m = math.sin(m)
+        self.threshold = math.cos(math.pi - m)
+        self.mm = math.sin(math.pi - m) * m
+        self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.register_buffer('t', torch.zeros(1))
+        nn.init.normal_(self.weight, std=0.01)
+
+    def __repr__(self) ->str:
+        rep = f'CurricularFace(in_features={self.in_features},out_features={self.out_features},m={self.m},s={self.s})'
+        return rep
+
+    def forward(self, input: torch.Tensor, label: torch.LongTensor=None) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+            label: target classes,
+                expected shapes ``B`` where
+                ``B`` is batch dimension.
+                If `None` then will be returned
+                projection on centroids.
+                Default is `None`.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes.
+        """
+        cos_theta = torch.mm(F.normalize(input), F.normalize(self.weight, dim=0))
+        cos_theta = cos_theta.clamp(-1, 1)
+        if label is None:
+            return cos_theta
+        target_logit = cos_theta[torch.arange(0, input.size(0)), label].view(-1, 1)
+        sin_theta = torch.sqrt(1.0 - torch.pow(target_logit, 2))
+        cos_theta_m = target_logit * self.cos_m - sin_theta * self.sin_m
+        mask = cos_theta > cos_theta_m
+        final_target_logit = torch.where(target_logit > self.threshold, cos_theta_m, target_logit - self.mm)
+        hard_example = cos_theta[mask]
+        with torch.no_grad():
+            self.t = target_logit.mean() * 0.01 + (1 - 0.01) * self.t
+        cos_theta[mask] = hard_example * (self.t + hard_example)
+        cos_theta.scatter_(1, label.view(-1, 1).long(), final_target_logit)
+        output = cos_theta * self.s
+        return output
+
+
+class FactorizedLinear(nn.Module):
+    """Factorized wrapper for ``nn.Linear``
+
+    Args:
+        nn_linear: torch ``nn.Linear`` module
+        dim_ratio: dimension ration to use after weights SVD
+    """
+
+    def __init__(self, nn_linear: nn.Linear, dim_ratio: Union[int, float]=1.0):
+        super().__init__()
+        self.bias = nn.parameter.Parameter(nn_linear.bias.data, requires_grad=True)
+        u, vh = self._spectral_init(nn_linear.weight.data, dim_ratio=dim_ratio)
+        self.u = nn.parameter.Parameter(u, requires_grad=True)
+        self.vh = nn.parameter.Parameter(vh, requires_grad=True)
+        self.dim_ratio = dim_ratio
+        self.in_features = u.size(0)
+        self.out_features = vh.size(1)
+
+    @staticmethod
+    def _spectral_init(m, dim_ratio: Union[int, float]=1):
+        u, s, vh = torch.linalg.svd(m, full_matrices=False)
+        u = u @ torch.diag(torch.sqrt(s))
+        vh = torch.diag(torch.sqrt(s)) @ vh
+        if dim_ratio < 1:
+            dims = int(u.size(1) * dim_ratio)
+            u = u[:, :dims]
+            vh = vh[:dims, :]
+        return u, vh
+
+    def extra_repr(self) ->str:
+        """Extra representation log."""
+        return f'in_features={self.in_features}, out_features={self.out_features}, bias=True, dim_ratio={self.dim_ratio}'
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        return x @ (self.u @ self.vh).transpose(0, 1) + self.bias
+
+
+class TemporalLastPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """Forward call."""
+        x_out = x[:, -1:, :]
+        return x_out
+
+
+class TemporalAvgPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """Forward call."""
+        if mask is None:
+            x_out = x.mean(1, keepdim=True)
+        else:
+            x_masked = torch.sum(x * mask.float(), dim=1, keepdim=True)
+            mask_sum = torch.sum(mask.float(), dim=1, keepdim=True)
+            x_out = x_masked / mask_sum
+        return x_out
+
+
+class TemporalMaxPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """Forward call."""
+        if mask is not None:
+            x_mask = (~mask.bool()).float() * (-x.max()).float()
+            x = torch.sum(x + x_mask, dim=1, keepdim=True)
+        x_out = x.max(1, keepdim=True)[0]
+        return x_out
+
+
+def outer_init(layer: nn.Module) ->None:
+    """
+    Initialization for output layers of policy and value networks typically
+    used in deep reinforcement learning literature.
+
+    Args:
+        layer: torch nn.Module instance
+    """
+    if isinstance(layer, (nn.Linear, nn.Conv1d, nn.Conv2d)):
+        v = 0.003
+        nn.init.uniform_(layer.weight.data, -v, v)
+        if layer.bias is not None:
+            nn.init.uniform_(layer.bias.data, -v, v)
+
+
+class TemporalAttentionPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+    name2activation = {'softmax': nn.Softmax(dim=1), 'tanh': nn.Tanh(), 'sigmoid': nn.Sigmoid()}
+
+    def __init__(self, in_features, activation=None, kernel_size=1, **params):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.in_features = in_features
+        activation = activation or 'softmax'
+        self.attention_pooling = nn.Sequential(nn.Conv1d(in_channels=in_features, out_channels=1, kernel_size=kernel_size, **params), TemporalAttentionPooling.name2activation[activation])
+        self.attention_pooling.apply(outer_init)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """
+        Forward call.
 
         Args:
-            message: exception message
+            x: tensor of size
+                (batch_size, history_len, feature_size)
+            mask: mask to use
+
+        Returns:
+            pooling result
         """
-        super().__init__(message)
+        batch_size, history_len, feature_size = x.shape
+        x = x.view(batch_size, history_len, -1)
+        x_a = x.transpose(1, 2)
+        x_attn = (self.attention_pooling(x_a) * x_a).transpose(1, 2)
+        x_attn = x_attn.sum(1, keepdim=True)
+        return x_attn
 
 
-class ResidualWrapper(nn.Module):
+class TemporalConcatPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_features, history_len=1):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = in_features * history_len
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """
+        Concat pooling forward.
+
+        Args:
+            x: tensor of size
+                (batch_size, history_len, feature_size)
+            mask: mask to use
+
+        Returns:
+            concated result
+        """
+        x = x.view(x.shape[0], -1)
+        return x
+
+
+class TemporalDropLastWrapper(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
     def __init__(self, net):
@@ -1417,243 +1435,528 @@ class ResidualWrapper(nn.Module):
         super().__init__()
         self.net = net
 
-    def forward(self, x):
-        """Forward call."""
-        return x + self.net(x)
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None):
+        """@TODO: Docs. Contribution is welcome."""
+        x = x[:, :-1, :]
+        x_out = self.net(x)
+        return x_out
 
 
-def _process_additional_params(params, layers):
-    if isinstance(params, List):
-        assert len(params) == len(layers)
-    else:
-        params = [params] * len(layers)
-    return params
-
-
-class SequentialNet(nn.Module):
+def _get_pooling(key, in_features, **params):
     """@TODO: Docs. Contribution is welcome."""
+    key_prefix = key.split('_', 1)[0]
+    if key_prefix == 'last':
+        return TemporalLastPooling()
+    elif key_prefix == 'avg':
+        layer = TemporalAvgPooling()
+    elif key_prefix == 'max':
+        layer = TemporalMaxPooling()
+    elif key_prefix in ['softmax', 'tanh', 'sigmoid']:
+        layer = TemporalAttentionPooling(in_features=in_features, activation=key_prefix, **params)
+    else:
+        raise NotImplementedError()
+    if 'droplast' in key:
+        layer = TemporalDropLastWrapper(layer)
+    return layer
 
-    def __init__(self, hiddens, layer_fn: Union[str, Dict, List], norm_fn: Union[str, Dict, List]=None, dropout_fn: Union[str, Dict, List]=None, activation_fn: Union[str, Dict, List]=None, residual: Union[bool, str]=False, layer_order: List=None):
+
+class LamaPooling(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+    available_groups = ['last', 'avg', 'avg_droplast', 'max', 'max_droplast', 'sigmoid', 'sigmoid_droplast', 'softmax', 'softmax_droplast', 'tanh', 'tanh_droplast']
+
+    def __init__(self, in_features, groups=None):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        assert len(hiddens) > 1, 'No sequence found'
-        layer_fn = _process_additional_params(layer_fn, hiddens[1:])
-        norm_fn = _process_additional_params(norm_fn, hiddens[1:])
-        dropout_fn = _process_additional_params(dropout_fn, hiddens[1:])
-        activation_fn = _process_additional_params(activation_fn, hiddens[1:])
-        if isinstance(residual, bool) and residual:
-            residual = 'hard'
-            residual = _process_additional_params(residual, hiddens[1:])
-        layer_order = layer_order or ['layer', 'norm', 'drop', 'act']
+        self.in_features = in_features
+        self.groups = groups or ['last', 'avg_droplast', 'max_droplast', 'softmax_droplast']
+        self.out_features = in_features * len(self.groups)
+        groups = {}
+        for key in self.groups:
+            if isinstance(key, str):
+                groups[key] = _get_pooling(key, self.in_features)
+            elif isinstance(key, dict):
+                key_key = key.pop('key')
+                groups[key_key] = _get_pooling(key_key, in_features, **key)
+            else:
+                raise NotImplementedError()
+        self.groups = nn.ModuleDict(groups)
 
-        def _layer_fn(layer_fn, f_in, f_out, **kwargs):
-            layer_fn = MODULES.get_if_str(layer_fn)
-            layer_fn = layer_fn(f_in, f_out, **kwargs)
-            return layer_fn
+    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
+        """
+        Forward method of the LAMA.
 
-        def _normalization_fn(normalization_fn, f_in, f_out, **kwargs):
-            normalization_fn = MODULES.get_if_str(normalization_fn)
-            normalization_fn = normalization_fn(f_out, **kwargs) if normalization_fn is not None else None
-            return normalization_fn
+        Args:
+            x: tensor of size
+                (batch_size, history_len, feature_size)
+            mask: mask to use for attention compute
 
-        def _dropout_fn(dropout_fn, f_in, f_out, **kwargs):
-            dropout_fn = MODULES.get_if_str(dropout_fn)
-            dropout_fn = dropout_fn(**kwargs) if dropout_fn is not None else None
-            return dropout_fn
-
-        def _activation_fn(activation_fn, f_in, f_out, **kwargs):
-            activation_fn = MODULES.get_if_str(activation_fn)
-            activation_fn = activation_fn(**kwargs) if activation_fn is not None else None
-            return activation_fn
-        name2fn = {'layer': _layer_fn, 'norm': _normalization_fn, 'drop': _dropout_fn, 'act': _activation_fn}
-        name2params = {'layer': layer_fn, 'norm': norm_fn, 'drop': dropout_fn, 'act': activation_fn}
-        net = []
-        for i, (f_in, f_out) in enumerate(utils.pairwise(hiddens)):
-            block = []
-            for key in layer_order:
-                sub_fn = name2fn[key]
-                sub_params = deepcopy(name2params[key][i])
-                if isinstance(sub_params, Dict):
-                    sub_module = sub_params.pop('module')
-                else:
-                    sub_module = sub_params
-                    sub_params = {}
-                sub_block = sub_fn(sub_module, f_in, f_out, **sub_params)
-                if sub_block is not None:
-                    block.append((f'{key}', sub_block))
-            block_ = OrderedDict(block)
-            block = torch.nn.Sequential(block_)
-            if block_.get('act', None) is not None:
-                activation = block_['act']
-                activation_init = utils.get_optimal_inner_init(nonlinearity=activation)
-                block.apply(activation_init)
-            if residual == 'hard' or residual == 'soft' and f_in == f_out:
-                block = ResidualWrapper(net=block)
-            net.append((f'block_{i}', block))
-        self.net = torch.nn.Sequential(OrderedDict(net))
-
-    def forward(self, x):
-        """Forward call."""
-        x = self.net.forward(x)
+        Returns:
+            torch.Tensor: LAMA pooling result
+        """
+        batch_size, history_len, feature_size = x.shape
+        features_list = []
+        for pooling_fn in self.groups.values():
+            features = pooling_fn(x, mask)
+            features_list.append(features)
+        x = torch.cat(features_list, dim=1)
+        x = x.view(batch_size, -1)
         return x
 
 
-class Hydra(nn.Module):
-    """Hydra - one model to predict them all.
+class GlobalAvgPool2d(nn.Module):
+    """Applies a 2D global average pooling operation over an input signal
+    composed of several input planes.
 
-    @TODO: Docs. Contribution is welcome.
+    @TODO: Docs (add `Example`). Contribution is welcome.
     """
-    _parent_keyword = '_'
-    _hidden_keyword = '_hidden'
-    _normalize_keyword = 'normalize_output'
 
-    def __init__(self, heads: nn.ModuleDict, encoder: nn.Module=None, embedders: nn.ModuleDict=None):
-        """@TODO: Docs. Contribution is welcome."""
+    def __init__(self):
+        """Constructor method for the ``GlobalAvgPool2d`` class."""
         super().__init__()
-        self.encoder = encoder or nn.Sequential()
-        self.heads = heads
-        self.embedders = embedders or {}
 
-    @staticmethod
-    def parse_head_params(head_params: Dict, in_features: int, is_leaf: bool=False) ->Union[nn.Module, nn.ModuleDict]:
-        """@TODO: Docs. Contribution is welcome."""
-        if is_leaf:
-            if isinstance(head_params, int):
-                head_params = {'hiddens': [head_params]}
-            normalize = head_params.pop(Hydra._normalize_keyword, False)
-            head_params['hiddens'].insert(0, in_features)
-            output = [('net', SequentialNet(**head_params))]
-            if normalize:
-                output.append(('normalize', Normalize()))
-            output = OrderedDict(output)
-            output = nn.Sequential(output)
-        else:
-            output = {}
-            hidden_params = head_params.pop(Hydra._hidden_keyword, None)
-            if hidden_params is not None:
-                in_features = hidden_params if isinstance(hidden_params, int) else hidden_params['hiddens'][-1]
-                output[Hydra._hidden_keyword] = Hydra.parse_head_params(head_params=hidden_params, in_features=in_features, is_leaf=True)
-            for head_name_, head_params_ in head_params.items():
-                output[head_name_] = Hydra.parse_head_params(head_params=head_params_, in_features=in_features, is_leaf=not head_name_.startswith(Hydra._parent_keyword))
-            output = nn.ModuleDict(output)
-        return output
-
-    @staticmethod
-    def forward_head(input_, head):
-        """@TODO: Docs. Contribution is welcome."""
-        if isinstance(head, nn.ModuleDict):
-            output = {}
-            net_ = getattr(head, Hydra._hidden_keyword, None)
-            if net_ is not None:
-                input_ = net_(input_)
-                output[''] = input_
-            for head_name, head_layer in head.items():
-                if head_name == Hydra._hidden_keyword:
-                    continue
-                output[head_name] = Hydra.forward_head(input_, head_layer)
-        elif isinstance(head, nn.Module):
-            output = head(input_)
-        else:
-            raise NotImplementedError()
-        return output
-
-    def forward(self, features: torch.Tensor, **targets_kwargs):
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Forward call."""
-        embeddings = self.encoder(features)
-        heads_output = self.forward_head(embeddings, self.heads)
-        output = {'features': features, 'embeddings': embeddings, **utils.flatten_dict(heads_output)}
-        for key, value in targets_kwargs.items():
-            output[f'{key}_embeddings'] = self.embedders[key](value)
-        return output
+        h, w = x.shape[2:]
+        return F.avg_pool2d(input=x, kernel_size=(h, w))
 
-    def forward_tuple(self, features: torch.Tensor):
-        """@TODO: Docs. Contribution is welcome."""
-        output_kv = self.forward(features)
-        output = [output_kv['features'], output_kv['embeddings']]
-        output.extend([value for key, value in output_kv.items() if not key.endswith('/') and key not in ['features', 'embeddings']])
-        output = tuple(output)
-        return output
-
-    @classmethod
-    def get_from_params(cls, heads_params: Dict, encoder_params: Dict=None, embedders_params: Dict=None, in_features: int=None) ->'Hydra':
-        """@TODO: Docs. Contribution is welcome."""
-        heads_params_ = deepcopy(heads_params)
-        encoder_params_ = deepcopy(encoder_params)
-        embedders_params_ = deepcopy(embedders_params)
-
-        def _get_normalization_keyword(dct: Dict):
-            return dct.pop(Hydra._normalize_keyword, False) if dct is not None else False
-        if encoder_params_ is not None:
-            normalize_embeddings: bool = _get_normalization_keyword(encoder_params_)
-            encoder = SequentialNet(**encoder_params_)
-            in_features = encoder_params_['hiddens'][-1]
-            if normalize_embeddings:
-                encoder = nn.Sequential(encoder, Normalize())
-        else:
-            assert in_features is not None
-            encoder = None
-        heads = Hydra.parse_head_params(head_params=heads_params_, in_features=in_features)
-        assert isinstance(heads, nn.ModuleDict)
-        embedders = {}
-        if embedders_params_ is not None:
-            for key, head_params in embedders_params_.items():
-                if isinstance(head_params, int):
-                    head_params = {'num_embeddings': head_params}
-                normalize_ = head_params.pop(Hydra._normalize_keyword, False)
-                block = [('embedding', nn.Embedding(embedding_dim=in_features, **head_params))]
-                if normalize_:
-                    block.append(('normalize', Normalize()))
-                block = OrderedDict(block)
-                block = nn.Sequential(block)
-                embedders[key] = block
-            embedders = nn.ModuleDict(embedders)
-        net = cls(heads=heads, encoder=encoder, embedders=embedders)
-        return net
-
-
-class BertClassifier(nn.Module):
-    """Simplified version of the same class by HuggingFace.
-
-    See ``transformers/modeling_distilbert.py`` in the transformers repository.
-    """
-
-    def __init__(self, pretrained_model_name: str, num_classes: Optional[int]=None):
-        """
-        Args:
-            pretrained_model_name (str): HuggingFace model name.
-                See transformers/modeling_auto.py
-            num_classes (int, optional): the number of class labels
-                in the classification task
-        """
-        super().__init__()
-        config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=num_classes)
-        self.distilbert = AutoModel.from_pretrained(pretrained_model_name, config=config)
-        self.pre_classifier = nn.Linear(config.dim, config.dim)
-        self.classifier = nn.Sequential(nn.ReLU(), nn.Dropout(config.seq_classif_dropout), nn.Linear(config.dim, num_classes))
-
-    def forward(self, features: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, head_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
-        """Compute class probabilities for the input sequence.
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
 
         Args:
-            features (torch.Tensor): ids of each token,
-                size ([bs, seq_length]
-            attention_mask (torch.Tensor, optional): binary tensor,
-                used to select tokens which are used to compute attention
-                scores in the self-attention heads, size [bs, seq_length]
-            head_mask (torch.Tensor, optional): 1.0 in head_mask indicates that
-                we keep the head, size: [num_heads]
-                or [num_hidden_layers x num_heads]
+            in_features: number of channels in the input sample
 
         Returns:
-            PyTorch Tensor with predicted class probabilities
+            number of output features
         """
-        assert attention_mask is not None, 'attention mask is none'
-        distilbert_output = self.distilbert(input_ids=features, attention_mask=attention_mask, head_mask=head_mask)
-        hidden_state = distilbert_output[0]
-        pooled_output = hidden_state[:, (0)]
-        pooled_output = self.pre_classifier(pooled_output)
-        logits = self.classifier(pooled_output)
-        return logits
+        return in_features
+
+
+class GlobalMaxPool2d(nn.Module):
+    """Applies a 2D global max pooling operation over an input signal
+    composed of several input planes.
+
+    @TODO: Docs (add `Example`). Contribution is welcome.
+    """
+
+    def __init__(self):
+        """Constructor method for the ``GlobalMaxPool2d`` class."""
+        super().__init__()
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        h, w = x.shape[2:]
+        return F.max_pool2d(input=x, kernel_size=(h, w))
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features
+
+
+class GlobalConcatPool2d(nn.Module):
+    """@TODO: Docs (add `Example`). Contribution is welcome."""
+
+    def __init__(self):
+        """Constructor method for the ``GlobalConcatPool2d`` class."""
+        super().__init__()
+        self.avg = GlobalAvgPool2d()
+        self.max = GlobalMaxPool2d()
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        return torch.cat([self.avg(x), self.max(x)], 1)
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features * 2
+
+
+class GlobalAttnPool2d(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_features, activation_fn='Sigmoid'):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        activation_fn = REGISTRY.get_if_str(activation_fn)
+        self.attn = nn.Sequential(nn.Conv2d(in_features, 1, kernel_size=1, stride=1, padding=0, bias=False), activation_fn())
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        x_a = self.attn(x)
+        x = x * x_a
+        x = torch.sum(x, dim=[-2, -1], keepdim=True)
+        return x
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features
+
+
+class GlobalAvgAttnPool2d(nn.Module):
+    """@TODO: Docs (add `Example`). Contribution is welcome."""
+
+    def __init__(self, in_features, activation_fn='Sigmoid'):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.avg = GlobalAvgPool2d()
+        self.attn = GlobalAttnPool2d(in_features, activation_fn)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        return torch.cat([self.avg(x), self.attn(x)], 1)
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features * 2
+
+
+class GlobalMaxAttnPool2d(nn.Module):
+    """@TODO: Docs (add `Example`). Contribution is welcome."""
+
+    def __init__(self, in_features, activation_fn='Sigmoid'):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.max = GlobalMaxPool2d()
+        self.attn = GlobalAttnPool2d(in_features, activation_fn)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        return torch.cat([self.max(x), self.attn(x)], 1)
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features * 2
+
+
+class GlobalConcatAttnPool2d(nn.Module):
+    """@TODO: Docs (add `Example`). Contribution is welcome."""
+
+    def __init__(self, in_features, activation_fn='Sigmoid'):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.avg = GlobalAvgPool2d()
+        self.max = GlobalMaxPool2d()
+        self.attn = GlobalAttnPool2d(in_features, activation_fn)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        return torch.cat([self.avg(x), self.max(x), self.attn(x)], 1)
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample
+
+        Returns:
+            number of output features
+        """
+        return in_features * 3
+
+
+class GeM2d(nn.Module):
+    """Implementation of GeM: Generalized Mean Pooling.
+    Example:
+        >>> x = torch.randn(2,1280,8,8) #output of last convolutional layer of the network
+        >>> gem_pool = GeM2d(p = 2.2 , p_trainable = False)
+        >>> op = gem_pool(x)
+        >>> op.shape
+        torch.Size([1, 1280, 1, 1])
+        >>> op
+        tensor([[[[1.0660]],
+             [[1.1599]],
+             [[0.5934]],
+             ...,
+             [[0.6889]],
+             [[1.0361]],
+             [[0.9717]]]], grad_fn=<PowBackward0>)
+    """
+
+    def __init__(self, p: float=3.0, p_trainable: bool=False, eps: float=1e-07):
+        """
+        Args:
+            p: The pooling parameter.
+                Default: 3.0
+            p_trainable: Whether the pooling parameter(p) should be trainable.
+                    Default: False
+            eps: epsilon for numerical stability.
+        """
+        super().__init__()
+        if p_trainable:
+            if p not in [math.inf, float('inf')]:
+                self.p = nn.Parameter(torch.ones(1) * p)
+            else:
+                self.p = math.inf
+        else:
+            self.p = p
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        h, w = x.shape[2:]
+        if self.p in [math.inf, float('inf')]:
+            return F.max_pool2d(x, kernel_size=(h, w))
+        else:
+            x = x.clamp(min=self.eps).pow(self.p)
+            return F.avg_pool2d(x, kernel_size=(h, w)).pow(1.0 / self.p)
+
+    @staticmethod
+    def out_features(in_features):
+        """Returns number of channels produced by the pooling.
+
+        Args:
+            in_features: number of channels in the input sample.
+
+        Returns:
+            number of output features
+        """
+        return in_features
+
+
+class RMSNorm(nn.Module):
+    """An implementation of RMS Normalization.
+
+    @TODO: Docs (link to paper). Contribution is welcome.
+    """
+
+    def __init__(self, dimension: int, epsilon: float=1e-08, is_bias: bool=False):
+        """
+        Args:
+            dimension: the dimension of the layer output to normalize
+            epsilon: an epsilon to prevent dividing by zero
+                in case the layer has zero variance. (default = 1e-8)
+            is_bias: a boolean value whether to include bias term
+                while normalization
+        """
+        super().__init__()
+        self.dimension = dimension
+        self.epsilon = epsilon
+        self.is_bias = is_bias
+        self.scale = nn.Parameter(torch.ones(self.dimension))
+        if self.is_bias:
+            self.bias = nn.Parameter(torch.zeros(self.dimension))
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """@TODO: Docs. Contribution is welcome."""
+        x_std = torch.sqrt(torch.mean(x ** 2, -1, keepdim=True))
+        x_norm = x / (x_std + self.epsilon)
+        if self.is_bias:
+            return self.scale * x_norm + self.bias
+        return self.scale * x_norm
+
+
+class cSE(nn.Module):
+    """
+    The channel-wise SE (Squeeze and Excitation) block from the
+    `Squeeze-and-Excitation Networks`__ paper.
+
+    Adapted from
+    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65939
+    and
+    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
+
+    Shape:
+
+    - Input: (batch, channels, height, width)
+    - Output: (batch, channels, height, width) (same shape as input)
+
+    __ https://arxiv.org/abs/1709.01507
+    """
+
+    def __init__(self, in_channels: int, r: int=16):
+        """
+        Args:
+            in_channels: The number of channels
+                in the feature map of the input.
+            r: The reduction ratio of the intermediate channels.
+                Default: 16.
+        """
+        super().__init__()
+        self.linear1 = nn.Linear(in_channels, in_channels // r)
+        self.linear2 = nn.Linear(in_channels // r, in_channels)
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        input_x = x
+        x = x.view(*x.shape[:-2], -1).mean(-1)
+        x = F.relu(self.linear1(x), inplace=True)
+        x = self.linear2(x)
+        x = x.unsqueeze(-1).unsqueeze(-1)
+        x = torch.sigmoid(x)
+        x = torch.mul(input_x, x)
+        return x
+
+
+class sSE(nn.Module):
+    """
+    The sSE (Channel Squeeze and Spatial Excitation) block from the
+    `Concurrent Spatial and Channel ‘Squeeze & Excitation’
+    in Fully Convolutional Networks`__ paper.
+
+    Adapted from
+    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
+
+    Shape:
+
+    - Input: (batch, channels, height, width)
+    - Output: (batch, channels, height, width) (same shape as input)
+
+    __ https://arxiv.org/abs/1803.02579
+    """
+
+    def __init__(self, in_channels: int):
+        """
+        Args:
+            in_channels: The number of channels
+                in the feature map of the input.
+        """
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1, stride=1)
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        input_x = x
+        x = self.conv(x)
+        x = torch.sigmoid(x)
+        x = torch.mul(input_x, x)
+        return x
+
+
+class scSE(nn.Module):
+    """
+    The scSE (Concurrent Spatial and Channel Squeeze and Channel Excitation)
+    block from the `Concurrent Spatial and Channel ‘Squeeze & Excitation’
+    in Fully Convolutional Networks`__ paper.
+
+    Adapted from
+    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
+
+    Shape:
+
+    - Input: (batch, channels, height, width)
+    - Output: (batch, channels, height, width) (same shape as input)
+
+    __ https://arxiv.org/abs/1803.02579
+    """
+
+    def __init__(self, in_channels: int, r: int=16):
+        """
+        Args:
+            in_channels: The number of channels
+                in the feature map of the input.
+            r: The reduction ratio of the intermediate channels.
+                Default: 16.
+        """
+        super().__init__()
+        self.cse_block = cSE(in_channels, r)
+        self.sse_block = sSE(in_channels)
+
+    def forward(self, x: torch.Tensor):
+        """Forward call."""
+        cse = self.cse_block(x)
+        sse = self.sse_block(x)
+        x = torch.add(cse, sse)
+        return x
+
+
+class SoftMax(nn.Module):
+    """Implementation of
+    `Significance of Softmax-based Features in Comparison to
+    Distance Metric Learning-based Features`_.
+
+    .. _Significance of Softmax-based Features in Comparison to         Distance Metric Learning-based Features:
+        https://arxiv.org/abs/1712.10151
+
+    Args:
+        in_features: size of each input sample.
+        out_features: size of each output sample.
+
+    Shape:
+        - Input: :math:`(batch, H_{in})` where
+          :math:`H_{in} = in\\_features`.
+        - Output: :math:`(batch, H_{out})` where
+          :math:`H_{out} = out\\_features`.
+
+    Example:
+        >>> layer = SoftMax(5, 10)
+        >>> loss_fn = nn.CrosEntropyLoss()
+        >>> embedding = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.empty(3, dtype=torch.long).random_(10)
+        >>> output = layer(embedding, target)
+        >>> loss = loss_fn(output, target)
+        >>> self.engine.backward(loss)
+
+    """
+
+    def __init__(self, in_features: int, num_classes: int):
+        super(SoftMax, self).__init__()
+        self.in_features = in_features
+        self.out_features = num_classes
+        self.weight = nn.Parameter(torch.FloatTensor(num_classes, in_features))
+        self.bias = nn.Parameter(torch.FloatTensor(num_classes))
+        nn.init.xavier_uniform_(self.weight)
+        nn.init.zeros_(self.bias)
+
+    def __repr__(self) ->str:
+        """Object representation."""
+        rep = f'SoftMax(in_features={self.in_features},out_features={self.out_features})'
+        return rep
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        """
+        Args:
+            input: input features,
+                expected shapes ``BxF`` where ``B``
+                is batch dimension and ``F`` is an
+                input feature dimension.
+
+        Returns:
+            tensor (logits) with shapes ``BxC``
+            where ``C`` is a number of classes
+            (out_features).
+        """
+        return F.linear(input, self.weight, self.bias)
 
 
 class NaiveCrossEntropyLoss(nn.Module):
@@ -1664,19 +1967,19 @@ class NaiveCrossEntropyLoss(nn.Module):
         super().__init__()
         self.size_average = size_average
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
-        """Calculates loss between ``input`` and ``target`` tensors.
+    def forward(self, input_: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``input_`` and ``target`` tensors.
 
         Args:
-            input (torch.Tensor): input tensor of shape ...
-            target (torch.Tensor): target tensor of shape ...
+            input_: input tensor of shape ...
+            target: target tensor of shape ...
 
         @TODO: Docs (add shapes). Contribution is welcome.
         """
-        assert input.size() == target.size()
-        input = F.log_softmax(input)
-        loss = -torch.sum(input * target)
-        loss = loss / input.size()[0] if self.size_average else loss
+        assert input_.size() == target.size()
+        input_ = F.log_softmax(input_)
+        loss = -torch.sum(input_ * target)
+        loss = loss / input_.size()[0] if self.size_average else loss
         return loss
 
 
@@ -1702,44 +2005,50 @@ class SymmetricCrossEntropyLoss(nn.Module):
         self.alpha = alpha
         self.beta = beta
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
-        """Calculates loss between ``input`` and ``target`` tensors.
+    def forward(self, input_: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``input_`` and ``target`` tensors.
 
         Args:
-            input (torch.Tensor): input tensor of size
+            input_: input tensor of size
                 (batch_size, num_classes)
-            target (torch.Tensor): target tensor of size (batch_size), where
+            target: target tensor of size (batch_size), where
                 values of a vector correspond to class index
+
+        Returns:
+            torch.Tensor: computed loss
         """
-        num_classes = input.shape[1]
+        num_classes = input_.shape[1]
         target_one_hot = F.one_hot(target, num_classes).float()
-        assert target_one_hot.shape == input.shape
-        input = torch.clamp(input, min=1e-07, max=1.0)
+        assert target_one_hot.shape == input_.shape
+        input_ = torch.clamp(input_, min=1e-07, max=1.0)
         target_one_hot = torch.clamp(target_one_hot, min=0.0001, max=1.0)
-        cross_entropy = (-torch.sum(target_one_hot * torch.log(input), dim=1)).mean()
-        reverse_cross_entropy = (-torch.sum(input * torch.log(target_one_hot), dim=1)).mean()
+        cross_entropy = (-torch.sum(target_one_hot * torch.log(input_), dim=1)).mean()
+        reverse_cross_entropy = (-torch.sum(input_ * torch.log(target_one_hot), dim=1)).mean()
         loss = self.alpha * cross_entropy + self.beta * reverse_cross_entropy
         return loss
 
 
-class MaskCrossEntropyLoss(torch.nn.CrossEntropyLoss):
+class MaskCrossEntropyLoss(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, *args, target_name: str='targets', mask_name: str='mask', **kwargs):
+    def __init__(self, *args, **kwargs):
         """@TODO: Docs. Contribution is welcome."""
-        super().__init__(*args, **kwargs)
-        self.target_name = target_name
-        self.mask_name = mask_name
-        self.reduction = 'none'
+        super().__init__()
+        self.ce_loss = nn.CrossEntropyLoss(*args, **kwargs, reduction='none')
 
-    def forward(self, input: torch.Tensor, target_mask: torch.Tensor) ->torch.Tensor:
-        """Calculates loss between ``input`` and ``target_mask`` tensors.
-
-        @TODO: Docs. Contribution is welcome.
+    def forward(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
         """
-        target = target_mask[self.target_name]
-        mask = target_mask[self.mask_name]
-        loss = super().forward(input, target)
+        Calculates loss between ``logits`` and ``target`` tensors.
+
+        Args:
+            logits: model logits
+            target: true targets
+            mask: targets mask
+
+        Returns:
+            torch.Tensor: computed loss
+        """
+        loss = self.ce_loss.forward(logits, target)
         loss = torch.mean(loss[mask == 1])
         return loss
 
@@ -1759,8 +2068,7 @@ def _convert_label_to_similarity(normed_features: Tensor, labels: Tensor) ->Tupl
 class CircleLoss(nn.Module):
     """
     CircleLoss from
-    "Circle Loss: A Unified Perspective of Pair Similarity Optimization"
-    https://arxiv.org/abs/2002.10857
+    `Circle Loss: A Unified Perspective of Pair Similarity Optimization`_ paper.
 
     Adapter from:
     https://github.com/TinyZeaMays/CircleLoss
@@ -1768,12 +2076,15 @@ class CircleLoss(nn.Module):
     Example:
         >>> import torch
         >>> from torch.nn import functional as F
-        >>> from catalyst.contrib.nn import CircleLoss
+        >>> from catalyst.contrib.losses import CircleLoss
         >>>
         >>> features = F.normalize(torch.rand(256, 64, requires_grad=True))
-        >>> labels = torch.randint(high=10, size=(256,))
+        >>> labels = torch.randint(high=10, size=(256))
         >>> criterion = CircleLoss(margin=0.25, gamma=256)
         >>> criterion(features, labels)
+
+    .. _`Circle Loss: A Unified Perspective of Pair Similarity Optimization`:
+        https://arxiv.org/abs/2002.10857
     """
 
     def __init__(self, margin: float, gamma: float) ->None:
@@ -1797,7 +2108,7 @@ class CircleLoss(nn.Module):
             labels: batch with samples correct labels of shape [bs; ]
 
         Returns:
-            (Tensor): circle loss
+            torch.Tensor: circle loss
         """
         sp, sn = _convert_label_to_similarity(normed_features, labels)
         ap = torch.clamp_min(-sp.detach() + 1 + self.margin, min=0.0)
@@ -1834,8 +2145,8 @@ class ContrastiveEmbeddingLoss(nn.Module):
         """Forward propagation method for the contrastive loss.
 
         Args:
-            embeddings_left (torch.Tensor): left objects embeddings
-            embeddings_right (torch.Tensor): right objects embeddings
+            embeddings_left: left objects embeddings
+            embeddings_right: right objects embeddings
             distance_true: true distances
 
         Returns:
@@ -1845,8 +2156,8 @@ class ContrastiveEmbeddingLoss(nn.Module):
         distance_pred = torch.sqrt(torch.sum(torch.pow(diff, 2), 1))
         bs = len(distance_true)
         margin_distance = self.margin - distance_pred
-        margin_distance_ = torch.clamp(margin_distance, min=0.0)
-        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance_, 2)
+        margin_distance = torch.clamp(margin_distance, min=0.0)
+        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance, 2)
         if self.reduction == 'mean':
             loss = torch.sum(loss) / 2.0 / bs
         elif self.reduction == 'sum':
@@ -1864,7 +2175,7 @@ class ContrastiveDistanceLoss(nn.Module):
         """
         Args:
             margin: margin parameter
-            reduction (str): criterion reduction type
+            reduction: criterion reduction type
         """
         super().__init__()
         self.margin = margin
@@ -1882,8 +2193,8 @@ class ContrastiveDistanceLoss(nn.Module):
         """
         bs = len(distance_true)
         margin_distance = self.margin - distance_pred
-        margin_distance_ = torch.clamp(margin_distance, min=0.0)
-        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance_, 2)
+        margin_distance = torch.clamp(margin_distance, min=0.0)
+        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance, 2)
         if self.reduction == 'mean':
             loss = torch.sum(loss) / 2.0 / bs
         elif self.reduction == 'sum':
@@ -1929,47 +2240,303 @@ class ContrastivePairwiseEmbeddingLoss(nn.Module):
         return loss
 
 
-class DiceLoss(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
+class BarlowTwinsLoss(nn.Module):
+    """The Contrastive embedding loss.
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.loss_fn = partial(metrics.dice, eps=eps, threshold=threshold, activation=activation)
+    It has been proposed in `Barlow Twins:
+    Self-Supervised Learning via Redundancy Reduction`_.
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor):
-        """Calculates loss between ``logits`` and ``target`` tensors.
+    Example:
 
-        @TODO: Docs. Contribution is welcome
+    .. code-block:: python
+
+        import torch
+        from torch.nn import functional as F
+        from catalyst.contrib import BarlowTwinsLoss
+
+        embeddings_left = F.normalize(torch.rand(256, 64, requires_grad=True))
+        embeddings_right = F.normalize(torch.rand(256, 64, requires_grad=True))
+        criterion = BarlowTwinsLoss(offdiag_lambda = 1)
+        criterion(embeddings_left, embeddings_right)
+
+    .. _`Barlow Twins: Self-Supervised Learning via Redundancy Reduction`:
+        https://arxiv.org/abs/2103.03230
+    """
+
+    def __init__(self, offdiag_lambda=1.0, eps=1e-12):
         """
-        dice = self.loss_fn(logits, targets)
-        return 1 - dice
-
-
-class BCEDiceLoss(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid', bce_weight: float=0.5, dice_weight: float=0.5):
-        """@TODO: Docs. Contribution is welcome."""
+        Args:
+            offdiag_lambda: trade-off parameter
+            eps: shift for the varience (var + eps)
+        """
         super().__init__()
-        if bce_weight == 0 and dice_weight == 0:
-            raise ValueError('Both bce_wight and dice_weight cannot be equal to 0 at the same time.')
-        self.bce_weight = bce_weight
-        self.dice_weight = dice_weight
-        if self.bce_weight != 0:
-            self.bce_loss = nn.BCEWithLogitsLoss()
-        if self.dice_weight != 0:
-            self.dice_loss = DiceLoss(eps=eps, threshold=threshold, activation=activation)
+        self.offdiag_lambda = offdiag_lambda
+        self.eps = eps
 
-    def forward(self, outputs, targets):
-        """@TODO: Docs. Contribution is welcome."""
-        if self.bce_weight == 0:
-            return self.dice_weight * self.dice_loss(outputs, targets)
-        if self.dice_weight == 0:
-            return self.bce_weight * self.bce_loss(outputs, targets)
-        dice = self.dice_weight * self.dice_loss(outputs, targets)
-        bce = self.bce_weight * self.bce_loss(outputs, targets)
-        return dice + bce
+    def forward(self, embeddings_left: torch.Tensor, embeddings_right: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the contrastive loss.
+
+        Args:
+            embeddings_left: left objects embeddings [batch_size, features_dim]
+            embeddings_right: right objects embeddings [batch_size, features_dim]
+
+        Raises:
+            ValueError: if the batch size is 1
+            ValueError: if embeddings_left and embeddings_right shapes are different
+            ValueError: if embeddings shapes are not in a form (batch_size, features_dim)
+
+        Returns:
+            torch.Tensor: loss
+        """
+        shape_left, shape_right = embeddings_left.shape, embeddings_right.shape
+        if len(shape_left) != 2:
+            raise ValueError(f'Left shape should be (batch_size, feature_dim),but got - {shape_left}!')
+        elif len(shape_right) != 2:
+            raise ValueError(f'Right shape should be (batch_size, feature_dim),but got - {shape_right}!')
+        if shape_left[0] == 1:
+            raise ValueError(f'Batch size should be >= 2, but got - {shape_left[0]}!')
+        if shape_left != shape_right:
+            raise ValueError(f'Shapes should be equall, but got - {shape_left} and {shape_right}!')
+        z_left = (embeddings_left - embeddings_left.mean(dim=0)) / (embeddings_left.var(dim=0) + self.eps).pow(1 / 2)
+        z_right = (embeddings_right - embeddings_right.mean(dim=0)) / (embeddings_right.var(dim=0) + self.eps).pow(1 / 2)
+        batch_size = z_left.shape[0]
+        cross_correlation = torch.matmul(z_left.T, z_right) / batch_size
+        on_diag = torch.diagonal(cross_correlation)
+        off_diag = cross_correlation.clone().fill_diagonal_(0)
+        on_diag_loss = on_diag.add_(-1).pow_(2).sum()
+        off_diag_loss = off_diag.pow_(2).sum()
+        loss = on_diag_loss + self.offdiag_lambda * off_diag_loss
+        return loss
+
+
+def _dice(tp: torch.Tensor, fp: torch.Tensor, fn: torch.Tensor, eps: float=1e-07) ->torch.Tensor:
+    union = tp + fp + fn
+    score = (2 * tp + eps * (union == 0).float()) / (2 * tp + fp + fn + eps)
+    return score
+
+
+def get_segmentation_statistics(outputs: torch.Tensor, targets: torch.Tensor, class_dim: int=1, threshold: float=None) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Computes true positive, false positive, false negative
+    for a multilabel segmentation problem.
+
+    Args:
+        outputs: [N; K; ...] tensor that for each of the N examples
+            indicates the probability of the example belonging to each of
+            the K classes, according to the model.
+        targets:  binary [N; K; ...] tensor that encodes which of the K
+            classes are associated with the N-th input
+        class_dim: indicates class dimention (K) for
+            ``outputs`` and ``targets`` tensors (default = 1)
+        threshold: threshold for outputs binarization
+
+    Returns:
+        Segmentation stats
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst import metrics
+
+        size = 4
+        half_size = size // 2
+        shape = (1, 1, size, size)
+        empty = torch.zeros(shape)
+        full = torch.ones(shape)
+        left = torch.ones(shape)
+        left[:, :, :, half_size:] = 0
+        right = torch.ones(shape)
+        right[:, :, :, :half_size] = 0
+        top_left = torch.zeros(shape)
+        top_left[:, :, :half_size, :half_size] = 1
+        pred = torch.cat([empty, left, empty, full, left, top_left], dim=1)
+        targets = torch.cat([full, right, empty, full, left, left], dim=1)
+
+        metrics.get_segmentation_statistics(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+        )
+        # (
+        #     tensor([ 0.,  0.,  0., 16.,  8.,  4.]),  # per class TP
+        #     tensor([0., 8., 0., 0., 0., 0.]),        # per class FP
+        #     tensor([16.,  8.,  0.,  0.,  0.,  4.]),  # per class TN
+        # )
+    """
+    assert outputs.shape == targets.shape, f'targets(shape {targets.shape}) and outputs(shape {outputs.shape}) must have the same shape'
+    if threshold is not None:
+        outputs = (outputs > threshold).float()
+    n_dims = len(outputs.shape)
+    dims = list(range(n_dims))
+    if class_dim < 0:
+        class_dim = n_dims + class_dim
+    dims.pop(class_dim)
+    sum_per_class = partial(torch.sum, dim=dims)
+    tp = sum_per_class(outputs * targets)
+    class_union = sum_per_class(outputs) + sum_per_class(targets)
+    class_union -= tp
+    fp = sum_per_class(outputs * (1 - targets))
+    fn = sum_per_class(targets * (1 - outputs))
+    return tp, fp, fn
+
+
+def _get_region_based_metrics(outputs: torch.Tensor, targets: torch.Tensor, metric_fn: Callable, class_dim=None, threshold: float=None, mode: str='per-class', weights: Optional[List[float]]=None) ->torch.Tensor:
+    """
+    Get aggregated metric
+
+    Args:
+        outputs: [N; K; ...] tensor that for each of the N examples
+            indicates the probability of the example belonging to each of
+            the K classes, according to the model.
+        targets:  binary [N; K; ...] tensor that encodes which of the K
+            classes are associated with the N-th input
+        metric_fn: metric function, that get statistics and return score
+        class_dim: indicates class dimention (K) for
+            ``outputs`` and ``targets`` tensors (default = 1), if
+            mode = "micro" means nothing
+        threshold: threshold for outputs binarization
+        mode: class summation strategy. Must be one of ['micro', 'macro',
+            'weighted', 'per-class']. If mode='micro', classes are ignored,
+             and metric are calculated generally. If mode='macro', metric are
+             calculated per-class and than are averaged over all classes. If
+             mode='weighted', metric are calculated per-class and than summed
+             over all classes with weights. If mode='per-class', metric are
+             calculated separately for all classes
+        weights: class weights(for mode="weighted")
+
+    Returns:
+        computed metric
+    """
+    assert mode in ['per-class', 'micro', 'macro', 'weighted']
+    segmentation_stats = get_segmentation_statistics(outputs=outputs, targets=targets, class_dim=class_dim, threshold=threshold)
+    if mode == 'micro':
+        segmentation_stats = [torch.sum(stats) for stats in segmentation_stats]
+        metric = metric_fn(*segmentation_stats)
+    metrics_per_class = metric_fn(*segmentation_stats)
+    if mode == 'macro':
+        metric = torch.mean(metrics_per_class)
+    elif mode == 'weighted':
+        assert len(weights) == len(segmentation_stats[0])
+        device = metrics_per_class.device
+        metrics = torch.tensor(weights) * metrics_per_class
+        metric = torch.sum(metrics)
+    elif mode == 'per-class':
+        metric = metrics_per_class
+    return metric
+
+
+def dice(outputs: torch.Tensor, targets: torch.Tensor, class_dim: int=1, threshold: float=None, mode: str='per-class', weights: Optional[List[float]]=None, eps: float=1e-07) ->torch.Tensor:
+    """
+    Computes the dice score,
+    dice score = 2 * intersection / (intersection + union)) =     = 2 * tp / (2 * tp + fp + fn)
+
+    Args:
+        outputs: [N; K; ...] tensor that for each of the N examples
+            indicates the probability of the example belonging to each of
+            the K classes, according to the model.
+        targets:  binary [N; K; ...] tensor that encodes which of the K
+            classes are associated with the N-th input
+        class_dim: indicates class dimention (K) for
+            ``outputs`` and ``targets`` tensors (default = 1), if
+            mode = "micro" means nothing
+        threshold: threshold for outputs binarization
+        mode: class summation strategy. Must be one of ['micro', 'macro',
+            'weighted', 'per-class']. If mode='micro', classes are ignored,
+            and metric are calculated generally. If mode='macro', metric are
+            calculated per-class and than are averaged over all classes. If
+            mode='weighted', metric are calculated per-class and than summed
+            over all classes with weights. If mode='per-class', metric are
+            calculated separately for all classes
+        weights: class weights(for mode="weighted")
+        eps: epsilon to avoid zero division
+
+    Returns:
+        Dice score for each class(if mode='weighted') or aggregated Dice
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst import metrics
+
+        size = 4
+        half_size = size // 2
+        shape = (1, 1, size, size)
+        empty = torch.zeros(shape)
+        full = torch.ones(shape)
+        left = torch.ones(shape)
+        left[:, :, :, half_size:] = 0
+        right = torch.ones(shape)
+        right[:, :, :, :half_size] = 0
+        top_left = torch.zeros(shape)
+        top_left[:, :, :half_size, :half_size] = 1
+        pred = torch.cat([empty, left, empty, full, left, top_left], dim=1)
+        targets = torch.cat([full, right, empty, full, left, left], dim=1)
+
+        metrics.dice(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="per-class"
+        )
+        # tensor([0.0000, 0.0000, 1.0000, 1.0000, 1.0000, 0.6667])
+
+        metrics.dice(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="macro"
+        )
+        # tensor(0.6111)
+
+        metrics.dice(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="micro"
+        )
+        # tensor(0.6087)
+    """
+    metric_fn = partial(_dice, eps=eps)
+    score = _get_region_based_metrics(outputs=outputs, targets=targets, metric_fn=metric_fn, class_dim=class_dim, threshold=threshold, mode=mode, weights=weights)
+    return score
+
+
+class DiceLoss(nn.Module):
+    """The Dice loss.
+    DiceLoss = 1 - dice score
+    dice score = 2 * intersection / (intersection + union)) =     = 2 * tp / (2 * tp + fp + fn)
+    """
+
+    def __init__(self, class_dim: int=1, mode: str='macro', weights: List[float]=None, eps: float=1e-07):
+        """
+        Args:
+            class_dim: indicates class dimention (K) for
+                ``outputs`` and ``targets`` tensors (default = 1)
+            mode: class summation strategy. Must be one of ['micro', 'macro',
+                'weighted']. If mode='micro', classes are ignored, and metric
+                are calculated generally. If mode='macro', metric are
+                calculated per-class and than are averaged over all classes.
+                If mode='weighted', metric are calculated per-class and than
+                summed over all classes with weights.
+            weights: class weights(for mode="weighted")
+            eps: epsilon to avoid zero division
+        """
+        super().__init__()
+        assert mode in ['micro', 'macro', 'weighted']
+        self.loss_fn = partial(dice, eps=eps, class_dim=class_dim, threshold=None, mode=mode, weights=weights)
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``logits`` and ``target`` tensors."""
+        dice_score = self.loss_fn(outputs, targets)
+        return 1 - dice_score
 
 
 class FocalLossBinary(_Loss):
@@ -1977,10 +2544,7 @@ class FocalLossBinary(_Loss):
 
     It has been proposed in `Focal Loss for Dense Object Detection`_ paper.
 
-    @TODO: Docs (add `Example`). Contribution is welcome.
-
-    .. _Focal Loss for Dense Object Detection:
-        https://arxiv.org/abs/1708.02002
+    .. _Focal Loss for Dense Object Detection: https://arxiv.org/abs/1708.02002
     """
 
     def __init__(self, ignore: int=None, reduced: bool=False, gamma: float=2.0, alpha: float=0.25, threshold: float=0.5, reduction: str='mean'):
@@ -1998,7 +2562,8 @@ class FocalLossBinary(_Loss):
             logits: [bs; ...]
             targets: [bs; ...]
 
-        @TODO: Docs. Contribution is welcome.
+        Returns:
+            computed loss
         """
         targets = targets.view(-1)
         logits = logits.view(-1)
@@ -2011,15 +2576,11 @@ class FocalLossBinary(_Loss):
 
 
 class FocalLossMultiClass(FocalLossBinary):
-    """Compute focal loss for multi-class problem.
-    Ignores targets having -1 label.
+    """Compute focal loss for multiclass problem. Ignores targets having -1 label.
 
     It has been proposed in `Focal Loss for Dense Object Detection`_ paper.
 
-    @TODO: Docs (add `Example`). Contribution is welcome.
-
-    .. _Focal Loss for Dense Object Detection:
-        https://arxiv.org/abs/1708.02002
+    .. _Focal Loss for Dense Object Detection: https://arxiv.org/abs/1708.02002
     """
 
     def forward(self, logits, targets):
@@ -2028,7 +2589,8 @@ class FocalLossMultiClass(FocalLossBinary):
             logits: [bs; num_classes; ...]
             targets: [bs; ...]
 
-        @TODO: Docs. Contribution is welcome.
+        Returns:
+            computed loss
         """
         num_classes = logits.size(1)
         loss = 0
@@ -2036,9 +2598,9 @@ class FocalLossMultiClass(FocalLossBinary):
         logits = logits.view(-1, num_classes)
         if self.ignore is not None:
             not_ignored = targets != self.ignore
-        for cls in range(num_classes):
-            cls_label_target = (targets == cls + 0).long()
-            cls_label_input = logits[..., cls]
+        for class_id in range(num_classes):
+            cls_label_target = (targets == class_id + 0).long()
+            cls_label_input = logits[..., class_id]
             if self.ignore is not None:
                 cls_label_target = cls_label_target[not_ignored]
                 cls_label_input = cls_label_input[not_ignored]
@@ -2054,7 +2616,6 @@ class MeanOutputLoss(nn.Module):
 
     def forward(self, output, target):
         """Compute criterion.
-
         @TODO: Docs (add typing). Contribution is welcome.
         """
         return output.mean()
@@ -2069,9 +2630,7 @@ class GradientPenaltyLoss(nn.Module):
 
     def forward(self, fake_data, real_data, critic, critic_condition_args):
         """Compute gradient penalty.
-
-        Args:
-            @TODO: Docs. Contribution is welcome.
+        @TODO: Docs. Contribution is welcome.
         """
         device = real_data.device
         alpha = torch.rand((real_data.size(0), 1, 1, 1), device=device)
@@ -2086,82 +2645,121 @@ class GradientPenaltyLoss(nn.Module):
         return gradient_penalty
 
 
-class HuberLoss(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
+def _iou(tp: torch.Tensor, fp: torch.Tensor, fn: torch.Tensor, eps: float=1e-07) ->torch.Tensor:
+    union = tp + fp + fn
+    score = (tp + eps * (union == 0).float()) / (tp + fp + fn + eps)
+    return score
 
-    def __init__(self, clip_delta=1.0, reduction='mean'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.clip_delta = clip_delta
-        self.reduction = reduction or 'none'
 
-    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, weights=None) ->torch.Tensor:
-        """@TODO: Docs. Contribution is welcome."""
-        td_error = y_true - y_pred
-        td_error_abs = torch.abs(td_error)
-        quadratic_part = torch.clamp(td_error_abs, max=self.clip_delta)
-        linear_part = td_error_abs - quadratic_part
-        loss = 0.5 * quadratic_part ** 2 + self.clip_delta * linear_part
-        if weights is not None:
-            loss = torch.mean(loss * weights, dim=1)
-        else:
-            loss = torch.mean(loss, dim=1)
-        if self.reduction == 'mean':
-            loss = torch.mean(loss)
-        elif self.reduction == 'sum':
-            loss = torch.sum(loss)
-        return loss
+def iou(outputs: torch.Tensor, targets: torch.Tensor, class_dim: int=1, threshold: float=None, mode: str='per-class', weights: Optional[List[float]]=None, eps: float=1e-07) ->torch.Tensor:
+    """
+    Computes the iou/jaccard score,
+    iou score = intersection / union = tp / (tp + fp + fn)
+
+    Args:
+        outputs: [N; K; ...] tensor that for each of the N examples
+            indicates the probability of the example belonging to each of
+            the K classes, according to the model.
+        targets:  binary [N; K; ...] tensor that encodes which of the K
+            classes are associated with the N-th input
+        class_dim: indicates class dimention (K) for
+            ``outputs`` and ``targets`` tensors (default = 1), if
+            mode = "micro" means nothing
+        threshold: threshold for outputs binarization
+        mode: class summation strategy. Must be one of ['micro', 'macro',
+            'weighted', 'per-class']. If mode='micro', classes are ignored,
+            and metric are calculated generally. If mode='macro', metric are
+            calculated per-class and than are averaged over all classes. If
+            mode='weighted', metric are calculated per-class and than summed
+            over all classes with weights. If mode='per-class', metric are
+            calculated separately for all classes
+        weights: class weights(for mode="weighted")
+        eps: epsilon to avoid zero division
+
+    Returns:
+        IoU (Jaccard) score for each class(if mode='weighted') or aggregated IOU
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst import metrics
+
+        size = 4
+        half_size = size // 2
+        shape = (1, 1, size, size)
+        empty = torch.zeros(shape)
+        full = torch.ones(shape)
+        left = torch.ones(shape)
+        left[:, :, :, half_size:] = 0
+        right = torch.ones(shape)
+        right[:, :, :, :half_size] = 0
+        top_left = torch.zeros(shape)
+        top_left[:, :, :half_size, :half_size] = 1
+        pred = torch.cat([empty, left, empty, full, left, top_left], dim=1)
+        targets = torch.cat([full, right, empty, full, left, left], dim=1)
+
+        metrics.iou(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="per-class"
+        )
+        # tensor([0.0000, 0.0000, 1.0000, 1.0000, 1.0000, 0.5])
+
+        metrics.iou(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="macro"
+        )
+        # tensor(0.5833)
+
+        metrics.iou(
+            outputs=pred,
+            targets=targets,
+            class_dim=1,
+            threshold=0.5,
+            mode="micro"
+        )
+        # tensor(0.4375)
+    """
+    metric_fn = partial(_iou, eps=eps)
+    score = _get_region_based_metrics(outputs=outputs, targets=targets, metric_fn=metric_fn, class_dim=class_dim, threshold=threshold, mode=mode, weights=weights)
+    return score
 
 
 class IoULoss(nn.Module):
     """The intersection over union (Jaccard) loss.
-
-    @TODO: Docs. Contribution is welcome.
+    IOULoss = 1 - iou score
+    iou score = intersection / union = tp / (tp + fp + fn)
     """
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid'):
+    def __init__(self, class_dim: int=1, mode: str='macro', weights: List[float]=None, eps: float=1e-07):
         """
         Args:
-            eps (float): epsilon to avoid zero division
-            threshold (float): threshold for outputs binarization
-            activation (str): An torch.nn activation applied to the outputs.
-                Must be one of ``'none'``, ``'Sigmoid'``, ``'Softmax2d'``
+            class_dim: indicates class dimention (K) for
+                ``outputs`` and ``targets`` tensors (default = 1)
+            mode: class summation strategy. Must be one of ['micro', 'macro',
+                'weighted']. If mode='micro', classes are ignored, and metric
+                are calculated generally. If mode='macro', metric are
+                calculated per-class and than are averaged over all classes.
+                If mode='weighted', metric are calculated per-class and than
+                summed over all classes with weights.
+            weights: class weights(for mode="weighted")
+            eps: epsilon to avoid zero division
         """
         super().__init__()
-        self.metric_fn = partial(metrics.iou, eps=eps, threshold=threshold, activation=activation)
+        assert mode in ['micro', 'macro', 'weighted']
+        self.loss_fn = partial(iou, eps=eps, class_dim=class_dim, threshold=None, mode=mode, weights=weights)
 
-    def forward(self, outputs, targets):
-        """@TODO: Docs. Contribution is welcome."""
-        iou = self.metric_fn(outputs, targets)
-        return 1 - iou
-
-
-class BCEIoULoss(nn.Module):
-    """The Intersection over union (Jaccard) with BCE loss.
-
-    @TODO: Docs. Contribution is welcome.
-    """
-
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid', reduction: str='mean'):
-        """
-        Args:
-            eps (float): epsilon to avoid zero division
-            threshold (float): threshold for outputs binarization
-            activation (str): An torch.nn activation applied to the outputs.
-                Must be one of ``'none'``, ``'Sigmoid'``, ``'Softmax2d'``
-            reduction (str): Specifies the reduction to apply
-                to the output of BCE
-        """
-        super().__init__()
-        self.bce_loss = nn.BCEWithLogitsLoss(reduction=reduction)
-        self.iou_loss = IoULoss(eps, threshold, activation)
-
-    def forward(self, outputs, targets):
-        """@TODO: Docs. Contribution is welcome."""
-        iou = self.iou_loss.forward(outputs, targets)
-        bce = self.bce_loss(outputs, targets)
-        loss = iou + bce
-        return loss
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``logits`` and ``target`` tensors."""
+        iou_score = self.loss_fn(outputs, targets)
+        return 1 - iou_score
 
 
 def _flatten_binary_scores(logits, targets, ignore=None):
@@ -2306,7 +2904,7 @@ def _flatten_probabilities(probabilities, targets, ignore=None):
 
 
 def _lovasz_softmax_flat(probabilities, targets, classes='present'):
-    """The multi-class Lovasz-Softmax loss.
+    """The multiclass Lovasz-Softmax loss.
 
     Args:
         probabilities: [P, C]
@@ -2328,9 +2926,9 @@ def _lovasz_softmax_flat(probabilities, targets, classes='present'):
         if C == 1:
             if len(class_to_sum) > 1:
                 raise ValueError('Sigmoid output possible only with 1 class')
-            class_pred = probabilities[:, (0)]
+            class_pred = probabilities[:, 0]
         else:
-            class_pred = probabilities[:, (c)]
+            class_pred = probabilities[:, c]
         errors = (fg - class_pred).abs()
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
@@ -2340,7 +2938,7 @@ def _lovasz_softmax_flat(probabilities, targets, classes='present'):
 
 
 def _lovasz_softmax(probabilities, targets, classes='present', per_image=False, ignore=None):
-    """The multi-class Lovasz-Softmax loss.
+    """The multiclass Lovasz-Softmax loss.
 
     Args:
         probabilities: [B, C, H, W]
@@ -2362,7 +2960,7 @@ def _lovasz_softmax(probabilities, targets, classes='present', per_image=False, 
 
 
 class LovaszLossMultiClass(_Loss):
-    """Creates a criterion that optimizes a multi-class Lovasz loss.
+    """Creates a criterion that optimizes a multiclass Lovasz loss.
 
     It has been proposed in `The Lovasz-Softmax loss: A tractable surrogate
     for the optimization of the intersection-over-union measure
@@ -2393,7 +2991,7 @@ class LovaszLossMultiClass(_Loss):
 
 
 class LovaszLossMultiLabel(_Loss):
-    """Creates a criterion that optimizes a multi-label Lovasz loss.
+    """Creates a criterion that optimizes a multilabel Lovasz loss.
 
     It has been proposed in `The Lovasz-Softmax loss: A tractable surrogate
     for the optimization of the intersection-over-union measure
@@ -2419,7 +3017,7 @@ class LovaszLossMultiLabel(_Loss):
 
         @TODO: Docs. Contribution is welcome.
         """
-        losses = [_lovasz_hinge(logits[:, (i), (...)], targets[:, (i), (...)], per_image=self.per_image, ignore=self.ignore) for i in range(logits.shape[1])]
+        losses = [_lovasz_hinge(logits[:, i, ...], targets[:, i, ...], per_image=self.per_image, ignore=self.ignore) for i in range(logits.shape[1])]
         loss = torch.mean(torch.stack(losses))
         return loss
 
@@ -2464,16 +3062,16 @@ def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha: float=0.2
 
 
 class MarginLoss(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
+    """Margin loss criterion"""
 
     def __init__(self, alpha: float=0.2, beta: float=1.0, skip_labels: Union[int, List[int]]=-1):
         """
-        Args:
-            alpha (float):
-            beta (float):
-            skip_labels (int or List[int]):
+        Margin loss constructor.
 
-        @TODO: Docs. Contribution is welcome.
+        Args:
+            alpha: alpha
+            beta: beta
+            skip_labels (int or List[int]): labels to skip
         """
         super().__init__()
         self.alpha = alpha
@@ -2481,24 +3079,954 @@ class MarginLoss(nn.Module):
         self.skip_labels = skip_labels
 
     def forward(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
-        """Forward propagation method for the margin loss.
+        """
+        Forward method for the margin loss.
 
-        @TODO: Docs. Contribution is welcome.
+        Args:
+            embeddings: tensor with embeddings
+            targets: tensor with target labels
+
+        Returns:
+            computed loss
         """
         return margin_loss(embeddings, targets, alpha=self.alpha, beta=self.beta, skip_labels=self.skip_labels)
+
+
+class NTXentLoss(nn.Module):
+    """A Contrastive embedding loss.
+
+    It has been proposed in `A Simple Framework
+    for Contrastive Learning of Visual Representations`_.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from torch.nn import functional as F
+        from catalyst.contrib import NTXentLoss
+
+        embeddings_left = F.normalize(torch.rand(256, 64, requires_grad=True))
+        embeddings_right = F.normalize(torch.rand(256, 64, requires_grad=True))
+        criterion = NTXentLoss(tau = 0.1)
+        criterion(embeddings_left, embeddings_right)
+
+    .. _`A Simple Framework for Contrastive Learning of Visual Representations`:
+        https://arxiv.org/abs/2002.05709
+    """
+
+    def __init__(self, tau: float, reduction: str='mean') ->None:
+        """
+
+        Args:
+            tau: temperature
+            reduction (string, optional): specifies the reduction to apply to the output:
+                ``"none"`` | ``"mean"`` | ``"sum"``.
+                ``"none"``: no reduction will be applied,
+                ``"mean"``: the sum of the output will be divided by the number of
+                positive pairs in the output,
+                ``"sum"``: the output will be summed.
+
+        Raises:
+            ValueError: if reduction is not mean, sum or none
+        """
+        super().__init__()
+        self.tau = tau
+        self.cosine_sim = nn.CosineSimilarity()
+        self.reduction = reduction
+        if self.reduction not in ['none', 'mean', 'sum']:
+            raise ValueError(f'Reduction should be: mean, sum, none. But got - {self.reduction}!')
+
+    def forward(self, features1: torch.Tensor, features2: torch.Tensor) ->torch.Tensor:
+        """
+
+        Args:
+            features1: batch with samples features of shape
+                [bs; feature_len]
+            features2: batch with samples features of shape
+                [bs; feature_len]
+
+        Returns:
+            torch.Tensor: NTXent loss
+        """
+        assert features1.shape == features2.shape, f'Invalid shape of input features: {features1.shape} and {features2.shape}'
+        feature_matrix = torch.cat([features1, features2])
+        feature_matrix = torch.nn.functional.normalize(feature_matrix)
+        cosine_matrix = (2 - torch.cdist(feature_matrix, feature_matrix) ** 2) / 2
+        exp_cosine_matrix = torch.exp(cosine_matrix / self.tau)
+        exp_sim_sum = exp_cosine_matrix.sum(dim=1) - e ** (1 / self.tau)
+        neg_loss = torch.log(exp_sim_sum)
+        pos_loss = self.cosine_sim(features1, features2) / self.tau
+        pos_loss = torch.cat([pos_loss, pos_loss])
+        loss = -pos_loss + neg_loss
+        if self.reduction == 'mean':
+            loss = loss.mean()
+        elif self.reduction == 'sum':
+            loss = loss.sum()
+        return loss
+
+
+class Pointwise(nn.Module):
+    """Base class for pointwise loss functions.
+
+    Pointwise approaches look at a single document at a time in the loss function.
+    For a single documents predict it relevance to the query in time.
+    The score is independent for the order of the documents that are in the query's results.
+
+    Input space: single document d1
+    Output space: scores or relevant classes
+    """
+
+    def forward(self, score: torch.Tensor):
+        raise NotImplementedError()
+
+
+class PairwiseLoss(nn.Module):
+    """Base class for pairwise loss functions.
+
+    Pairwise approached looks at a pair of documents at a time in the loss function.
+    Given a pair of documents the algorithm try to come up with the optimal ordering
+    For that pair and compare it with the ground truth. The goal for the ranker is to
+    minimize the number of inversions in ranker.
+
+    Input space: pairs of documents (d1, d2)
+    Output space: preferences (yes/no) for a given doc. pair
+    """
+
+    @staticmethod
+    def _assert_equal_size(positive_score: torch.Tensor, negative_score: torch.Tensor) ->None:
+        if positive_score.size() != negative_score.size():
+            raise ValueError(f'Shape mismatch: {positive_score.size()}, {negative_score.size()}')
+
+    def forward(self, positive_score: torch.Tensor, negative_score: torch.Tensor):
+        raise NotImplementedError()
+
+
+class ListwiseLoss(nn.Module):
+    """Base class for listwise loss functions.
+
+    Listwise approach directly looks at the entire list of documents and comes up with
+    an optimal ordering for it.
+
+    Input space: document set
+    Output space: permutations - ranking of documents
+    """
+
+    @staticmethod
+    def _assert_equal_size(outputs: torch.Tensor, targets: torch.Tensor) ->None:
+        if outputs.size() != targets.size():
+            raise ValueError(f'Shape mismatch: {outputs.size()}, {targets.size()}')
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor):
+        raise NotImplementedError()
+
+
+class BPRLoss(PairwiseLoss):
+    """Bayesian Personalised Ranking loss function.
+
+    It has been proposed in `BPRLoss\\: Bayesian Personalized Ranking from Implicit Feedback`_.
+
+    .. _BPRLoss\\: Bayesian Personalized Ranking from Implicit Feedback:
+        https://arxiv.org/pdf/1205.2618.pdf
+
+    Args:
+        gamma (float): Small value to avoid division by zero. Default: ``1e-10``.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst.contrib.losses import recsys
+
+        pos_score = torch.randn(3, requires_grad=True)
+        neg_score = torch.randn(3, requires_grad=True)
+
+        output = recsys.BPRLoss()(pos_score, neg_score)
+        output.backward()
+    """
+
+    def __init__(self, gamma=1e-10) ->None:
+        super().__init__()
+        self.gamma = gamma
+
+    def forward(self, positive_score: torch.Tensor, negative_score: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the BPR loss.
+
+        Args:
+            positive_score: Tensor containing predictions for known positive items.
+            negative_score: Tensor containing predictions for sampled negative items.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(positive_score, negative_score)
+        loss = -torch.log(self.gamma + torch.sigmoid(positive_score - negative_score))
+        return loss.mean()
+
+
+class LogisticLoss(PairwiseLoss):
+    """Logistic loss function.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst.contrib.losses import recsys
+
+        pos_score = torch.randn(3, requires_grad=True)
+        neg_score = torch.randn(3, requires_grad=True)
+
+        output = recsys.LogisticLoss()(pos_score, neg_score)
+        output.backward()
+    """
+
+    def __init__(self) ->None:
+        super().__init__()
+
+    def forward(self, positive_score: torch.Tensor, negative_score: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the logistic loss.
+
+        Args:
+            positive_score: Tensor containing predictions for known positive items.
+            negative_score: Tensor containing predictions for sampled negative items.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(positive_score, negative_score)
+        positives_loss = 1.0 - torch.sigmoid(positive_score)
+        negatives_loss = torch.sigmoid(negative_score)
+        loss = positives_loss + negatives_loss
+        return loss.mean()
+
+
+class HingeLoss(PairwiseLoss):
+    """Hinge loss function.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst.contrib.losses import recsys
+
+        pos_score = torch.randn(3, requires_grad=True)
+        neg_score = torch.randn(3, requires_grad=True)
+
+        output = recsys.HingeLoss()(pos_score, neg_score)
+        output.backward()
+    """
+
+    def __init__(self) ->None:
+        super().__init__()
+
+    def forward(self, positive_score: torch.Tensor, negative_score: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the hinge loss.
+
+        Args:
+            positive_score: Tensor containing predictions for known positive items.
+            negative_score: Tensor containing predictions for sampled negative items.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(positive_score, negative_score)
+        loss = torch.clamp(1.0 - (positive_score - negative_score), min=0.0)
+        return loss.mean()
+
+
+class AdaptiveHingeLoss(PairwiseLoss):
+    """Adaptive hinge loss function.
+
+    Takes a set of predictions for implicitly negative items, and selects those
+    that are highest, thus sampling those negatives that are closes to violating
+    the ranking implicit in the pattern of user interactions.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst.contrib.losses import recsys
+
+        pos_score = torch.randn(3, requires_grad=True)
+        neg_scores = torch.randn(5, 3, requires_grad=True)
+
+        output = recsys.AdaptiveHingeLoss()(pos_score, neg_scores)
+        output.backward()
+    """
+
+    def __init__(self) ->None:
+        super().__init__()
+        self._hingeloss = HingeLoss()
+
+    def forward(self, positive_score: torch.Tensor, negative_scores: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the adaptive hinge loss.
+
+        Args:
+            positive_score: Tensor containing predictions for known positive items.
+            negative_scores: Iterable of tensors containing predictions for sampled negative items.
+                More tensors increase the likelihood of finding ranking-violating pairs,
+                but risk overfitting.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(positive_score, negative_scores[0])
+        highest_negative_score, _ = torch.max(negative_scores, 0)
+        return self._hingeloss.forward(positive_score, highest_negative_score.squeeze())
+
+
+class WARP(Function):
+    """Autograd function of WARP loss."""
+
+    @staticmethod
+    def forward(ctx: nn.Module, outputs: torch.Tensor, targets: torch.Tensor, max_num_trials: Optional[int]=None):
+        batch_size = targets.size()[0]
+        if max_num_trials is None:
+            max_num_trials = targets.size()[1] - 1
+        positive_indices = torch.zeros(outputs.size())
+        negative_indices = torch.zeros(outputs.size())
+        L = torch.zeros(outputs.size()[0])
+        all_labels_idx = torch.arange(targets.size()[1])
+        Y = float(targets.size()[1])
+        J = torch.nonzero(targets)
+        for i in range(batch_size):
+            msk = torch.ones(targets.size()[1], dtype=bool)
+            j = J[i, 1]
+            positive_indices[i, j] = 1
+            msk[j] = False
+            sample_score_margin = -1
+            num_trials = 0
+            neg_labels_idx = all_labels_idx[msk]
+            while sample_score_margin < 0 and num_trials < max_num_trials:
+                neg_idx = neg_labels_idx[torch.randint(0, neg_labels_idx.size(0), (1,))]
+                msk[neg_idx] = False
+                neg_labels_idx = all_labels_idx[msk]
+                num_trials += 1
+                sample_score_margin = 1 + outputs[i, neg_idx] - outputs[i, j]
+            if sample_score_margin < 0:
+                continue
+            else:
+                loss_weight = np.log(np.floor((Y - 1) / num_trials))
+                L[i] = loss_weight
+                negative_indices[i, neg_idx] = 1
+        loss = L * (1 - torch.sum(positive_indices * outputs, dim=1) + torch.sum(negative_indices * outputs, dim=1))
+        ctx.save_for_backward(outputs, targets)
+        ctx.L = L
+        ctx.positive_indices = positive_indices
+        ctx.negative_indices = negative_indices
+        return torch.sum(loss, dim=0, keepdim=True)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        outputs, targets = ctx.saved_variables
+        L = Variable(torch.unsqueeze(ctx.L, 1), requires_grad=False)
+        positive_indices = Variable(ctx.positive_indices, requires_grad=False)
+        negative_indices = Variable(ctx.negative_indices, requires_grad=False)
+        grad_input = grad_output * L * (negative_indices - positive_indices)
+        return grad_input, None, None
+
+
+class WARPLoss(ListwiseLoss):
+    """Weighted Approximate-Rank Pairwise (WARP) loss function.
+
+    It has been proposed in `WSABIE\\: Scaling Up To Large Vocabulary Image Annotation`_ paper.
+
+    .. _WSABIE\\: Scaling Up To Large Vocabulary Image Annotation:
+        https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/37180.pdf
+
+    WARP loss randomly sample output labels of a model, until it finds a pair
+    which it knows are wrongly labelled and will then only apply an update to
+    these two incorrectly labelled examples.
+
+    Adapted from:
+    https://github.com/gabrieltseng/datascience-projects/blob/master/misc/warp.py
+
+    Args:
+        max_num_trials: Number of attempts allowed to find a violating negative example.
+            In practice it means that we optimize for ranks 1 to max_num_trials-1.
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst.contrib.losses import recsys
+
+        outputs = torch.randn(5, 3, requires_grad=True)
+        targets = torch.randn(5, 3, requires_grad=True)
+
+        output = recsys.WARPLoss()(outputs, targets)
+        output.backward()
+    """
+
+    def __init__(self, max_num_trials: Optional[int]=None):
+        super().__init__()
+        self.max_num_trials = max_num_trials
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the WARP loss.
+
+        Args:
+            outputs: Iterable of tensors containing predictions for all items.
+            targets: Iterable of tensors containing true labels for all items.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(outputs, targets)
+        return WARP.apply(outputs, targets, self.max_num_trials)
+
+
+class RocStarLoss(PairwiseLoss):
+    """Roc-star loss function.
+
+    Smooth approximation for ROC-AUC. It has been proposed in
+    `Roc-star\\: An objective function for ROC-AUC that actually works`_.
+
+    .. _Roc-star\\: An objective function for ROC-AUC that actually works:
+        https://github.com/iridiumblue/roc-star
+
+    Adapted from:
+    https://github.com/iridiumblue/roc-star/issues/2
+
+    Args:
+        delta: Param from the article. Default: ``1.0``.
+        sample_size: Number of examples to take for ROC AUC approximation. Default: ``100``.
+        sample_size_gamma: Number of examples to take for Gamma parameter approximation.
+            Default: ``1000``.
+        update_gamma_each: Number of steps after which to recompute gamma value.
+            Default: ``50``.
+
+    Example:
+
+        .. code-block:: python
+
+            import torch
+            from catalyst.contrib.losses import recsys
+
+            outputs = torch.randn(5, 1, requires_grad=True)
+            targets = torch.randn(5, 1, requires_grad=True)
+
+            output = recsys.RocStarLoss()(outputs, targets)
+            output.backward()
+    """
+
+    def __init__(self, delta: float=1.0, sample_size: int=100, sample_size_gamma: int=1000, update_gamma_each: int=50):
+        super().__init__()
+        self.delta = delta
+        self.sample_size = sample_size
+        self.sample_size_gamma = sample_size_gamma
+        self.update_gamma_each = update_gamma_each
+        self.steps = 0
+        self.gamma = None
+        size = max(sample_size, sample_size_gamma)
+        self.outputs_history = torch.rand((size + 2, 1))
+        self.targets_history = torch.cat((torch.randint(2, (size, 1)), torch.LongTensor([[0], [1]])))
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Forward propagation method for the roc-star loss.
+
+        Args:
+            outputs: Tensor of model predictions in [0, 1] range. Shape ``(B x 1)``.
+            targets: Tensor of true labels in {0, 1}. Shape ``(B x 1)``.
+
+        Returns:
+            computed loss
+        """
+        self._assert_equal_size(outputs, targets)
+        if torch.sum(targets) == 0 or torch.sum(targets) == targets.shape[0]:
+            return torch.sum(outputs) * 1e-08
+        if self.steps % self.update_gamma_each == 0:
+            self._update_gamma()
+        self.steps += 1
+        positive = outputs[targets > 0]
+        negative = outputs[targets < 1]
+        outputs_history = self.outputs_history[-self.sample_size:]
+        targets_history = self.targets_history[-self.sample_size:]
+        positive_history = outputs_history[targets_history > 0]
+        negative_history = outputs_history[targets_history < 1]
+        if positive.size(0) > 0:
+            diff = negative_history.view(1, -1) + self.gamma - positive.view(-1, 1)
+            loss_positive = nn.functional.relu(diff ** 2).mean()
+        else:
+            loss_positive = 0
+        if negative.size(0) > 0:
+            diff = negative.view(1, -1) + self.gamma - positive_history.view(-1, 1)
+            loss_negative = nn.functional.relu(diff ** 2).mean()
+        else:
+            loss_negative = 0
+        loss = loss_negative + loss_positive
+        batch_size = outputs.size(0)
+        self.outputs_history = torch.cat((self.outputs_history[batch_size:], outputs.clone().detach()))
+        self.targets_history = torch.cat((self.targets_history[batch_size:], targets.clone().detach()))
+        return loss
+
+    def _update_gamma(self):
+        outputs = self.outputs_history[-self.sample_size_gamma:]
+        targets = self.targets_history[-self.sample_size_gamma:]
+        positive = outputs[targets > 0]
+        negative = outputs[targets < 1]
+        diff = positive.view(-1, 1) - negative.view(1, -1)
+        AUC = (diff > 0).type(torch.float).mean()
+        num_wrong_ordered = (1 - AUC) * diff.flatten().size(0)
+        correct_ordered = diff[diff > 0].flatten().sort().values
+        idx = min(int(num_wrong_ordered * self.delta), len(correct_ordered) - 1)
+        if idx >= 0:
+            self.gamma = correct_ordered[idx]
+
+
+class HuberLossV0(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, clip_delta=1.0, reduction='mean'):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.clip_delta = clip_delta
+        self.reduction = reduction or 'none'
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor, weights=None) ->torch.Tensor:
+        """@TODO: Docs. Contribution is welcome."""
+        diff = target - output
+        diff_abs = torch.abs(diff)
+        quadratic_part = torch.clamp(diff_abs, max=self.clip_delta)
+        linear_part = diff_abs - quadratic_part
+        loss = 0.5 * quadratic_part ** 2 + self.clip_delta * linear_part
+        if weights is not None:
+            loss = torch.mean(loss * weights, dim=1)
+        else:
+            loss = torch.mean(loss, dim=1)
+        if self.reduction == 'mean':
+            loss = torch.mean(loss)
+        elif self.reduction == 'sum':
+            loss = torch.sum(loss)
+        return loss
+
+
+def _ce_with_logits(logits, target):
+    """Returns cross entropy for giving logits"""
+    return torch.sum(-target * torch.log_softmax(logits, -1), -1)
+
+
+class CategoricalRegressionLoss(nn.Module):
+    """CategoricalRegressionLoss"""
+
+    def __init__(self, num_atoms: int, v_min: int, v_max: int):
+        super().__init__()
+        self.num_atoms = num_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
+        self.z = torch.linspace(start=self.v_min, end=self.v_max, steps=self.num_atoms)
+
+    def forward(self, logits_t: torch.Tensor, logits_tp1: torch.Tensor, atoms_target_t: torch.Tensor) ->torch.Tensor:
+        """Compute the loss
+
+        Args:
+            logits_t (torch.Tensor): predicted atoms at step T.
+                shape: [bs; num_atoms]
+            logits_tp1 (torch.Tensor): predicted atoms at step T+1.
+                shape: [bs; num_atoms]
+            atoms_target_t (torch.Tensor): target atoms at step T.
+                shape: [bs; num_atoms]
+
+        Returns:
+            torch.Tensor: computed loss
+        """
+        probs_tp1 = torch.softmax(logits_tp1, dim=-1)
+        tz = torch.clamp(atoms_target_t, self.v_min, self.v_max)
+        tz_z = torch.abs(tz[:, None, :] - self.z[None, :, None])
+        tz_z = torch.clamp(1.0 - tz_z / self.delta_z, 0.0, 1.0)
+        probs_target_t = torch.einsum('bij,bj->bi', (tz_z, probs_tp1)).detach()
+        loss = _ce_with_logits(logits_t, probs_target_t).mean()
+        return loss
+
+
+class QuantileRegressionLoss(nn.Module):
+    """QuantileRegressionLoss"""
+
+    def __init__(self, num_atoms: int=51, clip_delta: float=1.0):
+        """Init."""
+        super().__init__()
+        self.num_atoms = num_atoms
+        tau_min = 1 / (2 * self.num_atoms)
+        tau_max = 1 - tau_min
+        self.tau = torch.linspace(start=tau_min, end=tau_max, steps=self.num_atoms)
+        self.criterion = HuberLossV0(clip_delta=clip_delta)
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Compute the loss.
+
+        Args:
+            outputs (torch.Tensor): predicted atoms, shape: [bs; num_atoms]
+            targets (torch.Tensor): target atoms, shape: [bs; num_atoms]
+
+        Returns:
+            torch.Tensor: computed loss
+        """
+        atoms_diff = targets[:, None, :] - outputs[:, :, None]
+        delta_atoms_diff = atoms_diff.lt(0).detach()
+        huber_weights = torch.abs(self.tau[None, :, None] - delta_atoms_diff) / self.num_atoms
+        loss = self.criterion(outputs[:, :, None], targets[:, None, :], huber_weights).mean()
+        return loss
+
+
+class RSquareLoss(nn.Module):
+    """RSquareLoss"""
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Compute the loss.
+
+        Args:
+            outputs (torch.Tensor): model outputs
+            targets (torch.Tensor): targets
+
+        Returns:
+            torch.Tensor: computed loss
+        """
+        var_y = torch.var(targets, unbiased=False)
+        return 1.0 - F.mse_loss(outputs, targets, reduction='mean') / var_y
+
+
+class SmoothingDiceLoss(nn.Module):
+    """
+    The Smoothing Dice loss.
+    ``SmoothingDiceloss = 1 - smoothing dice score``
+    ``smoothing dice score = 2 * intersection / (|outputs|^2 + |targets|^2)``
+    Criterion was inspired by https://arxiv.org/abs/1606.04797
+
+    Examples:
+        >>> import torch
+        >>> from catalyst.contrib.losses import SmoothingDiceLoss
+        >>> targets = torch.abs(torch.randn((1, 2, 3, 3), ))
+        >>> prediction = torch.abs(torch.randn((1, 2, 3, 3)))
+        >>> criterion = SmoothingDiceLoss()
+        >>> loss = criterion(prediction, targets)
+        >>> print(loss)
+    """
+
+    def __init__(self, class_dim: int=1, mode: str='macro', weights: List[float]=None, eps: float=1e-07):
+        """
+        Args:
+            class_dim: indicates class dimention (K) for
+                ``outputs`` and ``targets`` tensors (default = 1)
+            mode: class summation strategy. Must be one of ['micro', 'macro',
+                'weighted']. If mode='micro', classes are ignored, and metric
+                are calculated generally. If mode='macro', metric are
+                calculated per-class and than are averaged over all classes.
+                If mode='weighted', metric are calculated per-class and than
+                summed over all classes with weights.
+            weights: class weights(for mode="weighted")
+            eps: epsilon to avoid zero division
+        """
+        super().__init__()
+        self.class_dim = class_dim
+        self.mode = mode
+        if self.mode == 'weighted':
+            assert weights is not None
+            self.weights = torch.Tensor(weights)
+        self.eps = eps
+
+    def _get_sum_per_class(self, outputs_shape: List[int]) ->Callable[[torch.Tensor], torch.Tensor]:
+        """
+        Creates a channel summing function
+
+        Args:
+            outputs_shape: shape of output tensor
+
+        Returns:
+             function that sums tensors over all channels except the
+             classification
+
+        """
+        n_dims = len(outputs_shape)
+        dims = list(range(n_dims))
+        if self.class_dim < 0:
+            self.class_dim = n_dims + self.class_dim
+        dims.pop(self.class_dim)
+        sum_per_class = partial(torch.sum, dim=dims)
+        return sum_per_class
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``logits`` and ``target`` tensors."""
+        sum_per_class = self._get_sum_per_class(outputs.shape)
+        outputs_2 = outputs ** 2
+        targets_2 = targets ** 2
+        tp = sum_per_class(outputs * targets)
+        outputs_per_class = sum_per_class(outputs_2)
+        targets_per_class = sum_per_class(targets_2)
+        if self.mode == 'micro':
+            tp = tp.sum()
+            outputs_per_class = outputs_per_class.sum()
+            targets_per_class = targets_per_class.sum()
+        smoothing_dice = 2 * tp / (outputs_per_class + targets_per_class + self.eps)
+        if self.mode == 'macro':
+            smoothing_dice = smoothing_dice.mean()
+        if self.mode == 'weighted':
+            device = smoothing_dice.device
+            smoothing_dice = (smoothing_dice * self.weights).sum()
+        return 1 - smoothing_dice
+
+
+class SupervisedContrastiveLoss(nn.Module):
+    """A Contrastive embedding loss that uses targets.
+
+    It has been proposed in `Supervised Contrastive Learning`_.
+
+    .. _`Supervised Contrastive Learning`:
+        https://arxiv.org/pdf/2004.11362.pdf
+    """
+
+    def __init__(self, tau: float, reduction: str='mean', pos_aggregation='in') ->None:
+        """
+        Args:
+            tau: temperature
+            reduction: specifies the reduction to apply to the output:
+                ``"none"`` | ``"mean"`` | ``"sum"``.
+                ``"none"``: no reduction will be applied,
+                ``"mean"``: the sum of the output will be divided by the number of
+                positive pairs in the output,
+                ``"sum"``: the output will be summed.
+            pos_aggregation: specifies the place of positive pairs aggregation:
+                ``"in"`` | ``"out"``.
+                ``"in"``: maximization of log(average positive exponentiate similarity)
+                ``"out"``: maximization of average positive similarity
+
+        Raises:
+            ValueError: if reduction is not mean, sum or none
+            ValueError: if positive aggregation is not in or out
+        """
+        super().__init__()
+        self.tau = tau
+        self.self_similarity = 1 / self.tau
+        self.exp_self_similarity = e ** (1 / self.tau)
+        self.reduction = reduction
+        self.pos_aggregation = pos_aggregation
+        if self.reduction not in ['none', 'mean', 'sum']:
+            raise ValueError(f'Reduction should be: mean, sum, none. But got - {self.reduction}!')
+        if self.pos_aggregation not in ['in', 'out']:
+            raise ValueError(f'Positive aggregation should be: in or out.But got - {self.pos_aggregation}!')
+
+    def forward(self, features: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """
+        Args:
+            features: [bs; feature_len]
+            targets: [bs]
+
+        Returns:
+            computed loss
+        """
+        features = torch.nn.functional.normalize(features)
+        cosine_matrix = (2 - torch.cdist(features, features) ** 2) / 2
+        exp_cosine_matrix = torch.exp(cosine_matrix / self.tau)
+        pos_place = targets.repeat(targets.shape[0], 1) == targets.reshape(targets.shape[0], 1)
+        number_of_positives = pos_place.sum(dim=1) - 1
+        assert (number_of_positives == 0).sum().item() == 0, 'There must be at least one positive example for each sample!'
+        if self.pos_aggregation == 'in':
+            pos_loss = (exp_cosine_matrix * pos_place).sum(dim=1) - self.exp_self_similarity
+            pos_loss = torch.log(pos_loss) - torch.log(number_of_positives.float())
+        elif self.pos_aggregation == 'out':
+            pos_loss = ((torch.log(exp_cosine_matrix) * pos_place).sum(dim=1) - self.self_similarity) / number_of_positives
+        exp_sim_sum = exp_cosine_matrix.sum(dim=1) - self.exp_self_similarity
+        neg_loss = torch.log(exp_sim_sum)
+        loss = -pos_loss + neg_loss
+        if self.reduction == 'mean':
+            loss = loss.mean()
+        elif self.reduction == 'sum':
+            loss = loss.sum()
+        return loss
+
+
+def _trevsky(tp: torch.Tensor, fp: torch.Tensor, fn: torch.Tensor, alpha: float, beta: float, eps: float=1e-07) ->torch.Tensor:
+    union = tp + fp + fn
+    score = (tp + eps * (union == 0).float()) / (tp + fp * beta + fn * alpha + eps)
+    return score
+
+
+def trevsky(outputs: torch.Tensor, targets: torch.Tensor, alpha: float, beta: Optional[float]=None, class_dim: int=1, threshold: float=None, mode: str='per-class', weights: Optional[List[float]]=None, eps: float=1e-07) ->torch.Tensor:
+    """
+    Computes the trevsky score,
+    trevsky score = tp / (tp + fp * beta + fn * alpha)
+
+    Args:
+        outputs: [N; K; ...] tensor that for each of the N examples
+            indicates the probability of the example belonging to each of
+            the K classes, according to the model.
+        targets:  binary [N; K; ...] tensor that encodes which of the K
+            classes are associated with the N-th input
+        alpha: false negative coefficient, bigger alpha bigger penalty for
+            false negative. Must be in (0, 1)
+        beta: false positive coefficient, bigger alpha bigger penalty for false
+            positive. Must be in (0, 1), if None beta = (1 - alpha)
+        class_dim: indicates class dimention (K) for
+            ``outputs`` and ``targets`` tensors (default = 1)
+        threshold: threshold for outputs binarization
+        mode: class summation strategy. Must be one of ['micro', 'macro',
+            'weighted', 'per-class']. If mode='micro', classes are ignored,
+            and metric are calculated generally. If mode='macro', metric are
+            calculated per-class and than are averaged over all classes. If
+            mode='weighted', metric are calculated per-class and than summed
+            over all classes with weights. If mode='per-class', metric are
+            calculated separately for all classes
+        weights: class weights(for mode="weighted")
+        eps: epsilon to avoid zero division
+
+    Returns:
+        Trevsky score for each class(if mode='weighted') or aggregated score
+
+    Example:
+
+    .. code-block:: python
+
+        import torch
+        from catalyst import metrics
+
+        size = 4
+        half_size = size // 2
+        shape = (1, 1, size, size)
+        empty = torch.zeros(shape)
+        full = torch.ones(shape)
+        left = torch.ones(shape)
+        left[:, :, :, half_size:] = 0
+        right = torch.ones(shape)
+        right[:, :, :, :half_size] = 0
+        top_left = torch.zeros(shape)
+        top_left[:, :, :half_size, :half_size] = 1
+        pred = torch.cat([empty, left, empty, full, left, top_left], dim=1)
+        targets = torch.cat([full, right, empty, full, left, left], dim=1)
+
+        metrics.trevsky(
+            outputs=pred,
+            targets=targets,
+            alpha=0.2,
+            class_dim=1,
+            threshold=0.5,
+            mode="per-class"
+        )
+        # tensor([0.0000, 0.0000, 1.0000, 1.0000, 1.0000, 0.8333])
+
+        metrics.trevsky(
+            outputs=pred,
+            targets=targets,
+            alpha=0.2,
+            class_dim=1,
+            threshold=0.5,
+            mode="macro"
+        )
+        # tensor(0.6389)
+
+        metrics.trevsky(
+            outputs=pred,
+            targets=targets,
+            alpha=0.2,
+            class_dim=1,
+            threshold=0.5,
+            mode="micro"
+        )
+        # tensor(0.7000)
+    """
+    if beta is None:
+        assert 0 < alpha < 1, 'if beta=None, alpha must be in (0, 1)'
+        beta = 1 - alpha
+    metric_fn = partial(_trevsky, alpha=alpha, beta=beta, eps=eps)
+    score = _get_region_based_metrics(outputs=outputs, targets=targets, metric_fn=metric_fn, class_dim=class_dim, threshold=threshold, mode=mode, weights=weights)
+    return score
+
+
+class TrevskyLoss(nn.Module):
+    """The trevsky loss.
+    TrevskyIndex = TP / (TP + alpha * FN + betta * FP)
+    TrevskyLoss = 1 - TrevskyIndex
+    """
+
+    def __init__(self, alpha: float, beta: Optional[float]=None, class_dim: int=1, mode: str='macro', weights: List[float]=None, eps: float=1e-07):
+        """
+        Args:
+            alpha: false negative coefficient, bigger alpha bigger penalty for
+                false negative. Must be in (0, 1)
+            beta: false positive coefficient, bigger alpha bigger penalty for
+                false positive. Must be in (0, 1), if None beta = (1 - alpha)
+            class_dim: indicates class dimention (K) for
+                ``outputs`` and ``targets`` tensors (default = 1)
+            mode: class summation strategy. Must be one of ['micro', 'macro',
+                'weighted']. If mode='micro', classes are ignored, and metric
+                are calculated generally. If mode='macro', metric are
+                calculated separately and than are averaged over all classes.
+                If mode='weighted', metric are calculated separately and than
+                summed over all classes with weights.
+            weights: class weights(for mode="weighted")
+            eps: epsilon to avoid zero division
+        """
+        super().__init__()
+        assert mode in ['micro', 'macro', 'weighted']
+        self.loss_fn = partial(trevsky, eps=eps, alpha=alpha, beta=beta, class_dim=class_dim, threshold=None, mode=mode, weights=weights)
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``logits`` and ``target`` tensors."""
+        trevsky_score = self.loss_fn(outputs, targets)
+        return 1 - trevsky_score
+
+
+class FocalTrevskyLoss(nn.Module):
+    """The focal trevsky loss.
+    TrevskyIndex = TP / (TP + alpha * FN + betta * FP)
+    FocalTrevskyLoss = (1 - TrevskyIndex)^gamma
+    Node: focal will use per image, so loss will pay more attention on complicated images
+    """
+
+    def __init__(self, alpha: float, beta: Optional[float]=None, gamma: float=4 / 3, class_dim: int=1, mode: str='macro', weights: List[float]=None, eps: float=1e-07):
+        """
+        Args:
+            alpha: false negative coefficient, bigger alpha bigger penalty for
+                false negative. Must be in (0, 1)
+            beta: false positive coefficient, bigger alpha bigger penalty for
+                false positive. Must be in (0, 1), if None beta = (1 - alpha)
+            gamma: focal coefficient. It determines how much the weight of
+            simple examples is reduced.
+            class_dim: indicates class dimention (K) for
+                ``outputs`` and ``targets`` tensors (default = 1)
+            mode: class summation strategy. Must be one of ['micro', 'macro',
+                'weighted']. If mode='micro', classes are ignored, and metric
+                are calculated generally. If mode='macro', metric are
+                calculated separately and than are averaged over all classes.
+                If mode='weighted', metric are calculated separately and than
+                summed over all classes with weights.
+            weights: class weights(for mode="weighted")
+            eps: epsilon to avoid zero division
+        """
+        super().__init__()
+        self.gamma = gamma
+        self.trevsky_loss = TrevskyLoss(alpha=alpha, beta=beta, class_dim=class_dim, mode=mode, weights=weights, eps=eps)
+
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        """Calculates loss between ``logits`` and ``target`` tensors."""
+        loss = 0
+        batch_size = len(outputs)
+        for output_sample, target_sample in zip(outputs, targets):
+            output_sample = torch.unsqueeze(output_sample, dim=0)
+            target_sample = torch.unsqueeze(target_sample, dim=0)
+            sample_loss = self.trevsky_loss(output_sample, target_sample)
+            loss += sample_loss ** self.gamma
+        loss = loss / batch_size
+        return loss
+
+
+TORCH_BOOL = torch.bool if torch.__version__ > '1.1.0' else torch.ByteTensor
 
 
 class TripletLoss(nn.Module):
     """Triplet loss with hard positive/negative mining.
 
-    Reference:
-        Code imported from https://github.com/NegatioN/OnlineMiningTripletLoss
+    Adapted from: https://github.com/NegatioN/OnlineMiningTripletLoss
     """
 
     def __init__(self, margin: float=0.3):
         """
         Args:
-            margin (float): margin for triplet
+            margin: margin for triplet
         """
         super().__init__()
         self.margin = margin
@@ -2509,7 +4037,7 @@ class TripletLoss(nn.Module):
 
         Args:
             embeddings: tensor of shape (batch_size, embed_dim)
-            squared (bool): if true, output is the pairwise squared euclidean
+            squared: if true, output is the pairwise squared euclidean
                 distance matrix. If false, output is the pairwise euclidean
                 distance matrix
 
@@ -2535,10 +4063,11 @@ class TripletLoss(nn.Module):
             labels: tf.int32 `Tensor` with shape [batch_size]
 
         Returns:
-            mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+            torch.Tensor: mask with shape [batch_size, batch_size]
         """
-        indices_equal = torch.eye(labels.size(0)).bool()
+        indices_equal = torch.eye(labels.size(0)).type(torch.bool)
         indices_equal = indices_equal
+        indices_equal = indices_equal.type(TORCH_BOOL)
         indices_not_equal = ~indices_equal
         labels_equal = labels.unsqueeze(0) == labels.unsqueeze(1)
         return labels_equal & indices_not_equal
@@ -2550,7 +4079,7 @@ class TripletLoss(nn.Module):
             labels: tf.int32 `Tensor` with shape [batch_size]
 
         Returns:
-            mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+            torch.Tensor: mask with shape [batch_size, batch_size]
         """
         return ~(labels.unsqueeze(0) == labels.unsqueeze(1))
 
@@ -2561,7 +4090,7 @@ class TripletLoss(nn.Module):
         hardest negative to form a triplet.
 
         Args:
-            labels: labels of the batch, of size (batch_size,)
+            labels: labels of the batch, of size (batch_size)
             embeddings: tensor of shape (batch_size, embed_dim)
             margin: margin for triplet loss
             squared: Boolean. If true, output is the pairwise squared
@@ -2569,7 +4098,7 @@ class TripletLoss(nn.Module):
                      pairwise euclidean distance matrix.
 
         Returns:
-            triplet_loss: scalar tensor containing the triplet loss
+            torch.Tensor: scalar tensor containing the triplet loss
         """
         pairwise_dist = self._pairwise_distances(embeddings, squared=squared)
         mask_anchor_positive = self._get_anchor_positive_triplet_mask(labels).float()
@@ -2581,18 +4110,18 @@ class TripletLoss(nn.Module):
         hardest_negative_dist, _ = anchor_negative_dist.min(1, keepdim=True)
         tl = hardest_positive_dist - hardest_negative_dist + margin
         tl[tl < 0] = 0
-        triplet_loss = tl.mean()
-        return triplet_loss
+        loss = tl.mean()
+        return loss
 
     def forward(self, embeddings, targets):
         """Forward propagation method for the triplet loss.
 
         Args:
             embeddings: tensor of shape (batch_size, embed_dim)
-            targets: labels of the batch, of size (batch_size,)
+            targets: labels of the batch, of size (batch_size)
 
         Returns:
-            triplet_loss: scalar tensor containing the triplet loss
+            torch.Tensor: scalar tensor containing the triplet loss
         """
         return self._batch_hard_triplet_loss(embeddings, targets, self.margin)
 
@@ -2614,9 +4143,7 @@ def create_negative_mask(labels: torch.Tensor, neg_label: int=-1) ->torch.Tensor
 
 def batch_all(labels: torch.Tensor, exclude_negatives: bool=True) ->torch.Tensor:
     """Create a 3D mask of all possible triplets.
-
-    Args:
-        @TODO: Docs. Contribution is welcome.
+    @TODO: Docs. Contribution is welcome.
     """
     batch_size = labels.size(0)
     indices_equal = torch.eye(batch_size, device=labels.device).type(torch.bool)
@@ -2638,9 +4165,7 @@ def batch_all(labels: torch.Tensor, exclude_negatives: bool=True) ->torch.Tensor
 
 def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None) ->torch.Tensor:
     """Calculate cosine distance between x and z.
-
-    Args:
-        @TODO: Docs. Contribution is welcome.
+    @TODO: Docs. Contribution is welcome.
     """
     x = F.normalize(x)
     if z is not None:
@@ -2669,7 +4194,7 @@ class TripletLossV2(nn.Module):
     def __init__(self, margin=0.3):
         """
         Args:
-            margin (float): margin for triplet.
+            margin: margin for triplet.
         """
         super().__init__()
         self.margin = margin
@@ -2690,8 +4215,8 @@ class TripletPairwiseEmbeddingLoss(nn.Module):
     def __init__(self, margin: float=0.3, reduction: str='mean'):
         """
         Args:
-            margin (float): margin parameter
-            reduction (str): criterion reduction type
+            margin: margin parameter
+            reduction: criterion reduction type
         """
         super().__init__()
         self.margin = margin
@@ -2723,6 +4248,62 @@ class TripletPairwiseEmbeddingLoss(nn.Module):
             loss = torch.sum(loss) / bs
         elif self.reduction == 'sum':
             loss = torch.sum(loss)
+        return loss
+
+
+def convert_labels2list(labels: Union[Tensor, List[int]]) ->List[int]:
+    """
+    This function allows to work with 2 types of indexing:
+    using a integer tensor and a list of indices.
+
+    Args:
+        labels: labels of batch samples
+
+    Returns:
+        labels of batch samples in the aligned format
+
+    Raises:
+        TypeError: if type of input labels is not tensor and list
+    """
+    if isinstance(labels, Tensor):
+        labels = labels.squeeze()
+        assert len(labels.shape) == 1 and labels.dtype in [short, tint, long], 'Labels cannot be interpreted as indices.'
+        labels_list = labels.tolist()
+    elif isinstance(labels, list):
+        labels_list = labels.copy()
+    else:
+        raise TypeError(f'Unexpected type of labels: {type(labels)}).')
+    return labels_list
+
+
+class TripletMarginLossWithSampler(nn.Module):
+    """
+    This class combines in-batch sampling of triplets and
+    default TripletMargingLoss from PyTorch.
+    """
+
+    def __init__(self, margin: float, sampler_inbatch: 'IInbatchTripletSampler'):
+        """
+        Args:
+            margin: margin value
+            sampler_inbatch: sampler for forming triplets inside the batch
+        """
+        super().__init__()
+        self._sampler_inbatch = sampler_inbatch
+        self._triplet_margin_loss = TripletMarginLoss(margin=margin)
+
+    def forward(self, features: Tensor, labels: Union[Tensor, List[int]]) ->Tensor:
+        """
+        Args:
+            features: features with shape [batch_size, features_dim]
+            labels: labels of samples having batch_size elements
+
+        Returns: loss value
+
+        """
+        labels_list = convert_labels2list(labels)
+        features_anchor, features_positive, features_negative = self._sampler_inbatch.sample(features=features, labels=labels_list)
+        loss = self._triplet_margin_loss(anchor=features_anchor, positive=features_positive, negative=features_negative)
         return loss
 
 
@@ -2761,9 +4342,6 @@ class WingLoss(nn.Module):
     It has been proposed in `Wing Loss for Robust Facial Landmark Localisation
     with Convolutional Neural Networks`_.
 
-    Examples:
-        @TODO: Docs. Contribution is welcome.
-
     Adapted from:
     https://github.com/BloodAxe/pytorch-toolbelt
 
@@ -2788,747 +4366,1274 @@ class WingLoss(nn.Module):
         return loss
 
 
-class Flatten(nn.Module):
-    """Flattens the input. Does not affect the batch size.
+class MnistSimpleNet(nn.Module):
+    """Simple MNIST convolutional network for test purposes."""
 
-    @TODO: Docs (add `Example`). Contribution is welcome.
-    """
-
-    def __init__(self):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-
-    def forward(self, x):
-        """Forward call."""
-        return x.view(x.shape[0], -1)
-
-
-class Lambda(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, lambda_fn):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.lambda_fn = lambda_fn
-
-    def forward(self, x):
-        """Forward call."""
-        return self.lambda_fn(x)
-
-
-class GaussianNoise(nn.Module):
-    """
-    A gaussian noise module.
-
-    Shape:
-
-    - Input: (batch, \\*)
-    - Output: (batch, \\*) (same shape as input)
-    """
-
-    def __init__(self, stddev: float=0.1):
+    def __init__(self, out_features: int, normalize: bool=True):
         """
         Args:
-            stddev (float): The standard deviation of the normal distribution.
-                Default: 0.1.
+            out_features: size of the output tensor
+            normalize: boolean flag to add normalize layer
         """
         super().__init__()
-        self.stddev = stddev
-
-    def forward(self, x: torch.Tensor):
-        """Forward call."""
-        noise = torch.empty_like(x)
-        noise.normal_(0, self.stddev)
-
-
-class TemporalLastPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """Forward call."""
-        x_out = x[:, -1:, :]
-        return x_out
-
-
-class TemporalAvgPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """Forward call."""
-        if mask is None:
-            x_out = x.mean(1, keepdim=True)
-        else:
-            x_ = torch.sum(x * mask.float(), dim=1, keepdim=True)
-            mask_ = torch.sum(mask.float(), dim=1, keepdim=True)
-            x_out = x_ / mask_
-        return x_out
-
-
-class TemporalMaxPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """Forward call."""
-        if mask is not None:
-            mask_ = (~mask.bool()).float() * (-x.max()).float()
-            x = torch.sum(x + mask_, dim=1, keepdim=True)
-        x_out = x.max(1, keepdim=True)[0]
-        return x_out
-
-
-def outer_init(layer: nn.Module) ->None:
-    """
-    Initialization for output layers of policy and value networks typically
-    used in deep reinforcement learning literature.
-    """
-    if isinstance(layer, (nn.Linear, nn.Conv1d, nn.Conv2d)):
-        v = 0.003
-        nn.init.uniform_(layer.weight.data, -v, v)
-        if layer.bias is not None:
-            nn.init.uniform_(layer.bias.data, -v, v)
-
-
-class TemporalAttentionPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-    name2activation = {'softmax': nn.Softmax(dim=1), 'tanh': nn.Tanh(), 'sigmoid': nn.Sigmoid()}
-
-    def __init__(self, in_features, activation=None, kernel_size=1, **params):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.in_features = in_features
-        activation = activation or 'softmax'
-        self.attention_pooling = nn.Sequential(nn.Conv1d(in_channels=in_features, out_channels=1, kernel_size=kernel_size, **params), TemporalAttentionPooling.name2activation[activation])
-        self.attention_pooling.apply(outer_init)
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): tensor of size
-                (batch_size, history_len, feature_size)
-
-        @TODO: Docs. Contribution is welcome.
-        """
-        batch_size, history_len, feature_size = x.shape
-        x = x.view(batch_size, history_len, -1)
-        x_a = x.transpose(1, 2)
-        x_attn = (self.attention_pooling(x_a) * x_a).transpose(1, 2)
-        x_attn = x_attn.sum(1, keepdim=True)
-        return x_attn
-
-
-class TemporalConcatPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_features, history_len=1):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = in_features * history_len
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): tensor of size
-                (batch_size, history_len, feature_size)
-
-        @TODO: Docs. Contribution is welcome.
-        """
-        x = x.view(x.shape[0], -1)
-        return x
-
-
-class TemporalDropLastWrapper(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, net):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.net = net
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None):
-        """@TODO: Docs. Contribution is welcome."""
-        x = x[:, :-1, :]
-        x_out = self.net(x)
-        return x_out
-
-
-def _get_pooling(key, in_features, **params):
-    """@TODO: Docs. Contribution is welcome."""
-    key_ = key.split('_', 1)[0]
-    if key_ == 'last':
-        return TemporalLastPooling()
-    elif key_ == 'avg':
-        layer = TemporalAvgPooling()
-    elif key_ == 'max':
-        layer = TemporalMaxPooling()
-    elif key_ in ['softmax', 'tanh', 'sigmoid']:
-        layer = TemporalAttentionPooling(in_features=in_features, activation=key_, **params)
-    else:
-        raise NotImplementedError()
-    if 'droplast' in key:
-        layer = TemporalDropLastWrapper(layer)
-    return layer
-
-
-class LamaPooling(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-    available_groups = ['last', 'avg', 'avg_droplast', 'max', 'max_droplast', 'sigmoid', 'sigmoid_droplast', 'softmax', 'softmax_droplast', 'tanh', 'tanh_droplast']
-
-    def __init__(self, in_features, groups=None):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.in_features = in_features
-        self.groups = groups or ['last', 'avg_droplast', 'max_droplast', 'softmax_droplast']
-        self.out_features = in_features * len(self.groups)
-        groups = {}
-        for key in self.groups:
-            if isinstance(key, str):
-                groups[key] = _get_pooling(key, self.in_features)
-            elif isinstance(key, dict):
-                key_ = key.pop('key')
-                groups[key_] = _get_pooling(key_, in_features, **key)
-            else:
-                raise NotImplementedError()
-        self.groups = nn.ModuleDict(groups)
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): tensor of size
-                (batch_size, history_len, feature_size)
-
-        @TODO: Docs. Contribution is welcome.
-        """
-        batch_size, history_len, feature_size = x.shape
-        x_ = []
-        for pooling_fn in self.groups.values():
-            features_ = pooling_fn(x, mask)
-            x_.append(features_)
-        x = torch.cat(x_, dim=1)
-        x = x.view(batch_size, -1)
-        return x
-
-
-class GlobalAvgPool2d(nn.Module):
-    """Applies a 2D global average pooling operation over an input signal
-    composed of several input planes.
-
-    @TODO: Docs (add `Example`). Contribution is welcome.
-    """
-
-    def __init__(self):
-        """Constructor method for the ``GlobalAvgPool2d`` class."""
-        super().__init__()
+        layers = [nn.Conv2d(1, 32, 3, 1), nn.ReLU(), nn.Conv2d(32, 64, 3, 1), nn.ReLU(), nn.MaxPool2d(2), Flatten(), nn.Linear(9216, 128), nn.ReLU(), nn.Linear(128, out_features)]
+        if normalize:
+            layers.append(Normalize())
+        self._net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        h, w = x.shape[2:]
-        return F.avg_pool2d(input=x, kernel_size=(h, w))
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
         """
-        return in_features
+        Args:
+            x: input 1d image tensor with the size of [28 x 28]
+
+        Returns:
+            extracted features
+        """
+        return self._net(x)
 
 
-class GlobalMaxPool2d(nn.Module):
-    """Applies a 2D global max pooling operation over an input signal
-    composed of several input planes.
+class MnistBatchNormNet(nn.Module):
+    """Simple MNIST convolutional network with batch norm layers for test purposes."""
 
-    @TODO: Docs (add `Example`). Contribution is welcome.
-    """
-
-    def __init__(self):
-        """Constructor method for the ``GlobalMaxPool2d`` class."""
+    def __init__(self, out_features: int):
+        """
+        Args:
+            out_features: size of the output tensor
+        """
         super().__init__()
+        layers = [nn.Conv2d(1, 32, 3, 1), nn.LeakyReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, 1), nn.LeakyReLU(), nn.MaxPool2d(2), Flatten(), nn.BatchNorm1d(9216), nn.Linear(9216, 128), nn.LeakyReLU(), nn.Linear(128, out_features), nn.BatchNorm1d(out_features)]
+        self._net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        h, w = x.shape[2:]
-        return F.max_pool2d(input=x, kernel_size=(h, w))
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features
-
-
-class GlobalConcatPool2d(nn.Module):
-    """@TODO: Docs (add `Example`). Contribution is welcome."""
-
-    def __init__(self):
-        """Constructor method for the ``GlobalConcatPool2d`` class."""
-        super().__init__()
-        self.avg = GlobalAvgPool2d()
-        self.max = GlobalMaxPool2d()
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        return torch.cat([self.avg(x), self.max(x)], 1)
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features * 2
-
-
-class GlobalAttnPool2d(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, in_features, activation_fn='Sigmoid'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        activation_fn = MODULES.get_if_str(activation_fn)
-        self.attn = nn.Sequential(nn.Conv2d(in_features, 1, kernel_size=1, stride=1, padding=0, bias=False), activation_fn())
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        x_a = self.attn(x)
-        x = x * x_a
-        x = torch.sum(x, dim=[-2, -1], keepdim=True)
-        return x
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features
-
-
-class GlobalAvgAttnPool2d(nn.Module):
-    """@TODO: Docs (add `Example`). Contribution is welcome."""
-
-    def __init__(self, in_features, activation_fn='Sigmoid'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.avg = GlobalAvgPool2d()
-        self.attn = GlobalAttnPool2d(in_features, activation_fn)
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        return torch.cat([self.avg(x), self.attn(x)], 1)
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features * 2
-
-
-class GlobalMaxAttnPool2d(nn.Module):
-    """@TODO: Docs (add `Example`). Contribution is welcome."""
-
-    def __init__(self, in_features, activation_fn='Sigmoid'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.max = GlobalMaxPool2d()
-        self.attn = GlobalAttnPool2d(in_features, activation_fn)
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        return torch.cat([self.max(x), self.attn(x)], 1)
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features * 2
-
-
-class GlobalConcatAttnPool2d(nn.Module):
-    """@TODO: Docs (add `Example`). Contribution is welcome."""
-
-    def __init__(self, in_features, activation_fn='Sigmoid'):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.avg = GlobalAvgPool2d()
-        self.max = GlobalMaxPool2d()
-        self.attn = GlobalAttnPool2d(in_features, activation_fn)
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """Forward call."""
-        return torch.cat([self.avg(x), self.max(x), self.attn(x)], 1)
-
-    @staticmethod
-    def out_features(in_features):
-        """Returns number of channels produced by the pooling.
-
-        Args:
-            in_features: number of channels in the input sample
-        """
-        return in_features * 3
-
-
-class RMSNorm(nn.Module):
-    """An implementation of RMS Normalization.
-
-    @TODO: Docs (link to paper). Contribution is welcome.
-    """
-
-    def __init__(self, dimension: int, epsilon: float=1e-08, is_bias: bool=False):
         """
         Args:
-            dimension (int): the dimension of the layer output to normalize
-            epsilon (float): an epsilon to prevent dividing by zero
-                in case the layer has zero variance. (default = 1e-8)
-            is_bias (bool): a boolean value whether to include bias term
-                while normalization
+            x: input 1d image tensor with the size of [28 x 28]
+
+        Returns:
+            extracted features
         """
-        super().__init__()
-        self.dimension = dimension
-        self.epsilon = epsilon
-        self.is_bias = is_bias
-        self.scale = nn.Parameter(torch.ones(self.dimension))
-        if self.is_bias:
-            self.bias = nn.Parameter(torch.zeros(self.dimension))
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """@TODO: Docs. Contribution is welcome."""
-        x_std = torch.sqrt(torch.mean(x ** 2, -1, keepdim=True))
-        x_norm = x / (x_std + self.epsilon)
-        if self.is_bias:
-            return self.scale * x_norm + self.bias
-        return self.scale * x_norm
+        return self._net(x)
 
 
-class SqueezeAndExcitation(nn.Module):
-    """
-    The channel-wise SE (Squeeze and Excitation) block from the
-    [Squeeze-and-Excitation Networks](https://arxiv.org/abs/1709.01507) paper.
-
-    Adapted from
-    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65939
-    and
-    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
-
-    Shape:
-
-    - Input: (batch, channels, height, width)
-    - Output: (batch, channels, height, width) (same shape as input)
-    """
-
-    def __init__(self, in_channels: int, r: int=16):
-        """
-        Args:
-            in_channels (int): The number of channels
-                in the feature map of the input.
-            r (int): The reduction ratio of the intermediate channels.
-                Default: 16.
-        """
-        super().__init__()
-        self.linear_1 = nn.Linear(in_channels, in_channels // r)
-        self.linear_2 = nn.Linear(in_channels // r, in_channels)
-
-    def forward(self, x: torch.Tensor):
-        """Forward call."""
-        input_x = x
-        x = x.view(*x.shape[:-2], -1).mean(-1)
-        x = F.relu(self.linear_1(x), inplace=True)
-        x = self.linear_2(x)
-        x = x.unsqueeze(-1).unsqueeze(-1)
-        x = torch.sigmoid(x)
-        x = torch.mul(input_x, x)
-        return x
-
-
-class ChannelSqueezeAndSpatialExcitation(nn.Module):
-    """
-    The sSE (Channel Squeeze and Spatial Excitation) block from the
-    [Concurrent Spatial and Channel ‘Squeeze & Excitation’
-    in Fully Convolutional Networks](https://arxiv.org/abs/1803.02579) paper.
-
-    Adapted from
-    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
-
-    Shape:
-
-    - Input: (batch, channels, height, width)
-    - Output: (batch, channels, height, width) (same shape as input)
-    """
-
-    def __init__(self, in_channels: int):
-        """
-        Args:
-            in_channels (int): The number of channels
-                in the feature map of the input.
-        """
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1, stride=1)
-
-    def forward(self, x: torch.Tensor):
-        """Forward call."""
-        input_x = x
-        x = self.conv(x)
-        x = torch.sigmoid(x)
-        x = torch.mul(input_x, x)
-        return x
-
-
-class ConcurrentSpatialAndChannelSqueezeAndChannelExcitation(nn.Module):
-    """
-    The scSE (Concurrent Spatial and Channel Squeeze and Channel Excitation)
-    block from the [Concurrent Spatial and Channel ‘Squeeze & Excitation’
-    in Fully Convolutional Networks](https://arxiv.org/abs/1803.02579) paper.
-
-    Adapted from
-    https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/66178
-
-    Shape:
-
-    - Input: (batch, channels, height, width)
-    - Output: (batch, channels, height, width) (same shape as input)
-    """
-
-    def __init__(self, in_channels: int, r: int=16):
-        """
-        Args:
-            in_channels (int): The number of channels
-                in the feature map of the input.
-            r (int): The reduction ratio of the intermediate channels.
-                Default: 16.
-        """
-        super().__init__()
-        self.cse_block = SqueezeAndExcitation(in_channels, r)
-        self.sse_block = ChannelSqueezeAndSpatialExcitation(in_channels)
-
-    def forward(self, x: torch.Tensor):
-        """Forward call."""
-        cse = self.cse_block(x)
-        sse = self.sse_block(x)
-        x = torch.add(cse, sse)
-        return x
-
-
-class SomeModel(torch.nn.Module):
-    """Dummy test torch model."""
-    pass
-
-
-class SomeOptimizer(torch.nn.Module):
-    """Dummy test torch optimizer."""
-
-    def __init__(self, **kwargs):
-        """Dummy optimizer"""
-        super().__init__()
-
-
-class SomeScheduler(torch.nn.Module):
-    """Dummy test torch scheduler."""
-
-    def __init__(self, **kwargs):
-        """Dummy scheduler"""
-        super().__init__()
-
-
-class _ForwardOverrideModel(nn.Module):
+class ModelForwardWrapper(nn.Module):
     """Model that calls specified method instead of forward.
+
+    Args:
+        model: @TODO: docs
+        method_name: @TODO: docs
 
     (Workaround, single method tracing is not supported)
     """
 
     def __init__(self, model, method_name):
+        """Init"""
         super().__init__()
         self.model = model
         self.method_name = method_name
 
     def forward(self, *args, **kwargs):
+        """Forward pass.
+
+        Args:
+            *args: some args
+            **kwargs: some kwargs
+
+        Returns:
+            output: specified method output
+        """
         return getattr(self.model, self.method_name)(*args, **kwargs)
 
 
-def get_fn_argsnames(fn: Callable[..., Any], exclude: List[str]=None):
-    """Return parameter names of Callable.
+class SSDCriterion(nn.Module):
 
-    Args:
-        fn (Callable[..., Any]): target Callable
-        exclude (List[str]): exclude list of parameters
-
-    Returns:
-        list: contains parameter names of `fn`
-    """
-    argspec = inspect.getfullargspec(fn)
-    params = argspec.args + argspec.kwonlyargs
-    if exclude is not None:
-        params = list(filter(lambda x: x not in exclude, params))
-    return params
-
-
-def _get_input_argnames(fn: Callable[..., Any], exclude: List[str]=None) ->List[str]:
-    """
-    Function to get input argument names of function.
-
-    Args:
-        fn (Callable[..., Any]): Function to get argument names from
-        exclude (List[str]): List of string of names to exclude
-
-    Returns:
-        (List[str]): List of input argument names
-    """
-    argspec = inspect.getfullargspec(fn)
-    assert argspec.varargs is None and argspec.varkw is None, 'not supported by PyTorch'
-    return get_fn_argsnames(fn, exclude=exclude)
-
-
-class _TracingModelWrapper(nn.Module):
-    """Wrapper that traces model with batch instead of calling it.
-
-    (Workaround, to use native model batch handler)
-    """
-
-    def __init__(self, model, method_name):
+    def __init__(self, num_classes, ignore_class=0):
         super().__init__()
+        self.num_classes = num_classes
+        self.ignore_class = ignore_class
+
+    def _hard_negative_mining(self, cls_loss, pos):
+        """Return negative indices that is 3x the number as positive indices.
+
+        Args:
+            cls_loss: (torch.Tensor) cross entropy loss between `cls_preds` and `cls_targets`.
+                Expected shape [B, M] where B - batch, M - anchors.
+            pos: (torch.Tensor) positive class mask.
+                Expected shape [B, M] where B - batch, M - anchors.
+
+        Return:
+            (torch.Tensor) negative indices, sized [N,#anchors].
+        """
+        cls_loss = cls_loss * (pos.float() - 1)
+        _, idx = cls_loss.sort(1)
+        _, rank = idx.sort(1)
+        num_neg = 3 * pos.sum(1)
+        neg = rank < num_neg[:, None]
+        return neg
+
+    def forward(self, loc_preds, loc_targets, cls_preds, cls_targets):
+        """Compute loss between (loc_preds, loc_targets) and (cls_preds, cls_targets).
+        Loss:
+            loss = SmoothL1Loss(loc_preds, loc_targets) + CrossEntropyLoss(cls_preds, cls_targets).
+
+        Args:
+            loc_preds: (torch.Tensor) predicted locations.
+                Expected shapes - [B, M, 4] where B - batch, M - anchors.
+            loc_targets: (torch.Tensor) encoded target locations.
+                Expected shapes - [B, M, 4] where B - batch, M - anchors.
+            cls_preds: (torch.Tensor) predicted class confidences.
+                Expected shapes - [B, M, CLASS]
+                where B - batch, M - anchors, CLASS - number of classes.
+            cls_targets: (torch.LongTensor) encoded target labels.
+                Expected shapes - [B, M] where B - batch, M - anchors.
+
+        Returns:
+            regression loss and classification loss
+        """
+        pos = cls_targets != self.ignore_class
+        batch_size = pos.size(0)
+        num_pos = pos.sum().item()
+        mask = pos.unsqueeze(2).expand_as(loc_preds)
+        loc_loss = F.smooth_l1_loss(loc_preds[mask], loc_targets[mask], reduction='sum')
+        cls_loss = F.cross_entropy(cls_preds.view(-1, self.num_classes), cls_targets.view(-1), reduction='none')
+        cls_loss = cls_loss.view(batch_size, -1)
+        cls_loss[cls_targets == self.ignore_class] = 0
+        neg = self._hard_negative_mining(cls_loss, pos)
+        cls_loss = cls_loss[pos | neg].sum()
+        loc_loss = loc_loss / num_pos
+        cls_loss = cls_loss / num_pos
+        return loc_loss, cls_loss
+
+
+def neg_loss(pred, gt):
+    """Modified focal loss. Exactly the same as CornerNet.
+    Runs faster and costs a little bit more memory
+
+    Args:
+        pred (torch.Tensor): predicted center heatmaps,
+            should have shapes [batch, c, h, w]
+        gt (torch.Tensor): ground truth center heatmaps,
+            should have shapes [batch, c, h, w]
+
+    Returns:
+        torch.Tensor with focal loss value.
+    """
+    pred = pred.unsqueeze(1).float()
+    gt = gt.unsqueeze(1).float()
+    positive_inds = gt.eq(1).float()
+    negative_inds = gt.lt(1).float()
+    negative_weights = torch.pow(1 - gt, 4)
+    loss = 0
+    positive_loss = torch.log(pred + 1e-12) * torch.pow(1 - pred, 3) * positive_inds
+    negative_loss = torch.log(1 - pred + 1e-12) * torch.pow(pred, 3) * negative_weights * negative_inds
+    num_pos = positive_inds.float().sum()
+    positive_loss = positive_loss.sum()
+    negative_loss = negative_loss.sum()
+    if num_pos == 0:
+        loss = loss - negative_loss
+    else:
+        loss = loss - (positive_loss + negative_loss) / num_pos
+    return loss
+
+
+class CenterNetCriterion(nn.Module):
+
+    def __init__(self, num_classes=1, mask_loss_weight=1.0, regr_loss_weight=1.0, size_average=True):
+        """
+        Args:
+            num_classes (int): Number of classes in model.
+                Default is ``1``.
+            mask_loss_weight (float): heatmap loss weight coefficient.
+                Default is ``1.0``.
+            regr_loss_weight (float): HW regression loss weight coefficient.
+                Default is ``1.0``.
+            size_average (bool): loss batch scaling.
+                Default is ``True``.
+        """
+        super().__init__()
+        self.num_classes = num_classes
+        self.mask_loss_weight = mask_loss_weight
+        self.regr_loss_weight = regr_loss_weight
+        self.size_average = size_average
+
+    def forward(self, predicted_heatmap, predicted_regr, target_heatmap, target_regr):
+        """Compute loss for CenterNet.
+
+        Args:
+            predicted_heatmap (torch.Tensor): center heatmap prediction logits,
+                expected shapes [batch, height, width, num classes].
+            predicted_regr (torch.Tensor): predicted HW regression,
+                expected shapes [batch, height, width, 2].
+            target_heatmap ([type]): ground truth center heatmap,
+                expected shapes [batch, height, width, num classes],
+                each value should be in range [0,1].
+            target_regr (torch.Tensor): ground truth HW regression,
+                expected shapes [batch, height, width, 2].
+
+        Returns:
+            torch.Tensor with loss value.
+        """
+        pred_mask = torch.sigmoid(predicted_heatmap)
+        mask_loss = neg_loss(pred_mask, target_heatmap)
+        mask_loss *= self.mask_loss_weight
+        regr_loss = (torch.abs(predicted_regr - target_regr).sum(1)[:, None, :, :] * target_heatmap).sum()
+        regr_loss = regr_loss / target_heatmap.sum()
+        regr_loss *= self.regr_loss_weight
+        loss = mask_loss + regr_loss
+        if not self.size_average:
+            loss *= predicted_heatmap.shape[0]
+        return loss, mask_loss, regr_loss
+
+
+class DoubleConv(nn.Module):
+    """(conv => BN => ReLU) * 2"""
+
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class Interpolate(nn.Module):
+
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None, recompute_scale_factor=None):
+        super().__init__()
+        self.size = size
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.align_corners = align_corners
+        self.recompute_scale_factor = recompute_scale_factor
+
+    def forward(self, inputs):
+        return F.interpolate(inputs, size=self.size, scale_factor=self.scale_factor, mode=self.mode, align_corners=self.align_corners, recompute_scale_factor=self.recompute_scale_factor)
+
+
+class UpDoubleConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, mode=None):
+        super().__init__()
+        self.in_ch = in_channels
+        self.out_ch = out_channels
+        self.mode = mode
+        if mode is None:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels, 2, stride=2)
+        else:
+            align_corners = None if mode == 'nearest' else True
+            self.up = Interpolate(scale_factor=2, mode=mode, align_corners=align_corners)
+        self.conv = DoubleConv(in_channels, out_channels)
+
+    def forward(self, x1, x2=None):
+        x1 = self.up(x1)
+        if x2 is not None:
+            x = torch.cat([x2, x1], dim=1)
+            diffY = x2.size()[2] - x1.size()[2]
+            diffX = x2.size()[3] - x1.size()[3]
+            x1 = F.pad(x1, (diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2))
+        else:
+            x = x1
+        x = self.conv(x)
+        return x
+
+
+_backbones = {'resnet18': (resnet.resnet18, 512), 'resnet34': (resnet.resnet34, 512), 'resnet50': (resnet.resnet50, 2048), 'resnet101': (resnet.resnet101, 2048), 'resnet152': (resnet.resnet152, 2048), 'mobilenet_v2': (mobilenet.mobilenet_v2, 1280)}
+
+
+class CenterNet(nn.Module):
+
+    def __init__(self, num_classes=1, backbone='resnet18', upsample_mode='nearest'):
+        super().__init__()
+        basemodel = _backbones[backbone][0](pretrained=True)
+        if backbone == 'mobilenet_v2':
+            layers = list(basemodel.children())[:-1]
+        else:
+            layers = list(basemodel.children())[:-2]
+        basemodel = nn.Sequential(*layers)
+        self.base_model = basemodel
+        self.upsample_mode = upsample_mode
+        num_ch = _backbones[backbone][1]
+        self.up1 = UpDoubleConv(num_ch, 512, upsample_mode)
+        self.up2 = UpDoubleConv(512, 256, upsample_mode)
+        self.up3 = UpDoubleConv(256, 256, upsample_mode)
+        self.out_classification = nn.Conv2d(256, num_classes, 1)
+        self.out_residue = nn.Conv2d(256, 2, 1)
+
+    def forward(self, x):
+        x = self.base_model(x)
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
+        c = self.out_classification(x)
+        r = self.out_residue(x)
+        return c, r
+
+
+_channels_map = {'resnet18': [256, 512, 512, 256, 256, 128], 'resnet34': [256, 512, 512, 256, 256, 256], 'resnet50': [1024, 512, 512, 256, 256, 256], 'resnet101': [1024, 512, 512, 256, 256, 256], 'resnet152': [1024, 512, 512, 256, 256, 256]}
+
+
+class ResnetBackbone(nn.Module):
+
+    def __init__(self, backbone='resnet50', backbone_path=None):
+        """
+        Args:
+            backbone (str): resnet backbone to use.
+                Expected one of ["resnet18", "resnet34", "resnet50", "resnet101", "resnet152"]
+                Default is "resnet50".
+            backbone_path (str): path to pretrained backbone model.
+                If ``None`` then will be used torchvision pretrained model.
+                Default is None.
+        """
+        super().__init__()
+        self.out_channels = _channels_map[backbone]
+        if backbone == 'resnet18':
+            backbone = resnet.resnet18(pretrained=not backbone_path)
+        elif backbone == 'resnet34':
+            backbone = resnet.resnet34(pretrained=not backbone_path)
+        elif backbone == 'resnet50':
+            backbone = resnet.resnet50(pretrained=not backbone_path)
+        elif backbone == 'resnet101':
+            backbone = resnet.resnet101(pretrained=not backbone_path)
+        elif backbone == 'resnet152':
+            backbone = resnet.resnet152(pretrained=not backbone_path)
+        else:
+            raise ValueError(f"Unknown ResNet backbone - '{backbone}'!")
+        if backbone_path:
+            backbone.load_state_dict(torch.load(backbone_path))
+        self.feature_extractor = nn.Sequential(*list(backbone.children())[:7])
+        conv4_block1 = self.feature_extractor[-1][0]
+        conv4_block1.conv1.stride = 1, 1
+        conv4_block1.conv2.stride = 1, 1
+        conv4_block1.downsample[0].stride = 1, 1
+
+    def forward(self, x):
+        x = self.feature_extractor(x)
+        return x
+
+
+class SingleShotDetector(nn.Module):
+
+    def __init__(self, backbone='resnet18', num_classes=80):
+        """
+        Source:
+            https://github.com/NVIDIA/DeepLearningExamples/blob/70fcb70ff4bc49cc723195b35cfa8d4ce94a7f76/PyTorch/Detection/SSD/src/model.py
+
+        Args:
+            backbone (str): model backbone to use
+            n_classes (int): number of classes to predict
+        """
+        super().__init__()
+        self.feature_extractor = ResnetBackbone(backbone)
+        self.label_num = num_classes + 1
+        self._build_additional_features(self.feature_extractor.out_channels)
+        self.num_defaults = [4, 6, 6, 6, 4, 4]
+        self.loc = []
+        self.conf = []
+        for nd, oc in zip(self.num_defaults, self.feature_extractor.out_channels):
+            self.loc.append(nn.Conv2d(oc, nd * 4, kernel_size=3, padding=1))
+            self.conf.append(nn.Conv2d(oc, nd * self.label_num, kernel_size=3, padding=1))
+        self.loc = nn.ModuleList(self.loc)
+        self.conf = nn.ModuleList(self.conf)
+        self._init_weights()
+
+    def _build_additional_features(self, input_size):
+        self.additional_blocks = []
+        for i, (input_size, output_size, channels) in enumerate(zip(input_size[:-1], input_size[1:], [256, 256, 128, 128, 128])):
+            if i < 3:
+                layer = nn.Sequential(nn.Conv2d(input_size, channels, kernel_size=1, bias=False), nn.BatchNorm2d(channels), nn.ReLU(inplace=True), nn.Conv2d(channels, output_size, kernel_size=3, padding=1, stride=2, bias=False), nn.BatchNorm2d(output_size), nn.ReLU(inplace=True))
+            else:
+                layer = nn.Sequential(nn.Conv2d(input_size, channels, kernel_size=1, bias=False), nn.BatchNorm2d(channels), nn.ReLU(inplace=True), nn.Conv2d(channels, output_size, kernel_size=3, bias=False), nn.BatchNorm2d(output_size), nn.ReLU(inplace=True))
+            self.additional_blocks.append(layer)
+        self.additional_blocks = nn.ModuleList(self.additional_blocks)
+
+    def _init_weights(self):
+        layers = [*self.additional_blocks, *self.loc, *self.conf]
+        for layer in layers:
+            for param in layer.parameters():
+                if param.dim() > 1:
+                    nn.init.xavier_uniform_(param)
+
+    def bbox_view(self, src, loc, conf):
+        ret = []
+        for s, l, c in zip(src, loc, conf):
+            ret.append((l(s).view(s.size(0), -1, 4), c(s).view(s.size(0), -1, self.label_num)))
+        locs, confs = list(zip(*ret))
+        locs, confs = torch.cat(locs, 1).contiguous(), torch.cat(confs, 1).contiguous()
+        return locs, confs
+
+    def forward(self, x):
+        """
+        Args:
+            x (torch.Tensor): batch of data, expected shapes [B, 3, H, W]
+
+        Returns:
+            bbox locations (torch.Tensor) with shapes [B, A, 4],
+                where B - batch size, A - num anchors
+            class confidence logits (torch.Tensor) with shapes [B, A, N_CLASSES],
+                where B - batch size, A - num anchors
+        """
+        x = self.feature_extractor(x)
+        detection_feed = [x]
+        for layer in self.additional_blocks:
+            x = layer(x)
+            detection_feed.append(x)
+        locs, confs = self.bbox_view(detection_feed, self.loc, self.conf)
+        return locs, confs
+
+
+def get_activation(name='silu', inplace=True):
+    if name == 'silu':
+        module = nn.SiLU(inplace=inplace)
+    elif name == 'relu':
+        module = nn.ReLU(inplace=inplace)
+    elif name == 'lrelu':
+        module = nn.LeakyReLU(0.1, inplace=inplace)
+    else:
+        raise AttributeError('Unsupported act type: {}'.format(name))
+    return module
+
+
+class BaseConv(nn.Module):
+    """A Conv2d -> Batchnorm -> silu/leaky relu block"""
+
+    def __init__(self, in_channels, out_channels, ksize, stride, groups=1, bias=False, act='silu'):
+        super().__init__()
+        pad = (ksize - 1) // 2
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=ksize, stride=stride, padding=pad, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = get_activation(act, inplace=True)
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+    def fuseforward(self, x):
+        return self.act(self.conv(x))
+
+
+class DWConv(nn.Module):
+    """Depthwise Conv + Conv"""
+
+    def __init__(self, in_channels, out_channels, ksize, stride=1, act='silu'):
+        super().__init__()
+        self.dconv = BaseConv(in_channels, in_channels, ksize=ksize, stride=stride, groups=in_channels, act=act)
+        self.pconv = BaseConv(in_channels, out_channels, ksize=1, stride=1, groups=1, act=act)
+
+    def forward(self, x):
+        x = self.dconv(x)
+        return self.pconv(x)
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, in_channels, out_channels, shortcut=True, expansion=0.5, depthwise=False, act='silu'):
+        super().__init__()
+        hidden_channels = int(out_channels * expansion)
+        Conv = DWConv if depthwise else BaseConv
+        self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv2 = Conv(hidden_channels, out_channels, 3, stride=1, act=act)
+        self.use_add = shortcut and in_channels == out_channels
+
+    def forward(self, x):
+        y = self.conv2(self.conv1(x))
+        if self.use_add:
+            y = y + x
+        return y
+
+
+class ResLayer(nn.Module):
+    """Residual layer with `in_channels` inputs."""
+
+    def __init__(self, in_channels: int):
+        super().__init__()
+        mid_channels = in_channels // 2
+        self.layer1 = BaseConv(in_channels, mid_channels, ksize=1, stride=1, act='lrelu')
+        self.layer2 = BaseConv(mid_channels, in_channels, ksize=3, stride=1, act='lrelu')
+
+    def forward(self, x):
+        out = self.layer2(self.layer1(x))
+        return x + out
+
+
+class SPPBottleneck(nn.Module):
+    """Spatial pyramid pooling layer used in YOLOv3-SPP"""
+
+    def __init__(self, in_channels, out_channels, kernel_sizes=(5, 9, 13), activation='silu'):
+        super().__init__()
+        hidden_channels = in_channels // 2
+        self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=activation)
+        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=ks, stride=1, padding=ks // 2) for ks in kernel_sizes])
+        conv2_channels = hidden_channels * (len(kernel_sizes) + 1)
+        self.conv2 = BaseConv(conv2_channels, out_channels, 1, stride=1, act=activation)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = torch.cat([x] + [m(x) for m in self.m], dim=1)
+        x = self.conv2(x)
+        return x
+
+
+class CSPLayer(nn.Module):
+    """C3 in yolov5, CSP Bottleneck with 3 convolutions"""
+
+    def __init__(self, in_channels, out_channels, n=1, shortcut=True, expansion=0.5, depthwise=False, act='silu'):
+        """
+        Args:
+            in_channels (int): input channels.
+            out_channels (int): output channels.
+            n (int): number of Bottlenecks. Default value: 1.
+        """
+        super().__init__()
+        hidden_channels = int(out_channels * expansion)
+        self.conv1 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv2 = BaseConv(in_channels, hidden_channels, 1, stride=1, act=act)
+        self.conv3 = BaseConv(2 * hidden_channels, out_channels, 1, stride=1, act=act)
+        module_list = [Bottleneck(hidden_channels, hidden_channels, shortcut, 1.0, depthwise, act=act) for _ in range(n)]
+        self.m = nn.Sequential(*module_list)
+
+    def forward(self, x):
+        x_1 = self.conv1(x)
+        x_2 = self.conv2(x)
+        x_1 = self.m(x_1)
+        x = torch.cat((x_1, x_2), dim=1)
+        return self.conv3(x)
+
+
+class Focus(nn.Module):
+    """Focus width and height information into channel space."""
+
+    def __init__(self, in_channels, out_channels, ksize=1, stride=1, act='silu'):
+        super().__init__()
+        self.conv = BaseConv(in_channels * 4, out_channels, ksize, stride, act=act)
+
+    def forward(self, x):
+        patch_top_left = x[..., ::2, ::2]
+        patch_top_right = x[..., ::2, 1::2]
+        patch_bot_left = x[..., 1::2, ::2]
+        patch_bot_right = x[..., 1::2, 1::2]
+        x = torch.cat((patch_top_left, patch_bot_left, patch_top_right, patch_bot_right), dim=1)
+        return self.conv(x)
+
+
+class Darknet(nn.Module):
+    depth2blocks = {(21): [1, 2, 2, 1], (53): [2, 8, 8, 4]}
+
+    def __init__(self, depth, in_channels=3, stem_out_channels=32, out_features=('dark3', 'dark4', 'dark5')):
+        """
+        Args:
+            depth (int): depth of darknet used in model, usually use [21, 53] for this param.
+            in_channels (int): number of input channels, for example, use 3 for RGB image.
+            stem_out_channels (int): number of output chanels of darknet stem.
+                It decides channels of darknet layer2 to layer5.
+            out_features (Tuple[str]): desired output layer name.
+        """
+        super().__init__()
+        assert out_features, 'please provide output features of Darknet'
+        self.out_features = out_features
+        self.stem = nn.Sequential(BaseConv(in_channels, stem_out_channels, ksize=3, stride=1, act='lrelu'), *self.make_group_layer(stem_out_channels, num_blocks=1, stride=2))
+        in_channels = stem_out_channels * 2
+        num_blocks = Darknet.depth2blocks[depth]
+        self.dark2 = nn.Sequential(*self.make_group_layer(in_channels, num_blocks[0], stride=2))
+        in_channels *= 2
+        self.dark3 = nn.Sequential(*self.make_group_layer(in_channels, num_blocks[1], stride=2))
+        in_channels *= 2
+        self.dark4 = nn.Sequential(*self.make_group_layer(in_channels, num_blocks[2], stride=2))
+        in_channels *= 2
+        self.dark5 = nn.Sequential(*self.make_group_layer(in_channels, num_blocks[3], stride=2), *self.make_spp_block([in_channels, in_channels * 2], in_channels * 2))
+
+    def make_group_layer(self, in_channels: int, num_blocks: int, stride: int=1):
+        """starts with conv layer then has `num_blocks` `ResLayer`"""
+        return [BaseConv(in_channels, in_channels * 2, ksize=3, stride=stride, act='lrelu'), *[ResLayer(in_channels * 2) for _ in range(num_blocks)]]
+
+    def make_spp_block(self, filters_list, in_filters):
+        m = nn.Sequential(*[BaseConv(in_filters, filters_list[0], 1, stride=1, act='lrelu'), BaseConv(filters_list[0], filters_list[1], 3, stride=1, act='lrelu'), SPPBottleneck(in_channels=filters_list[1], out_channels=filters_list[0], activation='lrelu'), BaseConv(filters_list[0], filters_list[1], 3, stride=1, act='lrelu'), BaseConv(filters_list[1], filters_list[0], 1, stride=1, act='lrelu')])
+        return m
+
+    def forward(self, x):
+        outputs = {}
+        x = self.stem(x)
+        outputs['stem'] = x
+        x = self.dark2(x)
+        outputs['dark2'] = x
+        x = self.dark3(x)
+        outputs['dark3'] = x
+        x = self.dark4(x)
+        outputs['dark4'] = x
+        x = self.dark5(x)
+        outputs['dark5'] = x
+        return {k: v for k, v in outputs.items() if k in self.out_features}
+
+
+class CSPDarknet(nn.Module):
+
+    def __init__(self, dep_mul, wid_mul, out_features=('dark3', 'dark4', 'dark5'), depthwise=False, act='silu'):
+        super().__init__()
+        assert out_features, 'please provide output features of Darknet'
+        self.out_features = out_features
+        Conv = DWConv if depthwise else BaseConv
+        base_channels = int(wid_mul * 64)
+        base_depth = max(round(dep_mul * 3), 1)
+        self.stem = Focus(3, base_channels, ksize=3, act=act)
+        self.dark2 = nn.Sequential(Conv(base_channels, base_channels * 2, 3, 2, act=act), CSPLayer(base_channels * 2, base_channels * 2, n=base_depth, depthwise=depthwise, act=act))
+        self.dark3 = nn.Sequential(Conv(base_channels * 2, base_channels * 4, 3, 2, act=act), CSPLayer(base_channels * 4, base_channels * 4, n=base_depth * 3, depthwise=depthwise, act=act))
+        self.dark4 = nn.Sequential(Conv(base_channels * 4, base_channels * 8, 3, 2, act=act), CSPLayer(base_channels * 8, base_channels * 8, n=base_depth * 3, depthwise=depthwise, act=act))
+        self.dark5 = nn.Sequential(Conv(base_channels * 8, base_channels * 16, 3, 2, act=act), SPPBottleneck(base_channels * 16, base_channels * 16, activation=act), CSPLayer(base_channels * 16, base_channels * 16, n=base_depth, shortcut=False, depthwise=depthwise, act=act))
+
+    def forward(self, x):
+        outputs = {}
+        x = self.stem(x)
+        outputs['stem'] = x
+        x = self.dark2(x)
+        outputs['dark2'] = x
+        x = self.dark3(x)
+        outputs['dark3'] = x
+        x = self.dark4(x)
+        outputs['dark4'] = x
+        x = self.dark5(x)
+        outputs['dark5'] = x
+        return {k: v for k, v in outputs.items() if k in self.out_features}
+
+
+class YOLOPAFPN(nn.Module):
+    """
+    YOLOv3 model. Darknet 53 is the default backbone of this model.
+    """
+
+    def __init__(self, depth=1.0, width=1.0, in_features=('dark3', 'dark4', 'dark5'), in_channels=[256, 512, 1024], depthwise=False, act='silu'):
+        super().__init__()
+        self.backbone = CSPDarknet(depth, width, depthwise=depthwise, act=act)
+        self.in_features = in_features
+        self.in_channels = in_channels
+        Conv = DWConv if depthwise else BaseConv
+        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
+        self.lateral_conv0 = BaseConv(int(in_channels[2] * width), int(in_channels[1] * width), 1, 1, act=act)
+        self.C3_p4 = CSPLayer(int(2 * in_channels[1] * width), int(in_channels[1] * width), round(3 * depth), False, depthwise=depthwise, act=act)
+        self.reduce_conv1 = BaseConv(int(in_channels[1] * width), int(in_channels[0] * width), 1, 1, act=act)
+        self.C3_p3 = CSPLayer(int(2 * in_channels[0] * width), int(in_channels[0] * width), round(3 * depth), False, depthwise=depthwise, act=act)
+        self.bu_conv2 = Conv(int(in_channels[0] * width), int(in_channels[0] * width), 3, 2, act=act)
+        self.C3_n3 = CSPLayer(int(2 * in_channels[0] * width), int(in_channels[1] * width), round(3 * depth), False, depthwise=depthwise, act=act)
+        self.bu_conv1 = Conv(int(in_channels[1] * width), int(in_channels[1] * width), 3, 2, act=act)
+        self.C3_n4 = CSPLayer(int(2 * in_channels[1] * width), int(in_channels[2] * width), round(3 * depth), False, depthwise=depthwise, act=act)
+
+    def forward(self, input):
+        """
+        Args:
+            inputs: input images.
+
+        Returns:
+            Tuple[Tensor]: FPN feature.
+        """
+        out_features = self.backbone(input)
+        features = [out_features[f] for f in self.in_features]
+        [x2, x1, x0] = features
+        fpn_out0 = self.lateral_conv0(x0)
+        f_out0 = self.upsample(fpn_out0)
+        f_out0 = torch.cat([f_out0, x1], 1)
+        f_out0 = self.C3_p4(f_out0)
+        fpn_out1 = self.reduce_conv1(f_out0)
+        f_out1 = self.upsample(fpn_out1)
+        f_out1 = torch.cat([f_out1, x2], 1)
+        pan_out2 = self.C3_p3(f_out1)
+        p_out1 = self.bu_conv2(pan_out2)
+        p_out1 = torch.cat([p_out1, fpn_out1], 1)
+        pan_out1 = self.C3_n3(p_out1)
+        p_out0 = self.bu_conv1(pan_out1)
+        p_out0 = torch.cat([p_out0, fpn_out0], 1)
+        pan_out0 = self.C3_n4(p_out0)
+        outputs = pan_out2, pan_out1, pan_out0
+        return outputs
+
+
+class IOUloss(nn.Module):
+
+    def __init__(self, reduction='none', loss_type='iou'):
+        super(IOUloss, self).__init__()
+        self.reduction = reduction
+        self.loss_type = loss_type
+
+    def forward(self, pred, target):
+        assert pred.shape[0] == target.shape[0]
+        pred = pred.view(-1, 4)
+        target = target.view(-1, 4)
+        tl = torch.max(pred[:, :2] - pred[:, 2:] / 2, target[:, :2] - target[:, 2:] / 2)
+        br = torch.min(pred[:, :2] + pred[:, 2:] / 2, target[:, :2] + target[:, 2:] / 2)
+        area_p = torch.prod(pred[:, 2:], 1)
+        area_g = torch.prod(target[:, 2:], 1)
+        en = (tl < br).type(tl.type()).prod(dim=1)
+        area_i = torch.prod(br - tl, 1) * en
+        iou = area_i / (area_p + area_g - area_i + 1e-16)
+        if self.loss_type == 'iou':
+            loss = 1 - iou ** 2
+        elif self.loss_type == 'giou':
+            c_tl = torch.min(pred[:, :2] - pred[:, 2:] / 2, target[:, :2] - target[:, 2:] / 2)
+            c_br = torch.max(pred[:, :2] + pred[:, 2:] / 2, target[:, :2] + target[:, 2:] / 2)
+            area_c = torch.prod(c_br - c_tl, 1)
+            giou = iou - (area_c - area_i) / area_c.clamp(1e-16)
+            loss = 1 - giou.clamp(min=-1.0, max=1.0)
+        if self.reduction == 'mean':
+            loss = loss.mean()
+        elif self.reduction == 'sum':
+            loss = loss.sum()
+        return loss
+
+
+def bboxes_iou(bboxes_a, bboxes_b, xyxy=True):
+    if bboxes_a.shape[1] != 4 or bboxes_b.shape[1] != 4:
+        raise IndexError()
+    if xyxy:
+        tl = torch.max(bboxes_a[:, None, :2], bboxes_b[:, :2])
+        br = torch.min(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
+        area_a = torch.prod(bboxes_a[:, 2:] - bboxes_a[:, :2], 1)
+        area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
+    else:
+        tl = torch.max(bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        br = torch.min(bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        area_a = torch.prod(bboxes_a[:, 2:], 1)
+        area_b = torch.prod(bboxes_b[:, 2:], 1)
+    en = (tl < br).type(tl.type()).prod(dim=2)
+    area_i = torch.prod(br - tl, 2) * en
+    return area_i / (area_a[:, None] + area_b - area_i)
+
+
+logger = logging.getLogger('yolo-x')
+
+
+class YOLOXHead(nn.Module):
+
+    def __init__(self, num_classes, width=1.0, strides=[8, 16, 32], in_channels=[256, 512, 1024], act='silu', depthwise=False):
+        """
+        Args:
+            act (str): activation type of conv.
+                Default is `"silu"`.
+            depthwise (bool): wheather apply depthwise conv in conv branch.
+                Default is `False`.
+        """
+        super().__init__()
+        self.n_anchors = 1
+        self.num_classes = num_classes
+        self.decode_in_inference = True
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+        self.cls_preds = nn.ModuleList()
+        self.reg_preds = nn.ModuleList()
+        self.obj_preds = nn.ModuleList()
+        self.stems = nn.ModuleList()
+        _conv_class = DWConv if depthwise else BaseConv
+        for i in range(len(in_channels)):
+            self.stems.append(BaseConv(in_channels=int(in_channels[i] * width), out_channels=int(256 * width), ksize=1, stride=1, act=act))
+            self.cls_convs.append(nn.Sequential(*[_conv_class(in_channels=int(256 * width), out_channels=int(256 * width), ksize=3, stride=1, act=act), _conv_class(in_channels=int(256 * width), out_channels=int(256 * width), ksize=3, stride=1, act=act)]))
+            self.reg_convs.append(nn.Sequential(*[_conv_class(in_channels=int(256 * width), out_channels=int(256 * width), ksize=3, stride=1, act=act), _conv_class(in_channels=int(256 * width), out_channels=int(256 * width), ksize=3, stride=1, act=act)]))
+            self.cls_preds.append(nn.Conv2d(in_channels=int(256 * width), out_channels=self.n_anchors * self.num_classes, kernel_size=1, stride=1, padding=0))
+            self.reg_preds.append(nn.Conv2d(in_channels=int(256 * width), out_channels=4, kernel_size=1, stride=1, padding=0))
+            self.obj_preds.append(nn.Conv2d(in_channels=int(256 * width), out_channels=self.n_anchors * 1, kernel_size=1, stride=1, padding=0))
+        self.use_l1 = False
+        self.l1_loss = nn.L1Loss(reduction='none')
+        self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction='none')
+        self.iou_loss = IOUloss(reduction='none')
+        self.strides = strides
+        self.grids = [torch.zeros(1)] * len(in_channels)
+
+    def initialize_biases(self, prior_prob):
+        for conv in self.cls_preds:
+            b = conv.bias.view(self.n_anchors, -1)
+            b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
+            conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
+        for conv in self.obj_preds:
+            b = conv.bias.view(self.n_anchors, -1)
+            b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
+            conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
+
+    def forward(self, xin, labels=None, imgs=None):
+        outputs = []
+        origin_preds = []
+        x_shifts = []
+        y_shifts = []
+        expanded_strides = []
+        for k, (cls_conv, reg_conv, stride_this_level, x) in enumerate(zip(self.cls_convs, self.reg_convs, self.strides, xin)):
+            x = self.stems[k](x)
+            cls_x = x
+            reg_x = x
+            cls_feat = cls_conv(cls_x)
+            cls_output = self.cls_preds[k](cls_feat)
+            reg_feat = reg_conv(reg_x)
+            reg_output = self.reg_preds[k](reg_feat)
+            obj_output = self.obj_preds[k](reg_feat)
+            if self.training:
+                output = torch.cat([reg_output, obj_output, cls_output], 1)
+                output, grid = self.get_output_and_grid(output, k, stride_this_level, xin[0].type())
+                x_shifts.append(grid[:, :, 0])
+                y_shifts.append(grid[:, :, 1])
+                expanded_strides.append(torch.zeros(1, grid.shape[1]).fill_(stride_this_level).type_as(xin[0]))
+                if self.use_l1:
+                    batch_size = reg_output.shape[0]
+                    hsize, wsize = reg_output.shape[-2:]
+                    reg_output = reg_output.view(batch_size, self.n_anchors, 4, hsize, wsize)
+                    reg_output = reg_output.permute(0, 1, 3, 4, 2).reshape(batch_size, -1, 4)
+                    origin_preds.append(reg_output.clone())
+            else:
+                output = torch.cat([reg_output, obj_output.sigmoid(), cls_output.sigmoid()], 1)
+            outputs.append(output)
+        if self.training:
+            return self.get_losses(imgs, x_shifts, y_shifts, expanded_strides, labels, torch.cat(outputs, 1), origin_preds, dtype=xin[0].dtype)
+        else:
+            self.hw = [x.shape[-2:] for x in outputs]
+            outputs = torch.cat([x.flatten(start_dim=2) for x in outputs], dim=2).permute(0, 2, 1)
+            if self.decode_in_inference:
+                return self.decode_outputs(outputs, dtype=xin[0].type())
+            else:
+                return outputs
+
+    def get_output_and_grid(self, output, k, stride, dtype):
+        grid = self.grids[k]
+        batch_size = output.shape[0]
+        n_ch = 5 + self.num_classes
+        hsize, wsize = output.shape[-2:]
+        if grid.shape[2:4] != output.shape[2:4]:
+            yv, xv = torch.meshgrid([torch.arange(hsize), torch.arange(wsize)])
+            grid = torch.stack((xv, yv), 2).view(1, 1, hsize, wsize, 2).type(dtype)
+            self.grids[k] = grid
+        output = output.view(batch_size, self.n_anchors, n_ch, hsize, wsize)
+        output = output.permute(0, 1, 3, 4, 2).reshape(batch_size, self.n_anchors * hsize * wsize, -1)
+        grid = grid.view(1, -1, 2)
+        output[..., :2] = (output[..., :2] + grid) * stride
+        output[..., 2:4] = torch.exp(output[..., 2:4]) * stride
+        return output, grid
+
+    def decode_outputs(self, outputs, dtype):
+        grids = []
+        strides = []
+        for (hsize, wsize), stride in zip(self.hw, self.strides):
+            yv, xv = torch.meshgrid([torch.arange(hsize), torch.arange(wsize)])
+            grid = torch.stack((xv, yv), 2).view(1, -1, 2)
+            grids.append(grid)
+            shape = grid.shape[:2]
+            strides.append(torch.full((*shape, 1), stride))
+        grids = torch.cat(grids, dim=1).type(dtype)
+        strides = torch.cat(strides, dim=1).type(dtype)
+        outputs[..., :2] = (outputs[..., :2] + grids) * strides
+        outputs[..., 2:4] = torch.exp(outputs[..., 2:4]) * strides
+        return outputs
+
+    def get_losses(self, imgs, x_shifts, y_shifts, expanded_strides, labels, outputs, origin_preds, dtype):
+        bbox_preds = outputs[:, :, :4]
+        obj_preds = outputs[:, :, 4].unsqueeze(-1)
+        cls_preds = outputs[:, :, 5:]
+        mixup = labels.shape[2] > 5
+        if mixup:
+            label_cut = labels[..., :5]
+        else:
+            label_cut = labels
+        nlabel = (label_cut.sum(dim=2) > 0).sum(dim=1)
+        total_num_anchors = outputs.shape[1]
+        x_shifts = torch.cat(x_shifts, 1)
+        y_shifts = torch.cat(y_shifts, 1)
+        expanded_strides = torch.cat(expanded_strides, 1)
+        if self.use_l1:
+            origin_preds = torch.cat(origin_preds, 1)
+        cls_targets = []
+        reg_targets = []
+        l1_targets = []
+        obj_targets = []
+        fg_masks = []
+        num_fg = 0.0
+        num_gts = 0.0
+        for batch_idx in range(outputs.shape[0]):
+            num_gt = int(nlabel[batch_idx])
+            num_gts += num_gt
+            if num_gt == 0:
+                cls_target = outputs.new_zeros((0, self.num_classes))
+                reg_target = outputs.new_zeros((0, 4))
+                l1_target = outputs.new_zeros((0, 4))
+                obj_target = outputs.new_zeros((total_num_anchors, 1))
+                fg_mask = outputs.new_zeros(total_num_anchors).bool()
+            else:
+                gt_bboxes_per_image = labels[batch_idx, :num_gt, 1:5]
+                gt_classes = labels[batch_idx, :num_gt, 0]
+                bboxes_preds_per_image = bbox_preds[batch_idx]
+                try:
+                    gt_matched_classes, fg_mask, pred_ious_this_matching, matched_gt_inds, num_fg_img = self.get_assignments(batch_idx, num_gt, total_num_anchors, gt_bboxes_per_image, gt_classes, bboxes_preds_per_image, expanded_strides, x_shifts, y_shifts, cls_preds, bbox_preds, obj_preds, labels, imgs)
+                except RuntimeError:
+                    logger.error('OOM RuntimeError is raised due to the huge memory cost during label assignment. CPU mode is applied in this batch. If you want to avoid this issue, try to reduce the batch size or image size.')
+                    torch.cuda.empty_cache()
+                    gt_matched_classes, fg_mask, pred_ious_this_matching, matched_gt_inds, num_fg_img = self.get_assignments(batch_idx, num_gt, total_num_anchors, gt_bboxes_per_image, gt_classes, bboxes_preds_per_image, expanded_strides, x_shifts, y_shifts, cls_preds, bbox_preds, obj_preds, labels, imgs, 'cpu')
+                torch.cuda.empty_cache()
+                num_fg += num_fg_img
+                cls_target = F.one_hot(gt_matched_classes, self.num_classes) * pred_ious_this_matching.unsqueeze(-1)
+                obj_target = fg_mask.unsqueeze(-1)
+                reg_target = gt_bboxes_per_image[matched_gt_inds]
+                if self.use_l1:
+                    l1_target = self.get_l1_target(outputs.new_zeros((num_fg_img, 4)), gt_bboxes_per_image[matched_gt_inds], expanded_strides[0][fg_mask], x_shifts=x_shifts[0][fg_mask], y_shifts=y_shifts[0][fg_mask])
+            cls_targets.append(cls_target)
+            reg_targets.append(reg_target)
+            obj_targets.append(obj_target)
+            fg_masks.append(fg_mask)
+            if self.use_l1:
+                l1_targets.append(l1_target)
+        cls_targets = torch.cat(cls_targets, 0)
+        reg_targets = torch.cat(reg_targets, 0)
+        obj_targets = torch.cat(obj_targets, 0)
+        fg_masks = torch.cat(fg_masks, 0)
+        if self.use_l1:
+            l1_targets = torch.cat(l1_targets, 0)
+        num_fg = max(num_fg, 1)
+        loss_iou = self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets).sum() / num_fg
+        loss_obj = self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets).sum() / num_fg
+        loss_cls = self.bcewithlog_loss(cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets).sum() / num_fg
+        if self.use_l1:
+            loss_l1 = self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets).sum() / num_fg
+        else:
+            loss_l1 = 0.0
+        reg_weight = 5.0
+        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+        return loss, reg_weight * loss_iou, loss_obj, loss_cls, loss_l1, num_fg / max(num_gts, 1)
+
+    def get_l1_target(self, l1_target, gt, stride, x_shifts, y_shifts, eps=1e-08):
+        l1_target[:, 0] = gt[:, 0] / stride - x_shifts
+        l1_target[:, 1] = gt[:, 1] / stride - y_shifts
+        l1_target[:, 2] = torch.log(gt[:, 2] / stride + eps)
+        l1_target[:, 3] = torch.log(gt[:, 3] / stride + eps)
+        return l1_target
+
+    @torch.no_grad()
+    def get_assignments(self, batch_idx, num_gt, total_num_anchors, gt_bboxes_per_image, gt_classes, bboxes_preds_per_image, expanded_strides, x_shifts, y_shifts, cls_preds, bbox_preds, obj_preds, labels, imgs, mode='gpu'):
+        if mode == 'cpu':
+            None
+            gt_bboxes_per_image = gt_bboxes_per_image.cpu().float()
+            bboxes_preds_per_image = bboxes_preds_per_image.cpu().float()
+            gt_classes = gt_classes.cpu().float()
+            expanded_strides = expanded_strides.cpu().float()
+            x_shifts = x_shifts.cpu()
+            y_shifts = y_shifts.cpu()
+        fg_mask, is_in_boxes_and_center = self.get_in_boxes_info(gt_bboxes_per_image, expanded_strides, x_shifts, y_shifts, total_num_anchors, num_gt)
+        bboxes_preds_per_image = bboxes_preds_per_image[fg_mask]
+        cls_preds_ = cls_preds[batch_idx][fg_mask]
+        obj_preds_ = obj_preds[batch_idx][fg_mask]
+        num_in_boxes_anchor = bboxes_preds_per_image.shape[0]
+        if mode == 'cpu':
+            gt_bboxes_per_image = gt_bboxes_per_image.cpu()
+            bboxes_preds_per_image = bboxes_preds_per_image.cpu()
+        pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
+        gt_cls_per_image = F.one_hot(gt_classes, self.num_classes).float().unsqueeze(1).repeat(1, num_in_boxes_anchor, 1)
+        pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-08)
+        if mode == 'cpu':
+            cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
+        cls_preds_ = cls_preds_.float().unsqueeze(0).repeat(num_gt, 1, 1).sigmoid_() * obj_preds_.unsqueeze(0).repeat(num_gt, 1, 1).sigmoid_()
+        pair_wise_cls_loss = F.binary_cross_entropy(cls_preds_.sqrt_(), gt_cls_per_image, reduction='none').sum(-1)
+        del cls_preds_
+        cost = pair_wise_cls_loss + 3.0 * pair_wise_ious_loss + 100000.0 * ~is_in_boxes_and_center
+        num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds = self.dynamic_k_matching(cost, pair_wise_ious, gt_classes, num_gt, fg_mask)
+        del pair_wise_cls_loss, cost, pair_wise_ious, pair_wise_ious_loss
+        if mode == 'cpu':
+            gt_matched_classes = gt_matched_classes
+            fg_mask = fg_mask
+            pred_ious_this_matching = pred_ious_this_matching
+            matched_gt_inds = matched_gt_inds
+        return gt_matched_classes, fg_mask, pred_ious_this_matching, matched_gt_inds, num_fg
+
+    def get_in_boxes_info(self, gt_bboxes_per_image, expanded_strides, x_shifts, y_shifts, total_num_anchors, num_gt):
+        expanded_strides_per_image = expanded_strides[0]
+        x_shifts_per_image = x_shifts[0] * expanded_strides_per_image
+        y_shifts_per_image = y_shifts[0] * expanded_strides_per_image
+        x_centers_per_image = (x_shifts_per_image + 0.5 * expanded_strides_per_image).unsqueeze(0).repeat(num_gt, 1)
+        y_centers_per_image = (y_shifts_per_image + 0.5 * expanded_strides_per_image).unsqueeze(0).repeat(num_gt, 1)
+        gt_bboxes_per_image_l = (gt_bboxes_per_image[:, 0] - 0.5 * gt_bboxes_per_image[:, 2]).unsqueeze(1).repeat(1, total_num_anchors)
+        gt_bboxes_per_image_r = (gt_bboxes_per_image[:, 0] + 0.5 * gt_bboxes_per_image[:, 2]).unsqueeze(1).repeat(1, total_num_anchors)
+        gt_bboxes_per_image_t = (gt_bboxes_per_image[:, 1] - 0.5 * gt_bboxes_per_image[:, 3]).unsqueeze(1).repeat(1, total_num_anchors)
+        gt_bboxes_per_image_b = (gt_bboxes_per_image[:, 1] + 0.5 * gt_bboxes_per_image[:, 3]).unsqueeze(1).repeat(1, total_num_anchors)
+        b_l = x_centers_per_image - gt_bboxes_per_image_l
+        b_r = gt_bboxes_per_image_r - x_centers_per_image
+        b_t = y_centers_per_image - gt_bboxes_per_image_t
+        b_b = gt_bboxes_per_image_b - y_centers_per_image
+        bbox_deltas = torch.stack([b_l, b_t, b_r, b_b], 2)
+        is_in_boxes = bbox_deltas.min(dim=-1).values > 0.0
+        is_in_boxes_all = is_in_boxes.sum(dim=0) > 0
+        center_radius = 2.5
+        gt_bboxes_per_image_l = gt_bboxes_per_image[:, 0].unsqueeze(1).repeat(1, total_num_anchors) - center_radius * expanded_strides_per_image.unsqueeze(0)
+        gt_bboxes_per_image_r = gt_bboxes_per_image[:, 0].unsqueeze(1).repeat(1, total_num_anchors) + center_radius * expanded_strides_per_image.unsqueeze(0)
+        gt_bboxes_per_image_t = gt_bboxes_per_image[:, 1].unsqueeze(1).repeat(1, total_num_anchors) - center_radius * expanded_strides_per_image.unsqueeze(0)
+        gt_bboxes_per_image_b = gt_bboxes_per_image[:, 1].unsqueeze(1).repeat(1, total_num_anchors) + center_radius * expanded_strides_per_image.unsqueeze(0)
+        c_l = x_centers_per_image - gt_bboxes_per_image_l
+        c_r = gt_bboxes_per_image_r - x_centers_per_image
+        c_t = y_centers_per_image - gt_bboxes_per_image_t
+        c_b = gt_bboxes_per_image_b - y_centers_per_image
+        center_deltas = torch.stack([c_l, c_t, c_r, c_b], 2)
+        is_in_centers = center_deltas.min(dim=-1).values > 0.0
+        is_in_centers_all = is_in_centers.sum(dim=0) > 0
+        is_in_boxes_anchor = is_in_boxes_all | is_in_centers_all
+        is_in_boxes_and_center = is_in_boxes[:, is_in_boxes_anchor] & is_in_centers[:, is_in_boxes_anchor]
+        return is_in_boxes_anchor, is_in_boxes_and_center
+
+    def dynamic_k_matching(self, cost, pair_wise_ious, gt_classes, num_gt, fg_mask):
+        matching_matrix = torch.zeros_like(cost)
+        ious_in_boxes_matrix = pair_wise_ious
+        n_candidate_k = 10
+        topk_ious, _ = torch.topk(ious_in_boxes_matrix, n_candidate_k, dim=1)
+        dynamic_ks = torch.clamp(topk_ious.sum(1).int(), min=1)
+        for gt_idx in range(num_gt):
+            _, pos_idx = torch.topk(cost[gt_idx], k=dynamic_ks[gt_idx].item(), largest=False)
+            matching_matrix[gt_idx][pos_idx] = 1.0
+        del topk_ious, dynamic_ks, pos_idx
+        anchor_matching_gt = matching_matrix.sum(0)
+        if (anchor_matching_gt > 1).sum() > 0:
+            cost_min, cost_argmin = torch.min(cost[:, anchor_matching_gt > 1], dim=0)
+            matching_matrix[:, anchor_matching_gt > 1] *= 0.0
+            matching_matrix[cost_argmin, anchor_matching_gt > 1] = 1.0
+        fg_mask_inboxes = matching_matrix.sum(0) > 0.0
+        num_fg = fg_mask_inboxes.sum().item()
+        fg_mask[fg_mask.clone()] = fg_mask_inboxes
+        matched_gt_inds = matching_matrix[:, fg_mask_inboxes].argmax(0)
+        gt_matched_classes = gt_classes[matched_gt_inds]
+        pred_ious_this_matching = (matching_matrix * pair_wise_ious).sum(0)[fg_mask_inboxes]
+        return num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds
+
+
+class YOLOX(nn.Module):
+    """
+    YOLOX model module.
+    The network returns loss values from three YOLO layers during training and detection results during test.
+    NOTE:
+        - model predicts bounding boxes in image size ranges
+        - bounding boxes format is [x_center, y_center, width, height]
+        - output format is [x_center, y_center, width, height, confidence, class_0_prob, ..., class_N_prob]
+    """
+
+    def __init__(self, backbone=None, head=None):
+        super().__init__()
+        if backbone is None:
+            backbone = YOLOPAFPN()
+        if head is None:
+            head = YOLOXHead(80)
+        self.backbone = backbone
+        self.head = head
+
+    def forward(self, x, targets=None):
+        fpn_outs = self.backbone(x)
+        if self.training:
+            assert targets is not None
+            loss, iou_loss, conf_loss, cls_loss, l1_loss, num_fg = self.head(fpn_outs, targets, x)
+            return loss
+        else:
+            outputs = self.head(fpn_outs)
+            return outputs
+
+
+class MacridVAE(nn.Module):
+
+    def __init__(self, q_dims, kfac=7, tau=0.1, nogb=False, dropout=0.5):
+        super().__init__()
+        self.q_dims = q_dims
+        self.kfac = kfac
+        self.tau = tau
+        self.nogb = nogb
+        self.item_embedding = nn.Embedding(self.q_dims[0], self.q_dims[-1])
+        self.k_embedding = nn.Embedding(self.kfac, self.q_dims[-1])
+        self.encoder = nn.Sequential()
+        for i, (d_in, d_out) in enumerate(zip(self.q_dims[:-2], self.q_dims[1:-1])):
+            self.encoder.add_module(f'encoder_fc_{i + 1}', nn.Linear(d_in, d_out))
+            self.encoder.add_module(f'encoder_tanh_{i + 1}', nn.Tanh())
+        self.encoder.add_module(f'encoder_fc_{len(self.q_dims) - 1}', nn.Linear(self.q_dims[-2], self.q_dims[-1] * 2))
+        self.drop = nn.Dropout(dropout)
+        self.encoder.apply(self.init_weights)
+
+    def forward(self, x):
+        x = F.normalize(x)
+        x = self.drop(x)
+        cores = F.normalize(self.k_embedding.weight)
+        items = F.normalize(self.item_embedding.weight)
+        cates_logits = torch.matmul(items, cores.transpose(0, 1)) / self.tau
+        if self.nogb:
+            cates = torch.softmax(cates_logits, dim=-1)
+        else:
+            cates_sample = F.gumbel_softmax(cates_logits, tau=1, hard=False, dim=-1)
+            cates_mode = torch.softmax(cates_logits, dim=-1)
+            cates = self.training * cates_sample + (1 - self.training) * cates_mode
+        probs = None
+        mulist = []
+        logvarlist = []
+        for k in range(self.kfac):
+            cates_k = cates[:, k].reshape(1, -1)
+            x_k = x * cates_k
+            h = self.encoder(x_k)
+            mu, logvar = h[:, :self.q_dims[-1]], h[:, self.q_dims[-1]:]
+            mulist.append(mu)
+            logvarlist.append(logvar)
+            z = self.reparameterize(mu, logvar)
+            z_k = F.normalize(z)
+            logits_k = torch.matmul(z_k, items.transpose(0, 1)) / self.tau
+            probs_k = torch.exp(logits_k)
+            probs_k = probs_k * cates_k
+            probs = probs_k if probs is None else probs + probs_k
+        logits = torch.log(probs)
+        return logits, mulist, logvarlist
+
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        else:
+            return mu
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_normal_(m.weight.data)
+            nn.init.constant_(m.bias.data, 0)
+        elif isinstance(m, nn.Embedding):
+            nn.init.xavier_normal_(m.weight.data)
+
+
+class MultiDAE(nn.Module):
+
+    def __init__(self, p_dims, q_dims=None, dropout=0.5):
+        super().__init__()
+        self.p_dims = p_dims
+        if q_dims:
+            assert q_dims[0] == p_dims[-1], 'In and Out dimensions must equal to each other'
+            assert q_dims[-1] == p_dims[0], 'Latent dimension for p- and q- network mismatches.'
+            self.q_dims = q_dims
+        else:
+            self.q_dims = p_dims[::-1]
+        self.encoder = nn.Sequential()
+        self.encoder.add_module('normalize', Normalize())
+        self.encoder.add_module('dropout', nn.Dropout(dropout))
+        for i, (d_in, d_out) in enumerate(zip(self.q_dims[:-1], self.q_dims[1:])):
+            self.encoder.add_module(f'encoder_fc_{i + 1}', nn.Linear(d_in, d_out))
+            self.encoder.add_module(f'encoder_tanh_{i + 1}', nn.Tanh())
+        self.decoder = nn.Sequential()
+        for i, (d_in, d_out) in enumerate(zip(self.p_dims[:-2], self.p_dims[1:-1])):
+            self.decoder.add_module(f'decoder_fc_{i + 1}', nn.Linear(d_in, d_out))
+            self.decoder.add_module(f'decoder_tanh_{i + 1}', nn.Tanh())
+        self.decoder.add_module(f'decoder_fc_{len(self.p_dims) - 1}', nn.Linear(self.p_dims[-2], self.p_dims[-1]))
+        self.encoder.apply(self.init_weights)
+        self.decoder.apply(self.init_weights)
+
+    def forward(self, x):
+        net = nn.Sequential(self.encoder, self.decoder)
+        return net(x)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_normal_(m.weight.data)
+            nn.init.constant_(m.bias.data, 0)
+
+
+class MultiVAE(nn.Module):
+
+    def __init__(self, p_dims, q_dims=None, dropout=0.5):
+        super().__init__()
+        self.p_dims = p_dims
+        if q_dims:
+            assert q_dims[0] == p_dims[-1], 'In and Out dimensions must equal to each other'
+            assert q_dims[-1] == p_dims[0], 'Latent dimension for p- and q- network mismatches.'
+            self.q_dims = q_dims
+        else:
+            self.q_dims = p_dims[::-1]
+        self.encoder = nn.Sequential()
+        self.encoder.add_module('normalize', Normalize())
+        self.encoder.add_module('dropout', nn.Dropout(dropout))
+        for i, (d_in, d_out) in enumerate(zip(self.q_dims[:-2], self.q_dims[1:-1])):
+            self.encoder.add_module(f'encoder_fc_{i + 1}', nn.Linear(d_in, d_out))
+            self.encoder.add_module(f'encoder_tanh_{i + 1}', nn.Tanh())
+        self.encoder.add_module(f'encoder_fc_{len(self.q_dims) - 1}', nn.Linear(self.q_dims[-2], self.q_dims[-1] * 2))
+        self.decoder = nn.Sequential()
+        for i, (d_in, d_out) in enumerate(zip(self.p_dims[:-2], self.p_dims[1:-1])):
+            self.decoder.add_module(f'decoder_fc_{i + 1}', nn.Linear(d_in, d_out))
+            self.decoder.add_module(f'decoder_tanh_{i + 1}', nn.Tanh())
+        self.decoder.add_module(f'decoder_fc_{len(self.p_dims) - 1}', nn.Linear(self.p_dims[-2], self.p_dims[-1]))
+        self.encoder.apply(self.init_weights)
+        self.decoder.apply(self.init_weights)
+
+    def forward(self, x):
+        z = self.encoder(x)
+        mu, logvar = z[:, :self.q_dims[-1]], z[:, self.q_dims[-1]:]
+        z = self.reparameterize(mu, logvar)
+        z = self.decoder(z)
+        return z, mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        else:
+            return mu
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_normal_(m.weight.data)
+            nn.init.constant_(m.bias.data, 0)
+
+
+class ContrastiveModel(torch.nn.Module):
+    """Contrastive model with projective head.
+
+    Args:
+        model: projective head for the train time
+        encoder: model for the future uses
+    """
+
+    def __init__(self, model, encoder):
+        super(ContrastiveModel, self).__init__()
         self.model = model
-        self.method_name = method_name
-        self.tracing_result: ScriptModule
-
-    def __call__(self, *args, **kwargs):
-        method_model = _ForwardOverrideModel(self.model, self.method_name)
-        try:
-            assert len(args) == 0, 'only KV support implemented'
-            fn = getattr(self.model, self.method_name)
-            method_argnames = _get_input_argnames(fn=fn, exclude=['self'])
-            method_input = tuple(kwargs[name] for name in method_argnames)
-            self.tracing_result = trace(method_model, method_input)
-        except Exception:
-            self.tracing_result = trace(method_model, *args, **kwargs)
-        output = self.model.forward(*args, **kwargs)
-        return output
-
-
-class Model(torch.nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self, **kwargs):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        super().__init__()
+        self.encoder = encoder
 
     def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        return x
+        """Forward method.
 
-    @classmethod
-    def get_from_params(cls, **model_params) ->'Model':
+        Args:
+            x: input for the encoder
+
+        Returns:
+            (embeddings, projections)
         """
-        @TODO: Docs. Contribution is welcome
-        """
-        model = cls(**model_params)
-        return model
+        emb = self.encoder(x)
+        projection = self.model(emb)
+        return emb, projection
 
 
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
+class DummyModel(nn.Module):
+    """Dummy model"""
 
-    def __init__(self):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
+    def __init__(self, num_features: int, num_classes: int) ->None:
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
+        self.model = nn.Sequential(nn.Flatten(), nn.Linear(in_features=num_features, out_features=num_classes))
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """
+        Forward
+
+        Args:
+            x: inputs
+
+        Returns:
+            model's output
+        """
+        return self.model(x)
+
+
+class CustomModule(nn.Module):
+
+    def __init__(self, in_features: int, out_features1: int, out_features2: int):
+        super().__init__()
+        self.shared = nn.Linear(in_features, 128)
+        self.head1 = nn.Linear(128, out_features1)
+        self.head2 = nn.Linear(128, out_features2)
 
     def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        x = self.shared(x)
+        y1 = self.head1(x)
+        y2 = self.head2(x)
+        return y1, y2
 
 
 class Net(nn.Module):
+    """Dummy network class."""
 
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class ClassifyAE(torch.nn.Module):
-
-    def __init__(self, in_features, hid_features, out_features):
-        super().__init__()
-        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features), nn.Tanh())
-        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
-        self.clf = nn.Linear(hid_features, out_features)
-
-    def forward(self, x):
-        z = self.encoder(x)
-        y_hat = self.clf(z)
-        x_ = self.decoder(z)
-        return y_hat, x_
-
-
-class ClassifyUnet(nn.Module):
-
-    def __init__(self, in_channels, in_hw, out_features):
-        super().__init__()
-        self.encoder = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, 1, 1), nn.Tanh())
-        self.decoder = nn.Conv2d(in_channels, in_channels, 3, 1, 1)
-        self.clf = nn.Linear(in_channels * in_hw * in_hw, out_features)
-
-    def forward(self, x):
-        z = self.encoder(x)
-        z_ = z.view(z.size(0), -1)
-        y_hat = self.clf(z_)
-        x_ = self.decoder(z)
-        return y_hat, x_
+    def __init__(self, init_weight=4):
+        """Initialization of network and filling it with given numbers."""
+        super(Net, self).__init__()
+        self.fc = nn.Linear(2, 1)
+        self.fc.weight.data.fill_(init_weight)
+        self.fc.bias.data.fill_(init_weight)
 
 
 LOG_SCALE_MAX = 2
@@ -3537,38 +5642,28 @@ LOG_SCALE_MAX = 2
 LOG_SCALE_MIN = -10
 
 
-def normal_logprob(mu, sigma, z):
-    normalization_constant = -sigma.log() - 0.5 * np.log(2 * np.pi)
-    square_term = -0.5 * ((z - mu) / sigma) ** 2
-    logprob_vec = normalization_constant + square_term
-    logprob = logprob_vec.sum(1)
-    return logprob
+def normal_sample(loc, log_scale):
+    scale = torch.exp(0.5 * log_scale)
+    return loc + scale * torch.randn_like(scale)
 
 
-def normal_sample(mu, sigma):
-    return mu + sigma * torch.randn_like(sigma)
+class VAE(nn.Module):
 
-
-class ClassifyVAE(torch.nn.Module):
-
-    def __init__(self, in_features, hid_features, out_features):
+    def __init__(self, in_features, hid_features):
         super().__init__()
-        self.encoder = torch.nn.Linear(in_features, hid_features * 2)
+        self.hid_features = hid_features
+        self.encoder = nn.Linear(in_features, hid_features * 2)
         self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
-        self.clf = torch.nn.Linear(hid_features, out_features)
 
     def forward(self, x, deterministic=False):
         z = self.encoder(x)
         bs, z_dim = z.shape
         loc, log_scale = z[:, :z_dim // 2], z[:, z_dim // 2:]
         log_scale = torch.clamp(log_scale, LOG_SCALE_MIN, LOG_SCALE_MAX)
-        scale = torch.exp(log_scale)
-        z_ = loc if deterministic else normal_sample(loc, scale)
-        z_logprob = normal_logprob(loc, scale, z_)
+        z_ = loc if deterministic else normal_sample(loc, log_scale)
         z_ = z_.view(bs, -1)
         x_ = self.decoder(z_)
-        y_hat = self.clf(z_)
-        return y_hat, x_, z_logprob, loc, log_scale
+        return x_, loc, log_scale
 
 
 import torch
@@ -3578,22 +5673,58 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ChannelSqueezeAndSpatialExcitation,
-     lambda: ([], {'in_channels': 4}),
+    (AMSoftmax,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ClassifyAE,
-     lambda: ([], {'in_features': 4, 'hid_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ClassifyUnet,
-     lambda: ([], {'in_channels': 4, 'in_hw': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ClassifyVAE,
-     lambda: ([], {'in_features': 4, 'hid_features': 4, 'out_features': 4}),
-     lambda: ([torch.rand([4, 4])], {}),
      False),
+    (AdaCos,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ArcFace,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ArcMarginProduct,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BPRLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BarlowTwinsLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (BaseConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'ksize': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CSPDarknet,
+     lambda: ([], {'dep_mul': 4, 'wid_mul': 4}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (CSPLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CategoricalRegressionLoss,
+     lambda: ([], {'num_atoms': 4, 'v_min': 4, 'v_max': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (CenterNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (CenterNetCriterion,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ContrastiveDistanceLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3602,51 +5733,83 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ContrastiveModel,
+     lambda: ([], {'model': _mock_layer(), 'encoder': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ContrastivePairwiseEmbeddingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
-    (DecoderConcatBlock,
-     lambda: ([], {'in_channels': 4, 'enc_channels': 4, 'out_channels': 4}),
+    (CosFace,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CurricularFace,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (CustomModule,
+     lambda: ([], {'in_features': 4, 'out_features1': 4, 'out_features2': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DWConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'ksize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiceLoss,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DecoderFPNBlock,
-     lambda: ([], {'in_channels': 4, 'enc_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
-     False),
-    (DecoderSumBlock,
-     lambda: ([], {'enc_channels': 4, 'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (EncoderDownsampleBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+    (DoubleConv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (EncoderUpsampleBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
+    (DummyModel,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
     (Flatten,
      lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Focus,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (GaussianNoise,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (GeM2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GlobalAvgPool2d,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (GlobalConcatPool2d,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (GlobalMaxPool2d,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (HuberLoss,
+    (HingeLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HuberLossV0,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IOUloss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IoULoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
@@ -3657,6 +5820,10 @@ TESTCASES = [
     (Lambda,
      lambda: ([], {'lambda_fn': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LogisticLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (LovaszLossBinary,
      lambda: ([], {}),
@@ -3670,6 +5837,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (MacridVAE,
+     lambda: ([], {'q_dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (MarginLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -3678,10 +5849,18 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Model,
-     lambda: ([], {}),
+    (MultiDAE,
+     lambda: ([], {'p_dims': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
+    (MultiVAE,
+     lambda: ([], {'p_dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (NTXentLoss,
+     lambda: ([], {'tau': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (NaiveCrossEntropyLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3690,46 +5869,66 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (PSPBlock,
-     lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Projector,
-     lambda: ([], {'input_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (PyramidBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pool_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (RMSNorm,
      lambda: ([], {'dimension': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (ResidualWrapper,
-     lambda: ([], {'net': _mock_layer()}),
+    (RSquareLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResLayer,
+     lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResidualBlock,
+     lambda: ([], {'block': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResnetBackbone,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SPPBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SingleShotDetector,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (SmoothingDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SoftMax,
+     lambda: ([], {'in_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SubCenterArcFace,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (TemporalAttentionPooling,
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (TemporalAvgPooling,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (TemporalConcatPooling,
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (TemporalDropLastWrapper,
      lambda: ([], {'net': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (TemporalLastPooling,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (TemporalMaxPooling,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3742,17 +5941,37 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
-    (UnetEncoder,
-     lambda: ([], {'in_channels': 4, 'num_channels': 4, 'num_blocks': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+    (TripletPairwiseEmbeddingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (UpDoubleConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VAE,
+     lambda: ([], {'in_features': 4, 'hid_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
-    (UnetHead,
-     lambda: ([], {'in_channels': [4, 4], 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+    (WARPLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (WingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (cSE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (sSE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (scSE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -3888,4 +6107,97 @@ class Test_catalyst_team_catalyst(_paritybench_base):
 
     def test_043(self):
         self._check(*TESTCASES[43])
+
+    def test_044(self):
+        self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
+
+    def test_046(self):
+        self._check(*TESTCASES[46])
+
+    def test_047(self):
+        self._check(*TESTCASES[47])
+
+    def test_048(self):
+        self._check(*TESTCASES[48])
+
+    def test_049(self):
+        self._check(*TESTCASES[49])
+
+    def test_050(self):
+        self._check(*TESTCASES[50])
+
+    def test_051(self):
+        self._check(*TESTCASES[51])
+
+    def test_052(self):
+        self._check(*TESTCASES[52])
+
+    def test_053(self):
+        self._check(*TESTCASES[53])
+
+    def test_054(self):
+        self._check(*TESTCASES[54])
+
+    def test_055(self):
+        self._check(*TESTCASES[55])
+
+    def test_056(self):
+        self._check(*TESTCASES[56])
+
+    def test_057(self):
+        self._check(*TESTCASES[57])
+
+    def test_058(self):
+        self._check(*TESTCASES[58])
+
+    def test_059(self):
+        self._check(*TESTCASES[59])
+
+    def test_060(self):
+        self._check(*TESTCASES[60])
+
+    def test_061(self):
+        self._check(*TESTCASES[61])
+
+    def test_062(self):
+        self._check(*TESTCASES[62])
+
+    def test_063(self):
+        self._check(*TESTCASES[63])
+
+    def test_064(self):
+        self._check(*TESTCASES[64])
+
+    def test_065(self):
+        self._check(*TESTCASES[65])
+
+    def test_066(self):
+        self._check(*TESTCASES[66])
+
+    def test_067(self):
+        self._check(*TESTCASES[67])
+
+    def test_068(self):
+        self._check(*TESTCASES[68])
+
+    def test_069(self):
+        self._check(*TESTCASES[69])
+
+    def test_070(self):
+        self._check(*TESTCASES[70])
+
+    def test_071(self):
+        self._check(*TESTCASES[71])
+
+    def test_072(self):
+        self._check(*TESTCASES[72])
+
+    def test_073(self):
+        self._check(*TESTCASES[73])
+
+    def test_074(self):
+        self._check(*TESTCASES[74])
 

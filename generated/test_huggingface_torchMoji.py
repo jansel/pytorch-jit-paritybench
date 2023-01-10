@@ -544,7 +544,7 @@ class TorchMoji(nn.Module):
         if not isinstance(input_seqs, PackedSequence):
             ho = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
             co = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
-            input_lengths = torch.LongTensor([(torch.max(input_seqs[(i), :].data.nonzero()) + 1) for i in range(input_seqs.size()[0])])
+            input_lengths = torch.LongTensor([(torch.max(input_seqs[i, :].data.nonzero()) + 1) for i in range(input_seqs.size()[0])])
             input_lengths, perm_idx = input_lengths.sort(0, descending=True)
             input_seqs = input_seqs[perm_idx][:, :input_lengths.max()]
             packed_input = pack_padded_sequence(input_seqs, input_lengths.cpu().numpy(), batch_first=True)

@@ -2282,7 +2282,7 @@ class Seq2Seq(nn.Module):
         if not keep_all_timesteps:
             logits = logits.select(time_dim, -1).contiguous()
         if remove_unknown:
-            logits[:, (UNK)].fill_(-float('inf'))
+            logits[:, UNK].fill_(-float('inf'))
         if apply_lsm:
             logprobs = log_softmax(logits, dim=-1)
         else:
@@ -2318,7 +2318,7 @@ def _reorder(order):
     B, T = order.shape
     reorder_list = []
     for j in range(T):
-        reorder_list.append(order.eq(j).nonzero()[:, (-1)])
+        reorder_list.append(order.eq(j).nonzero()[:, -1])
     return torch.stack(reorder_list, dim=-1)
 
 
@@ -2640,17 +2640,13 @@ TESTCASES = [
      lambda: ([], {'query_size': 4, 'key_size': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
-    (ConvEncoder,
-     lambda: ([], {'vocab_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (DenseNetEncoder,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
     (GatedConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (HiddenTransform,
      lambda: ([], {'input_shape': 4, 'output_shape': 4}),
@@ -2658,7 +2654,7 @@ TESTCASES = [
      False),
     (MaskedConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (MaskedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -2672,10 +2668,6 @@ TESTCASES = [
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (RecurrentEncoder,
-     lambda: ([], {'vocab_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (ResNetEncoder,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -2686,7 +2678,7 @@ TESTCASES = [
      False),
     (StackedConv,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (TimeNorm2d,
      lambda: ([], {'num_features': 4}),
@@ -2737,10 +2729,4 @@ class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

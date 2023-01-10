@@ -14,6 +14,7 @@ networks = _module
 options = _module
 blender_hull = _module
 convex_hull = _module
+mesh_sampler = _module
 utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -126,11 +127,11 @@ class MeshConv(nn.Module):
         f = torch.index_select(x, dim=0, index=Gi_flat)
         f = f.view(Gishape[0], Gishape[1], Gishape[2], -1)
         f = f.permute(0, 3, 1, 2)
-        x_1 = f[:, :, :, (1)] + f[:, :, :, (3)]
-        x_2 = f[:, :, :, (2)] + f[:, :, :, (4)]
-        x_3 = torch.abs(f[:, :, :, (1)] - f[:, :, :, (3)])
-        x_4 = torch.abs(f[:, :, :, (2)] - f[:, :, :, (4)])
-        f = torch.stack([f[:, :, :, (0)], x_1, x_2, x_3, x_4], dim=3)
+        x_1 = f[:, :, :, 1] + f[:, :, :, 3]
+        x_2 = f[:, :, :, 2] + f[:, :, :, 4]
+        x_3 = torch.abs(f[:, :, :, 1] - f[:, :, :, 3])
+        x_4 = torch.abs(f[:, :, :, 2] - f[:, :, :, 4])
+        f = torch.stack([f[:, :, :, 0], x_1, x_2, x_3, x_4], dim=3)
         return f
 
     def pad_gemm(self, m, xsz, device):
@@ -155,20 +156,20 @@ class MeshUnion:
         self.groups = torch.eye(n, device=device)
 
     def union(self, source, target):
-        self.groups[(target), :] += self.groups[(source), :]
+        self.groups[target, :] += self.groups[source, :]
 
     def remove_group(self, index):
         return
 
     def get_group(self, edge_key):
-        return self.groups[(edge_key), :]
+        return self.groups[edge_key, :]
 
     def get_occurrences(self):
         return torch.sum(self.groups, 0)
 
     def get_groups(self, tensor_mask):
         self.groups = torch.clamp(self.groups, 0, 1)
-        return self.groups[(tensor_mask), :]
+        return self.groups[tensor_mask, :]
 
     def rebuild_features_average(self, features, mask, target_edges):
         self.prepare_groups(features, mask)
@@ -183,7 +184,7 @@ class MeshUnion:
 
     def prepare_groups(self, features, mask):
         tensor_mask = torch.from_numpy(mask)
-        self.groups = torch.clamp(self.groups[(tensor_mask), :], 0, 1).transpose_(1, 0)
+        self.groups = torch.clamp(self.groups[tensor_mask, :], 0, 1).transpose_(1, 0)
         padding_a = features.shape[1] - self.groups.shape[0]
         if padding_a > 0:
             padding_a = ConstantPad2d((0, 0, 0, padding_a), 0)
@@ -213,7 +214,7 @@ class MeshPool(nn.Module):
 
     def __pool_main(self, mesh_index):
         mesh = self.__meshes[mesh_index]
-        fe = self.__fe[(mesh_index), :, :mesh.edges_count]
+        fe = self.__fe[mesh_index, :, :mesh.edges_count]
         in_fe_sq = torch.sum(fe ** 2, dim=0)
         sorted, edge_ids = torch.sort(in_fe_sq, descending=True)
         edge_ids = edge_ids.tolist()
@@ -590,11 +591,11 @@ def build_v(x, meshes):
     mesh = meshes[0]
     x = x.reshape(len(meshes), 2, 3, -1)
     vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3], dtype=x.dtype, device=x.device)
-    x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
-    vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
+    x = x[:, mesh.vei, :, mesh.ve_in].transpose(0, 1)
+    vs_to_sum[:, mesh.nvsi, mesh.nvsin, :] = x
     vs_sum = torch.sum(vs_to_sum, dim=2)
     nvs = mesh.nvs
-    vs = vs_sum / nvs[(None), :, (None)]
+    vs = vs_sum / nvs[None, :, None]
     return vs
 
 
@@ -686,7 +687,7 @@ class PartNet(PriorNet):
             self.init_verts = self.init_part_verts[i]
             temp_pools = [int(n_edges - i) for i in self.make3(PartNet.array_times(n_edges, self.factor_pools))]
             self.__set_pools(n_edges, temp_pools)
-            relevant_edges = x[:, :, (partmesh.sub_mesh_edge_index[i])]
+            relevant_edges = x[:, :, partmesh.sub_mesh_edge_index[i]]
             results = super().forward(relevant_edges, [p])
             yield results
 

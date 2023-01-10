@@ -20,6 +20,7 @@ test_reverse = _module
 test_simple_qa = _module
 test_smt = _module
 test_snli = _module
+test_squad = _module
 test_trec = _module
 test_ud_pos = _module
 test_wikitext_2 = _module
@@ -77,6 +78,7 @@ reverse = _module
 simple_qa = _module
 smt = _module
 snli = _module
+squad = _module
 trec = _module
 ud_pos = _module
 wikitext_2 = _module
@@ -197,13 +199,13 @@ from collections import namedtuple
 from torch.utils.data.sampler import Sampler
 
 
-from torch._six import int_classes as _int_classes
-
-
 from collections import Counter
 
 
 from collections.abc import Iterable
+
+
+import typing
 
 
 from torch.nn import Conv1d
@@ -440,7 +442,7 @@ class SplitCrossEntropyLoss(nn.Module):
                 tail_weight = weight[start:end]
                 tail_bias = bias[start:end]
                 tail_res = torch.nn.functional.linear(hiddens, tail_weight, bias=tail_bias)
-                head_entropy = softmaxed_head_res[:, (-idx)].contiguous()
+                head_entropy = softmaxed_head_res[:, -idx].contiguous()
                 tail_entropy = torch.nn.functional.log_softmax(tail_res)
                 results.append(head_entropy.view(-1, 1) + tail_entropy)
         if len(results) > 1:
@@ -501,7 +503,7 @@ class SplitCrossEntropyLoss(nn.Module):
                     tail_weight = weight[start:end]
                     self.stats[idx].append(split_hiddens[idx].size()[0] * tail_weight.size()[0])
                 tail_res = self.logprob(weight, bias, split_hiddens[idx], splits=[idx], softmaxed_head_res=softmaxed_head_res)
-                head_entropy = softmaxed_head_res[:, (-idx)]
+                head_entropy = softmaxed_head_res[:, -idx]
                 indices = (split_targets[idx] - self.splits[idx]).view(-1, 1)
                 tail_entropy = torch.gather(torch.nn.functional.log_softmax(tail_res), dim=1, index=indices).squeeze()
                 entropy = -(head_entropy + tail_entropy)
@@ -688,10 +690,12 @@ class LabelEncoder(Encoder):
         return super().batch_decode([t.squeeze(0) for t in tensor.split(1, dim=dim)])
 
 
-BatchedSequences = namedtuple('BatchedSequences', ['tensor', 'lengths'])
-
-
 DEFAULT_PADDING_INDEX = 0
+
+
+class SequenceBatch(typing.NamedTuple):
+    tensor: torch.Tensor
+    lengths: torch.Tensor
 
 
 def pad_tensor(tensor, length, padding_index=DEFAULT_PADDING_INDEX):
@@ -722,8 +726,7 @@ def stack_and_pad_tensors(batch, padding_index=DEFAULT_PADDING_INDEX, dim=0):
         dim (int, optional): Dimension on to which to concatenate the batch of tensors.
 
     Returns
-        BatchedSequences(torch.Tensor, torch.Tensor): Padded tensors and original lengths of
-            tensors.
+        SequenceBatch: Padded tensors and original lengths of tensors.
     """
     lengths = [tensor.shape[0] for tensor in batch]
     max_len = max(lengths)
@@ -732,7 +735,7 @@ def stack_and_pad_tensors(batch, padding_index=DEFAULT_PADDING_INDEX, dim=0):
     padded = torch.stack(padded, dim=dim).contiguous()
     for _ in range(dim):
         lengths = lengths.unsqueeze(0)
-    return BatchedSequences(padded, lengths)
+    return SequenceBatch(padded, lengths)
 
 
 class TextEncoder(Encoder):
@@ -999,13 +1002,9 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (WeightDropGRU,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([], {'input': torch.rand([4, 4, 4])}),
-     False),
-    (WeightDropLSTM,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([], {'input': torch.rand([4, 4, 4])}),
+    (WeightDropLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
      False),
 ]
 
@@ -1021,7 +1020,4 @@ class Test_PetrochukM_PyTorch_NLP(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

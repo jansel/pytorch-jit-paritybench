@@ -9,6 +9,16 @@ datasets = _module
 setup = _module
 train = _module
 util = _module
+arguments = _module
+data = _module
+network = _module
+optimisers = _module
+test_networks = _module
+test_setup_data_loaders = _module
+test_setup_network = _module
+test_setup_optimisers_and_schedulers = _module
+test_transforms = _module
+train = _module
 utils = _module
 helpers = _module
 layer_factory = _module
@@ -33,43 +43,37 @@ xrange = range
 wraps = functools.wraps
 
 
-import torch
-
-
 import torch.nn as nn
 
 
 import torch.nn.functional as F
 
 
+import warnings
+
+
 import numpy as np
 
 
-import collections
-
-
-import random
-
-
-import warnings
+import torch
 
 
 from torch.utils.data import Dataset
 
 
-from torchvision import transforms
-
-
-from torchvision import utils
-
-
 import logging
+
+
+import random
 
 
 import re
 
 
 import time
+
+
+from torchvision.datasets import FakeData
 
 
 def batchnorm(in_planes):
@@ -164,7 +168,6 @@ class MBv2(nn.Module):
         self.conv_adapt2 = conv1x1(256, 256, bias=False)
         self.segm = conv3x3(256, num_classes, bias=True)
         self.relu = nn.ReLU6(inplace=True)
-        self._initialize_weights()
 
     def forward(self, x):
         x = self.layer1(x)
@@ -354,6 +357,14 @@ class ResNetLW(nn.Module):
         x1 = self.mflow_conv_g4_pool(x1)
         out = self.clf_conv(x1)
         return out
+
+
+class DummyEncDecModel(torch.nn.Module):
+
+    def __init__(self):
+        super(DummyEncDecModel, self).__init__()
+        self.layer1 = torch.nn.Parameter(torch.FloatTensor(1, 2))
+        self.dec1 = torch.nn.Parameter(torch.FloatTensor(1, 2))
 
 
 import torch

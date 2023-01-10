@@ -612,7 +612,7 @@ class CNP(nn.Module):
             for i in range(num_steps - 1):
                 logits, = self.decoder(dec_inputs, self.spatial_cache, self.temporal_cache, self.temporal_spatial_link, self.pad_cache, recurrent_steps=recurrent_steps)
                 prediction = self.output_clfs[self.task_dict[task]](logits)
-                prediction = prediction[:, (-1), :].unsqueeze(1)
+                prediction = prediction[:, -1, :].unsqueeze(1)
                 prediction = log_softmax(prediction, dim=2).argmax(-1)
                 prediction = self.output_embs[self.task_dict[task]](prediction)
                 prediction = self.emb_decoder_proj(prediction).detach()
@@ -900,7 +900,7 @@ TESTCASES = [
     (MultiHeadAttention,
      lambda: ([], {'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (PositionwiseFeedForward,
      lambda: ([], {'d_in': 4, 'd_hid': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -908,7 +908,7 @@ TESTCASES = [
     (ScaledDotProductAttention,
      lambda: ([], {'temperature': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
+     True),
     (TemporalCacheEncoder,
      lambda: ([], {'len_max_seq': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),

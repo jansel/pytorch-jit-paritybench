@@ -143,7 +143,7 @@ class MaskBlock(nn.Module):
         out = self.conv1(out if self.equalInOut else x)
         out = self.relu2(self.bn2(out))
         if self.mask is not None:
-            out = out * self.mask[(None), :, (None), (None)]
+            out = out * self.mask[None, :, None, None]
         else:
             self._create_mask(x, out)
         out = self.activation(out)
@@ -186,14 +186,14 @@ class MaskBlock(nn.Module):
         None
         if middle_dim is not 0:
             conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=self.stride, padding=1, bias=False)
-            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1), :, :, :])
+            conv1.weight = nn.Parameter(self.conv1.weight[self.mask == 1, :, :, :])
             bn2 = nn.BatchNorm2d(middle_dim)
             bn2.weight = nn.Parameter(self.bn2.weight[self.mask == 1])
             bn2.bias = nn.Parameter(self.bn2.bias[self.mask == 1])
             bn2.running_mean = self.bn2.running_mean[self.mask == 1]
             bn2.running_var = self.bn2.running_var[self.mask == 1]
             conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 1), :, :])
+            conv2.weight = nn.Parameter(self.conv2.weight[:, self.mask == 1, :, :])
         if middle_dim is 0:
             conv1 = Zero()
             bn2 = Zero()

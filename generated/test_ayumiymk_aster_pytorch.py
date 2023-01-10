@@ -176,7 +176,7 @@ class SequenceCrossEntropyLoss(nn.Module):
         batch_size, def_max_length = target.size(0), target.size(1)
         mask = torch.zeros(batch_size, def_max_length)
         for i in range(batch_size):
-            mask[(i), :length[i]].fill_(1)
+            mask[i, :length[i]].fill_(1)
         mask = mask.type_as(input)
         max_length = max(length)
         assert max_length == input.size(1)
@@ -285,7 +285,7 @@ class AttentionRecognitionHead(nn.Module):
             if i == 0:
                 y_prev = torch.zeros(batch_size).fill_(self.num_classes)
             else:
-                y_prev = targets[:, (i - 1)]
+                y_prev = targets[:, i - 1]
             output, state = self.decoder(x, state, y_prev)
             outputs.append(output)
         outputs = torch.cat([_.unsqueeze(1) for _ in outputs], 1)
@@ -369,10 +369,10 @@ class AttentionRecognitionHead(nn.Module):
             t -= 1
         s, re_sorted_idx = s.topk(beam_width)
         for b_idx in range(batch_size):
-            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[(b_idx), :]]
+            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[b_idx, :]]
         re_sorted_idx = (re_sorted_idx + pos_index.expand_as(re_sorted_idx)).view(batch_size * beam_width)
         p = [step.index_select(0, re_sorted_idx).view(batch_size, beam_width, -1) for step in reversed(p)]
-        p = torch.cat(p, -1)[:, (0), :]
+        p = torch.cat(p, -1)[:, 0, :]
         return p, torch.ones_like(p)
 
 
@@ -457,7 +457,7 @@ def compute_partial_repr(input_points, control_points):
     M = control_points.size(0)
     pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
     pairwise_diff_square = pairwise_diff * pairwise_diff
-    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:, :, (1)]
+    pairwise_dist = pairwise_diff_square[:, :, 0] + pairwise_diff_square[:, :, 1]
     repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
     mask = repr_matrix != repr_matrix
     repr_matrix.masked_fill_(mask, 0)
@@ -488,8 +488,8 @@ class TPSSpatialTransformer(nn.Module):
         forward_kernel = torch.zeros(N + 3, N + 3)
         target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)
         forward_kernel[:N, :N].copy_(target_control_partial_repr)
-        forward_kernel[:N, (-3)].fill_(1)
-        forward_kernel[(-3), :N].fill_(1)
+        forward_kernel[:N, -3].fill_(1)
+        forward_kernel[-3, :N].fill_(1)
         forward_kernel[:N, -2:].copy_(target_control_points)
         forward_kernel[-2:, :N].copy_(target_control_points.transpose(0, 1))
         inverse_kernel = torch.inverse(forward_kernel)
@@ -847,6 +847,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (SequenceCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4]), [4, 4, 4, 4]], {}),
+     True),
 ]
 
 class Test_ayumiymk_aster_pytorch(_paritybench_base):
@@ -858,4 +862,7 @@ class Test_ayumiymk_aster_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

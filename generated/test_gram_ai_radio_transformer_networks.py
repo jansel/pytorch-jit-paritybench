@@ -45,7 +45,7 @@ class RadioTransformerNetwork(nn.Module):
 
     def forward(self, x):
         x = self.encoder(x)
-        x = self.in_channels ** 2 * (x / x.norm(dim=-1)[:, (None)])
+        x = self.in_channels ** 2 * (x / x.norm(dim=-1)[:, None])
         training_signal_noise_ratio = 5.01187
         communication_rate = 1
         noise = Variable(torch.randn(*x.size()) / (2 * communication_rate * training_signal_noise_ratio) ** 0.5)

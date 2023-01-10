@@ -148,7 +148,7 @@ class ConvLSTM(nn.Module):
             h, c = hidden_state[layer_idx]
             output_inner = []
             for t in range(seq_len):
-                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, (t), :, :, :], cur_state=[h, c])
+                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, t, :, :, :], cur_state=[h, c])
                 output_inner.append(h)
             layer_output = torch.stack(output_inner, dim=1)
             cur_layer_input = layer_output
@@ -175,22 +175,4 @@ class ConvLSTM(nn.Module):
         if not isinstance(param, list):
             param = [param] * num_layers
         return param
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (ConvLSTMCell,
-     lambda: ([], {'input_dim': 4, 'hidden_dim': 4, 'kernel_size': [4, 4], 'bias': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64]), (torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 65, 65]))], {}),
-     False),
-]
-
-class Test_ndrplz_ConvLSTM_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

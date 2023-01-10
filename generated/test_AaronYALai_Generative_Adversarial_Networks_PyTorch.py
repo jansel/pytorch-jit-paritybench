@@ -183,7 +183,7 @@ class ImprovedGAN_Discriminator(nn.Module):
         for i in range(Ms.size()[0]):
             out_i = None
             for j in range(Ms.size()[0]):
-                o_i = torch.sum(torch.abs(Ms[(i), :, :] - Ms[(j), :, :]), 1)
+                o_i = torch.sum(torch.abs(Ms[i, :, :] - Ms[j, :, :]), 1)
                 o_i = torch.exp(-o_i)
                 if out_i is None:
                     out_i = o_i
@@ -272,7 +272,7 @@ class InfoGAN_Discriminator(nn.Module):
                 x = F.leaky_relu(BN_layer(conv_layer(x)), negative_slope=0.2)
         x = x.view(-1, self.featmap_dim * 4 * 4)
         x = self.fc(x)
-        x[:, (0)] = F.sigmoid(x[:, (0)].clone())
+        x[:, 0] = F.sigmoid(x[:, 0].clone())
         for j in range(self.n_discrete):
             start = 1 + self.n_conti + j * self.num_category
             end = start + self.num_category

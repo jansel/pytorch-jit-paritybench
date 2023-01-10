@@ -1001,7 +1001,7 @@ class Shift(nn.Module):
                     num_ch = C // ksq + C % ksq
                 else:
                     num_ch = C // ksq
-                kernel[ch_idx:ch_idx + num_ch, (0), (i), (j)] = 1
+                kernel[ch_idx:ch_idx + num_ch, 0, i, j] = 1
                 ch_idx += num_ch
         self.register_parameter('bias', None)
         self.kernel = nn.Parameter(kernel, requires_grad=False)
@@ -1634,14 +1634,14 @@ class BoxCoder(object):
             proposals (Tensor): boxes to be encoded
         """
         TO_REMOVE = 1
-        ex_widths = proposals[:, (2)] - proposals[:, (0)] + TO_REMOVE
-        ex_heights = proposals[:, (3)] - proposals[:, (1)] + TO_REMOVE
-        ex_ctr_x = proposals[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = proposals[:, (1)] + 0.5 * ex_heights
-        gt_widths = reference_boxes[:, (2)] - reference_boxes[:, (0)] + TO_REMOVE
-        gt_heights = reference_boxes[:, (3)] - reference_boxes[:, (1)] + TO_REMOVE
-        gt_ctr_x = reference_boxes[:, (0)] + 0.5 * gt_widths
-        gt_ctr_y = reference_boxes[:, (1)] + 0.5 * gt_heights
+        ex_widths = proposals[:, 2] - proposals[:, 0] + TO_REMOVE
+        ex_heights = proposals[:, 3] - proposals[:, 1] + TO_REMOVE
+        ex_ctr_x = proposals[:, 0] + 0.5 * ex_widths
+        ex_ctr_y = proposals[:, 1] + 0.5 * ex_heights
+        gt_widths = reference_boxes[:, 2] - reference_boxes[:, 0] + TO_REMOVE
+        gt_heights = reference_boxes[:, 3] - reference_boxes[:, 1] + TO_REMOVE
+        gt_ctr_x = reference_boxes[:, 0] + 0.5 * gt_widths
+        gt_ctr_y = reference_boxes[:, 1] + 0.5 * gt_heights
         wx, wy, ww, wh = self.weights
         targets_dx = wx * (gt_ctr_x - ex_ctr_x) / ex_widths
         targets_dy = wy * (gt_ctr_y - ex_ctr_y) / ex_heights
@@ -1661,10 +1661,10 @@ class BoxCoder(object):
         """
         boxes = boxes
         TO_REMOVE = 1
-        widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
-        heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
-        ctr_x = boxes[:, (0)] + 0.5 * widths
-        ctr_y = boxes[:, (1)] + 0.5 * heights
+        widths = boxes[:, 2] - boxes[:, 0] + TO_REMOVE
+        heights = boxes[:, 3] - boxes[:, 1] + TO_REMOVE
+        ctr_x = boxes[:, 0] + 0.5 * widths
+        ctr_y = boxes[:, 1] + 0.5 * heights
         wx, wy, ww, wh = self.weights
         dx = rel_codes[:, 0::4] / wx
         dy = rel_codes[:, 1::4] / wy
@@ -1672,10 +1672,10 @@ class BoxCoder(object):
         dh = rel_codes[:, 3::4] / wh
         dw = torch.clamp(dw, max=self.bbox_xform_clip)
         dh = torch.clamp(dh, max=self.bbox_xform_clip)
-        pred_ctr_x = dx * widths[:, (None)] + ctr_x[:, (None)]
-        pred_ctr_y = dy * heights[:, (None)] + ctr_y[:, (None)]
-        pred_w = torch.exp(dw) * widths[:, (None)]
-        pred_h = torch.exp(dh) * heights[:, (None)]
+        pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
+        pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
+        pred_w = torch.exp(dw) * widths[:, None]
+        pred_h = torch.exp(dh) * heights[:, None]
         pred_boxes = torch.zeros_like(rel_codes)
         pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w
         pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
@@ -1756,8 +1756,8 @@ class Matcher(object):
         quality value.
         """
         highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, None])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, 1]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
@@ -1784,12 +1784,12 @@ def boxlist_iou(boxlist1, boxlist2):
     area1 = boxlist1.area()
     area2 = boxlist2.area()
     box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    lt = torch.max(box1[:, None, :2], box2[:, :2])
+    rb = torch.min(box1[:, None, 2:], box2[:, 2:])
     TO_REMOVE = 1
     wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+    iou = inter / (area1[:, None] + area2 - inter)
     return iou
 
 
@@ -1909,8 +1909,8 @@ class FastRCNNLossComputation(object):
         if self.cls_agnostic_bbox_reg:
             map_inds = torch.tensor([4, 5, 6, 7], device=device)
         else:
-            map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3], device=device)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, (None)], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
+            map_inds = 4 * labels_pos[:, None] + torch.tensor([0, 1, 2, 3], device=device)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, None], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
         box_loss = box_loss / labels.numel()
         return classification_loss, box_loss
 
@@ -2101,13 +2101,13 @@ class BoxList(object):
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
         if remove_empty:
             box = self.bbox
-            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
+            keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])
             return self[keep]
         return self
 
@@ -2115,9 +2115,9 @@ class BoxList(object):
         box = self.bbox
         if self.mode == 'xyxy':
             TO_REMOVE = 1
-            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
+            area = (box[:, 2] - box[:, 0] + TO_REMOVE) * (box[:, 3] - box[:, 1] + TO_REMOVE)
         elif self.mode == 'xywh':
-            area = box[:, (2)] * box[:, (3)]
+            area = box[:, 2] * box[:, 3]
         else:
             raise RuntimeError('Should not be here')
         return area
@@ -2288,9 +2288,9 @@ class PostProcessor(nn.Module):
         result = []
         inds_all = scores > self.score_thresh
         for j in range(1, num_classes):
-            inds = inds_all[:, (j)].nonzero().squeeze(1)
+            inds = inds_all[:, j].nonzero().squeeze(1)
             scores_j = scores[inds, j]
-            boxes_j = boxes[(inds), j * 4:(j + 1) * 4]
+            boxes_j = boxes[inds, j * 4:(j + 1) * 4]
             boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
             boxlist_for_class.add_field('scores', scores_j)
             boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms)
@@ -2384,26 +2384,26 @@ def _within_box(points, boxes):
     boxes: Nx4
     output: NxK
     """
-    x_within = (points[..., 0] >= boxes[:, (0), (None)]) & (points[..., 0] <= boxes[:, (2), (None)])
-    y_within = (points[..., 1] >= boxes[:, (1), (None)]) & (points[..., 1] <= boxes[:, (3), (None)])
+    x_within = (points[..., 0] >= boxes[:, 0, None]) & (points[..., 0] <= boxes[:, 2, None])
+    y_within = (points[..., 1] >= boxes[:, 1, None]) & (points[..., 1] <= boxes[:, 3, None])
     return x_within & y_within
 
 
 def keypoints_to_heat_map(keypoints, rois, heatmap_size):
     if rois.numel() == 0:
         return rois.new().long(), rois.new().long()
-    offset_x = rois[:, (0)]
-    offset_y = rois[:, (1)]
-    scale_x = heatmap_size / (rois[:, (2)] - rois[:, (0)])
-    scale_y = heatmap_size / (rois[:, (3)] - rois[:, (1)])
-    offset_x = offset_x[:, (None)]
-    offset_y = offset_y[:, (None)]
-    scale_x = scale_x[:, (None)]
-    scale_y = scale_y[:, (None)]
+    offset_x = rois[:, 0]
+    offset_y = rois[:, 1]
+    scale_x = heatmap_size / (rois[:, 2] - rois[:, 0])
+    scale_y = heatmap_size / (rois[:, 3] - rois[:, 1])
+    offset_x = offset_x[:, None]
+    offset_y = offset_y[:, None]
+    scale_x = scale_x[:, None]
+    scale_y = scale_y[:, None]
     x = keypoints[..., 0]
     y = keypoints[..., 1]
-    x_boundary_inds = x == rois[:, (2)][:, (None)]
-    y_boundary_inds = y == rois[:, (3)][:, (None)]
+    x_boundary_inds = x == rois[:, 2][:, None]
+    y_boundary_inds = y == rois[:, 3][:, None]
     x = (x - offset_x) * scale_x
     x = x.floor().long()
     y = (y - offset_y) * scale_y
@@ -2544,7 +2544,7 @@ class Keypoints(object):
         if method not in (FLIP_LEFT_RIGHT,):
             raise NotImplementedError('Only FLIP_LEFT_RIGHT implemented')
         flip_inds = type(self).FLIP_INDS
-        flipped_data = self.keypoints[:, (flip_inds)]
+        flipped_data = self.keypoints[:, flip_inds]
         width = self.size[0]
         TO_REMOVE = 1
         flipped_data[..., 0] = width - flipped_data[..., 0] - TO_REMOVE
@@ -2620,10 +2620,10 @@ def heatmaps_to_keypoints(maps, rois):
     (#rois, 4, #keypoints) with the 4 rows corresponding to (x, y, logit, prob)
     for each keypoint.
     """
-    offset_x = rois[:, (0)]
-    offset_y = rois[:, (1)]
-    widths = rois[:, (2)] - rois[:, (0)]
-    heights = rois[:, (3)] - rois[:, (1)]
+    offset_x = rois[:, 0]
+    offset_y = rois[:, 1]
+    widths = rois[:, 2] - rois[:, 0]
+    heights = rois[:, 3] - rois[:, 1]
     widths = np.maximum(widths, 1)
     heights = np.maximum(heights, 1)
     widths_ceil = np.ceil(widths)
@@ -2650,10 +2650,10 @@ def heatmaps_to_keypoints(maps, rois):
         y_int = (pos - x_int) // w
         x = (x_int + 0.5) * width_correction
         y = (y_int + 0.5) * height_correction
-        xy_preds[(i), (0), :] = x + offset_x[i]
-        xy_preds[(i), (1), :] = y + offset_y[i]
-        xy_preds[(i), (2), :] = 1
-        end_scores[(i), :] = roi_map[np.arange(num_keypoints), y_int, x_int]
+        xy_preds[i, 0, :] = x + offset_x[i]
+        xy_preds[i, 1, :] = y + offset_y[i]
+        xy_preds[i, 2, :] = 1
+        end_scores[i, :] = roi_map[np.arange(num_keypoints), y_int, x_int]
     return np.transpose(xy_preds, [0, 2, 1]), end_scores
 
 
@@ -2878,7 +2878,7 @@ class MaskPostProcessor(nn.Module):
         labels = [bbox.get_field('labels') for bbox in boxes]
         labels = torch.cat(labels)
         index = torch.arange(num_masks, device=labels.device)
-        mask_prob = mask_prob[index, labels][:, (None)]
+        mask_prob = mask_prob[index, labels][:, None]
         boxes_per_image = [len(box) for box in boxes]
         mask_prob = mask_prob.split(boxes_per_image, dim=0)
         if self.masker:
@@ -2894,17 +2894,17 @@ class MaskPostProcessor(nn.Module):
 
 
 def expand_boxes(boxes, scale):
-    w_half = (boxes[:, (2)] - boxes[:, (0)]) * 0.5
-    h_half = (boxes[:, (3)] - boxes[:, (1)]) * 0.5
-    x_c = (boxes[:, (2)] + boxes[:, (0)]) * 0.5
-    y_c = (boxes[:, (3)] + boxes[:, (1)]) * 0.5
+    w_half = (boxes[:, 2] - boxes[:, 0]) * 0.5
+    h_half = (boxes[:, 3] - boxes[:, 1]) * 0.5
+    x_c = (boxes[:, 2] + boxes[:, 0]) * 0.5
+    y_c = (boxes[:, 3] + boxes[:, 1]) * 0.5
     w_half *= scale
     h_half *= scale
     boxes_exp = torch.zeros_like(boxes)
-    boxes_exp[:, (0)] = x_c - w_half
-    boxes_exp[:, (2)] = x_c + w_half
-    boxes_exp[:, (1)] = y_c - h_half
-    boxes_exp[:, (3)] = y_c + h_half
+    boxes_exp[:, 0] = x_c - w_half
+    boxes_exp[:, 2] = x_c + w_half
+    boxes_exp[:, 1] = y_c - h_half
+    boxes_exp[:, 3] = y_c + h_half
     return boxes_exp
 
 
@@ -2962,7 +2962,7 @@ class Masker(object):
         im_w, im_h = boxes.size
         res = [paste_mask_in_image(mask[0], box, im_h, im_w, self.threshold, self.padding) for mask, box in zip(masks, boxes.bbox)]
         if len(res) > 0:
-            res = torch.stack(res, dim=0)[:, (None)]
+            res = torch.stack(res, dim=0)[:, None]
         else:
             res = masks.new_empty((0, 1, masks.shape[-2], masks.shape[-1]))
         return res
@@ -3081,8 +3081,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
     """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -3122,7 +3122,7 @@ def _generate_anchors(base_size, scales, aspect_ratios):
     """
     anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
     anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(anchors[i, :], scales) for i in range(anchors.shape[0])])
     return torch.from_numpy(anchors)
 
 
@@ -3389,7 +3389,7 @@ class RPNPostProcessor(torch.nn.Module):
         num_anchors = A * H * W
         pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
         objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
-        batch_idx = torch.arange(N, device=device)[:, (None)]
+        batch_idx = torch.arange(N, device=device)[:, None]
         box_regression = box_regression[batch_idx, topk_idx]
         image_shapes = [box.size for box in anchors]
         concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
@@ -3704,11 +3704,11 @@ class RetinaNetPostProcessor(RPNPostProcessor):
         for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
             per_box_cls = per_box_cls[per_candidate_inds]
             per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[(top_k_indices), :]
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
+            per_candidate_nonzeros = per_candidate_inds.nonzero()[top_k_indices, :]
+            per_box_loc = per_candidate_nonzeros[:, 0]
+            per_class = per_candidate_nonzeros[:, 1]
             per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
+            detections = self.box_coder.decode(per_box_regression[per_box_loc, :].view(-1, 4), per_anchors.bbox[per_box_loc, :].view(-1, 4))
             boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
             boxlist.add_field('labels', per_class)
             boxlist.add_field('scores', per_box_cls)
@@ -3729,7 +3729,7 @@ class RetinaNetPostProcessor(RPNPostProcessor):
             for j in range(1, self.num_classes):
                 inds = (labels == j).nonzero().view(-1)
                 scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxes_j = boxes[inds, :].view(-1, 4)
                 boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
                 boxlist_for_class.add_field('scores', scores_j)
                 boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms_thresh, score_field='scores')
@@ -4232,7 +4232,7 @@ class MaskPostProcessorCOCOFormat(MaskPostProcessor):
         results = super(MaskPostProcessorCOCOFormat, self).forward(x, boxes)
         for result in results:
             masks = result.get_field('mask').cpu()
-            rles = [mask_util.encode(np.array(mask[(0), :, :, (np.newaxis)], order='F'))[0] for mask in masks]
+            rles = [mask_util.encode(np.array(mask[0, :, :, np.newaxis], order='F'))[0] for mask in masks]
             for rle in rles:
                 rle['counts'] = rle['counts'].decode('utf-8')
             result.add_field('mask', rles)
@@ -4470,7 +4470,7 @@ TESTCASES = [
      True),
     (RPNHead,
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (RPNHeadConvRegressor,
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),

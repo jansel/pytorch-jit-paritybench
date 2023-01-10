@@ -2,7 +2,12 @@ import sys
 _module = sys.modules[__name__]
 del sys
 preprocess = _module
-src = _module
+setup = _module
+lowercase_and_remove_accent = _module
+segment_th = _module
+train = _module
+translate = _module
+xlm = _module
 data = _module
 dataset = _module
 dictionary = _module
@@ -24,10 +29,6 @@ optim = _module
 slurm = _module
 trainer = _module
 utils = _module
-lowercase_and_remove_accent = _module
-segment_th = _module
-train = _module
-translate = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -49,6 +50,9 @@ xrange = range
 wraps = functools.wraps
 
 
+import torch
+
+
 from logging import getLogger
 
 
@@ -56,9 +60,6 @@ import math
 
 
 import numpy as np
-
-
-import torch
 
 
 from collections import OrderedDict
@@ -873,9 +874,9 @@ def get_masks(slen, lengths, causal):
     assert lengths.max().item() <= slen
     bs = lengths.size(0)
     alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
-    mask = alen < lengths[:, (None)]
+    mask = alen < lengths[:, None]
     if causal:
-        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(None), :, (None)]
+        attn_mask = alen[None, None, :].repeat(bs, slen, 1) <= alen[None, :, None]
     else:
         attn_mask = mask
     assert mask.size() == (bs, slen)
@@ -979,7 +980,7 @@ class TransformerModel(nn.Module):
             assert src_enc.size(0) == bs
         mask, attn_mask = get_masks(slen, lengths, causal)
         if self.is_decoder and src_enc is not None:
-            src_mask = torch.arange(src_len.max(), dtype=torch.long, device=lengths.device) < src_len[:, (None)]
+            src_mask = torch.arange(src_len.max(), dtype=torch.long, device=lengths.device) < src_len[:, None]
         if positions is None:
             positions = x.new(slen).long()
             positions = torch.arange(slen, out=positions).unsqueeze(0)
@@ -1072,7 +1073,7 @@ class TransformerModel(nn.Module):
         while cur_len < max_len:
             tensor = self.forward('fwd', x=generated[:cur_len], lengths=gen_len, positions=positions[:cur_len], langs=langs[:cur_len], causal=True, src_enc=src_enc, src_len=src_len, cache=cache)
             assert tensor.size() == (1, bs, self.dim), (cur_len, max_len, src_enc.size(), tensor.size(), (1, bs, self.dim))
-            tensor = tensor.data[(-1), :, :].type_as(src_enc)
+            tensor = tensor.data[-1, :, :].type_as(src_enc)
             scores = self.pred_layer.get_scores(tensor)
             if sample_temperature is None:
                 next_words = torch.topk(scores, 1)[1].squeeze(1)
@@ -1129,11 +1130,11 @@ class TransformerModel(nn.Module):
         while cur_len < max_len:
             tensor = self.forward('fwd', x=generated[:cur_len], lengths=src_len.new(bs * beam_size).fill_(cur_len), positions=positions[:cur_len], langs=langs[:cur_len], causal=True, src_enc=src_enc, src_len=src_len, cache=cache)
             assert tensor.size() == (1, bs * beam_size, self.dim)
-            tensor = tensor.data[(-1), :, :]
+            tensor = tensor.data[-1, :, :]
             scores = self.pred_layer.get_scores(tensor)
             scores = F.log_softmax(scores, dim=-1)
             assert scores.size() == (bs * beam_size, n_words)
-            _scores = scores + beam_scores[:, (None)].expand_as(scores)
+            _scores = scores + beam_scores[:, None].expand_as(scores)
             _scores = _scores.view(bs, beam_size * n_words)
             next_scores, next_words = torch.topk(_scores, 2 * beam_size, dim=1, largest=True, sorted=True)
             assert next_scores.size() == next_words.size() == (bs, 2 * beam_size)
@@ -1148,7 +1149,7 @@ class TransformerModel(nn.Module):
                     beam_id = idx // n_words
                     word_id = idx % n_words
                     if word_id == self.eos_index or cur_len + 1 == max_len:
-                        generated_hyps[sent_id].add(generated[:cur_len, (sent_id * beam_size + beam_id)].clone(), value.item())
+                        generated_hyps[sent_id].add(generated[:cur_len, sent_id * beam_size + beam_id].clone(), value.item())
                     else:
                         next_sent_beam.append((value, word_id, sent_id * beam_size + beam_id))
                     if len(next_sent_beam) == beam_size:
@@ -1162,7 +1163,7 @@ class TransformerModel(nn.Module):
             beam_scores = beam_scores.new([x[0] for x in next_batch_beam])
             beam_words = generated.new([x[1] for x in next_batch_beam])
             beam_idx = src_len.new([x[2] for x in next_batch_beam])
-            generated = generated[:, (beam_idx)]
+            generated = generated[:, beam_idx]
             generated[cur_len] = beam_words
             for k in cache.keys():
                 if k != 'slen':
@@ -1178,7 +1179,7 @@ class TransformerModel(nn.Module):
             best.append(best_hyp)
         decoded = src_len.new(tgt_len.max().item(), bs).fill_(self.pad_index)
         for i, hypo in enumerate(best):
-            decoded[:tgt_len[i] - 1, (i)] = hypo
+            decoded[:tgt_len[i] - 1, i] = hypo
             decoded[tgt_len[i] - 1, i] = self.eos_index
         assert (decoded == self.eos_index).sum() == 2 * bs
         return decoded, tgt_len

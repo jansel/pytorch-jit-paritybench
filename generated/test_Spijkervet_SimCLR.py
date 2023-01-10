@@ -1,14 +1,20 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-experiment = _module
+linear_evaluation = _module
 main = _module
+main_pl = _module
 model = _module
+setup = _module
+simclr = _module
 modules = _module
+gather = _module
+identity = _module
 lars = _module
 logistic_regression = _module
 nt_xent = _module
-simclr = _module
+resnet = _module
+resnet_hacks = _module
 sync_batchnorm = _module
 batchnorm = _module
 batchnorm_reimpl = _module
@@ -16,9 +22,8 @@ comm = _module
 replicate = _module
 unittest = _module
 transformations = _module
-logistic_regression = _module
+simclr = _module
 utils = _module
-filestorage = _module
 yaml_config_hook = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -47,7 +52,31 @@ import torch
 import torchvision
 
 
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+from torch.nn.parallel import DataParallel
+
+
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
 from torch.utils.tensorboard import SummaryWriter
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.nn as nn
 
 
 from torch.optim.optimizer import Optimizer
@@ -59,7 +88,10 @@ from torch.optim.optimizer import required
 import re
 
 
-import torch.nn as nn
+from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.models.resnet import ResNet
 
 
 import collections
@@ -80,10 +112,13 @@ import functools
 from torch.nn.parallel.data_parallel import DataParallel
 
 
-import torchvision.transforms as transforms
+class Identity(nn.Module):
 
+    def __init__(self):
+        super(Identity, self).__init__()
 
-import numpy as np
+    def forward(self, x):
+        return x
 
 
 class LogisticRegression(nn.Module):
@@ -96,23 +131,42 @@ class LogisticRegression(nn.Module):
         return self.model(x)
 
 
+class GatherLayer(torch.autograd.Function):
+    """Gather tensors from all process, supporting backward propagation."""
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        output = [torch.zeros_like(input) for _ in range(dist.get_world_size())]
+        dist.all_gather(output, input)
+        return tuple(output)
+
+    @staticmethod
+    def backward(ctx, *grads):
+        input, = ctx.saved_tensors
+        grad_out = torch.zeros_like(input)
+        grad_out[:] = grads[dist.get_rank()]
+        return grad_out
+
+
 class NT_Xent(nn.Module):
 
-    def __init__(self, batch_size, temperature, device):
+    def __init__(self, batch_size, temperature, world_size):
         super(NT_Xent, self).__init__()
         self.batch_size = batch_size
         self.temperature = temperature
-        self.mask = self.mask_correlated_samples(batch_size)
-        self.device = device
+        self.world_size = world_size
+        self.mask = self.mask_correlated_samples(batch_size, world_size)
         self.criterion = nn.CrossEntropyLoss(reduction='sum')
         self.similarity_f = nn.CosineSimilarity(dim=2)
 
-    def mask_correlated_samples(self, batch_size):
-        mask = torch.ones((batch_size * 2, batch_size * 2), dtype=bool)
+    def mask_correlated_samples(self, batch_size, world_size):
+        N = 2 * batch_size * world_size
+        mask = torch.ones((N, N), dtype=bool)
         mask = mask.fill_diagonal_(0)
-        for i in range(batch_size):
-            mask[i, batch_size + i] = 0
-            mask[batch_size + i, i] = 0
+        for i in range(batch_size * world_size):
+            mask[i, batch_size * world_size + i] = 0
+            mask[batch_size * world_size + i, i] = 0
         return mask
 
     def forward(self, z_i, z_j):
@@ -120,53 +174,20 @@ class NT_Xent(nn.Module):
         We do not sample negative examples explicitly.
         Instead, given a positive pair, similar to (Chen et al., 2017), we treat the other 2(N − 1) augmented examples within a minibatch as negative examples.
         """
-        p1 = torch.cat((z_i, z_j), dim=0)
-        sim = self.similarity_f(p1.unsqueeze(1), p1.unsqueeze(0)) / self.temperature
-        sim_i_j = torch.diag(sim, self.batch_size)
-        sim_j_i = torch.diag(sim, -self.batch_size)
-        positive_samples = torch.cat((sim_i_j, sim_j_i), dim=0).reshape(self.batch_size * 2, 1)
-        negative_samples = sim[self.mask].reshape(self.batch_size * 2, -1)
-        labels = torch.zeros(self.batch_size * 2).long()
+        N = 2 * self.batch_size * self.world_size
+        z = torch.cat((z_i, z_j), dim=0)
+        if self.world_size > 1:
+            z = torch.cat(GatherLayer.apply(z), dim=0)
+        sim = self.similarity_f(z.unsqueeze(1), z.unsqueeze(0)) / self.temperature
+        sim_i_j = torch.diag(sim, self.batch_size * self.world_size)
+        sim_j_i = torch.diag(sim, -self.batch_size * self.world_size)
+        positive_samples = torch.cat((sim_i_j, sim_j_i), dim=0).reshape(N, 1)
+        negative_samples = sim[self.mask].reshape(N, -1)
+        labels = torch.zeros(N).long()
         logits = torch.cat((positive_samples, negative_samples), dim=1)
         loss = self.criterion(logits, labels)
-        loss /= 2 * self.batch_size
+        loss /= N
         return loss
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class SimCLR(nn.Module):
-    """
-    We opt for simplicity and adopt the commonly used ResNet (He et al., 2016) to obtain hi = f(x ̃i) = ResNet(x ̃i) where hi ∈ Rd is the output after the average pooling layer.
-    """
-
-    def __init__(self, args):
-        super(SimCLR, self).__init__()
-        self.args = args
-        self.encoder = self.get_resnet(args.resnet)
-        self.n_features = self.encoder.fc.in_features
-        self.encoder.fc = Identity()
-        self.projector = nn.Sequential(nn.Linear(self.n_features, self.n_features, bias=False), nn.ReLU(), nn.Linear(self.n_features, args.projection_dim, bias=False))
-
-    def get_resnet(self, name):
-        resnets = {'resnet18': torchvision.models.resnet18(), 'resnet50': torchvision.models.resnet50()}
-        if name not in resnets.keys():
-            raise KeyError(f'{name} is not a valid ResNet version')
-        return resnets[name]
-
-    def forward(self, x):
-        h = self.encoder(x)
-        z = self.projector(h)
-        if self.args.normalize:
-            z = nn.functional.normalize(z, dim=1)
-        return h, z
 
 
 class FutureResult(object):
@@ -652,6 +673,26 @@ class DataParallelWithCallback(DataParallel):
         return modules
 
 
+class SimCLR(nn.Module):
+    """
+    We opt for simplicity and adopt the commonly used ResNet (He et al., 2016) to obtain hi = f(x ̃i) = ResNet(x ̃i) where hi ∈ Rd is the output after the average pooling layer.
+    """
+
+    def __init__(self, encoder, projection_dim, n_features):
+        super(SimCLR, self).__init__()
+        self.encoder = encoder
+        self.n_features = n_features
+        self.encoder.fc = Identity()
+        self.projector = nn.Sequential(nn.Linear(self.n_features, self.n_features, bias=False), nn.ReLU(), nn.Linear(self.n_features, projection_dim, bias=False))
+
+    def forward(self, x_i, x_j):
+        h_i = self.encoder(x_i)
+        h_j = self.encoder(x_j)
+        z_i = self.projector(h_i)
+        z_j = self.projector(h_j)
+        return h_i, h_j, z_i, z_j
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -663,10 +704,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (Identity,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -674,10 +711,6 @@ TESTCASES = [
     (LogisticRegression,
      lambda: ([], {'n_features': 4, 'n_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (NT_Xent,
-     lambda: ([], {'batch_size': 4, 'temperature': 4, 'device': 0}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
 ]
 
@@ -690,10 +723,4 @@ class Test_Spijkervet_SimCLR(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

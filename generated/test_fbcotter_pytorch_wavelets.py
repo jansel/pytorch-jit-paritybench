@@ -14,12 +14,12 @@ transform_funcs = _module
 dwt = _module
 lowlevel = _module
 swt_inverse = _module
+transform1d = _module
 transform2d = _module
 scatternet = _module
 layers = _module
 lowlevel = _module
 utils = _module
-save = _module
 setup = _module
 Transform2d_np = _module
 datasets = _module
@@ -32,6 +32,7 @@ test_colfilter = _module
 test_dtcwt = _module
 test_dtcwt_grad = _module
 test_dwt = _module
+test_dwt1d = _module
 test_dwt_grad = _module
 test_rowdfilt = _module
 test_rowfilter = _module
@@ -93,14 +94,13 @@ class DWTForward(nn.Module):
 
     Args:
         J (int): Number of levels of decomposition
-        wave (str or pywt.Wavelet): Which wavelet to use. Can be a string to
-            pass to pywt.Wavelet constructor, can also be a pywt.Wavelet class,
-            or can be a two tuple of array-like objects for the analysis low and
-            high pass filters.
+        wave (str or pywt.Wavelet or tuple(ndarray)): Which wavelet to use.
+            Can be:
+            1) a string to pass to pywt.Wavelet constructor
+            2) a pywt.Wavelet class
+            3) a tuple of numpy arrays, either (h0, h1) or (h0_col, h1_col, h0_row, h1_row)
         mode (str): 'zero', 'symmetric', 'reflect' or 'periodization'. The
             padding scheme
-        separable (bool): whether to do the filtering separably or not (the
-            naive implementation can be faster on a gpu).
         """
 
     def __init__(self, J=1, wave='db1', mode='zero'):
@@ -117,10 +117,10 @@ class DWTForward(nn.Module):
             h0_col, h1_col = wave[0], wave[1]
             h0_row, h1_row = wave[2], wave[3]
         filts = lowlevel.prep_filt_afb2d(h0_col, h1_col, h0_row, h1_row)
-        self.h0_col = nn.Parameter(filts[0], requires_grad=False)
-        self.h1_col = nn.Parameter(filts[1], requires_grad=False)
-        self.h0_row = nn.Parameter(filts[2], requires_grad=False)
-        self.h1_row = nn.Parameter(filts[3], requires_grad=False)
+        self.register_buffer('h0_col', filts[0])
+        self.register_buffer('h1_col', filts[1])
+        self.register_buffer('h0_row', filts[2])
+        self.register_buffer('h1_row', filts[3])
         self.J = J
         self.mode = mode
 
@@ -132,8 +132,8 @@ class DWTForward(nn.Module):
 
         Returns:
             (yl, yh)
-                tuple of lowpass (yl) and bandpass (yh)
-                coefficients. yh is a list of length J with the first entry
+                tuple of lowpass (yl) and bandpass (yh) coefficients.
+                yh is a list of length J with the first entry
                 being the finest scale coefficients. yl has shape
                 :math:`(N, C_{in}, H_{in}', W_{in}')` and yh has shape
                 :math:`list(N, C_{in}, 3, H_{in}'', W_{in}'')`. The new
@@ -152,60 +152,6 @@ class DWTForward(nn.Module):
         return ll, yh
 
 
-COEFF_CACHE = {}
-
-
-def _load_from_file(basename, varnames):
-    try:
-        mat = COEFF_CACHE[basename]
-    except KeyError:
-        with resource_stream('pytorch_wavelets.dtcwt.data', basename + '.npz') as f:
-            mat = dict(load(f))
-        COEFF_CACHE[basename] = mat
-    try:
-        return tuple(mat[k] for k in varnames)
-    except KeyError:
-        raise ValueError('Wavelet does not define ({0}) coefficients'.format(', '.join(varnames)))
-
-
-def level1(name, compact=False):
-    """Load level 1 wavelet by name.
-
-    :param name: a string specifying the wavelet family name
-    :returns: a tuple of vectors giving filter coefficients
-
-    =============  ============================================
-    Name           Wavelet
-    =============  ============================================
-    antonini       Antonini 9,7 tap filters.
-    farras         Farras 8,8 tap filters
-    legall         LeGall 5,3 tap filters.
-    near_sym_a     Near-Symmetric 5,7 tap filters.
-    near_sym_b     Near-Symmetric 13,19 tap filters.
-    near_sym_b_bp  Near-Symmetric 13,19 tap filters + BP filter
-    =============  ============================================
-
-    Return a tuple whose elements are a vector specifying the h0o, g0o, h1o and
-    g1o coefficients.
-
-    See :ref:`rot-symm-wavelets` for an explanation of the ``near_sym_b_bp``
-    wavelet filters.
-
-    :raises IOError: if name does not correspond to a set of wavelets known to
-        the library.
-    :raises ValueError: if name doesn't specify
-        :py:func:`pytorch_wavelets.dtcwt.coeffs.qshift` wavelet.
-
-    """
-    if compact:
-        if name == 'near_sym_b_bp':
-            return _load_from_file(name, ('h0o', 'g0o', 'h1o', 'g1o', 'h2o', 'g2o'))
-        else:
-            return _load_from_file(name, ('h0o', 'g0o', 'h1o', 'g1o'))
-    else:
-        return _load_from_file(name, ('h0a', 'h0b', 'g0a', 'g0b', 'h1a', 'h1b', 'g1a', 'g1b'))
-
-
 def pm(a, b):
     u = (a + b) / sqrt(2)
     v = (a - b) / sqrt(2)
@@ -222,7 +168,7 @@ class DTCWTForward2(nn.Module):
         self.qshift = qshift
         self.J = J
         if isinstance(biort, str):
-            biort = level1(biort)
+            biort = _level1(biort)
         assert len(biort) == 8
         h0a1, h0b1, _, _, h1a1, h1b1, _, _ = biort
         DWTaa1 = DWTForward(J=1, wave=(h0a1, h1a1, h0a1, h1a1), mode=mode)
@@ -256,12 +202,12 @@ class DTCWTForward2(nn.Module):
                 lows[m][n] = ll
         yh = [None] * J
         for j in range(J):
-            deg75r, deg105i = pm(w[j][0][0][:, :, (1)], w[j][1][1][:, :, (1)])
-            deg105r, deg75i = pm(w[j][0][1][:, :, (1)], w[j][1][0][:, :, (1)])
-            deg15r, deg165i = pm(w[j][0][0][:, :, (0)], w[j][1][1][:, :, (0)])
-            deg165r, deg15i = pm(w[j][0][1][:, :, (0)], w[j][1][0][:, :, (0)])
-            deg135r, deg45i = pm(w[j][0][0][:, :, (2)], w[j][1][1][:, :, (2)])
-            deg45r, deg135i = pm(w[j][0][1][:, :, (2)], w[j][1][0][:, :, (2)])
+            deg75r, deg105i = pm(w[j][0][0][:, :, 1], w[j][1][1][:, :, 1])
+            deg105r, deg75i = pm(w[j][0][1][:, :, 1], w[j][1][0][:, :, 1])
+            deg15r, deg165i = pm(w[j][0][0][:, :, 0], w[j][1][1][:, :, 0])
+            deg165r, deg15i = pm(w[j][0][1][:, :, 0], w[j][1][0][:, :, 0])
+            deg135r, deg45i = pm(w[j][0][0][:, :, 2], w[j][1][1][:, :, 2])
+            deg45r, deg135i = pm(w[j][0][1][:, :, 2], w[j][1][0][:, :, 2])
             w[j] = None
             yhr = torch.stack((deg15r, deg45r, deg75r, deg105r, deg135r, deg165r), dim=1)
             yhi = torch.stack((deg15i, deg45i, deg75i, deg105i, deg135i, deg165i), dim=1)
@@ -273,8 +219,13 @@ class DWTInverse(nn.Module):
     """ Performs a 2d DWT Inverse reconstruction of an image
 
     Args:
-        wave (str or pywt.Wavelet): Which wavelet to use
-        C: deprecated, will be removed in future
+        wave (str or pywt.Wavelet or tuple(ndarray)): Which wavelet to use.
+            Can be:
+            1) a string to pass to pywt.Wavelet constructor
+            2) a pywt.Wavelet class
+            3) a tuple of numpy arrays, either (h0, h1) or (h0_col, h1_col, h0_row, h1_row)
+        mode (str): 'zero', 'symmetric', 'reflect' or 'periodization'. The
+            padding scheme
     """
 
     def __init__(self, wave='db1', mode='zero'):
@@ -291,10 +242,10 @@ class DWTInverse(nn.Module):
             g0_col, g1_col = wave[0], wave[1]
             g0_row, g1_row = wave[2], wave[3]
         filts = lowlevel.prep_filt_sfb2d(g0_col, g1_col, g0_row, g1_row)
-        self.g0_col = nn.Parameter(filts[0], requires_grad=False)
-        self.g1_col = nn.Parameter(filts[1], requires_grad=False)
-        self.g0_row = nn.Parameter(filts[2], requires_grad=False)
-        self.g1_row = nn.Parameter(filts[3], requires_grad=False)
+        self.register_buffer('g0_col', filts[0])
+        self.register_buffer('g1_col', filts[1])
+        self.register_buffer('g0_row', filts[2])
+        self.register_buffer('g1_row', filts[3])
         self.mode = mode
 
     def forward(self, coeffs):
@@ -324,9 +275,9 @@ class DWTInverse(nn.Module):
             if h is None:
                 h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2], ll.shape[-1], device=ll.device)
             if ll.shape[-2] > h.shape[-2]:
-                ll = ll[(...), :-1, :]
+                ll = ll[..., :-1, :]
             if ll.shape[-1] > h.shape[-1]:
-                ll = ll[(...), :-1]
+                ll = ll[..., :-1]
             ll = lowlevel.SFB2D.apply(ll, h, self.g0_col, self.g1_col, self.g0_row, self.g1_row, mode)
         return ll
 
@@ -338,7 +289,7 @@ class DTCWTInverse2(nn.Module):
         self.biort = biort
         self.qshift = qshift
         if isinstance(biort, str):
-            biort = level1(biort)
+            biort = _level1(biort)
         assert len(biort) == 8
         _, _, g0a1, g0b1, _, _, g1a1, g1b1 = biort
         IWTaa1 = DWTInverse(wave=(g0a1, g1a1, g0a1, g1a1), mode=mode)
@@ -361,12 +312,12 @@ class DTCWTInverse2(nn.Module):
         J = len(yh)
         w = [[[[None for band in range(3)] for j in range(J)] for m in range(2)] for n in range(2)]
         for j in range(J):
-            w[0][0][j][0], w[1][1][j][0] = pm(yh[j][:, (2), :, :, :, (0)], yh[j][:, (3), :, :, :, (1)])
-            w[0][1][j][0], w[1][0][j][0] = pm(yh[j][:, (3), :, :, :, (0)], yh[j][:, (2), :, :, :, (1)])
-            w[0][0][j][1], w[1][1][j][1] = pm(yh[j][:, (0), :, :, :, (0)], yh[j][:, (5), :, :, :, (1)])
-            w[0][1][j][1], w[1][0][j][1] = pm(yh[j][:, (5), :, :, :, (0)], yh[j][:, (0), :, :, :, (1)])
-            w[0][0][j][2], w[1][1][j][2] = pm(yh[j][:, (1), :, :, :, (0)], yh[j][:, (4), :, :, :, (1)])
-            w[0][1][j][2], w[1][0][j][2] = pm(yh[j][:, (4), :, :, :, (0)], yh[j][:, (1), :, :, :, (1)])
+            w[0][0][j][0], w[1][1][j][0] = pm(yh[j][:, 2, :, :, :, 0], yh[j][:, 3, :, :, :, 1])
+            w[0][1][j][0], w[1][0][j][0] = pm(yh[j][:, 3, :, :, :, 0], yh[j][:, 2, :, :, :, 1])
+            w[0][0][j][1], w[1][1][j][1] = pm(yh[j][:, 0, :, :, :, 0], yh[j][:, 5, :, :, :, 1])
+            w[0][1][j][1], w[1][0][j][1] = pm(yh[j][:, 5, :, :, :, 0], yh[j][:, 0, :, :, :, 1])
+            w[0][0][j][2], w[1][1][j][2] = pm(yh[j][:, 1, :, :, :, 0], yh[j][:, 4, :, :, :, 1])
+            w[0][1][j][2], w[1][0][j][2] = pm(yh[j][:, 4, :, :, :, 0], yh[j][:, 1, :, :, :, 1])
             w[0][0][j] = torch.stack(w[0][0][j], dim=2)
             w[0][1][j] = torch.stack(w[0][1][j], dim=2)
             w[1][0][j] = torch.stack(w[1][0][j], dim=2)
@@ -393,7 +344,7 @@ def colfilter(X, h, mode='symmetric'):
     m = h.shape[2] // 2
     if mode == 'symmetric':
         xe = symm_pad(row, m)
-        X = F.conv2d(X[:, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
+        X = F.conv2d(X[:, :, xe], h.repeat(ch, 1, 1, 1), groups=ch)
     else:
         X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(m, 0))
     return X
@@ -426,7 +377,7 @@ def rowfilter(X, h, mode='symmetric'):
     h = h.transpose(2, 3).contiguous()
     if mode == 'symmetric':
         xe = symm_pad(col, m)
-        X = F.conv2d(X[:, :, :, (xe)], h.repeat(ch, 1, 1, 1), groups=ch)
+        X = F.conv2d(X[:, :, :, xe], h.repeat(ch, 1, 1, 1), groups=ch)
     else:
         X = F.conv2d(X, h.repeat(ch, 1, 1, 1), groups=ch, padding=(0, m))
     return X
@@ -616,7 +567,7 @@ def coldfilt(X, ha, hb, highpass=False, mode='symmetric'):
     if mode == 'symmetric':
         m = ha.shape[2]
         xe = symm_pad(r, m)
-        X = torch.cat((X[:, :, (xe[2::2])], X[:, :, (xe[3::2])]), dim=1)
+        X = torch.cat((X[:, :, xe[2::2]], X[:, :, xe[3::2]]), dim=1)
         h = torch.cat((ha.repeat(ch, 1, 1, 1), hb.repeat(ch, 1, 1, 1)), dim=0)
         X = F.conv2d(X, h, stride=(2, 1), groups=ch * 2)
     else:
@@ -638,7 +589,7 @@ def rowdfilt(X, ha, hb, highpass=False, mode='symmetric'):
     if mode == 'symmetric':
         m = ha.shape[2]
         xe = symm_pad(c, m)
-        X = torch.cat((X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
+        X = torch.cat((X[:, :, :, xe[2::2]], X[:, :, :, xe[3::2]]), dim=1)
         h = torch.cat((ha.reshape(1, 1, 1, m).repeat(ch, 1, 1, 1), hb.reshape(1, 1, 1, m).repeat(ch, 1, 1, 1)), dim=0)
         X = F.conv2d(X, h, stride=(1, 2), groups=ch * 2)
     else:
@@ -693,18 +644,18 @@ def colifilt(X, ha, hb, highpass=False, mode='symmetric'):
         h3 = hao
         h4 = hbo
         if highpass:
-            X = torch.cat((X[:, :, (xe[1:-2:2])], X[:, :, (xe[:-2:2])], X[:, :, (xe[3::2])], X[:, :, (xe[2::2])]), dim=1)
+            X = torch.cat((X[:, :, xe[1:-2:2]], X[:, :, xe[:-2:2]], X[:, :, xe[3::2]], X[:, :, xe[2::2]]), dim=1)
         else:
-            X = torch.cat((X[:, :, (xe[:-2:2])], X[:, :, (xe[1:-2:2])], X[:, :, (xe[2::2])], X[:, :, (xe[3::2])]), dim=1)
+            X = torch.cat((X[:, :, xe[:-2:2]], X[:, :, xe[1:-2:2]], X[:, :, xe[2::2]], X[:, :, xe[3::2]]), dim=1)
     else:
         h1 = hao
         h2 = hbo
         h3 = hae
         h4 = hbe
         if highpass:
-            X = torch.cat((X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, xe[2:-1:2]], X[:, :, xe[1:-1:2]], X[:, :, xe[2:-1:2]], X[:, :, xe[1:-1:2]]), dim=1)
         else:
-            X = torch.cat((X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, xe[1:-1:2]], X[:, :, xe[2:-1:2]], X[:, :, xe[1:-1:2]], X[:, :, xe[2:-1:2]]), dim=1)
     h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0)
     X = F.conv2d(X, h, groups=4 * ch)
     X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 3 * ch:]], dim=3).view(batch, ch, r * 2, c)
@@ -730,18 +681,18 @@ def rowifilt(X, ha, hb, highpass=False, mode='symmetric'):
         h3 = hao
         h4 = hbo
         if highpass:
-            X = torch.cat((X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[3::2])], X[:, :, :, (xe[2::2])]), dim=1)
+            X = torch.cat((X[:, :, :, xe[1:-2:2]], X[:, :, :, xe[:-2:2]], X[:, :, :, xe[3::2]], X[:, :, :, xe[2::2]]), dim=1)
         else:
-            X = torch.cat((X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
+            X = torch.cat((X[:, :, :, xe[:-2:2]], X[:, :, :, xe[1:-2:2]], X[:, :, :, xe[2::2]], X[:, :, :, xe[3::2]]), dim=1)
     else:
         h1 = hao
         h2 = hbo
         h3 = hae
         h4 = hbe
         if highpass:
-            X = torch.cat((X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, :, xe[2:-1:2]], X[:, :, :, xe[1:-1:2]], X[:, :, :, xe[2:-1:2]], X[:, :, :, xe[1:-1:2]]), dim=1)
         else:
-            X = torch.cat((X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, :, xe[1:-1:2]], X[:, :, :, xe[2:-1:2]], X[:, :, :, xe[1:-1:2]], X[:, :, :, xe[2:-1:2]]), dim=1)
     h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0).reshape(4 * ch, 1, 1, m2)
     X = F.conv2d(X, h, groups=4 * ch)
     X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 3 * ch:]], dim=4).view(batch, ch, r, c * 2)
@@ -838,7 +789,7 @@ def prep_filt(h, c, transpose=False):
     """ Prepares an array to be of the correct format for pytorch.
     Can also specify whether to make it a row filter (set tranpose=True)"""
     h = _as_col_vector(h)[::-1]
-    h = h[(None), (None), :]
+    h = h[None, None, :]
     h = np.repeat(h, repeats=c, axis=0)
     if transpose:
         h = h.transpose((0, 1, 3, 2))
@@ -883,22 +834,22 @@ class DTCWTForward(nn.Module):
         self.mode = mode
         if isinstance(biort, str):
             h0o, _, h1o, _ = _biort(biort)
-            self.h0o = torch.nn.Parameter(prep_filt(h0o, 1), False)
-            self.h1o = torch.nn.Parameter(prep_filt(h1o, 1), False)
+            self.register_buffer('h0o', prep_filt(h0o, 1))
+            self.register_buffer('h1o', prep_filt(h1o, 1))
         else:
-            self.h0o = torch.nn.Parameter(prep_filt(biort[0], 1), False)
-            self.h1o = torch.nn.Parameter(prep_filt(biort[1], 1), False)
+            self.register_buffer('h0o', prep_filt(biort[0], 1))
+            self.register_buffer('h1o', prep_filt(biort[1], 1))
         if isinstance(qshift, str):
             h0a, h0b, _, _, h1a, h1b, _, _ = _qshift(qshift)
-            self.h0a = torch.nn.Parameter(prep_filt(h0a, 1), False)
-            self.h0b = torch.nn.Parameter(prep_filt(h0b, 1), False)
-            self.h1a = torch.nn.Parameter(prep_filt(h1a, 1), False)
-            self.h1b = torch.nn.Parameter(prep_filt(h1b, 1), False)
+            self.register_buffer('h0a', prep_filt(h0a, 1))
+            self.register_buffer('h0b', prep_filt(h0b, 1))
+            self.register_buffer('h1a', prep_filt(h1a, 1))
+            self.register_buffer('h1b', prep_filt(h1b, 1))
         else:
-            self.h0a = torch.nn.Parameter(prep_filt(qshift[0], 1), False)
-            self.h0b = torch.nn.Parameter(prep_filt(qshift[1], 1), False)
-            self.h1a = torch.nn.Parameter(prep_filt(qshift[2], 1), False)
-            self.h1b = torch.nn.Parameter(prep_filt(qshift[3], 1), False)
+            self.register_buffer('h0a', prep_filt(qshift[0], 1))
+            self.register_buffer('h0b', prep_filt(qshift[1], 1))
+            self.register_buffer('h1a', prep_filt(qshift[2], 1))
+            self.register_buffer('h1b', prep_filt(qshift[3], 1))
         if isinstance(skip_hps, (list, tuple, ndarray)):
             self.skip_hps = skip_hps
         else:
@@ -1080,22 +1031,22 @@ class DTCWTInverse(nn.Module):
         self.mode = mode
         if isinstance(biort, str):
             _, g0o, _, g1o = _biort(biort)
-            self.g0o = torch.nn.Parameter(prep_filt(g0o, 1), False)
-            self.g1o = torch.nn.Parameter(prep_filt(g1o, 1), False)
+            self.register_buffer('g0o', prep_filt(g0o, 1))
+            self.register_buffer('g1o', prep_filt(g1o, 1))
         else:
-            self.g0o = torch.nn.Parameter(prep_filt(biort[0], 1), False)
-            self.g1o = torch.nn.Parameter(prep_filt(biort[1], 1), False)
+            self.register_buffer('g0o', prep_filt(biort[0], 1))
+            self.register_buffer('g1o', prep_filt(biort[1], 1))
         if isinstance(qshift, str):
             _, _, g0a, g0b, _, _, g1a, g1b = _qshift(qshift)
-            self.g0a = torch.nn.Parameter(prep_filt(g0a, 1), False)
-            self.g0b = torch.nn.Parameter(prep_filt(g0b, 1), False)
-            self.g1a = torch.nn.Parameter(prep_filt(g1a, 1), False)
-            self.g1b = torch.nn.Parameter(prep_filt(g1b, 1), False)
+            self.register_buffer('g0a', prep_filt(g0a, 1))
+            self.register_buffer('g0b', prep_filt(g0b, 1))
+            self.register_buffer('g1a', prep_filt(g1a, 1))
+            self.register_buffer('g1b', prep_filt(g1b, 1))
         else:
-            self.g0a = torch.nn.Parameter(prep_filt(qshift[0], 1), False)
-            self.g0b = torch.nn.Parameter(prep_filt(qshift[1], 1), False)
-            self.g1a = torch.nn.Parameter(prep_filt(qshift[2], 1), False)
-            self.g1b = torch.nn.Parameter(prep_filt(qshift[3], 1), False)
+            self.register_buffer('g0a', prep_filt(qshift[0], 1))
+            self.register_buffer('g0b', prep_filt(qshift[1], 1))
+            self.register_buffer('g1a', prep_filt(qshift[2], 1))
+            self.register_buffer('g1b', prep_filt(qshift[3], 1))
 
     def forward(self, coeffs):
         """
@@ -1173,13 +1124,13 @@ class SWTInverse(nn.Module):
             g0_row, g1_row = wave[2], wave[3]
         if separable:
             filts = lowlevel.prep_filt_sfb2d(g0_col, g1_col, g0_row, g1_row)
-            self.g0_col = nn.Parameter(filts[0], requires_grad=False)
-            self.g1_col = nn.Parameter(filts[1], requires_grad=False)
-            self.g0_row = nn.Parameter(filts[2], requires_grad=False)
-            self.g1_row = nn.Parameter(filts[3], requires_grad=False)
+            self.register_buffer('g0_col', filts[0])
+            self.register_buffer('g1_col', filts[1])
+            self.register_buffer('g0_row', filts[2])
+            self.register_buffer('g1_row', filts[3])
         else:
             filts = lowlevel.prep_filt_sfb2d_nonsep(g0_col, g1_col, g0_row, g1_row)
-            self.h = nn.Parameter(filts, requires_grad=False)
+            self.register_buffer('h', filts)
         self.mode = mode
         self.separable = separable
 
@@ -1209,17 +1160,120 @@ class SWTInverse(nn.Module):
             if h is None:
                 h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2], ll.shape[-1], device=ll.device)
             if ll.shape[-2] > h.shape[-2]:
-                ll = ll[(...), :-1, :]
+                ll = ll[..., :-1, :]
             if ll.shape[-1] > h.shape[-1]:
-                ll = ll[(...), :-1]
+                ll = ll[..., :-1]
             if self.separable:
                 lh, hl, hh = torch.unbind(h, dim=2)
                 filts = self.g0_col, self.g1_col, self.g0_row, self.g1_row
                 ll = lowlevel.sfb2d(ll, lh, hl, hh, filts, mode=self.mode)
             else:
-                c = torch.cat((ll[:, :, (None)], h), dim=2)
+                c = torch.cat((ll[:, :, None], h), dim=2)
                 ll = lowlevel.sfb2d_nonsep(c, self.h, mode=self.mode)
         return ll
+
+
+class DWT1DForward(nn.Module):
+    """ Performs a 1d DWT Forward decomposition of an image
+
+    Args:
+        J (int): Number of levels of decomposition
+        wave (str or pywt.Wavelet or tuple(ndarray)): Which wavelet to use.
+            Can be:
+            1) a string to pass to pywt.Wavelet constructor
+            2) a pywt.Wavelet class
+            3) a tuple of numpy arrays (h0, h1)
+        mode (str): 'zero', 'symmetric', 'reflect' or 'periodization'. The
+            padding scheme
+        """
+
+    def __init__(self, J=1, wave='db1', mode='zero'):
+        super().__init__()
+        if isinstance(wave, str):
+            wave = pywt.Wavelet(wave)
+        if isinstance(wave, pywt.Wavelet):
+            h0, h1 = wave.dec_lo, wave.dec_hi
+        else:
+            assert len(wave) == 2
+            h0, h1 = wave[0], wave[1]
+        filts = lowlevel.prep_filt_afb1d(h0, h1)
+        self.register_buffer('h0', filts[0])
+        self.register_buffer('h1', filts[1])
+        self.J = J
+        self.mode = mode
+
+    def forward(self, x):
+        """ Forward pass of the DWT.
+
+        Args:
+            x (tensor): Input of shape :math:`(N, C_{in}, L_{in})`
+
+        Returns:
+            (yl, yh)
+                tuple of lowpass (yl) and bandpass (yh) coefficients.
+                yh is a list of length J with the first entry
+                being the finest scale coefficients.
+        """
+        assert x.ndim == 3, 'Can only handle 3d inputs (N, C, L)'
+        highs = []
+        x0 = x
+        mode = lowlevel.mode_to_int(self.mode)
+        for j in range(self.J):
+            x0, x1 = lowlevel.AFB1D.apply(x0, self.h0, self.h1, mode)
+            highs.append(x1)
+        return x0, highs
+
+
+class DWT1DInverse(nn.Module):
+    """ Performs a 1d DWT Inverse reconstruction of an image
+
+    Args:
+        wave (str or pywt.Wavelet or tuple(ndarray)): Which wavelet to use.
+            Can be:
+            1) a string to pass to pywt.Wavelet constructor
+            2) a pywt.Wavelet class
+            3) a tuple of numpy arrays (h0, h1)
+        mode (str): 'zero', 'symmetric', 'reflect' or 'periodization'. The
+            padding scheme
+    """
+
+    def __init__(self, wave='db1', mode='zero'):
+        super().__init__()
+        if isinstance(wave, str):
+            wave = pywt.Wavelet(wave)
+        if isinstance(wave, pywt.Wavelet):
+            g0, g1 = wave.rec_lo, wave.rec_hi
+        else:
+            assert len(wave) == 2
+            g0, g1 = wave[0], wave[1]
+        filts = lowlevel.prep_filt_sfb1d(g0, g1)
+        self.register_buffer('g0', filts[0])
+        self.register_buffer('g1', filts[1])
+        self.mode = mode
+
+    def forward(self, coeffs):
+        """
+        Args:
+            coeffs (yl, yh): tuple of lowpass and bandpass coefficients, should
+              match the format returned by DWT1DForward.
+
+        Returns:
+            Reconstructed input of shape :math:`(N, C_{in}, L_{in})`
+
+        Note:
+            Can have None for any of the highpass scales and will treat the
+            values as zeros (not in an efficient way though).
+        """
+        x0, highs = coeffs
+        assert x0.ndim == 3, 'Can only handle 3d inputs (N, C, L)'
+        mode = lowlevel.mode_to_int(self.mode)
+        for x1 in highs[::-1]:
+            if x1 is None:
+                x1 = torch.zeros_like(x0)
+            if x0.shape[-1] > x1.shape[-1]:
+                x0 = x0[..., :-1]
+            x0 = lowlevel.SFB1D.apply(x0, x1, self.g0, self.g1, mode)
+        return x0
 
 
 class SWTForward(nn.Module):
@@ -1251,10 +1305,10 @@ class SWTForward(nn.Module):
             h0_col, h1_col = wave[0], wave[1]
             h0_row, h1_row = wave[2], wave[3]
         filts = lowlevel.prep_filt_afb2d(h0_col, h1_col, h0_row, h1_row)
-        self.h0_col = nn.Parameter(filts[0], requires_grad=False)
-        self.h1_col = nn.Parameter(filts[1], requires_grad=False)
-        self.h0_row = nn.Parameter(filts[2], requires_grad=False)
-        self.h1_row = nn.Parameter(filts[3], requires_grad=False)
+        self.register_buffer('h0_col', filts[0])
+        self.register_buffer('h1_col', filts[1])
+        self.register_buffer('h0_row', filts[2])
+        self.register_buffer('h1_row', filts[3])
         self.J = J
         self.mode = mode
 
@@ -1276,7 +1330,7 @@ class SWTForward(nn.Module):
         for j in range(self.J):
             y = lowlevel.afb2d_atrous(ll, filts, self.mode, 2 ** j)
             coeffs.append(y)
-            ll = y[:, :, (0)]
+            ll = y[:, :, 0]
         return coeffs
 
 
@@ -1295,8 +1349,8 @@ class ScatLayerj1_f(torch.autograd.Function):
         ll, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
         ll = F.avg_pool2d(ll, 2)
         if combine_colour:
-            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            r = r[:, :, (None)]
+            r = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            r = r[:, :, None]
         else:
             r = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
         if x.requires_grad:
@@ -1309,9 +1363,9 @@ class ScatLayerj1_f(torch.autograd.Function):
         r = r - bias
         del reals, imags
         if combine_colour:
-            Z = torch.cat((ll, r[:, :, (0)]), dim=1)
+            Z = torch.cat((ll, r[:, :, 0]), dim=1)
         else:
-            Z = torch.cat((ll[:, (None)], r), dim=1)
+            Z = torch.cat((ll[:, None], r), dim=1)
         return Z
 
     @staticmethod
@@ -1324,9 +1378,9 @@ class ScatLayerj1_f(torch.autograd.Function):
             h1o_t = h1o
             if ctx.combine_colour:
                 dYl, dr = dZ[:, :3], dZ[:, 3:]
-                dr = dr[:, :, (None)]
+                dr = dr[:, :, None]
             else:
-                dYl, dr = dZ[:, (0)], dZ[:, 1:]
+                dYl, dr = dZ[:, 0], dZ[:, 1:]
             ll = 1 / 4 * F.interpolate(dYl, scale_factor=2, mode='nearest')
             reals = dr * drdx
             imags = dr * drdy
@@ -1405,8 +1459,8 @@ class ScatLayerj1_rot_f(torch.autograd.Function):
         ll, reals, imags = fwd_j1_rot(x, h0o, h1o, h2o, False, 1, mode)
         ll = F.avg_pool2d(ll, 2)
         if combine_colour:
-            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            r = r[:, :, (None)]
+            r = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            r = r[:, :, None]
         else:
             r = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
         if x.requires_grad:
@@ -1419,9 +1473,9 @@ class ScatLayerj1_rot_f(torch.autograd.Function):
         r = r - bias
         del reals, imags
         if combine_colour:
-            Z = torch.cat((ll, r[:, :, (0)]), dim=1)
+            Z = torch.cat((ll, r[:, :, 0]), dim=1)
         else:
-            Z = torch.cat((ll[:, (None)], r), dim=1)
+            Z = torch.cat((ll[:, None], r), dim=1)
         return Z
 
     @staticmethod
@@ -1432,9 +1486,9 @@ class ScatLayerj1_rot_f(torch.autograd.Function):
             h0o, h1o, h2o, drdx, drdy = ctx.saved_tensors
             if ctx.combine_colour:
                 dYl, dr = dZ[:, :3], dZ[:, 3:]
-                dr = dr[:, :, (None)]
+                dr = dr[:, :, None]
             else:
-                dYl, dr = dZ[:, (0)], dZ[:, 1:]
+                dYl, dr = dZ[:, 0], dZ[:, 1:]
             ll = 1 / 4 * F.interpolate(dYl, scale_factor=2, mode='nearest')
             reals = dr * drdx
             imags = dr * drdy
@@ -1515,21 +1569,21 @@ class ScatLayerj2_f(torch.autograd.Function):
         ctx.combine_colour = combine_colour
         s0, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
         if combine_colour:
-            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j1 = s1_j1[:, :, (None)]
+            s1_j1 = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            s1_j1 = s1_j1[:, :, None]
             if x.requires_grad:
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
             s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1, mode)
-            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j2 = s1_j2[:, :, (None)]
+            s1_j2 = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            s1_j2 = s1_j2[:, :, None]
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
                 dsdy2 = imags / s1_j2
             s1_j2 = s1_j2 - bias
             s0 = F.avg_pool2d(s0, 2)
-            s1_j1 = s1_j1[:, :, (0)]
+            s1_j1 = s1_j1[:, :, 0]
             s1_j1, reals, imags = fwd_j1(s1_j1, h0o, h1o, False, 1, mode)
             s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
@@ -1545,7 +1599,7 @@ class ScatLayerj2_f(torch.autograd.Function):
                 z = x.new_zeros(1)
                 ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z, z, z, z)
             del reals, imags
-            Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
+            Z = torch.cat((s0, s1_j1, s1_j2[:, :, 0], s2_j1), dim=1)
         else:
             s1_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
@@ -1577,7 +1631,7 @@ class ScatLayerj2_f(torch.autograd.Function):
                 z = x.new_zeros(1)
                 ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z, z, z, z)
             del reals, imags
-            Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
+            Z = torch.cat((s0[:, None], s1_j1, s1_j2, s2_j1), dim=1)
         return Z
 
     @staticmethod
@@ -1597,14 +1651,14 @@ class ScatLayerj2_f(torch.autograd.Function):
             h1b_t = h1a
             if ctx.combine_colour:
                 ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15], dZ[:, 15:]
-                ds1_j2 = ds1_j2[:, :, (None)]
+                ds1_j2 = ds1_j2[:, :, None]
                 ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
                 ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
-                ds1_j1 = ds1_j1[:, :, (None)]
+                ds1_j1 = ds1_j1[:, :, None]
                 ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
@@ -1613,7 +1667,7 @@ class ScatLayerj2_f(torch.autograd.Function):
                 imags = ds1_j1 * dsdy1
                 dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
             else:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, 0], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
                 p = ds1_j1.shape
                 ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
                 ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
@@ -1696,21 +1750,21 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
         ctx.combine_colour = combine_colour
         s0, reals, imags = fwd_j1_rot(x, h0o, h1o, h2o, False, 1, mode)
         if combine_colour:
-            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j1 = s1_j1[:, :, (None)]
+            s1_j1 = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            s1_j1 = s1_j1[:, :, None]
             if x.requires_grad:
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
             s0, reals, imags = fwd_j2plus_rot(s0, h0a, h1a, h0b, h1b, h2a, h2b, False, 1, mode)
-            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
-            s1_j2 = s1_j2[:, :, (None)]
+            s1_j2 = torch.sqrt(reals[:, :, 0] ** 2 + imags[:, :, 0] ** 2 + reals[:, :, 1] ** 2 + imags[:, :, 1] ** 2 + reals[:, :, 2] ** 2 + imags[:, :, 2] ** 2 + bias ** 2)
+            s1_j2 = s1_j2[:, :, None]
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
                 dsdy2 = imags / s1_j2
             s1_j2 = s1_j2 - bias
             s0 = F.avg_pool2d(s0, 2)
-            s1_j1 = s1_j1[:, :, (0)]
+            s1_j1 = s1_j1[:, :, 0]
             s1_j1, reals, imags = fwd_j1_rot(s1_j1, h0o, h1o, h2o, False, 1, mode)
             s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
@@ -1726,7 +1780,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
                 z = x.new_zeros(1)
                 ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, z, z, z, z, z, z)
             del reals, imags
-            Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
+            Z = torch.cat((s0, s1_j1, s1_j2[:, :, 0], s2_j1), dim=1)
         else:
             s1_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
@@ -1758,7 +1812,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
                 z = x.new_zeros(1)
                 ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, z, z, z, z, z, z)
             del reals, imags
-            Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
+            Z = torch.cat((s0[:, None], s1_j1, s1_j2, s2_j1), dim=1)
         return Z
 
     @staticmethod
@@ -1781,14 +1835,14 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             h2b_t = h2a
             if ctx.combine_colour:
                 ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15], dZ[:, 15:]
-                ds1_j2 = ds1_j2[:, :, (None)]
+                ds1_j2 = ds1_j2[:, :, None]
                 ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
                 ds1_j1 = inv_j1_rot(ds1_j1, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
-                ds1_j1 = ds1_j1[:, :, (None)]
+                ds1_j1 = ds1_j1[:, :, None]
                 ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
@@ -1797,7 +1851,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
                 imags = ds1_j1 * dsdy1
                 dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
             else:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, 0], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
                 p = ds1_j1.shape
                 ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
                 ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
@@ -1894,19 +1948,4 @@ class ScatLayerj2(nn.Module):
 
     def extra_repr(self):
         return "biort='{}', mode='{}', magbias={}".format(self.biort, self.mode_str, self.magbias)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.xfm = DTCWTForward(J=3, C=3)
-        self.ifm = DTCWTInverse(J=3, C=3)
-        self.sparsify = SparsifyWaveCoeffs2(3, 3)
-
-    def forward(self, x):
-        coeffs = self.xfm(x)
-        coeffs = self.sparsify(coeffs)
-        y = self.ifm(coeffs)
-        return y
 

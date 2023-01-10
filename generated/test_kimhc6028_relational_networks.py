@@ -154,7 +154,7 @@ class RN(BasicModel):
         self.coord_tensor = Variable(self.coord_tensor)
         np_coord_tensor = np.zeros((args.batch_size, 25, 2))
         for i in range(25):
-            np_coord_tensor[:, (i), :] = np.array(cvt_coord(i))
+            np_coord_tensor[:, i, :] = np.array(cvt_coord(i))
         self.coord_tensor.data.copy_(torch.from_numpy(np_coord_tensor))
         self.fcout = FCOutputModel()
         self.optimizer = optim.Adam(self.parameters(), lr=args.lr)

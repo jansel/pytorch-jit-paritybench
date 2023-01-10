@@ -979,6 +979,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ChannelSELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Conv2dBnRelu,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -988,9 +992,9 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (DecoderBlock,
-     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 16}),
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (DecoderBlockV1,
      lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1131,4 +1135,7 @@ class Test_neptune_ai_open_solution_salt_identification(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
 

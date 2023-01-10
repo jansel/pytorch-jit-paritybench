@@ -1,16 +1,26 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+summarize = _module
 server = _module
 setup = _module
-summarize = _module
 summarizer = _module
-bert_parent = _module
+bert = _module
 cluster_features = _module
+sbert = _module
+summary_processor = _module
+text_processors = _module
 coreference_handler = _module
-model_processors = _module
+sentence_abc = _module
 sentence_handler = _module
+transformer_embeddings = _module
+bert_embedding = _module
+sbert_embedding = _module
+util = _module
 tests = _module
+test_coreference = _module
+test_sbert = _module
+test_sentence_handler = _module
 test_summary_items = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -33,17 +43,17 @@ xrange = range
 wraps = functools.wraps
 
 
-import logging
+from typing import List
 
 
-import torch
+from typing import Union
 
 
 import numpy as np
 
 
+import torch
+
+
 from numpy import ndarray
-
-
-from typing import List
 

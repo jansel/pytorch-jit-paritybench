@@ -127,9 +127,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch._six import container_abcs
-
-
 from itertools import repeat
 
 
@@ -1355,10 +1352,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CondConv2d,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
-     True),
     (Conv2dDynamicSamePadding,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1448,7 +1441,4 @@ class Test_kakaobrain_fast_autoaugment(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
 

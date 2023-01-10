@@ -12,6 +12,7 @@ model_segnet_mtan = _module
 model_segnet_single = _module
 model_segnet_split = _module
 model_segnet_stan = _module
+utils = _module
 coco_results = _module
 model_wrn_eval = _module
 model_wrn_mtan = _module
@@ -42,25 +43,22 @@ from torch.utils.data.dataset import Dataset
 import torch
 
 
-import numpy as np
-
-
-import torch.nn as nn
-
-
 import torch.nn.functional as F
 
 
-from torchvision.models.utils import load_state_dict_from_url
+import numpy as np
+
+
+import random
+
+
+import torch.nn as nn
 
 
 import torch.optim as optim
 
 
 import torch.utils.data.sampler as sampler
-
-
-from torch.autograd import Variable
 
 
 import torch.nn.init as init
@@ -311,8 +309,8 @@ class MTANDeepLabv3(nn.Module):
         super(MTANDeepLabv3, self).__init__()
         backbone = ResnetDilated(resnet.__dict__['resnet50'](pretrained=True))
         ch = [256, 512, 1024, 2048]
-        self.tasks = ['segmentation', 'depth']
-        self.num_out_channels = {'segmentation': 13, 'depth': 1}
+        self.tasks = ['segmentation', 'depth', 'normal']
+        self.num_out_channels = {'segmentation': 13, 'depth': 1, 'normal': 3}
         self.shared_conv = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu1, backbone.maxpool)
         self.shared_layer1_b = backbone.layer1[:-1]
         self.shared_layer1_t = backbone.layer1[-1]
@@ -353,9 +351,13 @@ class MTANDeepLabv3(nn.Module):
         a_3 = [self.encoder_block_att_3(a_3_i) for a_3_i in a_3]
         a_4_mask = [att_i(torch.cat((u_4_b, a_3_i), dim=1)) for a_3_i, att_i in zip(a_3, self.encoder_att_4)]
         a_4 = [(a_4_mask_i * u_4_t) for a_4_mask_i in a_4_mask]
-        out = {}
+        out = [(0) for _ in self.tasks]
         for i, t in enumerate(self.tasks):
-            out[t] = nn.functional.interpolate(self.decoders[i](a_4[i]), size=out_size, mode='bilinear').squeeze()
+            out[i] = F.interpolate(self.decoders[i](a_4[i]), size=out_size, mode='bilinear', align_corners=True)
+            if t == 'segmentation':
+                out[i] = F.log_softmax(out[i], dim=1)
+            if t == 'normal':
+                out[i] = out[i] / torch.norm(out[i], p=2, dim=1, keepdim=True)
         return out
 
     def att_layer(self, in_channel, intermediate_channel, out_channel):
@@ -370,9 +372,6 @@ parser = argparse.ArgumentParser(description='Multi-task: Attention Network on W
 
 
 opt = parser.parse_args()
-
-
-device = torch.device('cuda:{}'.format(opt.gpu) if torch.cuda.is_available() else 'cpu')
 
 
 class SegNet(nn.Module):
@@ -499,69 +498,6 @@ class SegNet(nn.Module):
             pred = self.pred_task(atten_decoder[0][-1][-1])
             pred = pred / torch.norm(pred, p=2, dim=1, keepdim=True)
         return pred
-
-    def model_fit(self, x_pred, x_output):
-        if opt.task == 'semantic':
-            loss = F.nll_loss(x_pred, x_output, ignore_index=-1)
-        if opt.task == 'depth':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
-            loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask) / torch.nonzero(binary_mask).size(0)
-        if opt.task == 'normal':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
-            loss = 1 - torch.sum(x_pred * x_output * binary_mask) / torch.nonzero(binary_mask).size(0)
-        return loss
-
-    def compute_miou(self, x_pred, x_output):
-        _, x_pred_label = torch.max(x_pred, dim=1)
-        x_output_label = x_output
-        batch_size = x_pred.size(0)
-        for i in range(batch_size):
-            true_class = 0
-            first_switch = True
-            for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
-                union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
-                intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
-                if union == 0:
-                    continue
-                if first_switch:
-                    class_prob = intsec / union
-                    first_switch = False
-                else:
-                    class_prob = intsec / union + class_prob
-                true_class += 1
-            if i == 0:
-                batch_avg = class_prob / true_class
-            else:
-                batch_avg = class_prob / true_class + batch_avg
-        return batch_avg / batch_size
-
-    def compute_iou(self, x_pred, x_output):
-        _, x_pred_label = torch.max(x_pred, dim=1)
-        x_output_label = x_output
-        batch_size = x_pred.size(0)
-        for i in range(batch_size):
-            if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
-            else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
-        return pixel_acc / batch_size
-
-    def depth_error(self, x_pred, x_output):
-        binary_mask = (torch.sum(x_output, dim=1) != 0).unsqueeze(1)
-        x_pred_true = x_pred.masked_select(binary_mask)
-        x_output_true = x_output.masked_select(binary_mask)
-        abs_err = torch.abs(x_pred_true - x_output_true)
-        rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
-
-    def normal_error(self, x_pred, x_output):
-        binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
-        error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class wide_basic(nn.Module):

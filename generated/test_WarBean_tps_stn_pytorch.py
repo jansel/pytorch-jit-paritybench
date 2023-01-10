@@ -136,7 +136,7 @@ def compute_partial_repr(input_points, control_points):
     M = control_points.size(0)
     pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
     pairwise_diff_square = pairwise_diff * pairwise_diff
-    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:, :, (1)]
+    pairwise_dist = pairwise_diff_square[:, :, 0] + pairwise_diff_square[:, :, 1]
     repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
     mask = repr_matrix != repr_matrix
     repr_matrix.masked_fill_(mask, 0)
@@ -155,8 +155,8 @@ class TPSGridGen(nn.Module):
         forward_kernel = torch.zeros(N + 3, N + 3)
         target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)
         forward_kernel[:N, :N].copy_(target_control_partial_repr)
-        forward_kernel[:N, (-3)].fill_(1)
-        forward_kernel[(-3), :N].fill_(1)
+        forward_kernel[:N, -3].fill_(1)
+        forward_kernel[-3, :N].fill_(1)
         forward_kernel[:N, -2:].copy_(target_control_points)
         forward_kernel[-2:, :N].copy_(target_control_points.transpose(0, 1))
         inverse_kernel = torch.inverse(forward_kernel)

@@ -3,6 +3,9 @@ _module = sys.modules[__name__]
 del sys
 setup = _module
 tests = _module
+mini_toolbox = _module
+contextlib = _module
+pathlib = _module
 test_snoop = _module
 test_torchsnooper = _module
 utils = _module

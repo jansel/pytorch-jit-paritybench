@@ -1,8 +1,12 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+noxfile = _module
+setup = _module
+pytorch_fid = _module
 fid_score = _module
 inception = _module
+test_fid_score = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -28,6 +32,9 @@ import numpy as np
 
 
 import torch
+
+
+import torchvision.transforms as TF
 
 
 from scipy import linalg
@@ -175,7 +182,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=True, normalize_input=True, requires_grad=False, use_fid_inception=True):
+    def __init__(self, output_blocks=(DEFAULT_BLOCK_INDEX,), resize_input=True, normalize_input=True, requires_grad=False, use_fid_inception=True):
         """Build pretrained InceptionV3
 
         Parameters

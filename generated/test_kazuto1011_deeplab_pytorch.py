@@ -73,6 +73,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torch.hub import load_state_dict_from_url
+
+
 import random
 
 
@@ -83,6 +86,9 @@ import scipy.io as sio
 
 
 from torch.optim.lr_scheduler import _LRScheduler
+
+
+from torch.utils.tensorboard import SummaryWriter
 
 
 _BOTTLENECK_EXPANSION = 4
@@ -99,7 +105,7 @@ class _Bottleneck(nn.Module):
         self.reduce = _ConvBnReLU(in_ch, mid_ch, 1, stride, 0, 1, True)
         self.conv3x3 = _ConvBnReLU(mid_ch, mid_ch, 3, 1, dilation, dilation, True)
         self.increase = _ConvBnReLU(mid_ch, out_ch, 1, 1, 0, 1, False)
-        self.shortcut = _ConvBnReLU(in_ch, out_ch, 1, stride, 0, 1, False) if downsample else lambda x: x
+        self.shortcut = _ConvBnReLU(in_ch, out_ch, 1, stride, 0, 1, False) if downsample else nn.Identity()
 
     def forward(self, x):
         h = self.reduce(x)
@@ -302,12 +308,6 @@ class MSC(nn.Module):
             return logits_max
 
 
-class _Flatten(nn.Module):
-
-    def forward(self, x):
-        return x.view(x.size(0), -1)
-
-
 class ResNet(nn.Sequential):
 
     def __init__(self, n_classes, n_blocks):
@@ -319,7 +319,7 @@ class ResNet(nn.Sequential):
         self.add_module('layer4', _ResLayer(n_blocks[2], ch[3], ch[4], 2, 1))
         self.add_module('layer5', _ResLayer(n_blocks[3], ch[4], ch[5], 2, 1))
         self.add_module('pool5', nn.AdaptiveAvgPool2d(1))
-        self.add_module('flatten', _Flatten())
+        self.add_module('flatten', nn.Flatten())
         self.add_module('fc', nn.Linear(ch[5], n_classes))
 
 
@@ -334,16 +334,9 @@ TESTCASES = [
      lambda: ([], {'base': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (_Flatten,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
 ]
 
 class Test_kazuto1011_deeplab_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

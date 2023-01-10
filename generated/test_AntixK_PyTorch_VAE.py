@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+dataset = _module
 experiment = _module
 models = _module
 base = _module
@@ -70,25 +71,52 @@ xrange = range
 wraps = functools.wraps
 
 
-import math
-
-
 import torch
 
 
-from torch import optim
+from torch import Tensor
+
+
+from typing import List
+
+
+from typing import Optional
+
+
+from typing import Sequence
+
+
+from typing import Union
+
+
+from typing import Any
+
+
+from typing import Callable
+
+
+from torchvision.datasets.folder import default_loader
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
 
 
 from torchvision import transforms
 
 
-import torchvision.utils as vutils
-
-
 from torchvision.datasets import CelebA
 
 
-from torch.utils.data import DataLoader
+import math
+
+
+from torch import optim
+
+
+import torchvision.utils as vutils
 
 
 from torch import nn
@@ -133,18 +161,6 @@ from math import exp
 from torch import distributions as dist
 
 
-from typing import List
-
-
-from typing import Callable
-
-
-from typing import Union
-
-
-from typing import Any
-
-
 from typing import TypeVar
 
 
@@ -166,7 +182,7 @@ class BaseVAE(nn.Module):
         raise NotImplementedError
 
     def sample(self, batch_size: int, current_device: int, **kwargs) ->Tensor:
-        raise RuntimeWarning()
+        raise NotImplementedError
 
     def generate(self, x: Tensor, **kwargs) ->Tensor:
         raise NotImplementedError
@@ -874,7 +890,7 @@ class DIPVAE(BaseVAE):
         input = args[1]
         mu = args[2]
         log_var = args[3]
-        kld_weight = 1
+        kld_weight = kwargs['M_N']
         recons_loss = F.mse_loss(recons, input, reduction='sum')
         kld_loss = torch.sum(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
         centered_mu = mu - mu.mean(dim=1, keepdim=True)
@@ -1005,7 +1021,7 @@ class FactorVAE(BaseVAE):
             recons_loss = F.mse_loss(recons, input)
             kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
             self.D_z_reserve = self.discriminator(z)
-            vae_tc_loss = (self.D_z_reserve[:, (0)] - self.D_z_reserve[:, (1)]).mean()
+            vae_tc_loss = (self.D_z_reserve[:, 0] - self.D_z_reserve[:, 1]).mean()
             loss = recons_loss + kld_weight * kld_loss + self.gamma * vae_tc_loss
             return {'loss': loss, 'Reconstruction_Loss': recons_loss, 'KLD': -kld_loss, 'VAE_TC_Loss': vae_tc_loss}
         elif optimizer_idx == 1:
@@ -1605,7 +1621,7 @@ class IWAE(BaseVAE):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
-        return self.forward(x)[0][:, (0), :]
+        return self.forward(x)[0][:, 0, :]
 
 
 class JointVAE(BaseVAE):
@@ -2088,7 +2104,7 @@ class MIWAE(BaseVAE):
         :return: (Tensor) [B x S x C x H x W]
         """
         B, M, S, D = z.size()
-        z = z.view(-1, self.latent_dim)
+        z = z.contiguous().view(-1, self.latent_dim)
         result = self.decoder_input(z)
         result = result.view(-1, 512, 2, 2)
         result = self.decoder(result)
@@ -2156,7 +2172,7 @@ class MIWAE(BaseVAE):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
-        return self.forward(x)[0][:, (0), (0), :]
+        return self.forward(x)[0][:, 0, 0, :]
 
 
 class MSSIM(nn.Module):
@@ -2198,7 +2214,7 @@ class MSSIM(nn.Module):
         sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=in_channel) - mu1_sq
         sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=in_channel) - mu2_sq
         sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=in_channel) - mu1_mu2
-        img_range = img1.max() - img1.min()
+        img_range = 1.0
         C1 = (0.01 * img_range) ** 2
         C2 = (0.03 * img_range) ** 2
         v1 = 2.0 * sigma12 + C2
@@ -2772,7 +2788,7 @@ class VanillaVAE(BaseVAE):
         recons_loss = F.mse_loss(recons, input)
         kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
         loss = recons_loss + kld_weight * kld_loss
-        return {'loss': loss, 'Reconstruction_Loss': recons_loss, 'KLD': -kld_loss}
+        return {'loss': loss, 'Reconstruction_Loss': recons_loss.detach(), 'KLD': -kld_loss.detach()}
 
     def sample(self, num_samples: int, current_device: int, **kwargs) ->Tensor:
         """
@@ -3074,101 +3090,29 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
-    (BetaVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (CategoricalVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (DIPVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
     (EncoderBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'latent_dim': 4, 'img_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (FactorVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (GammaVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (HVAE,
-     lambda: ([], {'in_channels': 4, 'latent1_dim': 4, 'latent2_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (IWAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (InfoVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (JointVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4, 'categorical_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (LVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dims': [4, 4], 'hidden_dims': [4, 4]}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
     (LadderBlock,
      lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (LogCoshVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (MIWAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
     (MSSIM,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (MSSIMVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
     (ResidualLayer,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SWAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (TwoStageVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
     (VQVAE,
      lambda: ([], {'in_channels': 4, 'embedding_dim': 4, 'num_embeddings': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (VampVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
-    (VanillaVAE,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     False),
     (VectorQuantizer,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (WAE_MMD,
-     lambda: ([], {'in_channels': 4, 'latent_dim': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
 ]
 
@@ -3196,58 +3140,4 @@ class Test_AntixK_PyTorch_VAE(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
-
-    def test_025(self):
-        self._check(*TESTCASES[25])
 

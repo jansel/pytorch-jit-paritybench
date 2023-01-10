@@ -191,7 +191,7 @@ class AbstractGRU(nn.Module):
             max_length = seq_length
         output = []
         for i in range(max_length):
-            hx = self.gru_cell(x[:, (i), :], hx=hx)
+            hx = self.gru_cell(x[:, i, :], hx=hx)
             output.append(hx.view(batch_size, 1, self.hidden_size))
         output = torch.cat(output, 1)
         return output, hx
@@ -226,7 +226,7 @@ class BayesianGRU(AbstractGRU):
             max_length = seq_length
         output = []
         for i in range(max_length):
-            hx = self.gru_cell(x[:, (i), :], hx=hx)
+            hx = self.gru_cell(x[:, i, :], hx=hx)
             output.append(hx.view(batch_size, 1, self.hidden_size))
         self.gru_cell.end_of_sequence()
         output = torch.cat(output, 1)
@@ -437,10 +437,10 @@ class DropUniSkip(AbstractUniSkip):
         output = []
         for i in range(seq_length):
             if self.dropout > 0:
-                input_gru_cell = self.seq_drop_x(x[:, (i), :])
+                input_gru_cell = self.seq_drop_x(x[:, i, :])
                 hx = self.seq_drop_h(hx)
             else:
-                input_gru_cell = x[:, (i), :]
+                input_gru_cell = x[:, i, :]
             hx = self.rnn(input_gru_cell, hx)
             output.append(hx.view(batch_size, 1, 2400))
         output = torch.cat(output, 1)
@@ -583,7 +583,7 @@ TESTCASES = [
     (GRUCell,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (SequentialDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

@@ -8,6 +8,7 @@ genericdataset = _module
 testdataset = _module
 traindataset = _module
 examples = _module
+example_descriptor_extraction = _module
 test = _module
 test_e2e = _module
 train = _module
@@ -24,6 +25,7 @@ download_win = _module
 evaluate = _module
 general = _module
 whiten = _module
+setup = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -51,9 +53,6 @@ import torch
 import torch.utils.data as data
 
 
-import time
-
-
 import numpy as np
 
 
@@ -61,6 +60,9 @@ from torch.utils.model_zoo import load_url
 
 
 from torchvision import transforms
+
+
+import time
 
 
 import math

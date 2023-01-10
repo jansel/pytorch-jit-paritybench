@@ -86,8 +86,8 @@ class Model(nn.Module):
     def __init__(self, filename_obj, filename_ref=None):
         super(Model, self).__init__()
         vertices, faces = nr.load_obj(filename_obj)
-        self.register_buffer('vertices', vertices[(None), :, :])
-        self.register_buffer('faces', faces[(None), :, :])
+        self.register_buffer('vertices', vertices[None, :, :])
+        self.register_buffer('faces', faces[None, :, :])
         texture_size = 2
         textures = torch.ones(1, self.faces.shape[1], texture_size, texture_size, texture_size, 3, dtype=torch.float32)
         self.register_buffer('textures', textures)
@@ -100,7 +100,7 @@ class Model(nn.Module):
 
     def forward(self):
         image = self.renderer(self.vertices, self.faces, mode='silhouettes')
-        loss = torch.sum((image - self.image_ref[(None), :, :]) ** 2)
+        loss = torch.sum((image - self.image_ref[None, :, :]) ** 2)
         return loss
 
 
@@ -227,11 +227,11 @@ class RasterizeFunction(Function):
     def forward_background(ctx, face_index_map, rgb_map):
         if ctx.return_rgb:
             background_color = torch.FloatTensor(ctx.background_color)
-            mask = (face_index_map >= 0).float()[:, :, :, (None)]
+            mask = (face_index_map >= 0).float()[:, :, :, None]
             if background_color.ndimension() == 1:
-                rgb_map = rgb_map * mask + (1 - mask) * background_color[(None), (None), (None), :]
+                rgb_map = rgb_map * mask + (1 - mask) * background_color[None, None, None, :]
             elif background_color.ndimension() == 2:
-                rgb_map = rgb_map * mask + (1 - mask) * background_color[:, (None), (None), :]
+                rgb_map = rgb_map * mask + (1 - mask) * background_color[:, None, None, :]
         return rgb_map
 
     @staticmethod
@@ -337,7 +337,7 @@ class Renderer(nn.Module):
 
     def render_silhouettes(self, vertices, faces, K=None, R=None, t=None, dist_coeffs=None, orig_size=None):
         if self.fill_back:
-            faces = torch.cat((faces, faces[:, :, (list(reversed(range(faces.shape[-1]))))]), dim=1)
+            faces = torch.cat((faces, faces[:, :, list(reversed(range(faces.shape[-1])))]), dim=1)
         if self.camera_mode == 'look_at':
             vertices = nr.look_at(vertices, self.eye)
             if self.perspective:
@@ -364,7 +364,7 @@ class Renderer(nn.Module):
 
     def render_depth(self, vertices, faces, K=None, R=None, t=None, dist_coeffs=None, orig_size=None):
         if self.fill_back:
-            faces = torch.cat((faces, faces[:, :, (list(reversed(range(faces.shape[-1]))))]), dim=1).detach()
+            faces = torch.cat((faces, faces[:, :, list(reversed(range(faces.shape[-1])))]), dim=1).detach()
         if self.camera_mode == 'look_at':
             vertices = nr.look_at(vertices, self.eye)
             if self.perspective:
@@ -391,7 +391,7 @@ class Renderer(nn.Module):
 
     def render_rgb(self, vertices, faces, textures, K=None, R=None, t=None, dist_coeffs=None, orig_size=None):
         if self.fill_back:
-            faces = torch.cat((faces, faces[:, :, (list(reversed(range(faces.shape[-1]))))]), dim=1).detach()
+            faces = torch.cat((faces, faces[:, :, list(reversed(range(faces.shape[-1])))]), dim=1).detach()
             textures = torch.cat((textures, textures.permute((0, 1, 4, 3, 2, 5))), dim=1)
         faces_lighting = nr.vertices_to_faces(vertices, faces)
         textures = nr.lighting(faces_lighting, textures, self.light_intensity_ambient, self.light_intensity_directional, self.light_color_ambient, self.light_color_directional, self.light_direction)
@@ -421,7 +421,7 @@ class Renderer(nn.Module):
 
     def render(self, vertices, faces, textures, K=None, R=None, t=None, dist_coeffs=None, orig_size=None):
         if self.fill_back:
-            faces = torch.cat((faces, faces[:, :, (list(reversed(range(faces.shape[-1]))))]), dim=1).detach()
+            faces = torch.cat((faces, faces[:, :, list(reversed(range(faces.shape[-1])))]), dim=1).detach()
             textures = torch.cat((textures, textures.permute((0, 1, 4, 3, 2, 5))), dim=1)
         faces_lighting = nr.vertices_to_faces(vertices, faces)
         textures = nr.lighting(faces_lighting, textures, self.light_intensity_ambient, self.light_intensity_directional, self.light_color_ambient, self.light_color_directional, self.light_direction)

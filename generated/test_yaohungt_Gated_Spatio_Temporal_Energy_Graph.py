@@ -567,7 +567,7 @@ def gtmat(sizes, target):
     for i, t in enumerate(target):
         t = t.data[0] if type(t) is torch.Tensor else t
         if len(sizes) == 3:
-            out[(i), (t), :] = 1
+            out[i, t, :] = 1
         else:
             out[i, t] = 1
     return out
@@ -580,7 +580,7 @@ def winsmooth(mat, kernelsize=1):
     for m in range(n):
         a = max(0, m - kernelsize)
         b = min(n - 1, m + kernelsize)
-        out[(m), :] = mat[a:b + 1, :].mean(0)
+        out[m, :] = mat[a:b + 1, :].mean(0)
     return out
 
 

@@ -134,6 +134,15 @@ decoupled_solo_r50_fpn_8gpu_3x = _module
 solo_r101_fpn_8gpu_3x = _module
 solo_r50_fpn_8gpu_1x = _module
 solo_r50_fpn_8gpu_3x = _module
+solov2_light_448_r18_fpn_8gpu_3x = _module
+solov2_light_448_r34_fpn_8gpu_3x = _module
+solov2_light_448_r50_fpn_8gpu_3x = _module
+solov2_light_512_dcn_r50_fpn_8gpu_3x = _module
+solov2_r101_dcn_fpn_8gpu_3x = _module
+solov2_r101_fpn_8gpu_3x = _module
+solov2_r50_fpn_8gpu_1x = _module
+solov2_r50_fpn_8gpu_3x = _module
+solov2_x101_dcn_fpn_8gpu_3x = _module
 ssd300_coco = _module
 ssd512_coco = _module
 ssd300_wider_face = _module
@@ -228,6 +237,8 @@ retina_head = _module
 retina_sepbn_head = _module
 rpn_head = _module
 solo_head = _module
+solov2_head = _module
+solov2_light_head = _module
 ssd_head = _module
 backbones = _module
 hrnet = _module
@@ -258,6 +269,7 @@ rpn = _module
 single_stage = _module
 single_stage_ins = _module
 solo = _module
+solov2 = _module
 test_mixins = _module
 two_stage = _module
 losses = _module
@@ -275,6 +287,7 @@ fcn_mask_head = _module
 fused_semantic_head = _module
 grid_head = _module
 htc_mask_head = _module
+mask_feat_head = _module
 maskiou_head = _module
 necks = _module
 bfp = _module
@@ -316,6 +329,7 @@ logger = _module
 profiling = _module
 registry = _module
 util_mixins = _module
+paddlepaddle = _module
 setup = _module
 async_benchmark = _module
 test_assigner = _module
@@ -555,11 +569,11 @@ class AnchorGenerator(object):
         h_ratios = torch.sqrt(self.ratios)
         w_ratios = 1 / h_ratios
         if self.scale_major:
-            ws = (w * w_ratios[:, (None)] * self.scales[(None), :]).view(-1)
-            hs = (h * h_ratios[:, (None)] * self.scales[(None), :]).view(-1)
+            ws = (w * w_ratios[:, None] * self.scales[None, :]).view(-1)
+            hs = (h * h_ratios[:, None] * self.scales[None, :]).view(-1)
         else:
-            ws = (w * self.scales[:, (None)] * w_ratios[(None), :]).view(-1)
-            hs = (h * self.scales[:, (None)] * h_ratios[(None), :]).view(-1)
+            ws = (w * self.scales[:, None] * w_ratios[None, :]).view(-1)
+            hs = (h * self.scales[:, None] * h_ratios[None, :]).view(-1)
         base_anchors = torch.stack([x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)], dim=-1).round()
         return base_anchors
 
@@ -579,7 +593,7 @@ class AnchorGenerator(object):
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
         shifts = shifts.type_as(base_anchors)
-        all_anchors = base_anchors[(None), :, :] + shifts[:, (None), :]
+        all_anchors = base_anchors[None, :, :] + shifts[:, None, :]
         all_anchors = all_anchors.view(-1, 4)
         return all_anchors
 
@@ -593,7 +607,7 @@ class AnchorGenerator(object):
         valid_y[:valid_h] = 1
         valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
         valid = valid_xx & valid_yy
-        valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
+        valid = valid[:, None].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
         return valid
 
 
@@ -688,7 +702,7 @@ class BaseSampler(metaclass=ABCMeta):
             >>> self = self.sample(assign_result, bboxes, gt_bboxes, gt_labels)
         """
         if len(bboxes.shape) < 2:
-            bboxes = bboxes[(None), :]
+            bboxes = bboxes[None, :]
         bboxes = bboxes[:, :4]
         gt_flags = bboxes.new_zeros((bboxes.shape[0],), dtype=torch.uint8)
         if self.add_gt_as_proposals and len(gt_bboxes) > 0:
@@ -736,7 +750,7 @@ class PseudoSampler(BaseSampler):
 def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0):
     img_h, img_w = img_shape[:2]
     if allowed_border >= 0:
-        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border).type(torch.uint8) & (flat_anchors[:, (1)] >= -allowed_border).type(torch.uint8) & (flat_anchors[:, (2)] < img_w + allowed_border).type(torch.uint8) & (flat_anchors[:, (3)] < img_h + allowed_border).type(torch.uint8)
+        inside_flags = valid_flags & (flat_anchors[:, 0] >= -allowed_border).type(torch.uint8) & (flat_anchors[:, 1] >= -allowed_border).type(torch.uint8) & (flat_anchors[:, 2] < img_w + allowed_border).type(torch.uint8) & (flat_anchors[:, 3] < img_h + allowed_border).type(torch.uint8)
     else:
         inside_flags = valid_flags
     return inside_flags
@@ -800,7 +814,7 @@ def unmap(data, count, inds, fill=0):
     else:
         new_size = (count,) + data.size()[1:]
         ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
+        ret[inds, :] = data
     return ret
 
 
@@ -808,7 +822,7 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
     if not inside_flags.any():
         return (None,) * 6
-    anchors = flat_anchors[(inside_flags), :]
+    anchors = flat_anchors[inside_flags, :]
     if sampling:
         assign_result, sampling_result = assign_and_sample(anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
@@ -825,8 +839,8 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     neg_inds = sampling_result.neg_inds
     if len(pos_inds) > 0:
         pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes, target_means, target_stds)
-        bbox_targets[(pos_inds), :] = pos_bbox_targets
-        bbox_weights[(pos_inds), :] = 1.0
+        bbox_targets[pos_inds, :] = pos_bbox_targets
+        bbox_weights[pos_inds, :] = 1.0
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
@@ -998,10 +1012,10 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
     max_ratio = np.abs(np.log(wh_ratio_clip))
     dw = dw.clamp(min=-max_ratio, max=max_ratio)
     dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    px = ((rois[:, 0] + rois[:, 2]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, 1] + rois[:, 3]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, 2] - rois[:, 0] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, 3] - rois[:, 1] + 1.0).unsqueeze(1).expand_as(dh)
     gw = pw * dw.exp()
     gh = ph * dh.exp()
     gx = torch.addcmul(px, 1, pw, dx)
@@ -1123,17 +1137,17 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1, s
     nms_type = nms_cfg_.pop('type', 'nms')
     nms_op = getattr(nms_wrapper, nms_type)
     for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
+        cls_inds = multi_scores[:, i] > score_thr
         if not cls_inds.any():
             continue
         if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
+            _bboxes = multi_bboxes[cls_inds, :]
         else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+            _bboxes = multi_bboxes[cls_inds, i * 4:(i + 1) * 4]
         _scores = multi_scores[cls_inds, i]
         if score_factors is not None:
             _scores *= score_factors[cls_inds]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets = torch.cat([_bboxes, _scores[:, None]], dim=1)
         cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
         cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1, dtype=torch.long)
         bboxes.append(cls_dets)
@@ -1142,7 +1156,7 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1, s
         bboxes = torch.cat(bboxes)
         labels = torch.cat(labels)
         if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
+            _, inds = bboxes[:, -1].sort(descending=True)
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             labels = labels[inds]
@@ -1355,9 +1369,9 @@ class AnchorHead(nn.Module):
                 else:
                     max_scores, _ = scores[:, 1:].max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                anchors = anchors[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
             bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
             mlvl_bboxes.append(bboxes)
             mlvl_scores.append(scores)
@@ -2015,12 +2029,12 @@ class ATSSHead(AnchorHead):
 
     def centerness_target(self, anchors, bbox_targets):
         gts = delta2bbox(anchors, bbox_targets, self.target_means, self.target_stds)
-        anchors_cx = (anchors[:, (2)] + anchors[:, (0)]) / 2
-        anchors_cy = (anchors[:, (3)] + anchors[:, (1)]) / 2
-        l_ = anchors_cx - gts[:, (0)]
-        t_ = anchors_cy - gts[:, (1)]
-        r_ = gts[:, (2)] - anchors_cx
-        b_ = gts[:, (3)] - anchors_cy
+        anchors_cx = (anchors[:, 2] + anchors[:, 0]) / 2
+        anchors_cy = (anchors[:, 3] + anchors[:, 1]) / 2
+        l_ = anchors_cx - gts[:, 0]
+        t_ = anchors_cy - gts[:, 1]
+        r_ = gts[:, 2] - anchors_cx
+        b_ = gts[:, 3] - anchors_cy
         left_right = torch.stack([l_, r_], dim=1)
         top_bottom = torch.stack([t_, b_], dim=1)
         centerness = torch.sqrt(left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0]))
@@ -2056,11 +2070,11 @@ class ATSSHead(AnchorHead):
             centerness = centerness.permute(1, 2, 0).reshape(-1).sigmoid()
             nms_pre = cfg.get('nms_pre', -1)
             if nms_pre > 0 and scores.shape[0] > nms_pre:
-                max_scores, _ = (scores * centerness[:, (None)]).max(dim=1)
+                max_scores, _ = (scores * centerness[:, None]).max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                anchors = anchors[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
                 centerness = centerness[topk_inds]
             bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
             mlvl_bboxes.append(bboxes)
@@ -2109,7 +2123,7 @@ class ATSSHead(AnchorHead):
         inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
         if not inside_flags.any():
             return (None,) * 6
-        anchors = flat_anchors[(inside_flags), :]
+        anchors = flat_anchors[inside_flags, :]
         num_level_anchors_inside = self.get_num_level_anchors_inside(num_level_anchors, inside_flags)
         bbox_assigner = build_assigner(cfg.assigner)
         assign_result = bbox_assigner.assign(anchors, num_level_anchors_inside, gt_bboxes, gt_bboxes_ignore, gt_labels)
@@ -2124,8 +2138,8 @@ class ATSSHead(AnchorHead):
         neg_inds = sampling_result.neg_inds
         if len(pos_inds) > 0:
             pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes, self.target_means, self.target_stds)
-            bbox_targets[(pos_inds), :] = pos_bbox_targets
-            bbox_weights[(pos_inds), :] = 1.0
+            bbox_targets[pos_inds, :] = pos_bbox_targets
+            bbox_weights[pos_inds, :] = 1.0
             if gt_labels is None:
                 labels[pos_inds] = 1
             else:
@@ -2149,6 +2163,18 @@ class ATSSHead(AnchorHead):
         split_inside_flags = torch.split(inside_flags, num_level_anchors)
         num_level_anchors_inside = [int(flags.sum()) for flags in split_inside_flags]
         return num_level_anchors_inside
+
+
+def center_of_mass(bitmasks):
+    _, h, w = bitmasks.size()
+    ys = torch.arange(0, h, dtype=torch.float32, device=bitmasks.device)
+    xs = torch.arange(0, w, dtype=torch.float32, device=bitmasks.device)
+    m00 = bitmasks.sum(dim=-1).sum(dim=-1).clamp(min=1e-06)
+    m10 = (bitmasks * xs).sum(dim=-1).sum(dim=-1)
+    m01 = (bitmasks * ys[:, None]).sum(dim=-1).sum(dim=-1)
+    center_x = m10 / m00
+    center_y = m01 / m00
+    return center_x, center_y
 
 
 def dice_loss(input, target):
@@ -2306,8 +2332,8 @@ class DecoupledSOLOHead(nn.Module):
         featmap_sizes = [featmap.size()[-2:] for featmap in ins_preds_x]
         ins_label_list, cate_label_list, ins_ind_label_list, ins_ind_label_list_xy = multi_apply(self.solo_target_single, gt_bbox_list, gt_label_list, gt_mask_list, featmap_sizes=featmap_sizes)
         ins_labels = [torch.cat([ins_labels_level_img[ins_ind_labels_level_img, ...] for ins_labels_level_img, ins_ind_labels_level_img in zip(ins_labels_level, ins_ind_labels_level)], 0) for ins_labels_level, ins_ind_labels_level in zip(zip(*ins_label_list), zip(*ins_ind_label_list))]
-        ins_preds_x_final = [torch.cat([ins_preds_level_img_x[ins_ind_labels_level_img[:, (1)], ...] for ins_preds_level_img_x, ins_ind_labels_level_img in zip(ins_preds_level_x, ins_ind_labels_level)], 0) for ins_preds_level_x, ins_ind_labels_level in zip(ins_preds_x, zip(*ins_ind_label_list_xy))]
-        ins_preds_y_final = [torch.cat([ins_preds_level_img_y[ins_ind_labels_level_img[:, (0)], ...] for ins_preds_level_img_y, ins_ind_labels_level_img in zip(ins_preds_level_y, ins_ind_labels_level)], 0) for ins_preds_level_y, ins_ind_labels_level in zip(ins_preds_y, zip(*ins_ind_label_list_xy))]
+        ins_preds_x_final = [torch.cat([ins_preds_level_img_x[ins_ind_labels_level_img[:, 1], ...] for ins_preds_level_img_x, ins_ind_labels_level_img in zip(ins_preds_level_x, ins_ind_labels_level)], 0) for ins_preds_level_x, ins_ind_labels_level in zip(ins_preds_x, zip(*ins_ind_label_list_xy))]
+        ins_preds_y_final = [torch.cat([ins_preds_level_img_y[ins_ind_labels_level_img[:, 0], ...] for ins_preds_level_img_y, ins_ind_labels_level_img in zip(ins_preds_level_y, ins_ind_labels_level)], 0) for ins_preds_level_y, ins_ind_labels_level in zip(ins_preds_y, zip(*ins_ind_label_list_xy))]
         num_ins = 0.0
         loss_ins = []
         for input_x, input_y, target in zip(ins_preds_x_final, ins_preds_y_final, ins_labels):
@@ -2327,7 +2353,7 @@ class DecoupledSOLOHead(nn.Module):
 
     def solo_target_single(self, gt_bboxes_raw, gt_labels_raw, gt_masks_raw, featmap_sizes=None):
         device = gt_labels_raw[0].device
-        gt_areas = torch.sqrt((gt_bboxes_raw[:, (2)] - gt_bboxes_raw[:, (0)]) * (gt_bboxes_raw[:, (3)] - gt_bboxes_raw[:, (1)]))
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
         ins_label_list = []
         cate_label_list = []
         ins_ind_label_list = []
@@ -2348,14 +2374,16 @@ class DecoupledSOLOHead(nn.Module):
             gt_bboxes = gt_bboxes_raw[hit_indices]
             gt_labels = gt_labels_raw[hit_indices]
             gt_masks = gt_masks_raw[hit_indices.cpu().numpy(), ...]
-            half_ws = 0.5 * (gt_bboxes[:, (2)] - gt_bboxes[:, (0)]) * self.sigma
-            half_hs = 0.5 * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)]) * self.sigma
+            half_ws = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.sigma
+            half_hs = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.sigma
+            gt_masks_pt = torch.from_numpy(gt_masks)
+            center_ws, center_hs = center_of_mass(gt_masks_pt)
+            valid_mask_flags = gt_masks_pt.sum(dim=-1).sum(dim=-1) > 0
             output_stride = stride / 2
-            for seg_mask, gt_label, half_h, half_w in zip(gt_masks, gt_labels, half_hs, half_ws):
-                if seg_mask.sum() < 10:
+            for seg_mask, gt_label, half_h, half_w, center_h, center_w, valid_mask_flag in zip(gt_masks, gt_labels, half_hs, half_ws, center_hs, center_ws, valid_mask_flags):
+                if not valid_mask_flag:
                     continue
                 upsampled_size = featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4
-                center_h, center_w = ndimage.measurements.center_of_mass(seg_mask)
                 coord_w = int(center_w / upsampled_size[1] // (1.0 / num_grid))
                 coord_h = int(center_h / upsampled_size[0] // (1.0 / num_grid))
                 top_box = max(0, int((center_h - half_h) / upsampled_size[0] // (1.0 / num_grid)))
@@ -2368,11 +2396,11 @@ class DecoupledSOLOHead(nn.Module):
                 right = min(right_box, coord_w + 1)
                 cate_label[top:down + 1, left:right + 1] = gt_label
                 seg_mask = mmcv.imrescale(seg_mask, scale=1.0 / output_stride)
-                seg_mask = torch.Tensor(seg_mask)
+                seg_mask = torch.from_numpy(seg_mask)
                 for i in range(top, down + 1):
                     for j in range(left, right + 1):
                         label = int(i * num_grid + j)
-                        ins_label[(label), :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
             ins_label = ins_label[ins_ind_label]
             ins_label_list.append(ins_label)
@@ -2423,15 +2451,15 @@ class DecoupledSOLOHead(nn.Module):
         inds = cate_preds > cfg.score_thr
         cate_scores = cate_preds[inds]
         inds = inds.nonzero()
-        trans_diff = torch.index_select(trans_diff, dim=0, index=inds[:, (0)])
-        seg_diff = torch.index_select(seg_diff, dim=0, index=inds[:, (0)])
-        num_grids = torch.index_select(num_grids, dim=0, index=inds[:, (0)])
-        strides = torch.index_select(strides, dim=0, index=inds[:, (0)])
-        y_inds = (inds[:, (0)] - trans_diff) // num_grids
-        x_inds = (inds[:, (0)] - trans_diff) % num_grids
+        trans_diff = torch.index_select(trans_diff, dim=0, index=inds[:, 0])
+        seg_diff = torch.index_select(seg_diff, dim=0, index=inds[:, 0])
+        num_grids = torch.index_select(num_grids, dim=0, index=inds[:, 0])
+        strides = torch.index_select(strides, dim=0, index=inds[:, 0])
+        y_inds = (inds[:, 0] - trans_diff) // num_grids
+        x_inds = (inds[:, 0] - trans_diff) % num_grids
         y_inds += seg_diff
         x_inds += seg_diff
-        cate_labels = inds[:, (1)]
+        cate_labels = inds[:, 1]
         seg_masks_soft = seg_preds_x[x_inds, ...] * seg_preds_y[y_inds, ...]
         seg_masks = seg_masks_soft > cfg.mask_thr
         sum_masks = seg_masks.sum((1, 2)).float()
@@ -2448,20 +2476,20 @@ class DecoupledSOLOHead(nn.Module):
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.nms_pre:
             sort_inds = sort_inds[:cfg.nms_pre]
-        seg_masks_soft = seg_masks_soft[(sort_inds), :, :]
-        seg_masks = seg_masks[(sort_inds), :, :]
+        seg_masks_soft = seg_masks_soft[sort_inds, :, :]
+        seg_masks = seg_masks[sort_inds, :, :]
         cate_scores = cate_scores[sort_inds]
         sum_masks = sum_masks[sort_inds]
         cate_labels = cate_labels[sort_inds]
         cate_scores = matrix_nms(seg_masks, cate_labels, cate_scores, kernel=cfg.kernel, sigma=cfg.sigma, sum_masks=sum_masks)
         keep = cate_scores >= cfg.update_thr
-        seg_masks_soft = seg_masks_soft[(keep), :, :]
+        seg_masks_soft = seg_masks_soft[keep, :, :]
         cate_scores = cate_scores[keep]
         cate_labels = cate_labels[keep]
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.max_per_img:
             sort_inds = sort_inds[:cfg.max_per_img]
-        seg_masks_soft = seg_masks_soft[(sort_inds), :, :]
+        seg_masks_soft = seg_masks_soft[sort_inds, :, :]
         cate_scores = cate_scores[sort_inds]
         cate_labels = cate_labels[sort_inds]
         seg_masks_soft = F.interpolate(seg_masks_soft.unsqueeze(0), size=upsampled_size_out, mode='bilinear')[:, :, :h, :w]
@@ -2567,8 +2595,8 @@ class DecoupledSOLOLightHead(nn.Module):
         featmap_sizes = [featmap.size()[-2:] for featmap in ins_preds_x]
         ins_label_list, cate_label_list, ins_ind_label_list, ins_ind_label_list_xy = multi_apply(self.solo_target_single, gt_bbox_list, gt_label_list, gt_mask_list, featmap_sizes=featmap_sizes)
         ins_labels = [torch.cat([ins_labels_level_img[ins_ind_labels_level_img, ...] for ins_labels_level_img, ins_ind_labels_level_img in zip(ins_labels_level, ins_ind_labels_level)], 0) for ins_labels_level, ins_ind_labels_level in zip(zip(*ins_label_list), zip(*ins_ind_label_list))]
-        ins_preds_x_final = [torch.cat([ins_preds_level_img_x[ins_ind_labels_level_img[:, (1)], ...] for ins_preds_level_img_x, ins_ind_labels_level_img in zip(ins_preds_level_x, ins_ind_labels_level)], 0) for ins_preds_level_x, ins_ind_labels_level in zip(ins_preds_x, zip(*ins_ind_label_list_xy))]
-        ins_preds_y_final = [torch.cat([ins_preds_level_img_y[ins_ind_labels_level_img[:, (0)], ...] for ins_preds_level_img_y, ins_ind_labels_level_img in zip(ins_preds_level_y, ins_ind_labels_level)], 0) for ins_preds_level_y, ins_ind_labels_level in zip(ins_preds_y, zip(*ins_ind_label_list_xy))]
+        ins_preds_x_final = [torch.cat([ins_preds_level_img_x[ins_ind_labels_level_img[:, 1], ...] for ins_preds_level_img_x, ins_ind_labels_level_img in zip(ins_preds_level_x, ins_ind_labels_level)], 0) for ins_preds_level_x, ins_ind_labels_level in zip(ins_preds_x, zip(*ins_ind_label_list_xy))]
+        ins_preds_y_final = [torch.cat([ins_preds_level_img_y[ins_ind_labels_level_img[:, 0], ...] for ins_preds_level_img_y, ins_ind_labels_level_img in zip(ins_preds_level_y, ins_ind_labels_level)], 0) for ins_preds_level_y, ins_ind_labels_level in zip(ins_preds_y, zip(*ins_ind_label_list_xy))]
         num_ins = 0.0
         loss_ins = []
         for input_x, input_y, target in zip(ins_preds_x_final, ins_preds_y_final, ins_labels):
@@ -2588,7 +2616,7 @@ class DecoupledSOLOLightHead(nn.Module):
 
     def solo_target_single(self, gt_bboxes_raw, gt_labels_raw, gt_masks_raw, featmap_sizes=None):
         device = gt_labels_raw[0].device
-        gt_areas = torch.sqrt((gt_bboxes_raw[:, (2)] - gt_bboxes_raw[:, (0)]) * (gt_bboxes_raw[:, (3)] - gt_bboxes_raw[:, (1)]))
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
         ins_label_list = []
         cate_label_list = []
         ins_ind_label_list = []
@@ -2609,14 +2637,16 @@ class DecoupledSOLOLightHead(nn.Module):
             gt_bboxes = gt_bboxes_raw[hit_indices]
             gt_labels = gt_labels_raw[hit_indices]
             gt_masks = gt_masks_raw[hit_indices.cpu().numpy(), ...]
-            half_ws = 0.5 * (gt_bboxes[:, (2)] - gt_bboxes[:, (0)]) * self.sigma
-            half_hs = 0.5 * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)]) * self.sigma
+            half_ws = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.sigma
+            half_hs = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.sigma
+            gt_masks_pt = torch.from_numpy(gt_masks)
+            center_ws, center_hs = center_of_mass(gt_masks_pt)
+            valid_mask_flags = gt_masks_pt.sum(dim=-1).sum(dim=-1) > 0
             output_stride = stride / 2
-            for seg_mask, gt_label, half_h, half_w in zip(gt_masks, gt_labels, half_hs, half_ws):
-                if seg_mask.sum() < 10:
+            for seg_mask, gt_label, half_h, half_w, center_h, center_w, valid_mask_flag in zip(gt_masks, gt_labels, half_hs, half_ws, center_hs, center_ws, valid_mask_flags):
+                if not valid_mask_flag:
                     continue
                 upsampled_size = featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4
-                center_h, center_w = ndimage.measurements.center_of_mass(seg_mask)
                 coord_w = int(center_w / upsampled_size[1] // (1.0 / num_grid))
                 coord_h = int(center_h / upsampled_size[0] // (1.0 / num_grid))
                 top_box = max(0, int((center_h - half_h) / upsampled_size[0] // (1.0 / num_grid)))
@@ -2629,11 +2659,11 @@ class DecoupledSOLOLightHead(nn.Module):
                 right = min(right_box, coord_w + 1)
                 cate_label[top:down + 1, left:right + 1] = gt_label
                 seg_mask = mmcv.imrescale(seg_mask, scale=1.0 / output_stride)
-                seg_mask = torch.Tensor(seg_mask)
+                seg_mask = torch.from_numpy(seg_mask)
                 for i in range(top, down + 1):
                     for j in range(left, right + 1):
                         label = int(i * num_grid + j)
-                        ins_label[(label), :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
             ins_label = ins_label[ins_ind_label]
             ins_label_list.append(ins_label)
@@ -2684,15 +2714,15 @@ class DecoupledSOLOLightHead(nn.Module):
         inds = cate_preds > cfg.score_thr
         cate_scores = cate_preds[inds]
         inds = inds.nonzero()
-        trans_diff = torch.index_select(trans_diff, dim=0, index=inds[:, (0)])
-        seg_diff = torch.index_select(seg_diff, dim=0, index=inds[:, (0)])
-        num_grids = torch.index_select(num_grids, dim=0, index=inds[:, (0)])
-        strides = torch.index_select(strides, dim=0, index=inds[:, (0)])
-        y_inds = (inds[:, (0)] - trans_diff) // num_grids
-        x_inds = (inds[:, (0)] - trans_diff) % num_grids
+        trans_diff = torch.index_select(trans_diff, dim=0, index=inds[:, 0])
+        seg_diff = torch.index_select(seg_diff, dim=0, index=inds[:, 0])
+        num_grids = torch.index_select(num_grids, dim=0, index=inds[:, 0])
+        strides = torch.index_select(strides, dim=0, index=inds[:, 0])
+        y_inds = (inds[:, 0] - trans_diff) // num_grids
+        x_inds = (inds[:, 0] - trans_diff) % num_grids
         y_inds += seg_diff
         x_inds += seg_diff
-        cate_labels = inds[:, (1)]
+        cate_labels = inds[:, 1]
         seg_masks_soft = seg_preds_x[x_inds, ...] * seg_preds_y[y_inds, ...]
         seg_masks = seg_masks_soft > cfg.mask_thr
         sum_masks = seg_masks.sum((1, 2)).float()
@@ -2709,20 +2739,20 @@ class DecoupledSOLOLightHead(nn.Module):
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.nms_pre:
             sort_inds = sort_inds[:cfg.nms_pre]
-        seg_masks_soft = seg_masks_soft[(sort_inds), :, :]
-        seg_masks = seg_masks[(sort_inds), :, :]
+        seg_masks_soft = seg_masks_soft[sort_inds, :, :]
+        seg_masks = seg_masks[sort_inds, :, :]
         cate_scores = cate_scores[sort_inds]
         sum_masks = sum_masks[sort_inds]
         cate_labels = cate_labels[sort_inds]
         cate_scores = matrix_nms(seg_masks, cate_labels, cate_scores, kernel=cfg.kernel, sigma=cfg.sigma, sum_masks=sum_masks)
         keep = cate_scores >= cfg.update_thr
-        seg_masks_soft = seg_masks_soft[(keep), :, :]
+        seg_masks_soft = seg_masks_soft[keep, :, :]
         cate_scores = cate_scores[keep]
         cate_labels = cate_labels[keep]
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.max_per_img:
             sort_inds = sort_inds[:cfg.max_per_img]
-        seg_masks_soft = seg_masks_soft[(sort_inds), :, :]
+        seg_masks_soft = seg_masks_soft[sort_inds, :, :]
         cate_scores = cate_scores[sort_inds]
         cate_labels = cate_labels[sort_inds]
         seg_masks_soft = F.interpolate(seg_masks_soft.unsqueeze(0), size=upsampled_size_out, mode='bilinear')[:, :, :h, :w]
@@ -2746,10 +2776,10 @@ def distance2bbox(points, distance, max_shape=None):
     Returns:
         Tensor: Decoded bboxes.
     """
-    x1 = points[:, (0)] - distance[:, (0)]
-    y1 = points[:, (1)] - distance[:, (1)]
-    x2 = points[:, (0)] + distance[:, (2)]
-    y2 = points[:, (1)] + distance[:, (3)]
+    x1 = points[:, 0] - distance[:, 0]
+    y1 = points[:, 1] - distance[:, 1]
+    x2 = points[:, 0] + distance[:, 2]
+    y2 = points[:, 1] + distance[:, 3]
     if max_shape is not None:
         x1 = x1.clamp(min=0, max=max_shape[1] - 1)
         y1 = y1.clamp(min=0, max=max_shape[0] - 1)
@@ -2893,11 +2923,11 @@ class FCOSHead(nn.Module):
             bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
             nms_pre = cfg.get('nms_pre', -1)
             if nms_pre > 0 and scores.shape[0] > nms_pre:
-                max_scores, _ = (scores * centerness[:, (None)]).max(dim=1)
+                max_scores, _ = (scores * centerness[:, None]).max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                points = points[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                points = points[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
                 centerness = centerness[topk_inds]
             bboxes = distance2bbox(points, bbox_pred, max_shape=img_shape)
             mlvl_bboxes.append(bboxes)
@@ -2959,13 +2989,13 @@ class FCOSHead(nn.Module):
         num_gts = gt_labels.size(0)
         if num_gts == 0:
             return gt_labels.new_zeros(num_points), gt_bboxes.new_zeros((num_points, 4))
-        areas = (gt_bboxes[:, (2)] - gt_bboxes[:, (0)] + 1) * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)] + 1)
+        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * (gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1)
         areas = areas[None].repeat(num_points, 1)
-        regress_ranges = regress_ranges[:, (None), :].expand(num_points, num_gts, 2)
+        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 2)
         gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
-        xs, ys = points[:, (0)], points[:, (1)]
-        xs = xs[:, (None)].expand(num_points, num_gts)
-        ys = ys[:, (None)].expand(num_points, num_gts)
+        xs, ys = points[:, 0], points[:, 1]
+        xs = xs[:, None].expand(num_points, num_gts)
+        ys = ys[:, None].expand(num_points, num_gts)
         left = xs - gt_bboxes[..., 0]
         right = gt_bboxes[..., 2] - xs
         top = ys - gt_bboxes[..., 1]
@@ -2983,8 +3013,8 @@ class FCOSHead(nn.Module):
         return labels, bbox_targets
 
     def centerness_target(self, pos_bbox_targets):
-        left_right = pos_bbox_targets[:, ([0, 2])]
-        top_bottom = pos_bbox_targets[:, ([1, 3])]
+        left_right = pos_bbox_targets[:, [0, 2]]
+        top_bottom = pos_bbox_targets[:, [1, 3]]
         centerness_targets = left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
         return torch.sqrt(centerness_targets)
 
@@ -3120,7 +3150,7 @@ class FoveaHead(nn.Module):
         return flatten_labels, flatten_bbox_targets
 
     def fovea_target_single(self, gt_bboxes_raw, gt_labels_raw, featmap_size_list=None, point_list=None):
-        gt_areas = torch.sqrt((gt_bboxes_raw[:, (2)] - gt_bboxes_raw[:, (0)]) * (gt_bboxes_raw[:, (3)] - gt_bboxes_raw[:, (1)]))
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
         label_list = []
         bbox_target_list = []
         for base_len, (lower_bound, upper_bound), stride, featmap_size, (y, x) in zip(self.base_edge_list, self.scale_ranges, self.strides, featmap_size_list, point_list):
@@ -3133,20 +3163,20 @@ class FoveaHead(nn.Module):
                 continue
             _, hit_index_order = torch.sort(-gt_areas[hit_indices])
             hit_indices = hit_indices[hit_index_order]
-            gt_bboxes = gt_bboxes_raw[(hit_indices), :] / stride
+            gt_bboxes = gt_bboxes_raw[hit_indices, :] / stride
             gt_labels = gt_labels_raw[hit_indices]
-            half_w = 0.5 * (gt_bboxes[:, (2)] - gt_bboxes[:, (0)])
-            half_h = 0.5 * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)])
-            pos_left = torch.ceil(gt_bboxes[:, (0)] + (1 - self.sigma) * half_w - 0.5).long().clamp(0, featmap_size[1] - 1)
-            pos_right = torch.floor(gt_bboxes[:, (0)] + (1 + self.sigma) * half_w - 0.5).long().clamp(0, featmap_size[1] - 1)
-            pos_top = torch.ceil(gt_bboxes[:, (1)] + (1 - self.sigma) * half_h - 0.5).long().clamp(0, featmap_size[0] - 1)
-            pos_down = torch.floor(gt_bboxes[:, (1)] + (1 + self.sigma) * half_h - 0.5).long().clamp(0, featmap_size[0] - 1)
-            for px1, py1, px2, py2, label, (gt_x1, gt_y1, gt_x2, gt_y2) in zip(pos_left, pos_top, pos_right, pos_down, gt_labels, gt_bboxes_raw[(hit_indices), :]):
+            half_w = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0])
+            half_h = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1])
+            pos_left = torch.ceil(gt_bboxes[:, 0] + (1 - self.sigma) * half_w - 0.5).long().clamp(0, featmap_size[1] - 1)
+            pos_right = torch.floor(gt_bboxes[:, 0] + (1 + self.sigma) * half_w - 0.5).long().clamp(0, featmap_size[1] - 1)
+            pos_top = torch.ceil(gt_bboxes[:, 1] + (1 - self.sigma) * half_h - 0.5).long().clamp(0, featmap_size[0] - 1)
+            pos_down = torch.floor(gt_bboxes[:, 1] + (1 + self.sigma) * half_h - 0.5).long().clamp(0, featmap_size[0] - 1)
+            for px1, py1, px2, py2, label, (gt_x1, gt_y1, gt_x2, gt_y2) in zip(pos_left, pos_top, pos_right, pos_down, gt_labels, gt_bboxes_raw[hit_indices, :]):
                 labels[py1:py2 + 1, px1:px2 + 1] = label
-                bbox_targets[py1:py2 + 1, px1:px2 + 1, (0)] = (stride * x[py1:py2 + 1, px1:px2 + 1] - gt_x1) / base_len
-                bbox_targets[py1:py2 + 1, px1:px2 + 1, (1)] = (stride * y[py1:py2 + 1, px1:px2 + 1] - gt_y1) / base_len
-                bbox_targets[py1:py2 + 1, px1:px2 + 1, (2)] = (gt_x2 - stride * x[py1:py2 + 1, px1:px2 + 1]) / base_len
-                bbox_targets[py1:py2 + 1, px1:px2 + 1, (3)] = (gt_y2 - stride * y[py1:py2 + 1, px1:px2 + 1]) / base_len
+                bbox_targets[py1:py2 + 1, px1:px2 + 1, 0] = (stride * x[py1:py2 + 1, px1:px2 + 1] - gt_x1) / base_len
+                bbox_targets[py1:py2 + 1, px1:px2 + 1, 1] = (stride * y[py1:py2 + 1, px1:px2 + 1] - gt_y1) / base_len
+                bbox_targets[py1:py2 + 1, px1:px2 + 1, 2] = (gt_x2 - stride * x[py1:py2 + 1, px1:px2 + 1]) / base_len
+                bbox_targets[py1:py2 + 1, px1:px2 + 1, 3] = (gt_y2 - stride * y[py1:py2 + 1, px1:px2 + 1]) / base_len
             bbox_targets = bbox_targets.clamp(min=1.0 / 16, max=16.0)
             label_list.append(labels)
             bbox_target_list.append(torch.log(bbox_targets))
@@ -3179,14 +3209,14 @@ class FoveaHead(nn.Module):
             if nms_pre > 0 and scores.shape[0] > nms_pre:
                 max_scores, _ = scores.max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
                 y = y[topk_inds]
                 x = x[topk_inds]
-            x1 = (stride * x - base_len * bbox_pred[:, (0)]).clamp(min=0, max=img_shape[1] - 1)
-            y1 = (stride * y - base_len * bbox_pred[:, (1)]).clamp(min=0, max=img_shape[0] - 1)
-            x2 = (stride * x + base_len * bbox_pred[:, (2)]).clamp(min=0, max=img_shape[1] - 1)
-            y2 = (stride * y + base_len * bbox_pred[:, (3)]).clamp(min=0, max=img_shape[0] - 1)
+            x1 = (stride * x - base_len * bbox_pred[:, 0]).clamp(min=0, max=img_shape[1] - 1)
+            y1 = (stride * y - base_len * bbox_pred[:, 1]).clamp(min=0, max=img_shape[0] - 1)
+            x2 = (stride * x + base_len * bbox_pred[:, 2]).clamp(min=0, max=img_shape[1] - 1)
+            y2 = (stride * y + base_len * bbox_pred[:, 3]).clamp(min=0, max=img_shape[0] - 1)
             bboxes = torch.stack([x1, y1, x2, y2], -1)
             det_bboxes.append(bboxes)
             det_scores.append(scores)
@@ -3251,11 +3281,11 @@ class MaskedConv2dFunction(Function):
         mask_inds = torch.nonzero(mask[0] > 0)
         output = features.new_zeros(batch_size, out_channel, out_h, out_w)
         if mask_inds.numel() > 0:
-            mask_h_idx = mask_inds[:, (0)].contiguous()
-            mask_w_idx = mask_inds[:, (1)].contiguous()
+            mask_h_idx = mask_inds[:, 0].contiguous()
+            mask_w_idx = mask_inds[:, 1].contiguous()
             data_col = features.new_zeros(in_channel * kernel_h * kernel_w, mask_inds.size(0))
             masked_conv2d_cuda.masked_im2col_forward(features, mask_h_idx, mask_w_idx, kernel_h, kernel_w, pad_h, pad_w, data_col)
-            masked_output = torch.addmm(1, bias[:, (None)], 1, weight.view(out_channel, -1), data_col)
+            masked_output = torch.addmm(1, bias[:, None], 1, weight.view(out_channel, -1), data_col)
             masked_conv2d_cuda.masked_col2im_forward(masked_output, mask_h_idx, mask_w_idx, out_h, out_w, out_channel, output)
         return output
 
@@ -3346,28 +3376,28 @@ def ga_loc_target(gt_bboxes_list, featmap_sizes, anchor_scale, anchor_strides, c
         all_ignore_map.append(ignore_map)
     for img_id in range(img_per_gpu):
         gt_bboxes = gt_bboxes_list[img_id]
-        scale = torch.sqrt((gt_bboxes[:, (2)] - gt_bboxes[:, (0)] + 1) * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)] + 1))
+        scale = torch.sqrt((gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * (gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1))
         min_anchor_size = scale.new_full((1,), float(anchor_scale * anchor_strides[0]))
         target_lvls = torch.floor(torch.log2(scale) - torch.log2(min_anchor_size) + 0.5)
         target_lvls = target_lvls.clamp(min=0, max=num_lvls - 1).long()
         for gt_id in range(gt_bboxes.size(0)):
             lvl = target_lvls[gt_id].item()
-            gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[lvl]
+            gt_ = gt_bboxes[gt_id, :4] / anchor_strides[lvl]
             ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[lvl])
             ctr_x1, ctr_y1, ctr_x2, ctr_y2 = calc_region(gt_, r1, featmap_sizes[lvl])
-            all_loc_targets[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
-            all_loc_weights[lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 0
-            all_loc_weights[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            all_loc_targets[lvl][img_id, 0, ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            all_loc_weights[lvl][img_id, 0, ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 0
+            all_loc_weights[lvl][img_id, 0, ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
             if lvl > 0:
                 d_lvl = lvl - 1
-                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[d_lvl]
+                gt_ = gt_bboxes[gt_id, :4] / anchor_strides[d_lvl]
                 ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[d_lvl])
-                all_ignore_map[d_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+                all_ignore_map[d_lvl][img_id, 0, ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
             if lvl < num_lvls - 1:
                 u_lvl = lvl + 1
-                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[u_lvl]
+                gt_ = gt_bboxes[gt_id, :4] / anchor_strides[u_lvl]
                 ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[u_lvl])
-                all_ignore_map[u_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+                all_ignore_map[u_lvl][img_id, 0, ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
     for lvl_id in range(num_lvls):
         all_loc_weights[lvl_id][(all_loc_weights[lvl_id] < 0) & (all_ignore_map[lvl_id] > 0)] = 0
         all_loc_weights[lvl_id][all_loc_weights[lvl_id] < 0] = 0.1
@@ -3400,9 +3430,9 @@ def ga_shape_target_single(flat_approxs, inside_flags, flat_squares, gt_bboxes, 
     """
     if not inside_flags.any():
         return (None,) * 5
-    expand_inside_flags = inside_flags[:, (None)].expand(-1, approxs_per_octave).reshape(-1)
-    approxs = flat_approxs[(expand_inside_flags), :]
-    squares = flat_squares[(inside_flags), :]
+    expand_inside_flags = inside_flags[:, None].expand(-1, approxs_per_octave).reshape(-1)
+    approxs = flat_approxs[expand_inside_flags, :]
+    squares = flat_squares[inside_flags, :]
     bbox_assigner = build_assigner(cfg.ga_assigner)
     assign_result = bbox_assigner.assign(approxs, squares, approxs_per_octave, gt_bboxes, gt_bboxes_ignore)
     if sampling:
@@ -3416,9 +3446,9 @@ def ga_shape_target_single(flat_approxs, inside_flags, flat_squares, gt_bboxes, 
     pos_inds = sampling_result.pos_inds
     neg_inds = sampling_result.neg_inds
     if len(pos_inds) > 0:
-        bbox_anchors[(pos_inds), :] = sampling_result.pos_bboxes
-        bbox_gts[(pos_inds), :] = sampling_result.pos_gt_bboxes
-        bbox_weights[(pos_inds), :] = 1.0
+        bbox_anchors[pos_inds, :] = sampling_result.pos_bboxes
+        bbox_gts[pos_inds, :] = sampling_result.pos_gt_bboxes
+        bbox_weights[pos_inds, :] = 1.0
     if unmap_outputs:
         num_total_anchors = flat_squares.size(0)
         bbox_anchors = unmap(bbox_anchors, num_total_anchors, inside_flags)
@@ -3687,7 +3717,7 @@ class GuidedAnchorHead(AnchorHead):
         anchor_weights = anchor_weights.contiguous().view(-1, 4)
         bbox_deltas = bbox_anchors.new_full(bbox_anchors.size(), 0)
         bbox_deltas[:, 2:] += shape_pred
-        inds = torch.nonzero(anchor_weights[:, (0)] > 0).squeeze(1)
+        inds = torch.nonzero(anchor_weights[:, 0] > 0).squeeze(1)
         bbox_deltas_ = bbox_deltas[inds]
         bbox_anchors_ = bbox_anchors[inds]
         bbox_gts_ = bbox_gts[inds]
@@ -3765,8 +3795,8 @@ class GuidedAnchorHead(AnchorHead):
             else:
                 scores = cls_score.softmax(-1)
             bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
-            scores = scores[(mask), :]
-            bbox_pred = bbox_pred[(mask), :]
+            scores = scores[mask, :]
+            bbox_pred = bbox_pred[mask, :]
             if scores.dim() == 0:
                 anchors = anchors.unsqueeze(0)
                 scores = scores.unsqueeze(0)
@@ -3778,9 +3808,9 @@ class GuidedAnchorHead(AnchorHead):
                 else:
                     max_scores, _ = scores[:, 1:].max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                anchors = anchors[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
             bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
             mlvl_bboxes.append(bboxes)
             mlvl_scores.append(scores)
@@ -3832,7 +3862,7 @@ def point_target_single(flat_proposals, valid_flags, gt_bboxes, gt_bboxes_ignore
     inside_flags = valid_flags
     if not inside_flags.any():
         return (None,) * 7
-    proposals = flat_proposals[(inside_flags), :]
+    proposals = flat_proposals[inside_flags, :]
     if sampling:
         assign_result, sampling_result = assign_and_sample(proposals, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
@@ -3850,9 +3880,9 @@ def point_target_single(flat_proposals, valid_flags, gt_bboxes, gt_bboxes_ignore
     neg_inds = sampling_result.neg_inds
     if len(pos_inds) > 0:
         pos_gt_bboxes = sampling_result.pos_gt_bboxes
-        bbox_gt[(pos_inds), :] = pos_gt_bboxes
-        pos_proposals[(pos_inds), :] = proposals[(pos_inds), :]
-        proposals_weights[(pos_inds), :] = 1.0
+        bbox_gt[pos_inds, :] = pos_gt_bboxes
+        pos_proposals[pos_inds, :] = proposals[pos_inds, :]
+        proposals_weights[pos_inds, :] = 1.0
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
@@ -4011,8 +4041,8 @@ class RepPointsHead(nn.Module):
         :return: each points set is converting to a bbox [x1, y1, x2, y2].
         """
         pts_reshape = pts.view(pts.shape[0], -1, 2, *pts.shape[2:])
-        pts_y = pts_reshape[:, :, (0), (...)] if y_first else pts_reshape[:, :, (1), (...)]
-        pts_x = pts_reshape[:, :, (1), (...)] if y_first else pts_reshape[:, :, (0), (...)]
+        pts_y = pts_reshape[:, :, 0, ...] if y_first else pts_reshape[:, :, 1, ...]
+        pts_x = pts_reshape[:, :, 1, ...] if y_first else pts_reshape[:, :, 0, ...]
         if self.transform_method == 'minmax':
             bbox_left = pts_x.min(dim=1, keepdim=True)[0]
             bbox_right = pts_x.max(dim=1, keepdim=True)[0]
@@ -4020,8 +4050,8 @@ class RepPointsHead(nn.Module):
             bbox_bottom = pts_y.max(dim=1, keepdim=True)[0]
             bbox = torch.cat([bbox_left, bbox_up, bbox_right, bbox_bottom], dim=1)
         elif self.transform_method == 'partial_minmax':
-            pts_y = pts_y[:, :4, (...)]
-            pts_x = pts_x[:, :4, (...)]
+            pts_y = pts_y[:, :4, ...]
+            pts_x = pts_x[:, :4, ...]
             bbox_left = pts_x.min(dim=1, keepdim=True)[0]
             bbox_right = pts_x.max(dim=1, keepdim=True)[0]
             bbox_up = pts_y.min(dim=1, keepdim=True)[0]
@@ -4051,14 +4081,14 @@ class RepPointsHead(nn.Module):
         :return: generate grids on the regressed bboxes.
         """
         b, _, h, w = reg.shape
-        bxy = (previous_boxes[:, :2, (...)] + previous_boxes[:, 2:, (...)]) / 2.0
-        bwh = (previous_boxes[:, 2:, (...)] - previous_boxes[:, :2, (...)]).clamp(min=1e-06)
-        grid_topleft = bxy + bwh * reg[:, :2, (...)] - 0.5 * bwh * torch.exp(reg[:, 2:, (...)])
-        grid_wh = bwh * torch.exp(reg[:, 2:, (...)])
-        grid_left = grid_topleft[:, ([0]), (...)]
-        grid_top = grid_topleft[:, ([1]), (...)]
-        grid_width = grid_wh[:, ([0]), (...)]
-        grid_height = grid_wh[:, ([1]), (...)]
+        bxy = (previous_boxes[:, :2, ...] + previous_boxes[:, 2:, ...]) / 2.0
+        bwh = (previous_boxes[:, 2:, ...] - previous_boxes[:, :2, ...]).clamp(min=1e-06)
+        grid_topleft = bxy + bwh * reg[:, :2, ...] - 0.5 * bwh * torch.exp(reg[:, 2:, ...])
+        grid_wh = bwh * torch.exp(reg[:, 2:, ...])
+        grid_left = grid_topleft[:, [0], ...]
+        grid_top = grid_topleft[:, [1], ...]
+        grid_width = grid_wh[:, [0], ...]
+        grid_height = grid_wh[:, [1], ...]
         intervel = torch.linspace(0.0, 1.0, self.dcn_kernel).view(1, self.dcn_kernel, 1, 1).type_as(reg)
         grid_x = grid_left + grid_width * intervel
         grid_x = grid_x.unsqueeze(1).repeat(1, self.dcn_kernel, 1, 1, 1)
@@ -4158,8 +4188,8 @@ class RepPointsHead(nn.Module):
                 pts_center = center_list[i_img][i_lvl][:, :2].repeat(1, self.num_points)
                 pts_shift = pred_list[i_lvl][i_img]
                 yx_pts_shift = pts_shift.permute(1, 2, 0).view(-1, 2 * self.num_points)
-                y_pts_shift = yx_pts_shift[(...), 0::2]
-                x_pts_shift = yx_pts_shift[(...), 1::2]
+                y_pts_shift = yx_pts_shift[..., 0::2]
+                x_pts_shift = yx_pts_shift[..., 1::2]
                 xy_pts_shift = torch.stack([x_pts_shift, y_pts_shift], -1)
                 xy_pts_shift = xy_pts_shift.view(*yx_pts_shift.shape[:-1], -1)
                 pts = xy_pts_shift * self.point_strides[i_lvl] + pts_center
@@ -4250,15 +4280,15 @@ class RepPointsHead(nn.Module):
                 else:
                     max_scores, _ = scores[:, 1:].max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                points = points[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                points = points[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
             bbox_pos_center = torch.cat([points[:, :2], points[:, :2]], dim=1)
             bboxes = bbox_pred * self.point_strides[i_lvl] + bbox_pos_center
-            x1 = bboxes[:, (0)].clamp(min=0, max=img_shape[1])
-            y1 = bboxes[:, (1)].clamp(min=0, max=img_shape[0])
-            x2 = bboxes[:, (2)].clamp(min=0, max=img_shape[1])
-            y2 = bboxes[:, (3)].clamp(min=0, max=img_shape[0])
+            x1 = bboxes[:, 0].clamp(min=0, max=img_shape[1])
+            y1 = bboxes[:, 1].clamp(min=0, max=img_shape[0])
+            x2 = bboxes[:, 2].clamp(min=0, max=img_shape[1])
+            y2 = bboxes[:, 3].clamp(min=0, max=img_shape[0])
             bboxes = torch.stack([x1, y1, x2, y2], dim=-1)
             mlvl_bboxes.append(bboxes)
             mlvl_scores.append(scores)
@@ -4451,7 +4481,7 @@ def nms(dets, iou_thr, device_id=None):
         inds = nms_cpu.nms(dets_th, iou_thr)
     if is_numpy:
         inds = inds.cpu().numpy()
-    return dets[(inds), :], inds
+    return dets[inds, :], inds
 
 
 class RPNHead(AnchorHead):
@@ -4492,20 +4522,20 @@ class RPNHead(AnchorHead):
                 scores = rpn_cls_score.sigmoid()
             else:
                 rpn_cls_score = rpn_cls_score.reshape(-1, 2)
-                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+                scores = rpn_cls_score.softmax(dim=1)[:, 1]
             rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
             anchors = mlvl_anchors[idx]
             if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
                 _, topk_inds = scores.topk(cfg.nms_pre)
-                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
-                anchors = anchors[(topk_inds), :]
+                rpn_bbox_pred = rpn_bbox_pred[topk_inds, :]
+                anchors = anchors[topk_inds, :]
                 scores = scores[topk_inds]
             proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
             if cfg.min_bbox_size > 0:
-                w = proposals[:, (2)] - proposals[:, (0)] + 1
-                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                w = proposals[:, 2] - proposals[:, 0] + 1
+                h = proposals[:, 3] - proposals[:, 1] + 1
                 valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
-                proposals = proposals[(valid_inds), :]
+                proposals = proposals[valid_inds, :]
                 scores = scores[valid_inds]
             proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
             proposals, _ = nms(proposals, cfg.nms_thr)
@@ -4516,10 +4546,10 @@ class RPNHead(AnchorHead):
             proposals, _ = nms(proposals, cfg.nms_thr)
             proposals = proposals[:cfg.max_num, :]
         else:
-            scores = proposals[:, (4)]
+            scores = proposals[:, 4]
             num = min(cfg.max_num, proposals.shape[0])
             _, topk_inds = scores.topk(num)
-            proposals = proposals[(topk_inds), :]
+            proposals = proposals[topk_inds, :]
         return proposals
 
 
@@ -4630,7 +4660,7 @@ class SOLOHead(nn.Module):
 
     def solo_target_single(self, gt_bboxes_raw, gt_labels_raw, gt_masks_raw, featmap_sizes=None):
         device = gt_labels_raw[0].device
-        gt_areas = torch.sqrt((gt_bboxes_raw[:, (2)] - gt_bboxes_raw[:, (0)]) * (gt_bboxes_raw[:, (3)] - gt_bboxes_raw[:, (1)]))
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
         ins_label_list = []
         cate_label_list = []
         ins_ind_label_list = []
@@ -4647,14 +4677,16 @@ class SOLOHead(nn.Module):
             gt_bboxes = gt_bboxes_raw[hit_indices]
             gt_labels = gt_labels_raw[hit_indices]
             gt_masks = gt_masks_raw[hit_indices.cpu().numpy(), ...]
-            half_ws = 0.5 * (gt_bboxes[:, (2)] - gt_bboxes[:, (0)]) * self.sigma
-            half_hs = 0.5 * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)]) * self.sigma
+            half_ws = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.sigma
+            half_hs = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.sigma
+            gt_masks_pt = torch.from_numpy(gt_masks)
+            center_ws, center_hs = center_of_mass(gt_masks_pt)
+            valid_mask_flags = gt_masks_pt.sum(dim=-1).sum(dim=-1) > 0
             output_stride = stride / 2
-            for seg_mask, gt_label, half_h, half_w in zip(gt_masks, gt_labels, half_hs, half_ws):
-                if seg_mask.sum() < 10:
+            for seg_mask, gt_label, half_h, half_w, center_h, center_w, valid_mask_flag in zip(gt_masks, gt_labels, half_hs, half_ws, center_hs, center_ws, valid_mask_flags):
+                if not valid_mask_flag:
                     continue
                 upsampled_size = featmap_sizes[0][0] * 4, featmap_sizes[0][1] * 4
-                center_h, center_w = ndimage.measurements.center_of_mass(seg_mask)
                 coord_w = int(center_w / upsampled_size[1] // (1.0 / num_grid))
                 coord_h = int(center_h / upsampled_size[0] // (1.0 / num_grid))
                 top_box = max(0, int((center_h - half_h) / upsampled_size[0] // (1.0 / num_grid)))
@@ -4667,11 +4699,11 @@ class SOLOHead(nn.Module):
                 right = min(right_box, coord_w + 1)
                 cate_label[top:down + 1, left:right + 1] = gt_label
                 seg_mask = mmcv.imrescale(seg_mask, scale=1.0 / output_stride)
-                seg_mask = torch.Tensor(seg_mask)
+                seg_mask = torch.from_numpy(seg_mask)
                 for i in range(top, down + 1):
                     for j in range(left, right + 1):
                         label = int(i * num_grid + j)
-                        ins_label[(label), :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_label[label, :seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
                         ins_ind_label[label] = True
             ins_label_list.append(ins_label)
             cate_label_list.append(cate_label)
@@ -4704,15 +4736,15 @@ class SOLOHead(nn.Module):
         if len(cate_scores) == 0:
             return None
         inds = inds.nonzero()
-        cate_labels = inds[:, (1)]
+        cate_labels = inds[:, 1]
         size_trans = cate_labels.new_tensor(self.seg_num_grids).pow(2).cumsum(0)
         strides = cate_scores.new_ones(size_trans[-1])
         n_stage = len(self.seg_num_grids)
         strides[:size_trans[0]] *= self.strides[0]
         for ind_ in range(1, n_stage):
             strides[size_trans[ind_ - 1]:size_trans[ind_]] *= self.strides[ind_]
-        strides = strides[inds[:, (0)]]
-        seg_preds = seg_preds[inds[:, (0)]]
+        strides = strides[inds[:, 0]]
+        seg_preds = seg_preds[inds[:, 0]]
         seg_masks = seg_preds > cfg.mask_thr
         sum_masks = seg_masks.sum((1, 2)).float()
         keep = sum_masks > strides
@@ -4728,8 +4760,8 @@ class SOLOHead(nn.Module):
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.nms_pre:
             sort_inds = sort_inds[:cfg.nms_pre]
-        seg_masks = seg_masks[(sort_inds), :, :]
-        seg_preds = seg_preds[(sort_inds), :, :]
+        seg_masks = seg_masks[sort_inds, :, :]
+        seg_preds = seg_preds[sort_inds, :, :]
         sum_masks = sum_masks[sort_inds]
         cate_scores = cate_scores[sort_inds]
         cate_labels = cate_labels[sort_inds]
@@ -4737,13 +4769,551 @@ class SOLOHead(nn.Module):
         keep = cate_scores >= cfg.update_thr
         if keep.sum() == 0:
             return None
-        seg_preds = seg_preds[(keep), :, :]
+        seg_preds = seg_preds[keep, :, :]
         cate_scores = cate_scores[keep]
         cate_labels = cate_labels[keep]
         sort_inds = torch.argsort(cate_scores, descending=True)
         if len(sort_inds) > cfg.max_per_img:
             sort_inds = sort_inds[:cfg.max_per_img]
-        seg_preds = seg_preds[(sort_inds), :, :]
+        seg_preds = seg_preds[sort_inds, :, :]
+        cate_scores = cate_scores[sort_inds]
+        cate_labels = cate_labels[sort_inds]
+        seg_preds = F.interpolate(seg_preds.unsqueeze(0), size=upsampled_size_out, mode='bilinear')[:, :, :h, :w]
+        seg_masks = F.interpolate(seg_preds, size=ori_shape[:2], mode='bilinear').squeeze(0)
+        seg_masks = seg_masks > cfg.mask_thr
+        return seg_masks, cate_labels, cate_scores
+
+
+class SOLOv2Head(nn.Module):
+
+    def __init__(self, num_classes, in_channels, seg_feat_channels=256, stacked_convs=4, strides=(4, 8, 16, 32, 64), base_edge_list=(16, 32, 64, 128, 256), scale_ranges=((8, 32), (16, 64), (32, 128), (64, 256), (128, 512)), sigma=0.2, num_grids=None, ins_out_channels=64, loss_ins=None, loss_cate=None, conv_cfg=None, norm_cfg=None, use_dcn_in_tower=False, type_dcn=None):
+        super(SOLOv2Head, self).__init__()
+        self.num_classes = num_classes
+        self.seg_num_grids = num_grids
+        self.cate_out_channels = self.num_classes - 1
+        self.ins_out_channels = ins_out_channels
+        self.in_channels = in_channels
+        self.seg_feat_channels = seg_feat_channels
+        self.stacked_convs = stacked_convs
+        self.strides = strides
+        self.sigma = sigma
+        self.stacked_convs = stacked_convs
+        self.kernel_out_channels = self.ins_out_channels * 1 * 1
+        self.base_edge_list = base_edge_list
+        self.scale_ranges = scale_ranges
+        self.loss_cate = build_loss(loss_cate)
+        self.ins_loss_weight = loss_ins['loss_weight']
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.use_dcn_in_tower = use_dcn_in_tower
+        self.type_dcn = type_dcn
+        self._init_layers()
+
+    def _init_layers(self):
+        norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
+        self.cate_convs = nn.ModuleList()
+        self.kernel_convs = nn.ModuleList()
+        for i in range(self.stacked_convs):
+            if self.use_dcn_in_tower:
+                cfg_conv = dict(type=self.type_dcn)
+            else:
+                cfg_conv = self.conv_cfg
+            chn = self.in_channels + 2 if i == 0 else self.seg_feat_channels
+            self.kernel_convs.append(ConvModule(chn, self.seg_feat_channels, 3, stride=1, padding=1, conv_cfg=cfg_conv, norm_cfg=norm_cfg, bias=norm_cfg is None))
+            chn = self.in_channels if i == 0 else self.seg_feat_channels
+            self.cate_convs.append(ConvModule(chn, self.seg_feat_channels, 3, stride=1, padding=1, conv_cfg=cfg_conv, norm_cfg=norm_cfg, bias=norm_cfg is None))
+        self.solo_cate = nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, 3, padding=1)
+        self.solo_kernel = nn.Conv2d(self.seg_feat_channels, self.kernel_out_channels, 3, padding=1)
+
+    def init_weights(self):
+        for m in self.cate_convs:
+            normal_init(m.conv, std=0.01)
+        for m in self.kernel_convs:
+            normal_init(m.conv, std=0.01)
+        bias_cate = bias_init_with_prob(0.01)
+        normal_init(self.solo_cate, std=0.01, bias=bias_cate)
+        normal_init(self.solo_kernel, std=0.01)
+
+    def forward(self, feats, eval=False):
+        new_feats = self.split_feats(feats)
+        featmap_sizes = [featmap.size()[-2:] for featmap in new_feats]
+        upsampled_size = featmap_sizes[0][0] * 2, featmap_sizes[0][1] * 2
+        cate_pred, kernel_pred = multi_apply(self.forward_single, new_feats, list(range(len(self.seg_num_grids))), eval=eval, upsampled_size=upsampled_size)
+        return cate_pred, kernel_pred
+
+    def split_feats(self, feats):
+        return F.interpolate(feats[0], scale_factor=0.5, mode='bilinear'), feats[1], feats[2], feats[3], F.interpolate(feats[4], size=feats[3].shape[-2:], mode='bilinear')
+
+    def forward_single(self, x, idx, eval=False, upsampled_size=None):
+        ins_kernel_feat = x
+        x_range = torch.linspace(-1, 1, ins_kernel_feat.shape[-1], device=ins_kernel_feat.device)
+        y_range = torch.linspace(-1, 1, ins_kernel_feat.shape[-2], device=ins_kernel_feat.device)
+        y, x = torch.meshgrid(y_range, x_range)
+        y = y.expand([ins_kernel_feat.shape[0], 1, -1, -1])
+        x = x.expand([ins_kernel_feat.shape[0], 1, -1, -1])
+        coord_feat = torch.cat([x, y], 1)
+        ins_kernel_feat = torch.cat([ins_kernel_feat, coord_feat], 1)
+        kernel_feat = ins_kernel_feat
+        seg_num_grid = self.seg_num_grids[idx]
+        kernel_feat = F.interpolate(kernel_feat, size=seg_num_grid, mode='bilinear')
+        cate_feat = kernel_feat[:, :-2, :, :]
+        kernel_feat = kernel_feat.contiguous()
+        for i, kernel_layer in enumerate(self.kernel_convs):
+            kernel_feat = kernel_layer(kernel_feat)
+        kernel_pred = self.solo_kernel(kernel_feat)
+        cate_feat = cate_feat.contiguous()
+        for i, cate_layer in enumerate(self.cate_convs):
+            cate_feat = cate_layer(cate_feat)
+        cate_pred = self.solo_cate(cate_feat)
+        if eval:
+            cate_pred = points_nms(cate_pred.sigmoid(), kernel=2).permute(0, 2, 3, 1)
+        return cate_pred, kernel_pred
+
+    def loss(self, cate_preds, kernel_preds, ins_pred, gt_bbox_list, gt_label_list, gt_mask_list, img_metas, cfg, gt_bboxes_ignore=None):
+        mask_feat_size = ins_pred.size()[-2:]
+        ins_label_list, cate_label_list, ins_ind_label_list, grid_order_list = multi_apply(self.solov2_target_single, gt_bbox_list, gt_label_list, gt_mask_list, mask_feat_size=mask_feat_size)
+        ins_labels = [torch.cat([ins_labels_level_img for ins_labels_level_img in ins_labels_level], 0) for ins_labels_level in zip(*ins_label_list)]
+        kernel_preds = [[kernel_preds_level_img.view(kernel_preds_level_img.shape[0], -1)[:, grid_orders_level_img] for kernel_preds_level_img, grid_orders_level_img in zip(kernel_preds_level, grid_orders_level)] for kernel_preds_level, grid_orders_level in zip(kernel_preds, zip(*grid_order_list))]
+        ins_pred = ins_pred
+        ins_pred_list = []
+        for b_kernel_pred in kernel_preds:
+            b_mask_pred = []
+            for idx, kernel_pred in enumerate(b_kernel_pred):
+                if kernel_pred.size()[-1] == 0:
+                    continue
+                cur_ins_pred = ins_pred[idx, ...]
+                H, W = cur_ins_pred.shape[-2:]
+                N, I = kernel_pred.shape
+                cur_ins_pred = cur_ins_pred.unsqueeze(0)
+                kernel_pred = kernel_pred.permute(1, 0).view(I, -1, 1, 1)
+                cur_ins_pred = F.conv2d(cur_ins_pred, kernel_pred, stride=1).view(-1, H, W)
+                b_mask_pred.append(cur_ins_pred)
+            if len(b_mask_pred) == 0:
+                b_mask_pred = None
+            else:
+                b_mask_pred = torch.cat(b_mask_pred, 0)
+            ins_pred_list.append(b_mask_pred)
+        ins_ind_labels = [torch.cat([ins_ind_labels_level_img.flatten() for ins_ind_labels_level_img in ins_ind_labels_level]) for ins_ind_labels_level in zip(*ins_ind_label_list)]
+        flatten_ins_ind_labels = torch.cat(ins_ind_labels)
+        num_ins = flatten_ins_ind_labels.sum()
+        loss_ins = []
+        for input, target in zip(ins_pred_list, ins_labels):
+            if input is None:
+                continue
+            input = torch.sigmoid(input)
+            loss_ins.append(dice_loss(input, target))
+        loss_ins = torch.cat(loss_ins).mean()
+        loss_ins = loss_ins * self.ins_loss_weight
+        cate_labels = [torch.cat([cate_labels_level_img.flatten() for cate_labels_level_img in cate_labels_level]) for cate_labels_level in zip(*cate_label_list)]
+        flatten_cate_labels = torch.cat(cate_labels)
+        cate_preds = [cate_pred.permute(0, 2, 3, 1).reshape(-1, self.cate_out_channels) for cate_pred in cate_preds]
+        flatten_cate_preds = torch.cat(cate_preds)
+        loss_cate = self.loss_cate(flatten_cate_preds, flatten_cate_labels, avg_factor=num_ins + 1)
+        return dict(loss_ins=loss_ins, loss_cate=loss_cate)
+
+    def solov2_target_single(self, gt_bboxes_raw, gt_labels_raw, gt_masks_raw, mask_feat_size):
+        device = gt_labels_raw[0].device
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
+        ins_label_list = []
+        cate_label_list = []
+        ins_ind_label_list = []
+        grid_order_list = []
+        for (lower_bound, upper_bound), stride, num_grid in zip(self.scale_ranges, self.strides, self.seg_num_grids):
+            hit_indices = ((gt_areas >= lower_bound) & (gt_areas <= upper_bound)).nonzero().flatten()
+            num_ins = len(hit_indices)
+            ins_label = []
+            grid_order = []
+            cate_label = torch.zeros([num_grid, num_grid], dtype=torch.int64, device=device)
+            ins_ind_label = torch.zeros([num_grid ** 2], dtype=torch.bool, device=device)
+            if num_ins == 0:
+                ins_label = torch.zeros([0, mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+                ins_label_list.append(ins_label)
+                cate_label_list.append(cate_label)
+                ins_ind_label_list.append(ins_ind_label)
+                grid_order_list.append([])
+                continue
+            gt_bboxes = gt_bboxes_raw[hit_indices]
+            gt_labels = gt_labels_raw[hit_indices]
+            gt_masks = gt_masks_raw[hit_indices.cpu().numpy(), ...]
+            half_ws = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.sigma
+            half_hs = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.sigma
+            gt_masks_pt = torch.from_numpy(gt_masks)
+            center_ws, center_hs = center_of_mass(gt_masks_pt)
+            valid_mask_flags = gt_masks_pt.sum(dim=-1).sum(dim=-1) > 0
+            output_stride = 4
+            for seg_mask, gt_label, half_h, half_w, center_h, center_w, valid_mask_flag in zip(gt_masks, gt_labels, half_hs, half_ws, center_hs, center_ws, valid_mask_flags):
+                if not valid_mask_flag:
+                    continue
+                upsampled_size = mask_feat_size[0] * 4, mask_feat_size[1] * 4
+                coord_w = int(center_w / upsampled_size[1] // (1.0 / num_grid))
+                coord_h = int(center_h / upsampled_size[0] // (1.0 / num_grid))
+                top_box = max(0, int((center_h - half_h) / upsampled_size[0] // (1.0 / num_grid)))
+                down_box = min(num_grid - 1, int((center_h + half_h) / upsampled_size[0] // (1.0 / num_grid)))
+                left_box = max(0, int((center_w - half_w) / upsampled_size[1] // (1.0 / num_grid)))
+                right_box = min(num_grid - 1, int((center_w + half_w) / upsampled_size[1] // (1.0 / num_grid)))
+                top = max(top_box, coord_h - 1)
+                down = min(down_box, coord_h + 1)
+                left = max(coord_w - 1, left_box)
+                right = min(right_box, coord_w + 1)
+                cate_label[top:down + 1, left:right + 1] = gt_label
+                seg_mask = mmcv.imrescale(seg_mask, scale=1.0 / output_stride)
+                seg_mask = torch.from_numpy(seg_mask)
+                for i in range(top, down + 1):
+                    for j in range(left, right + 1):
+                        label = int(i * num_grid + j)
+                        cur_ins_label = torch.zeros([mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+                        cur_ins_label[:seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_label.append(cur_ins_label)
+                        ins_ind_label[label] = True
+                        grid_order.append(label)
+            if len(ins_label) == 0:
+                ins_label = torch.zeros([0, mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+            else:
+                ins_label = torch.stack(ins_label, 0)
+            ins_label_list.append(ins_label)
+            cate_label_list.append(cate_label)
+            ins_ind_label_list.append(ins_ind_label)
+            grid_order_list.append(grid_order)
+        return ins_label_list, cate_label_list, ins_ind_label_list, grid_order_list
+
+    def get_seg(self, cate_preds, kernel_preds, seg_pred, img_metas, cfg, rescale=None):
+        num_levels = len(cate_preds)
+        featmap_size = seg_pred.size()[-2:]
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cate_pred_list = [cate_preds[i][img_id].view(-1, self.cate_out_channels).detach() for i in range(num_levels)]
+            seg_pred_list = seg_pred[img_id, ...].unsqueeze(0)
+            kernel_pred_list = [kernel_preds[i][img_id].permute(1, 2, 0).view(-1, self.kernel_out_channels).detach() for i in range(num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            ori_shape = img_metas[img_id]['ori_shape']
+            cate_pred_list = torch.cat(cate_pred_list, dim=0)
+            kernel_pred_list = torch.cat(kernel_pred_list, dim=0)
+            result = self.get_seg_single(cate_pred_list, seg_pred_list, kernel_pred_list, featmap_size, img_shape, ori_shape, scale_factor, cfg, rescale)
+            result_list.append(result)
+        return result_list
+
+    def get_seg_single(self, cate_preds, seg_preds, kernel_preds, featmap_size, img_shape, ori_shape, scale_factor, cfg, rescale=False, debug=False):
+        assert len(cate_preds) == len(kernel_preds)
+        h, w, _ = img_shape
+        upsampled_size_out = featmap_size[0] * 4, featmap_size[1] * 4
+        inds = cate_preds > cfg.score_thr
+        cate_scores = cate_preds[inds]
+        if len(cate_scores) == 0:
+            return None
+        inds = inds.nonzero()
+        cate_labels = inds[:, 1]
+        kernel_preds = kernel_preds[inds[:, 0]]
+        size_trans = cate_labels.new_tensor(self.seg_num_grids).pow(2).cumsum(0)
+        strides = kernel_preds.new_ones(size_trans[-1])
+        n_stage = len(self.seg_num_grids)
+        strides[:size_trans[0]] *= self.strides[0]
+        for ind_ in range(1, n_stage):
+            strides[size_trans[ind_ - 1]:size_trans[ind_]] *= self.strides[ind_]
+        strides = strides[inds[:, 0]]
+        I, N = kernel_preds.shape
+        kernel_preds = kernel_preds.view(I, N, 1, 1)
+        seg_preds = F.conv2d(seg_preds, kernel_preds, stride=1).squeeze(0).sigmoid()
+        seg_masks = seg_preds > cfg.mask_thr
+        sum_masks = seg_masks.sum((1, 2)).float()
+        keep = sum_masks > strides
+        if keep.sum() == 0:
+            return None
+        seg_masks = seg_masks[keep, ...]
+        seg_preds = seg_preds[keep, ...]
+        sum_masks = sum_masks[keep]
+        cate_scores = cate_scores[keep]
+        cate_labels = cate_labels[keep]
+        seg_scores = (seg_preds * seg_masks.float()).sum((1, 2)) / sum_masks
+        cate_scores *= seg_scores
+        sort_inds = torch.argsort(cate_scores, descending=True)
+        if len(sort_inds) > cfg.nms_pre:
+            sort_inds = sort_inds[:cfg.nms_pre]
+        seg_masks = seg_masks[sort_inds, :, :]
+        seg_preds = seg_preds[sort_inds, :, :]
+        sum_masks = sum_masks[sort_inds]
+        cate_scores = cate_scores[sort_inds]
+        cate_labels = cate_labels[sort_inds]
+        cate_scores = matrix_nms(seg_masks, cate_labels, cate_scores, kernel=cfg.kernel, sigma=cfg.sigma, sum_masks=sum_masks)
+        keep = cate_scores >= cfg.update_thr
+        if keep.sum() == 0:
+            return None
+        seg_preds = seg_preds[keep, :, :]
+        cate_scores = cate_scores[keep]
+        cate_labels = cate_labels[keep]
+        sort_inds = torch.argsort(cate_scores, descending=True)
+        if len(sort_inds) > cfg.max_per_img:
+            sort_inds = sort_inds[:cfg.max_per_img]
+        seg_preds = seg_preds[sort_inds, :, :]
+        cate_scores = cate_scores[sort_inds]
+        cate_labels = cate_labels[sort_inds]
+        seg_preds = F.interpolate(seg_preds.unsqueeze(0), size=upsampled_size_out, mode='bilinear')[:, :, :h, :w]
+        seg_masks = F.interpolate(seg_preds, size=ori_shape[:2], mode='bilinear').squeeze(0)
+        seg_masks = seg_masks > cfg.mask_thr
+        return seg_masks, cate_labels, cate_scores
+
+
+class SOLOv2LightHead(nn.Module):
+
+    def __init__(self, num_classes, in_channels, seg_feat_channels=256, strides=(4, 8, 16, 32, 64), base_edge_list=(16, 32, 64, 128, 256), scale_ranges=((8, 32), (16, 64), (32, 128), (64, 256), (128, 512)), sigma=0.2, num_grids=None, ins_out_channels=64, stacked_convs=4, loss_ins=None, loss_cate=None, conv_cfg=None, norm_cfg=None, use_dcn_in_tower=False, type_dcn=None):
+        super(SOLOv2LightHead, self).__init__()
+        self.num_classes = num_classes
+        self.seg_num_grids = num_grids
+        self.cate_out_channels = self.num_classes - 1
+        self.ins_out_channels = ins_out_channels
+        self.in_channels = in_channels
+        self.seg_feat_channels = seg_feat_channels
+        self.stacked_convs = stacked_convs
+        self.strides = strides
+        self.sigma = sigma
+        self.stacked_convs = stacked_convs
+        self.kernel_out_channels = self.ins_out_channels * 1 * 1
+        self.base_edge_list = base_edge_list
+        self.scale_ranges = scale_ranges
+        self.loss_cate = build_loss(loss_cate)
+        self.ins_loss_weight = loss_ins['loss_weight']
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.use_dcn_in_tower = use_dcn_in_tower
+        self.type_dcn = type_dcn
+        self._init_layers()
+
+    def _init_layers(self):
+        norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
+        self.cate_convs = nn.ModuleList()
+        self.kernel_convs = nn.ModuleList()
+        for i in range(self.stacked_convs):
+            if self.use_dcn_in_tower and i == self.stacked_convs - 1:
+                cfg_conv = dict(type=self.type_dcn)
+            else:
+                cfg_conv = self.conv_cfg
+            chn = self.in_channels + 2 if i == 0 else self.seg_feat_channels
+            self.kernel_convs.append(ConvModule(chn, self.seg_feat_channels, 3, stride=1, padding=1, conv_cfg=cfg_conv, norm_cfg=norm_cfg, bias=norm_cfg is None))
+            chn = self.in_channels if i == 0 else self.seg_feat_channels
+            self.cate_convs.append(ConvModule(chn, self.seg_feat_channels, 3, stride=1, padding=1, conv_cfg=cfg_conv, norm_cfg=norm_cfg, bias=norm_cfg is None))
+        self.solo_cate = nn.Conv2d(self.seg_feat_channels, self.cate_out_channels, 3, padding=1)
+        self.solo_kernel = nn.Conv2d(self.seg_feat_channels, self.kernel_out_channels, 3, padding=1)
+
+    def init_weights(self):
+        for m in self.cate_convs:
+            normal_init(m.conv, std=0.01)
+        for m in self.kernel_convs:
+            normal_init(m.conv, std=0.01)
+        bias_cate = bias_init_with_prob(0.01)
+        normal_init(self.solo_cate, std=0.01, bias=bias_cate)
+        normal_init(self.solo_kernel, std=0.01)
+
+    def forward(self, feats, eval=False):
+        new_feats = self.split_feats(feats)
+        featmap_sizes = [featmap.size()[-2:] for featmap in new_feats]
+        upsampled_size = featmap_sizes[0][0] * 2, featmap_sizes[0][1] * 2
+        cate_pred, kernel_pred = multi_apply(self.forward_single, new_feats, list(range(len(self.seg_num_grids))), eval=eval, upsampled_size=upsampled_size)
+        return cate_pred, kernel_pred
+
+    def split_feats(self, feats):
+        return F.interpolate(feats[0], scale_factor=0.5, mode='bilinear'), feats[1], feats[2], feats[3], F.interpolate(feats[4], size=feats[3].shape[-2:], mode='bilinear')
+
+    def forward_single(self, x, idx, eval=False, upsampled_size=None):
+        ins_kernel_feat = x
+        x_range = torch.linspace(-1, 1, ins_kernel_feat.shape[-1], device=ins_kernel_feat.device)
+        y_range = torch.linspace(-1, 1, ins_kernel_feat.shape[-2], device=ins_kernel_feat.device)
+        y, x = torch.meshgrid(y_range, x_range)
+        y = y.expand([ins_kernel_feat.shape[0], 1, -1, -1])
+        x = x.expand([ins_kernel_feat.shape[0], 1, -1, -1])
+        coord_feat = torch.cat([x, y], 1)
+        ins_kernel_feat = torch.cat([ins_kernel_feat, coord_feat], 1)
+        kernel_feat = ins_kernel_feat
+        seg_num_grid = self.seg_num_grids[idx]
+        kernel_feat = F.interpolate(kernel_feat, size=seg_num_grid, mode='bilinear')
+        cate_feat = kernel_feat[:, :-2, :, :]
+        kernel_feat = kernel_feat.contiguous()
+        for i, kernel_layer in enumerate(self.kernel_convs):
+            kernel_feat = kernel_layer(kernel_feat)
+        kernel_pred = self.solo_kernel(kernel_feat)
+        cate_feat = cate_feat.contiguous()
+        for i, cate_layer in enumerate(self.cate_convs):
+            cate_feat = cate_layer(cate_feat)
+        cate_pred = self.solo_cate(cate_feat)
+        if eval:
+            cate_pred = points_nms(cate_pred.sigmoid(), kernel=2).permute(0, 2, 3, 1)
+        return cate_pred, kernel_pred
+
+    def loss(self, cate_preds, kernel_preds, ins_pred, gt_bbox_list, gt_label_list, gt_mask_list, img_metas, cfg, gt_bboxes_ignore=None):
+        mask_feat_size = ins_pred.size()[-2:]
+        ins_label_list, cate_label_list, ins_ind_label_list, grid_order_list = multi_apply(self.solov2_target_single, gt_bbox_list, gt_label_list, gt_mask_list, mask_feat_size=mask_feat_size)
+        ins_labels = [torch.cat([ins_labels_level_img for ins_labels_level_img in ins_labels_level], 0) for ins_labels_level in zip(*ins_label_list)]
+        kernel_preds = [[kernel_preds_level_img.view(kernel_preds_level_img.shape[0], -1)[:, grid_orders_level_img] for kernel_preds_level_img, grid_orders_level_img in zip(kernel_preds_level, grid_orders_level)] for kernel_preds_level, grid_orders_level in zip(kernel_preds, zip(*grid_order_list))]
+        ins_pred = ins_pred
+        ins_pred_list = []
+        for b_kernel_pred in kernel_preds:
+            b_mask_pred = []
+            for idx, kernel_pred in enumerate(b_kernel_pred):
+                if kernel_pred.size()[-1] == 0:
+                    continue
+                cur_ins_pred = ins_pred[idx, ...]
+                H, W = cur_ins_pred.shape[-2:]
+                N, I = kernel_pred.shape
+                cur_ins_pred = cur_ins_pred.unsqueeze(0)
+                kernel_pred = kernel_pred.permute(1, 0).view(I, -1, 1, 1)
+                cur_ins_pred = F.conv2d(cur_ins_pred, kernel_pred, stride=1).view(-1, H, W)
+                b_mask_pred.append(cur_ins_pred)
+            if len(b_mask_pred) == 0:
+                b_mask_pred = None
+            else:
+                b_mask_pred = torch.cat(b_mask_pred, 0)
+            ins_pred_list.append(b_mask_pred)
+        ins_ind_labels = [torch.cat([ins_ind_labels_level_img.flatten() for ins_ind_labels_level_img in ins_ind_labels_level]) for ins_ind_labels_level in zip(*ins_ind_label_list)]
+        flatten_ins_ind_labels = torch.cat(ins_ind_labels)
+        num_ins = flatten_ins_ind_labels.sum()
+        loss_ins = []
+        for input, target in zip(ins_pred_list, ins_labels):
+            if input is None:
+                continue
+            input = torch.sigmoid(input)
+            loss_ins.append(dice_loss(input, target))
+        loss_ins = torch.cat(loss_ins).mean()
+        loss_ins = loss_ins * self.ins_loss_weight
+        cate_labels = [torch.cat([cate_labels_level_img.flatten() for cate_labels_level_img in cate_labels_level]) for cate_labels_level in zip(*cate_label_list)]
+        flatten_cate_labels = torch.cat(cate_labels)
+        cate_preds = [cate_pred.permute(0, 2, 3, 1).reshape(-1, self.cate_out_channels) for cate_pred in cate_preds]
+        flatten_cate_preds = torch.cat(cate_preds)
+        loss_cate = self.loss_cate(flatten_cate_preds, flatten_cate_labels, avg_factor=num_ins + 1)
+        return dict(loss_ins=loss_ins, loss_cate=loss_cate)
+
+    def solov2_target_single(self, gt_bboxes_raw, gt_labels_raw, gt_masks_raw, mask_feat_size):
+        device = gt_labels_raw[0].device
+        gt_areas = torch.sqrt((gt_bboxes_raw[:, 2] - gt_bboxes_raw[:, 0]) * (gt_bboxes_raw[:, 3] - gt_bboxes_raw[:, 1]))
+        ins_label_list = []
+        cate_label_list = []
+        ins_ind_label_list = []
+        grid_order_list = []
+        for (lower_bound, upper_bound), stride, num_grid in zip(self.scale_ranges, self.strides, self.seg_num_grids):
+            hit_indices = ((gt_areas >= lower_bound) & (gt_areas <= upper_bound)).nonzero().flatten()
+            num_ins = len(hit_indices)
+            ins_label = []
+            grid_order = []
+            cate_label = torch.zeros([num_grid, num_grid], dtype=torch.int64, device=device)
+            ins_ind_label = torch.zeros([num_grid ** 2], dtype=torch.bool, device=device)
+            if num_ins == 0:
+                ins_label = torch.zeros([0, mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+                ins_label_list.append(ins_label)
+                cate_label_list.append(cate_label)
+                ins_ind_label_list.append(ins_ind_label)
+                grid_order_list.append([])
+                continue
+            gt_bboxes = gt_bboxes_raw[hit_indices]
+            gt_labels = gt_labels_raw[hit_indices]
+            gt_masks = gt_masks_raw[hit_indices.cpu().numpy(), ...]
+            half_ws = 0.5 * (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * self.sigma
+            half_hs = 0.5 * (gt_bboxes[:, 3] - gt_bboxes[:, 1]) * self.sigma
+            gt_masks_pt = torch.from_numpy(gt_masks)
+            center_ws, center_hs = center_of_mass(gt_masks_pt)
+            valid_mask_flags = gt_masks_pt.sum(dim=-1).sum(dim=-1) > 0
+            output_stride = 4
+            for seg_mask, gt_label, half_h, half_w, center_h, center_w, valid_mask_flag in zip(gt_masks, gt_labels, half_hs, half_ws, center_hs, center_ws, valid_mask_flags):
+                if not valid_mask_flag:
+                    continue
+                upsampled_size = mask_feat_size[0] * 4, mask_feat_size[1] * 4
+                coord_w = int(center_w / upsampled_size[1] // (1.0 / num_grid))
+                coord_h = int(center_h / upsampled_size[0] // (1.0 / num_grid))
+                top_box = max(0, int((center_h - half_h) / upsampled_size[0] // (1.0 / num_grid)))
+                down_box = min(num_grid - 1, int((center_h + half_h) / upsampled_size[0] // (1.0 / num_grid)))
+                left_box = max(0, int((center_w - half_w) / upsampled_size[1] // (1.0 / num_grid)))
+                right_box = min(num_grid - 1, int((center_w + half_w) / upsampled_size[1] // (1.0 / num_grid)))
+                top = max(top_box, coord_h - 1)
+                down = min(down_box, coord_h + 1)
+                left = max(coord_w - 1, left_box)
+                right = min(right_box, coord_w + 1)
+                cate_label[top:down + 1, left:right + 1] = gt_label
+                seg_mask = mmcv.imrescale(seg_mask, scale=1.0 / output_stride)
+                seg_mask = torch.from_numpy(seg_mask)
+                for i in range(top, down + 1):
+                    for j in range(left, right + 1):
+                        label = int(i * num_grid + j)
+                        cur_ins_label = torch.zeros([mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+                        cur_ins_label[:seg_mask.shape[0], :seg_mask.shape[1]] = seg_mask
+                        ins_label.append(cur_ins_label)
+                        ins_ind_label[label] = True
+                        grid_order.append(label)
+            if len(ins_label) == 0:
+                ins_label = torch.zeros([0, mask_feat_size[0], mask_feat_size[1]], dtype=torch.uint8, device=device)
+            else:
+                ins_label = torch.stack(ins_label, 0)
+            ins_label_list.append(ins_label)
+            cate_label_list.append(cate_label)
+            ins_ind_label_list.append(ins_ind_label)
+            grid_order_list.append(grid_order)
+        return ins_label_list, cate_label_list, ins_ind_label_list, grid_order_list
+
+    def get_seg(self, cate_preds, kernel_preds, seg_pred, img_metas, cfg, rescale=None):
+        num_levels = len(cate_preds)
+        featmap_size = seg_pred.size()[-2:]
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cate_pred_list = [cate_preds[i][img_id].view(-1, self.cate_out_channels).detach() for i in range(num_levels)]
+            seg_pred_list = seg_pred[img_id, ...].unsqueeze(0)
+            kernel_pred_list = [kernel_preds[i][img_id].permute(1, 2, 0).view(-1, self.kernel_out_channels).detach() for i in range(num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            ori_shape = img_metas[img_id]['ori_shape']
+            cate_pred_list = torch.cat(cate_pred_list, dim=0)
+            kernel_pred_list = torch.cat(kernel_pred_list, dim=0)
+            result = self.get_seg_single(cate_pred_list, seg_pred_list, kernel_pred_list, featmap_size, img_shape, ori_shape, scale_factor, cfg, rescale)
+            result_list.append(result)
+        return result_list
+
+    def get_seg_single(self, cate_preds, seg_preds, kernel_preds, featmap_size, img_shape, ori_shape, scale_factor, cfg, rescale=False, debug=False):
+        assert len(cate_preds) == len(kernel_preds)
+        h, w, _ = img_shape
+        upsampled_size_out = featmap_size[0] * 4, featmap_size[1] * 4
+        inds = cate_preds > cfg.score_thr
+        cate_scores = cate_preds[inds]
+        if len(cate_scores) == 0:
+            return None
+        inds = inds.nonzero()
+        cate_labels = inds[:, 1]
+        kernel_preds = kernel_preds[inds[:, 0]]
+        size_trans = cate_labels.new_tensor(self.seg_num_grids).pow(2).cumsum(0)
+        strides = kernel_preds.new_ones(size_trans[-1])
+        n_stage = len(self.seg_num_grids)
+        strides[:size_trans[0]] *= self.strides[0]
+        for ind_ in range(1, n_stage):
+            strides[size_trans[ind_ - 1]:size_trans[ind_]] *= self.strides[ind_]
+        strides = strides[inds[:, 0]]
+        I, N = kernel_preds.shape
+        kernel_preds = kernel_preds.view(I, N, 1, 1)
+        seg_preds = F.conv2d(seg_preds, kernel_preds, stride=1).squeeze(0).sigmoid()
+        seg_masks = seg_preds > cfg.mask_thr
+        sum_masks = seg_masks.sum((1, 2)).float()
+        keep = sum_masks > strides
+        if keep.sum() == 0:
+            return None
+        seg_masks = seg_masks[keep, ...]
+        seg_preds = seg_preds[keep, ...]
+        sum_masks = sum_masks[keep]
+        cate_scores = cate_scores[keep]
+        cate_labels = cate_labels[keep]
+        seg_scores = (seg_preds * seg_masks.float()).sum((1, 2)) / sum_masks
+        cate_scores *= seg_scores
+        sort_inds = torch.argsort(cate_scores, descending=True)
+        if len(sort_inds) > cfg.nms_pre:
+            sort_inds = sort_inds[:cfg.nms_pre]
+        seg_masks = seg_masks[sort_inds, :, :]
+        seg_preds = seg_preds[sort_inds, :, :]
+        sum_masks = sum_masks[sort_inds]
+        cate_scores = cate_scores[sort_inds]
+        cate_labels = cate_labels[sort_inds]
+        cate_scores = matrix_nms(seg_masks, cate_labels, cate_scores, kernel=cfg.kernel, sigma=cfg.sigma, sum_masks=sum_masks)
+        keep = cate_scores >= cfg.update_thr
+        if keep.sum() == 0:
+            return None
+        seg_preds = seg_preds[keep, :, :]
+        cate_scores = cate_scores[keep]
+        cate_labels = cate_labels[keep]
+        sort_inds = torch.argsort(cate_scores, descending=True)
+        if len(sort_inds) > cfg.max_per_img:
+            sort_inds = sort_inds[:cfg.max_per_img]
+        seg_preds = seg_preds[sort_inds, :, :]
         cate_scores = cate_scores[sort_inds]
         cate_labels = cate_labels[sort_inds]
         seg_preds = F.interpolate(seg_preds.unsqueeze(0), size=upsampled_size_out, mode='bilinear')[:, :, :h, :w]
@@ -5119,7 +5689,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         x_float = x.float()
         norm = x_float.pow(2).sum(1, keepdim=True).sqrt() + self.eps
-        return (self.weight[(None), :, (None), (None)].float().expand_as(x_float) * x_float / norm).type_as(x)
+        return (self.weight[None, :, None, None].float().expand_as(x_float) * x_float / norm).type_as(x)
 
 
 def accuracy(pred, target, topk=1):
@@ -5319,8 +5889,8 @@ class BBoxHead(nn.Module):
         else:
             bboxes = rois[:, 1:].clone()
             if img_shape is not None:
-                bboxes[:, ([0, 2])].clamp_(min=0, max=img_shape[1] - 1)
-                bboxes[:, ([1, 3])].clamp_(min=0, max=img_shape[0] - 1)
+                bboxes[:, [0, 2]].clamp_(min=0, max=img_shape[1] - 1)
+                bboxes[:, [1, 3]].clamp_(min=0, max=img_shape[0] - 1)
         if rescale:
             if isinstance(scale_factor, float):
                 bboxes /= scale_factor
@@ -5385,13 +5955,13 @@ class BBoxHead(nn.Module):
             >>>                    pos_is_gts, img_metas)
             >>> print(bboxes_list)
         """
-        img_ids = rois[:, (0)].long().unique(sorted=True)
+        img_ids = rois[:, 0].long().unique(sorted=True)
         assert img_ids.numel() <= len(img_metas)
         bboxes_list = []
         for i in range(len(img_metas)):
-            inds = torch.nonzero(rois[:, (0)] == i).squeeze(dim=1)
+            inds = torch.nonzero(rois[:, 0] == i).squeeze(dim=1)
             num_rois = inds.numel()
-            bboxes_ = rois[(inds), 1:]
+            bboxes_ = rois[inds, 1:]
             label_ = labels[inds]
             bbox_pred_ = bbox_preds[inds]
             img_meta_ = img_metas[i]
@@ -5426,7 +5996,7 @@ class BBoxHead(nn.Module):
             new_rois = delta2bbox(rois, bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
         else:
             bboxes = delta2bbox(rois[:, 1:], bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
-            new_rois = torch.cat((rois[:, ([0])], bboxes), dim=1)
+            new_rois = torch.cat((rois[:, [0]], bboxes), dim=1)
         return new_rois
 
 
@@ -5686,6 +6256,10 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         return hasattr(self, 'neck') and self.neck is not None
 
     @property
+    def with_mask_feat_head(self):
+        return hasattr(self, 'mask_feat_head') and self.mask_feat_head is not None
+
+    @property
     def with_shared_head(self):
         return hasattr(self, 'shared_head') and self.shared_head is not None
 
@@ -5814,7 +6388,7 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
             bboxes = np.vstack(bbox_result)
             if segm_result is not None:
                 segms = mmcv.concat_list(segm_result)
-                inds = np.where(bboxes[:, (-1)] > score_thr)[0]
+                inds = np.where(bboxes[:, -1] > score_thr)[0]
                 for i in inds:
                     color_mask = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
                     mask = maskUtils.decode(segms[i]).astype(np.bool)
@@ -5886,11 +6460,11 @@ def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
         recovered_proposals.append(_proposals)
     aug_proposals = torch.cat(recovered_proposals, dim=0)
     merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
-    scores = merged_proposals[:, (4)]
+    scores = merged_proposals[:, 4]
     _, order = scores.sort(0, descending=True)
     num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
     order = order[:num]
-    merged_proposals = merged_proposals[(order), :]
+    merged_proposals = merged_proposals[order, :]
     return merged_proposals
 
 
@@ -5910,7 +6484,7 @@ def bbox2result(bboxes, labels, num_classes):
     else:
         bboxes = bboxes.cpu().numpy()
         labels = labels.cpu().numpy()
-        return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+        return [bboxes[labels == i, :] for i in range(num_classes - 1)]
 
 
 def bbox2roi(bbox_list):
@@ -5981,7 +6555,7 @@ def merge_aug_masks(aug_masks, img_metas, rcnn_test_cfg, weights=None):
     Returns:
         tuple: (bboxes, scores)
     """
-    recovered_masks = [(mask if not img_info[0]['flip'] else mask[(...), ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
+    recovered_masks = [(mask if not img_info[0]['flip'] else mask[..., ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
     if weights is None:
         merged_masks = np.mean(recovered_masks, axis=0)
     else:
@@ -6055,11 +6629,13 @@ class SingleStageDetector(BaseDetector):
 
 class SingleStageInsDetector(BaseDetector):
 
-    def __init__(self, backbone, neck=None, bbox_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+    def __init__(self, backbone, neck=None, bbox_head=None, mask_feat_head=None, train_cfg=None, test_cfg=None, pretrained=None):
         super(SingleStageInsDetector, self).__init__()
         self.backbone = builder.build_backbone(backbone)
         if neck is not None:
             self.neck = builder.build_neck(neck)
+        if mask_feat_head is not None:
+            self.mask_feat_head = builder.build_head(mask_feat_head)
         self.bbox_head = builder.build_head(bbox_head)
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
@@ -6074,6 +6650,12 @@ class SingleStageInsDetector(BaseDetector):
                     m.init_weights()
             else:
                 self.neck.init_weights()
+        if self.with_mask_feat_head:
+            if isinstance(self.mask_feat_head, nn.Sequential):
+                for m in self.mask_feat_head:
+                    m.init_weights()
+            else:
+                self.mask_feat_head.init_weights()
         self.bbox_head.init_weights()
 
     def extract_feat(self, img):
@@ -6090,14 +6672,22 @@ class SingleStageInsDetector(BaseDetector):
     def forward_train(self, img, img_metas, gt_bboxes, gt_labels, gt_bboxes_ignore=None, gt_masks=None):
         x = self.extract_feat(img)
         outs = self.bbox_head(x)
-        loss_inputs = outs + (gt_bboxes, gt_labels, gt_masks, img_metas, self.train_cfg)
+        if self.with_mask_feat_head:
+            mask_feat_pred = self.mask_feat_head(x[self.mask_feat_head.start_level:self.mask_feat_head.end_level + 1])
+            loss_inputs = outs + (mask_feat_pred, gt_bboxes, gt_labels, gt_masks, img_metas, self.train_cfg)
+        else:
+            loss_inputs = outs + (gt_bboxes, gt_labels, gt_masks, img_metas, self.train_cfg)
         losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
         return losses
 
     def simple_test(self, img, img_meta, rescale=False):
         x = self.extract_feat(img)
         outs = self.bbox_head(x, eval=True)
-        seg_inputs = outs + (img_meta, self.test_cfg, rescale)
+        if self.with_mask_feat_head:
+            mask_feat_pred = self.mask_feat_head(x[self.mask_feat_head.start_level:self.mask_feat_head.end_level + 1])
+            seg_inputs = outs + (mask_feat_pred, img_meta, self.test_cfg, rescale)
+        else:
+            seg_inputs = outs + (img_meta, self.test_cfg, rescale)
         seg_result = self.bbox_head.get_seg(*seg_inputs)
         return seg_result
 
@@ -6441,24 +7031,24 @@ def bbox_overlaps(bboxes1, bboxes2, mode='iou', is_aligned=False):
         lt = torch.max(bboxes1[:, :2], bboxes2[:, :2])
         rb = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])
         wh = (rb - lt + 1).clamp(min=0)
-        overlap = wh[:, (0)] * wh[:, (1)]
-        area1 = (bboxes1[:, (2)] - bboxes1[:, (0)] + 1) * (bboxes1[:, (3)] - bboxes1[:, (1)] + 1)
+        overlap = wh[:, 0] * wh[:, 1]
+        area1 = (bboxes1[:, 2] - bboxes1[:, 0] + 1) * (bboxes1[:, 3] - bboxes1[:, 1] + 1)
         if mode == 'iou':
-            area2 = (bboxes2[:, (2)] - bboxes2[:, (0)] + 1) * (bboxes2[:, (3)] - bboxes2[:, (1)] + 1)
+            area2 = (bboxes2[:, 2] - bboxes2[:, 0] + 1) * (bboxes2[:, 3] - bboxes2[:, 1] + 1)
             ious = overlap / (area1 + area2 - overlap)
         else:
             ious = overlap / area1
     else:
-        lt = torch.max(bboxes1[:, (None), :2], bboxes2[:, :2])
-        rb = torch.min(bboxes1[:, (None), 2:], bboxes2[:, 2:])
+        lt = torch.max(bboxes1[:, None, :2], bboxes2[:, :2])
+        rb = torch.min(bboxes1[:, None, 2:], bboxes2[:, 2:])
         wh = (rb - lt + 1).clamp(min=0)
-        overlap = wh[:, :, (0)] * wh[:, :, (1)]
-        area1 = (bboxes1[:, (2)] - bboxes1[:, (0)] + 1) * (bboxes1[:, (3)] - bboxes1[:, (1)] + 1)
+        overlap = wh[:, :, 0] * wh[:, :, 1]
+        area1 = (bboxes1[:, 2] - bboxes1[:, 0] + 1) * (bboxes1[:, 3] - bboxes1[:, 1] + 1)
         if mode == 'iou':
-            area2 = (bboxes2[:, (2)] - bboxes2[:, (0)] + 1) * (bboxes2[:, (3)] - bboxes2[:, (1)] + 1)
-            ious = overlap / (area1[:, (None)] + area2 - overlap)
+            area2 = (bboxes2[:, 2] - bboxes2[:, 0] + 1) * (bboxes2[:, 3] - bboxes2[:, 1] + 1)
+            ious = overlap / (area1[:, None] + area2 - overlap)
         else:
-            ious = overlap / area1[:, (None)]
+            ious = overlap / area1[:, None]
     return ious
 
 
@@ -6511,15 +7101,15 @@ def bounded_iou_loss(pred, target, beta=0.2, eps=0.001):
         beta (float): beta parameter in smoothl1.
         eps (float): eps to avoid NaN.
     """
-    pred_ctrx = (pred[:, (0)] + pred[:, (2)]) * 0.5
-    pred_ctry = (pred[:, (1)] + pred[:, (3)]) * 0.5
-    pred_w = pred[:, (2)] - pred[:, (0)] + 1
-    pred_h = pred[:, (3)] - pred[:, (1)] + 1
+    pred_ctrx = (pred[:, 0] + pred[:, 2]) * 0.5
+    pred_ctry = (pred[:, 1] + pred[:, 3]) * 0.5
+    pred_w = pred[:, 2] - pred[:, 0] + 1
+    pred_h = pred[:, 3] - pred[:, 1] + 1
     with torch.no_grad():
-        target_ctrx = (target[:, (0)] + target[:, (2)]) * 0.5
-        target_ctry = (target[:, (1)] + target[:, (3)]) * 0.5
-        target_w = target[:, (2)] - target[:, (0)] + 1
-        target_h = target[:, (3)] - target[:, (1)] + 1
+        target_ctrx = (target[:, 0] + target[:, 2]) * 0.5
+        target_ctry = (target[:, 1] + target[:, 3]) * 0.5
+        target_w = target[:, 2] - target[:, 0] + 1
+        target_h = target[:, 3] - target[:, 1] + 1
     dx = target_ctrx - pred_ctrx
     dy = target_ctry - pred_ctry
     loss_dx = 1 - torch.max((target_w - 2 * dx.abs()) / (target_w + 2 * dx.abs() + eps), torch.zeros_like(dx))
@@ -6571,15 +7161,15 @@ def giou_loss(pred, target, eps=1e-07):
     lt = torch.max(pred[:, :2], target[:, :2])
     rb = torch.min(pred[:, 2:], target[:, 2:])
     wh = (rb - lt + 1).clamp(min=0)
-    overlap = wh[:, (0)] * wh[:, (1)]
-    ap = (pred[:, (2)] - pred[:, (0)] + 1) * (pred[:, (3)] - pred[:, (1)] + 1)
-    ag = (target[:, (2)] - target[:, (0)] + 1) * (target[:, (3)] - target[:, (1)] + 1)
+    overlap = wh[:, 0] * wh[:, 1]
+    ap = (pred[:, 2] - pred[:, 0] + 1) * (pred[:, 3] - pred[:, 1] + 1)
+    ag = (target[:, 2] - target[:, 0] + 1) * (target[:, 3] - target[:, 1] + 1)
     union = ap + ag - overlap + eps
     ious = overlap / union
     enclose_x1y1 = torch.min(pred[:, :2], target[:, :2])
     enclose_x2y2 = torch.max(pred[:, 2:], target[:, 2:])
     enclose_wh = (enclose_x2y2 - enclose_x1y1 + 1).clamp(min=0)
-    enclose_area = enclose_wh[:, (0)] * enclose_wh[:, (1)] + eps
+    enclose_area = enclose_wh[:, 0] * enclose_wh[:, 1] + eps
     gious = ious - (enclose_area - union) / enclose_area
     loss = 1 - gious
     return loss
@@ -6639,12 +7229,12 @@ def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
     if num_pos > 0:
         proposals_np = pos_proposals.cpu().numpy()
         _, maxh, maxw = gt_masks.shape
-        proposals_np[:, ([0, 2])] = np.clip(proposals_np[:, ([0, 2])], 0, maxw - 1)
-        proposals_np[:, ([1, 3])] = np.clip(proposals_np[:, ([1, 3])], 0, maxh - 1)
+        proposals_np[:, [0, 2]] = np.clip(proposals_np[:, [0, 2]], 0, maxw - 1)
+        proposals_np[:, [1, 3]] = np.clip(proposals_np[:, [1, 3]], 0, maxh - 1)
         pos_assigned_gt_inds = pos_assigned_gt_inds.cpu().numpy()
         for i in range(num_pos):
             gt_mask = gt_masks[pos_assigned_gt_inds[i]]
-            bbox = proposals_np[(i), :].astype(np.int32)
+            bbox = proposals_np[i, :].astype(np.int32)
             x1, y1, x2, y2 = bbox
             w = np.maximum(x2 - x1 + 1, 1)
             h = np.maximum(y2 - y1 + 1, 1)
@@ -6767,14 +7357,14 @@ class FCNMaskHead(nn.Module):
         for i in range(bboxes.shape[0]):
             if not isinstance(scale_factor, (float, np.ndarray)):
                 scale_factor = scale_factor.cpu().numpy()
-            bbox = (bboxes[(i), :] / scale_factor).astype(np.int32)
+            bbox = (bboxes[i, :] / scale_factor).astype(np.int32)
             label = labels[i]
             w = max(bbox[2] - bbox[0] + 1, 1)
             h = max(bbox[3] - bbox[1] + 1, 1)
             if not self.class_agnostic:
-                mask_pred_ = mask_pred[(i), (label), :, :]
+                mask_pred_ = mask_pred[i, label, :, :]
             else:
-                mask_pred_ = mask_pred[(i), (0), :, :]
+                mask_pred_ = mask_pred[i, 0, :, :]
             bbox_mask = mmcv.imresize(mask_pred_, (w, h))
             bbox_mask = (bbox_mask > rcnn_test_cfg.mask_thr_binary).astype(np.uint8)
             if rcnn_test_cfg.get('crop_mask', False):
@@ -6783,7 +7373,7 @@ class FCNMaskHead(nn.Module):
                 im_mask = np.zeros((img_h, img_w), dtype=np.uint8)
                 im_mask[bbox[1]:bbox[1] + h, bbox[0]:bbox[0] + w] = bbox_mask
             if rcnn_test_cfg.get('rle_mask_encode', True):
-                rle = mask_util.encode(np.array(im_mask[:, :, (np.newaxis)], order='F'))[0]
+                rle = mask_util.encode(np.array(im_mask[:, :, np.newaxis], order='F'))[0]
                 cls_segms[label - 1].append(rle)
             else:
                 cls_segms[label - 1].append(im_mask)
@@ -6981,13 +7571,13 @@ class GridHead(nn.Module):
         pos_bboxes = torch.cat([res.pos_bboxes for res in sampling_results], dim=0).cpu()
         pos_gt_bboxes = torch.cat([res.pos_gt_bboxes for res in sampling_results], dim=0).cpu()
         assert pos_bboxes.shape == pos_gt_bboxes.shape
-        x1 = pos_bboxes[:, (0)] - (pos_bboxes[:, (2)] - pos_bboxes[:, (0)]) / 2
-        y1 = pos_bboxes[:, (1)] - (pos_bboxes[:, (3)] - pos_bboxes[:, (1)]) / 2
-        x2 = pos_bboxes[:, (2)] + (pos_bboxes[:, (2)] - pos_bboxes[:, (0)]) / 2
-        y2 = pos_bboxes[:, (3)] + (pos_bboxes[:, (3)] - pos_bboxes[:, (1)]) / 2
+        x1 = pos_bboxes[:, 0] - (pos_bboxes[:, 2] - pos_bboxes[:, 0]) / 2
+        y1 = pos_bboxes[:, 1] - (pos_bboxes[:, 3] - pos_bboxes[:, 1]) / 2
+        x2 = pos_bboxes[:, 2] + (pos_bboxes[:, 2] - pos_bboxes[:, 0]) / 2
+        y2 = pos_bboxes[:, 3] + (pos_bboxes[:, 3] - pos_bboxes[:, 1]) / 2
         pos_bboxes = torch.stack([x1, y1, x2, y2], dim=-1)
-        pos_bbox_ws = (pos_bboxes[:, (2)] - pos_bboxes[:, (0)]).unsqueeze(-1)
-        pos_bbox_hs = (pos_bboxes[:, (3)] - pos_bboxes[:, (1)]).unsqueeze(-1)
+        pos_bbox_ws = (pos_bboxes[:, 2] - pos_bboxes[:, 0]).unsqueeze(-1)
+        pos_bbox_hs = (pos_bboxes[:, 3] - pos_bboxes[:, 1]).unsqueeze(-1)
         num_rois = pos_bboxes.shape[0]
         map_size = self.whole_map_size
         targets = torch.zeros((num_rois, self.grid_points, map_size, map_size), dtype=torch.float)
@@ -7015,7 +7605,7 @@ class GridHead(nn.Module):
         sub_targets = []
         for i in range(self.grid_points):
             sub_x1, sub_y1, sub_x2, sub_y2 = self.sub_regions[i]
-            sub_targets.append(targets[:, ([i]), sub_y1:sub_y2, sub_x1:sub_x2])
+            sub_targets.append(targets[:, [i], sub_y1:sub_y2, sub_x1:sub_x2])
         sub_targets = torch.cat(sub_targets, dim=1)
         sub_targets = sub_targets
         return sub_targets
@@ -7029,7 +7619,7 @@ class GridHead(nn.Module):
     def get_bboxes(self, det_bboxes, grid_pred, img_meta):
         assert det_bboxes.shape[0] == grid_pred.shape[0]
         det_bboxes = det_bboxes.cpu()
-        cls_scores = det_bboxes[:, ([4])]
+        cls_scores = det_bboxes[:, [4]]
         det_bboxes = det_bboxes[:, :4]
         grid_pred = grid_pred.sigmoid().cpu()
         R, c, h, w = grid_pred.shape
@@ -7044,24 +7634,83 @@ class GridHead(nn.Module):
             xs[i::self.grid_points] += self.sub_regions[i][0]
             ys[i::self.grid_points] += self.sub_regions[i][1]
         pred_scores, xs, ys = tuple(map(lambda x: x.view(R, c), [pred_scores, xs, ys]))
-        widths = (det_bboxes[:, (2)] - det_bboxes[:, (0)]).unsqueeze(-1)
-        heights = (det_bboxes[:, (3)] - det_bboxes[:, (1)]).unsqueeze(-1)
-        x1 = det_bboxes[:, (0), (None)] - widths / 2
-        y1 = det_bboxes[:, (1), (None)] - heights / 2
+        widths = (det_bboxes[:, 2] - det_bboxes[:, 0]).unsqueeze(-1)
+        heights = (det_bboxes[:, 3] - det_bboxes[:, 1]).unsqueeze(-1)
+        x1 = det_bboxes[:, 0, None] - widths / 2
+        y1 = det_bboxes[:, 1, None] - heights / 2
         abs_xs = (xs.float() + 0.5) / w * widths + x1
         abs_ys = (ys.float() + 0.5) / h * heights + y1
         x1_inds = [i for i in range(self.grid_size)]
         y1_inds = [(i * self.grid_size) for i in range(self.grid_size)]
         x2_inds = [(self.grid_points - self.grid_size + i) for i in range(self.grid_size)]
         y2_inds = [((i + 1) * self.grid_size - 1) for i in range(self.grid_size)]
-        bboxes_x1 = (abs_xs[:, (x1_inds)] * pred_scores[:, (x1_inds)]).sum(dim=1, keepdim=True) / pred_scores[:, (x1_inds)].sum(dim=1, keepdim=True)
-        bboxes_y1 = (abs_ys[:, (y1_inds)] * pred_scores[:, (y1_inds)]).sum(dim=1, keepdim=True) / pred_scores[:, (y1_inds)].sum(dim=1, keepdim=True)
-        bboxes_x2 = (abs_xs[:, (x2_inds)] * pred_scores[:, (x2_inds)]).sum(dim=1, keepdim=True) / pred_scores[:, (x2_inds)].sum(dim=1, keepdim=True)
-        bboxes_y2 = (abs_ys[:, (y2_inds)] * pred_scores[:, (y2_inds)]).sum(dim=1, keepdim=True) / pred_scores[:, (y2_inds)].sum(dim=1, keepdim=True)
+        bboxes_x1 = (abs_xs[:, x1_inds] * pred_scores[:, x1_inds]).sum(dim=1, keepdim=True) / pred_scores[:, x1_inds].sum(dim=1, keepdim=True)
+        bboxes_y1 = (abs_ys[:, y1_inds] * pred_scores[:, y1_inds]).sum(dim=1, keepdim=True) / pred_scores[:, y1_inds].sum(dim=1, keepdim=True)
+        bboxes_x2 = (abs_xs[:, x2_inds] * pred_scores[:, x2_inds]).sum(dim=1, keepdim=True) / pred_scores[:, x2_inds].sum(dim=1, keepdim=True)
+        bboxes_y2 = (abs_ys[:, y2_inds] * pred_scores[:, y2_inds]).sum(dim=1, keepdim=True) / pred_scores[:, y2_inds].sum(dim=1, keepdim=True)
         bbox_res = torch.cat([bboxes_x1, bboxes_y1, bboxes_x2, bboxes_y2, cls_scores], dim=1)
-        bbox_res[:, ([0, 2])].clamp_(min=0, max=img_meta[0]['img_shape'][1] - 1)
-        bbox_res[:, ([1, 3])].clamp_(min=0, max=img_meta[0]['img_shape'][0] - 1)
+        bbox_res[:, [0, 2]].clamp_(min=0, max=img_meta[0]['img_shape'][1] - 1)
+        bbox_res[:, [1, 3]].clamp_(min=0, max=img_meta[0]['img_shape'][0] - 1)
         return bbox_res
+
+
+class MaskFeatHead(nn.Module):
+
+    def __init__(self, in_channels, out_channels, start_level, end_level, num_classes, conv_cfg=None, norm_cfg=None):
+        super(MaskFeatHead, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.start_level = start_level
+        self.end_level = end_level
+        assert start_level >= 0 and end_level >= start_level
+        self.num_classes = num_classes
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.convs_all_levels = nn.ModuleList()
+        for i in range(self.start_level, self.end_level + 1):
+            convs_per_level = nn.Sequential()
+            if i == 0:
+                one_conv = ConvModule(self.in_channels, self.out_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg, inplace=False)
+                convs_per_level.add_module('conv' + str(i), one_conv)
+                self.convs_all_levels.append(convs_per_level)
+                continue
+            for j in range(i):
+                if j == 0:
+                    chn = self.in_channels + 2 if i == 3 else self.in_channels
+                    one_conv = ConvModule(chn, self.out_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg, inplace=False)
+                    convs_per_level.add_module('conv' + str(j), one_conv)
+                    one_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                    convs_per_level.add_module('upsample' + str(j), one_upsample)
+                    continue
+                one_conv = ConvModule(self.out_channels, self.out_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg, inplace=False)
+                convs_per_level.add_module('conv' + str(j), one_conv)
+                one_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                convs_per_level.add_module('upsample' + str(j), one_upsample)
+            self.convs_all_levels.append(convs_per_level)
+        self.conv_pred = nn.Sequential(ConvModule(self.out_channels, self.num_classes, 1, padding=0, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                normal_init(m, std=0.01)
+
+    def forward(self, inputs):
+        assert len(inputs) == self.end_level - self.start_level + 1
+        feature_add_all_level = self.convs_all_levels[0](inputs[0])
+        for i in range(1, len(inputs)):
+            input_p = inputs[i]
+            if i == 3:
+                input_feat = input_p
+                x_range = torch.linspace(-1, 1, input_feat.shape[-1], device=input_feat.device)
+                y_range = torch.linspace(-1, 1, input_feat.shape[-2], device=input_feat.device)
+                y, x = torch.meshgrid(y_range, x_range)
+                y = y.expand([input_feat.shape[0], 1, -1, -1])
+                x = x.expand([input_feat.shape[0], 1, -1, -1])
+                coord_feat = torch.cat([x, y], 1)
+                input_p = torch.cat([input_p, coord_feat], 1)
+            feature_add_all_level += self.convs_all_levels[i](input_p)
+        feature_pred = self.conv_pred(feature_add_all_level)
+        return feature_pred
 
 
 class MaskIoUHead(nn.Module):
@@ -7171,7 +7820,7 @@ class MaskIoUHead(nn.Module):
             gt_instance_mask_area = gt_masks.sum((-1, -2))
             for i in range(num_pos):
                 gt_mask = gt_masks[pos_assigned_gt_inds[i]]
-                x1, y1, x2, y2 = proposals_np[(i), :].astype(np.int32)
+                x1, y1, x2, y2 = proposals_np[i, :].astype(np.int32)
                 gt_mask_in_proposal = gt_mask[y1:y2 + 1, x1:x2 + 1]
                 ratio = gt_mask_in_proposal.sum() / (gt_instance_mask_area[pos_assigned_gt_inds[i]] + 1e-07)
                 area_ratios.append(ratio)
@@ -7654,7 +8303,7 @@ class GeneralizedAttention(nn.Module):
             local_constraint_map = np.ones((max_len, max_len, max_len_kv, max_len_kv), dtype=np.int)
             for iy in range(max_len):
                 for ix in range(max_len):
-                    local_constraint_map[(iy), (ix), max((iy - self.spatial_range) // self.kv_stride, 0):min((iy + self.spatial_range + 1) // self.kv_stride + 1, max_len), max((ix - self.spatial_range) // self.kv_stride, 0):min((ix + self.spatial_range + 1) // self.kv_stride + 1, max_len)] = 0
+                    local_constraint_map[iy, ix, max((iy - self.spatial_range) // self.kv_stride, 0):min((iy + self.spatial_range + 1) // self.kv_stride + 1, max_len), max((ix - self.spatial_range) // self.kv_stride, 0):min((ix + self.spatial_range + 1) // self.kv_stride + 1, max_len)] = 0
             self.local_constraint_map = nn.Parameter(torch.from_numpy(local_constraint_map).byte(), requires_grad=False)
         if self.q_stride > 1:
             self.q_downsample = nn.AvgPool2d(kernel_size=1, stride=self.q_stride)
@@ -7828,23 +8477,23 @@ class SingleRoIExtractor(nn.Module):
         Returns:
             Tensor: Level index (0-based) of each RoI, shape (k, )
         """
-        scale = torch.sqrt((rois[:, (3)] - rois[:, (1)] + 1) * (rois[:, (4)] - rois[:, (2)] + 1))
+        scale = torch.sqrt((rois[:, 3] - rois[:, 1] + 1) * (rois[:, 4] - rois[:, 2] + 1))
         target_lvls = torch.floor(torch.log2(scale / self.finest_scale + 1e-06))
         target_lvls = target_lvls.clamp(min=0, max=num_levels - 1).long()
         return target_lvls
 
     def roi_rescale(self, rois, scale_factor):
-        cx = (rois[:, (1)] + rois[:, (3)]) * 0.5
-        cy = (rois[:, (2)] + rois[:, (4)]) * 0.5
-        w = rois[:, (3)] - rois[:, (1)] + 1
-        h = rois[:, (4)] - rois[:, (2)] + 1
+        cx = (rois[:, 1] + rois[:, 3]) * 0.5
+        cy = (rois[:, 2] + rois[:, 4]) * 0.5
+        w = rois[:, 3] - rois[:, 1] + 1
+        h = rois[:, 4] - rois[:, 2] + 1
         new_w = w * scale_factor
         new_h = h * scale_factor
         x1 = cx - new_w * 0.5 + 0.5
         x2 = cx + new_w * 0.5 - 0.5
         y1 = cy - new_h * 0.5 + 0.5
         y2 = cy + new_h * 0.5 - 0.5
-        new_rois = torch.stack((rois[:, (0)], x1, y1, x2, y2), dim=-1)
+        new_rois = torch.stack((rois[:, 0], x1, y1, x2, y2), dim=-1)
         return new_rois
 
     @force_fp32(apply_to=('feats',), out_fp16=True)
@@ -7860,7 +8509,7 @@ class SingleRoIExtractor(nn.Module):
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
-                rois_ = rois[(inds), :]
+                rois_ = rois[inds, :]
                 roi_feats_t = self.roi_layers[i](feats[i], rois_)
                 roi_feats[inds] = roi_feats_t
         return roi_feats
@@ -8302,6 +8951,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (CrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (GHMC,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -8329,7 +8982,7 @@ TESTCASES = [
     (MaskedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (Scale,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -8382,4 +9035,7 @@ class Test_WXinlong_SOLO(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

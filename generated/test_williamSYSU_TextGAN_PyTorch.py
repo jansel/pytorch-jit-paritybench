@@ -2,6 +2,11 @@ import sys
 _module = sys.modules[__name__]
 del sys
 config = _module
+catgan_instructor = _module
+cot_instructor = _module
+dgsan_instructor = _module
+dpgan_instructor = _module
+evogan_instructor = _module
 instructor = _module
 jsdgan_instructor = _module
 leakgan_instructor = _module
@@ -9,6 +14,11 @@ maligan_instructor = _module
 relgan_instructor = _module
 sentigan_instructor = _module
 seqgan_instructor = _module
+catgan_instructor = _module
+cot_instructor = _module
+dgsan_instructor = _module
+dpgan_instructor = _module
+evogan_instructor = _module
 instructor = _module
 jsdgan_instructor = _module
 leakgan_instructor = _module
@@ -22,6 +32,15 @@ bleu = _module
 clas_acc = _module
 nll = _module
 ppl = _module
+CatGAN_D = _module
+CatGAN_G = _module
+CoT_D = _module
+CoT_G = _module
+DGSAN_G = _module
+DPGAN_D = _module
+DPGAN_G = _module
+EvoGAN_D = _module
+EvoGAN_G = _module
 JSDGAN_G = _module
 LeakGAN_D = _module
 LeakGAN_G = _module
@@ -37,6 +56,10 @@ SeqGAN_G = _module
 discriminator = _module
 generator = _module
 relational_rnn_general = _module
+run_catgan = _module
+run_cot = _module
+run_dgsan = _module
+run_dpgan = _module
 run_jsdgan = _module
 run_leakgan = _module
 run_maligan = _module
@@ -46,10 +69,15 @@ run_seqgan = _module
 cat_data_loader = _module
 data_loader = _module
 data_utils = _module
+gan_loss = _module
 helpers = _module
 rollout = _module
 text_process = _module
 visualization = _module
+visual_human = _module
+visual_metric = _module
+visual_temp_appendix = _module
+visual_temp_compare = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -71,13 +99,7 @@ xrange = range
 wraps = functools.wraps
 
 
-import re
-
-
 import time
-
-
-import torch
 
 
 from time import strftime
@@ -86,16 +108,28 @@ from time import strftime
 from time import localtime
 
 
+import re
+
+
+import torch
+
+
+import copy
+
+
 import numpy as np
 
 
-import torch.nn as nn
+import random
+
+
+import torch.nn.functional as F
 
 
 import torch.optim as optim
 
 
-import torch.nn.functional as F
+import torch.nn as nn
 
 
 import math
@@ -105,9 +139,6 @@ import torch.autograd as autograd
 
 
 from torch import nn
-
-
-import random
 
 
 from torch.utils.data import Dataset
@@ -122,13 +153,19 @@ import logging
 from time import gmtime
 
 
-import copy
-
-
 dis_num_filters = [200, 200, 200, 200]
 
 
 goal_out_size = sum(dis_num_filters)
+
+
+bar_width = 0.5
+
+
+gap = 1.2
+
+
+len = (0 + 3 * bar_width) / 3, 3 * bar_width + gap + 2 * bar_width
 
 
 def truncated_normal_(tensor, mean=0, std=1):
@@ -512,7 +549,7 @@ class RelationalMemory(nn.Module):
         logit = 0
         logits = []
         for idx_step in range(inputs.shape[1]):
-            logit, memory = self.forward_step(inputs[:, (idx_step)], memory)
+            logit, memory = self.forward_step(inputs[:, idx_step], memory)
             logits.append(logit.unsqueeze(1))
         logits = torch.cat(logits, dim=1)
         if self.return_all_outputs:
@@ -521,20 +558,128 @@ class RelationalMemory(nn.Module):
             return logit.unsqueeze(1), memory
 
 
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+class GANLoss(nn.Module):
+    """Define different GAN Discriminator's objectives.
 
+    The GANLoss class abstracts away the need to create the target label tensor
+    that has the same size as the input.
+    """
 
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (RelationalMemory,
-     lambda: ([], {'mem_slots': 4, 'head_size': 4, 'input_size': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-]
+    def __init__(self, loss_mode, which_net, which_D, target_real_label=1.0, target_fake_label=0.0, CUDA=False):
+        """ Initialize the GAN's Discriminator Loss class.
 
-class Test_williamSYSU_TextGAN_PyTorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
+        Parameters:
+            loss_mode (str) - - the type of GAN objective. It currently supports vanilla, lsgan, and wgangp.
+            target_real_label (bool) - - label for a real image
+            target_fake_label (bool) - - label of a fake image
+
+        Note: Do not use sigmoid as the last layer of Discriminator.
+        LSGAN needs no sigmoid. vanilla GANs will handle it with BCEWithLogitsLoss.
+        """
+        super(GANLoss, self).__init__()
+        self.register_buffer('real_label', torch.tensor(target_real_label))
+        self.register_buffer('fake_label', torch.tensor(target_fake_label))
+        self.loss_mode = loss_mode
+        self.which_net = which_net
+        self.which_D = which_D
+        self.gpu = CUDA
+        if loss_mode == 'lsgan':
+            self.loss = nn.MSELoss()
+        elif loss_mode in ['vanilla', 'ragan', 'rsgan']:
+            self.loss = nn.BCEWithLogitsLoss()
+        elif loss_mode in ['wgan', 'hinge']:
+            self.loss = None
+        else:
+            raise NotImplementedError('gan mode %s not implemented' % loss_mode)
+
+    def get_target_tensor(self, prediction, target_is_real):
+        """Create label tensors with the same size as the input.
+        Parameters:
+            prediction (tensor) - - tpyically the prediction from a discriminator
+            target_is_real (bool) - - if the ground truth label is for real images or fake images
+        Returns:
+            A label tensor filled with ground truth label, and with the size of the input
+        """
+        if target_is_real:
+            target_tensor = self.real_label
+        else:
+            target_tensor = self.fake_label
+        if self.gpu:
+            target_tensor = target_tensor
+        return target_tensor.expand_as(prediction)
+
+    def G_loss(self, Dreal, Dfake):
+        if self.loss_mode != 'rsgan' and cfg.d_out_mean:
+            Dfake = torch.mean(Dfake.view(cfg.batch_size, -1), dim=-1)
+            Dreal = torch.mean(Dreal.view(cfg.batch_size, -1), dim=-1)
+        real_tensor = self.get_target_tensor(Dreal, True)
+        fake_tensor = self.get_target_tensor(Dreal, False)
+        if self.which_D == 'S':
+            prediction_fake = Dfake
+            prediction_real = real_tensor if self.loss_mode in ['vanilla'] else fake_tensor
+        elif self.which_D == 'Ra':
+            prediction_fake = Dfake - torch.mean(Dreal)
+            prediction_real = Dreal - torch.mean(Dfake)
+        else:
+            raise NotImplementedError('which_D name [%s] is not recognized' % self.which_D)
+        if self.loss_mode in ['lsgan', 'ragan']:
+            loss_fake = self.loss(prediction_fake, real_tensor)
+            loss_real = self.loss(prediction_real, fake_tensor)
+            g_loss = loss_fake + loss_real
+        elif self.loss_mode == 'vanilla':
+            loss_fake = -self.loss(prediction_fake, fake_tensor)
+            g_loss = loss_fake
+        elif self.loss_mode in ['wgan', 'hinge'] and self.which_D == 'S':
+            loss_fake = -prediction_fake.mean()
+            loss_real = prediction_real.mean()
+            g_loss = loss_fake + loss_real
+        elif self.loss_mode == 'hinge' and self.which_D == 'Ra':
+            loss_fake = nn.ReLU()(1.0 - prediction_fake).mean()
+            loss_real = nn.ReLU()(1.0 + prediction_real).mean()
+            g_loss = loss_fake + loss_real
+        elif self.loss_mode == 'rsgan':
+            loss_fake = self.loss(Dfake - Dreal, real_tensor)
+            g_loss = loss_fake
+        else:
+            raise NotImplementedError('loss_mode name [%s] is not recognized' % self.loss_mode)
+        return g_loss
+
+    def D_loss(self, Dreal, Dfake):
+        if self.loss_mode != 'rsgan' and cfg.d_out_mean:
+            Dfake = torch.mean(Dfake.view(cfg.batch_size, -1), dim=-1)
+            Dreal = torch.mean(Dreal.view(cfg.batch_size, -1), dim=-1)
+        real_tensor = self.get_target_tensor(Dreal, True)
+        fake_tensor = self.get_target_tensor(Dreal, False)
+        if self.which_D == 'S':
+            prediction_fake = Dfake
+            prediction_real = Dreal
+        elif self.which_D == 'Ra':
+            prediction_fake = Dfake - torch.mean(Dreal)
+            prediction_real = Dreal - torch.mean(Dfake)
+        else:
+            raise NotImplementedError('which_D name [%s] is not recognized' % self.which_D)
+        if self.loss_mode in ['lsgan', 'ragan', 'vanilla']:
+            loss_fake = self.loss(prediction_fake, fake_tensor)
+            loss_real = self.loss(prediction_real, real_tensor)
+        elif self.loss_mode == 'wgan':
+            loss_fake = prediction_fake.mean()
+            loss_real = -prediction_real.mean()
+        elif self.loss_mode == 'hinge':
+            loss_fake = nn.ReLU()(1.0 + prediction_fake).mean()
+            loss_real = nn.ReLU()(1.0 - prediction_real).mean()
+        elif self.loss_mode == 'rsgan':
+            loss_fake = 0.0
+            loss_real = self.loss(Dreal - Dfake, real_tensor)
+        else:
+            raise NotImplementedError('loss_mode name [%s] is not recognized' % self.loss_mode)
+        return loss_fake + loss_real
+
+    def __call__(self, Dreal, Dfake):
+        """Calculate loss given Discriminator's output and grount truth labels."""
+        if self.which_net == 'G':
+            return self.G_loss(Dreal, Dfake)
+        elif self.which_net == 'D':
+            return self.D_loss(Dreal, Dfake)
+        else:
+            raise NotImplementedError('which_net name [%s] is not recognized' % self.which_net)
 

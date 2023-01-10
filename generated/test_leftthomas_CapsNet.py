@@ -73,7 +73,7 @@ class CapsuleNet(nn.Module):
                 y = Variable(torch.eye(config.NUM_CLASSES)).index_select(dim=0, index=max_length_indices)
             else:
                 y = Variable(torch.eye(config.NUM_CLASSES)).index_select(dim=0, index=max_length_indices)
-        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
+        reconstructions = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
         return classes, reconstructions
 
 

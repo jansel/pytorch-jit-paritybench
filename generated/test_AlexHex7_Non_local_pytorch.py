@@ -15,6 +15,7 @@ non_local_concatenation = _module
 non_local_dot_product = _module
 non_local_embedded_gaussian = _module
 non_local_gaussian = _module
+demo_MNIST_AMP_train_with_single_gpu = _module
 demo_MNIST_train = _module
 network = _module
 non_local_concatenation = _module
@@ -63,6 +64,9 @@ import time
 
 
 from torch.nn import functional as F
+
+
+from torch.cuda import amp
 
 
 import numpy as np
@@ -123,8 +127,6 @@ class _NonLocalBlockND(nn.Module):
             phi_x = x.view(batch_size, self.in_channels, -1)
         f = torch.matmul(theta_x, phi_x)
         f_div_C = F.softmax(f, dim=-1)
-        if self.store_last_batch_nl_map:
-            self.nl_map = f_div_C
         y = torch.matmul(f_div_C, g_x)
         y = y.permute(0, 2, 1).contiguous()
         y = y.view(batch_size, self.inter_channels, *x.size()[2:])
@@ -183,4 +185,29 @@ class Network(nn.Module):
         output = self.conv_3(nl_feature_2).view(batch_size, -1)
         output = self.fc(output)
         return output, [nl_map_1, nl_map_2]
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NONLocalBlock1D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (NONLocalBlock2D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_AlexHex7_Non_local_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

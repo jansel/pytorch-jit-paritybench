@@ -25,10 +25,12 @@ setup = _module
 external_api_test_neptune = _module
 external_test_examples = _module
 external_test_keras = _module
+external_test_poutyne = _module
 external_test_pytorch_ignite = _module
 external_test_tensorboard = _module
 test_bokeh_output = _module
 test_extrema_printer = _module
+test_from_step = _module
 test_main_logger = _module
 test_plot_losses = _module
 
@@ -74,6 +76,12 @@ from torch.utils.data import TensorDataset
 
 
 from torch.utils.data import DataLoader
+
+
+class Network(nn.Sequential):
+
+    def __init__(self):
+        super().__init__(nn.Linear(12, 5))
 
 
 class Model(nn.Sequential):

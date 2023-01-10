@@ -1105,9 +1105,9 @@ def sample_from_mix_gaussian(y, log_scale_min=-7.0):
         means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
         log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1)
     elif C == 2:
-        means, log_scales = y[:, :, (0)], y[:, :, (1)]
+        means, log_scales = y[:, :, 0], y[:, :, 1]
     elif C == 3:
-        means, log_scales = y[:, :, (1)], y[:, :, (2)]
+        means, log_scales = y[:, :, 1], y[:, :, 2]
     else:
         assert False, "shouldn't happen"
     scales = torch.exp(log_scales)
@@ -1284,7 +1284,7 @@ class WaveNet(nn.Module):
                 initial_input = torch.zeros(B, 1, 1)
             else:
                 initial_input = torch.zeros(B, 1, self.out_channels)
-                initial_input[:, :, (127)] = 1
+                initial_input[:, :, 127] = 1
             if next(self.parameters()).is_cuda:
                 initial_input = initial_input
         elif initial_input.size(1) == self.out_channels:
@@ -1292,11 +1292,11 @@ class WaveNet(nn.Module):
         current_input = initial_input
         for t in tqdm(range(T)):
             if test_inputs is not None and t < test_inputs.size(1):
-                current_input = test_inputs[:, (t), :].unsqueeze(1)
+                current_input = test_inputs[:, t, :].unsqueeze(1)
             elif t > 0:
                 current_input = outputs[-1]
-            ct = None if c is None else c[:, (t), :].unsqueeze(1)
-            gt = None if g is None else g_btc[:, (t), :].unsqueeze(1)
+            ct = None if c is None else c[:, t, :].unsqueeze(1)
+            gt = None if g is None else g_btc[:, t, :].unsqueeze(1)
             x = current_input
             x = self.first_conv.incremental_forward(x)
             skips = 0

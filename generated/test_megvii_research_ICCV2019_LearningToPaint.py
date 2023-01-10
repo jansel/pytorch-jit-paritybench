@@ -29,6 +29,7 @@ test = _module
 train = _module
 train_renderer = _module
 util = _module
+predict = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -316,15 +317,15 @@ TESTCASES = [
     (BasicBlock,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (Bottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 6, 64, 64])], {}),
-     True),
+     False),
     (TReLU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

@@ -56,12 +56,12 @@ from torchvision.ops.boxes import nms as nms_torch
 
 
 def calc_iou(a, b):
-    area = (b[:, (2)] - b[:, (0)]) * (b[:, (3)] - b[:, (1)])
-    iw = torch.min(torch.unsqueeze(a[:, (2)], dim=1), b[:, (2)]) - torch.max(torch.unsqueeze(a[:, (0)], 1), b[:, (0)])
-    ih = torch.min(torch.unsqueeze(a[:, (3)], dim=1), b[:, (3)]) - torch.max(torch.unsqueeze(a[:, (1)], 1), b[:, (1)])
+    area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    iw = torch.min(torch.unsqueeze(a[:, 2], dim=1), b[:, 2]) - torch.max(torch.unsqueeze(a[:, 0], 1), b[:, 0])
+    ih = torch.min(torch.unsqueeze(a[:, 3], dim=1), b[:, 3]) - torch.max(torch.unsqueeze(a[:, 1], 1), b[:, 1])
     iw = torch.clamp(iw, min=0)
     ih = torch.clamp(ih, min=0)
-    ua = torch.unsqueeze((a[:, (2)] - a[:, (0)]) * (a[:, (3)] - a[:, (1)]), dim=1) + area - iw * ih
+    ua = torch.unsqueeze((a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1]), dim=1) + area - iw * ih
     ua = torch.clamp(ua, min=1e-08)
     intersection = iw * ih
     IoU = intersection / ua
@@ -79,16 +79,16 @@ class FocalLoss(nn.Module):
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
-        anchor = anchors[(0), :, :]
-        anchor_widths = anchor[:, (2)] - anchor[:, (0)]
-        anchor_heights = anchor[:, (3)] - anchor[:, (1)]
-        anchor_ctr_x = anchor[:, (0)] + 0.5 * anchor_widths
-        anchor_ctr_y = anchor[:, (1)] + 0.5 * anchor_heights
+        anchor = anchors[0, :, :]
+        anchor_widths = anchor[:, 2] - anchor[:, 0]
+        anchor_heights = anchor[:, 3] - anchor[:, 1]
+        anchor_ctr_x = anchor[:, 0] + 0.5 * anchor_widths
+        anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
         for j in range(batch_size):
-            classification = classifications[(j), :, :]
-            regression = regressions[(j), :, :]
-            bbox_annotation = annotations[(j), :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
+            classification = classifications[j, :, :]
+            regression = regressions[j, :, :]
+            bbox_annotation = annotations[j, :, :]
+            bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
             if bbox_annotation.shape[0] == 0:
                 if torch.cuda.is_available():
                     regression_losses.append(torch.tensor(0).float())
@@ -98,16 +98,16 @@ class FocalLoss(nn.Module):
                     classification_losses.append(torch.tensor(0).float())
                 continue
             classification = torch.clamp(classification, 0.0001, 1.0 - 0.0001)
-            IoU = calc_iou(anchors[(0), :, :], bbox_annotation[:, :4])
+            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones(classification.shape) * -1
             if torch.cuda.is_available():
                 targets = targets
-            targets[(torch.lt(IoU_max, 0.4)), :] = 0
+            targets[torch.lt(IoU_max, 0.4), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
             num_positive_anchors = positive_indices.sum()
-            assigned_annotations = bbox_annotation[(IoU_argmax), :]
-            targets[(positive_indices), :] = 0
+            assigned_annotations = bbox_annotation[IoU_argmax, :]
+            targets[positive_indices, :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
             alpha_factor = torch.ones(targets.shape) * alpha
             if torch.cuda.is_available():
@@ -123,15 +123,15 @@ class FocalLoss(nn.Module):
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
             classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
             if positive_indices.sum() > 0:
-                assigned_annotations = assigned_annotations[(positive_indices), :]
+                assigned_annotations = assigned_annotations[positive_indices, :]
                 anchor_widths_pi = anchor_widths[positive_indices]
                 anchor_heights_pi = anchor_heights[positive_indices]
                 anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
                 anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
-                gt_widths = assigned_annotations[:, (2)] - assigned_annotations[:, (0)]
-                gt_heights = assigned_annotations[:, (3)] - assigned_annotations[:, (1)]
-                gt_ctr_x = assigned_annotations[:, (0)] + 0.5 * gt_widths
-                gt_ctr_y = assigned_annotations[:, (1)] + 0.5 * gt_heights
+                gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
+                gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
+                gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
+                gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
                 gt_widths = torch.clamp(gt_widths, min=1)
                 gt_heights = torch.clamp(gt_heights, min=1)
                 targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
@@ -144,7 +144,7 @@ class FocalLoss(nn.Module):
                 if torch.cuda.is_available():
                     norm = norm
                 targets = targets / norm
-                regression_diff = torch.abs(targets - regression[(positive_indices), :])
+                regression_diff = torch.abs(targets - regression[positive_indices, :])
                 regression_loss = torch.where(torch.le(regression_diff, 1.0 / 9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
             elif torch.cuda.is_available():
@@ -316,11 +316,11 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
     num_anchors = len(ratios) * len(scales)
     anchors = np.zeros((num_anchors, 4))
     anchors[:, 2:] = base_size * np.tile(scales, (2, len(ratios))).T
-    areas = anchors[:, (2)] * anchors[:, (3)]
-    anchors[:, (2)] = np.sqrt(areas / np.repeat(ratios, len(scales)))
-    anchors[:, (3)] = anchors[:, (2)] * np.repeat(ratios, len(scales))
-    anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
-    anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
+    areas = anchors[:, 2] * anchors[:, 3]
+    anchors[:, 2] = np.sqrt(areas / np.repeat(ratios, len(scales)))
+    anchors[:, 3] = anchors[:, 2] * np.repeat(ratios, len(scales))
+    anchors[:, 0::2] -= np.tile(anchors[:, 2] * 0.5, (2, 1)).T
+    anchors[:, 1::2] -= np.tile(anchors[:, 3] * 0.5, (2, 1)).T
     return anchors
 
 
@@ -384,14 +384,14 @@ class BBoxTransform(nn.Module):
             self.std = self.std
 
     def forward(self, boxes, deltas):
-        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
-        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
-        ctr_x = boxes[:, :, (0)] + 0.5 * widths
-        ctr_y = boxes[:, :, (1)] + 0.5 * heights
-        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
+        widths = boxes[:, :, 2] - boxes[:, :, 0]
+        heights = boxes[:, :, 3] - boxes[:, :, 1]
+        ctr_x = boxes[:, :, 0] + 0.5 * widths
+        ctr_y = boxes[:, :, 1] + 0.5 * heights
+        dx = deltas[:, :, 0] * self.std[0] + self.mean[0]
+        dy = deltas[:, :, 1] * self.std[1] + self.mean[1]
+        dw = deltas[:, :, 2] * self.std[2] + self.mean[2]
+        dh = deltas[:, :, 3] * self.std[3] + self.mean[3]
         pred_ctr_x = ctr_x + dx * widths
         pred_ctr_y = ctr_y + dy * heights
         pred_w = torch.exp(dw) * widths
@@ -411,15 +411,15 @@ class ClipBoxes(nn.Module):
 
     def forward(self, boxes, img):
         batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
+        boxes[:, :, 0] = torch.clamp(boxes[:, :, 0], min=0)
+        boxes[:, :, 1] = torch.clamp(boxes[:, :, 1], min=0)
+        boxes[:, :, 2] = torch.clamp(boxes[:, :, 2], max=width)
+        boxes[:, :, 3] = torch.clamp(boxes[:, :, 3], max=height)
         return boxes
 
 
 def nms(dets, thresh):
-    return nms_torch(dets[:, :4], dets[:, (4)], thresh)
+    return nms_torch(dets[:, :4], dets[:, 4], thresh)
 
 
 class EfficientDet(nn.Module):
@@ -484,15 +484,15 @@ class EfficientDet(nn.Module):
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
             scores = torch.max(classification, dim=2, keepdim=True)[0]
-            scores_over_thresh = (scores > 0.05)[(0), :, (0)]
+            scores_over_thresh = (scores > 0.05)[0, :, 0]
             if scores_over_thresh.sum() == 0:
                 return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
-            classification = classification[:, (scores_over_thresh), :]
-            transformed_anchors = transformed_anchors[:, (scores_over_thresh), :]
-            scores = scores[:, (scores_over_thresh), :]
-            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[(0), :, :], 0.5)
-            nms_scores, nms_class = classification[(0), (anchors_nms_idx), :].max(dim=1)
-            return [nms_scores, nms_class, transformed_anchors[(0), (anchors_nms_idx), :]]
+            classification = classification[:, scores_over_thresh, :]
+            transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+            scores = scores[:, scores_over_thresh, :]
+            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+            nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+            return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
 
 
 import torch

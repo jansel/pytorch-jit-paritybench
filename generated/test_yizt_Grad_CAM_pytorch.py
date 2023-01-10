@@ -1,6 +1,8 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+demo_fcos = _module
+grad_cam_fcos = _module
 detection = _module
 demo = _module
 demo_retinanet = _module

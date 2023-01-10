@@ -1,7 +1,9 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-convert_ernie_to_pytorch = _module
+convert = _module
+convert_ernie_gram = _module
+convert_ernie_health = _module
 test = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -25,9 +27,6 @@ wraps = functools.wraps
 
 
 import collections
-
-
-import numpy as np
 
 
 import torch

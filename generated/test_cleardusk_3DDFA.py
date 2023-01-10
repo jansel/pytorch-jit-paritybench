@@ -4,6 +4,8 @@ del sys
 benchmark = _module
 benchmark_aflw = _module
 benchmark_aflw2000 = _module
+convert_to_onnx = _module
+mobilenet_v1 = _module
 convert_imgs_to_video = _module
 rendering = _module
 rendering_demo = _module
@@ -69,10 +71,10 @@ import time
 import numpy as np
 
 
-import scipy.io as sio
-
-
 import math
+
+
+import scipy.io as sio
 
 
 import logging
@@ -175,7 +177,7 @@ def _parse_param_batch(param):
     N = param.shape[0]
     p_ = param[:, :12].view(N, 3, -1)
     p = p_[:, :, :3]
-    offset = p_[:, :, (-1)].view(N, 3, 1)
+    offset = p_[:, :, -1].view(N, 3, 1)
     alpha_shp = param[:, 12:52].view(N, -1, 1)
     alpha_exp = param[:, 52:].view(N, -1, 1)
     return p, offset, alpha_shp, alpha_exp
@@ -239,7 +241,7 @@ class VDCLoss(nn.Module):
     def forward_all(self, input, target):
         (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg) = self.reconstruct_and_parse(input, target)
         N = input.shape[0]
-        offset[:, (-1)] = offsetg[:, (-1)]
+        offset[:, -1] = offsetg[:, -1]
         gt_vertex = pg @ (self.u + self.w_shp @ alpha_shpg + self.w_exp @ alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
         vertex = p @ (self.u + self.w_shp @ alpha_shp + self.w_exp @ alpha_exp).view(N, -1, 3).permute(0, 2, 1) + offset
         diff = (gt_vertex - vertex) ** 2
@@ -254,7 +256,7 @@ class VDCLoss(nn.Module):
         w_shp_base = self.w_shp[keypoints_mix]
         u_base = self.u[keypoints_mix]
         w_exp_base = self.w_exp[keypoints_mix]
-        offset[:, (-1)] = offsetg[:, (-1)]
+        offset[:, -1] = offsetg[:, -1]
         N = input.shape[0]
         gt_vertex = pg @ (u_base + w_shp_base @ alpha_shpg + w_exp_base @ alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
         vertex = p @ (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp).view(N, -1, 3).permute(0, 2, 1) + offset
@@ -310,21 +312,21 @@ class WPDCLoss(nn.Module):
         input = self.param_std * input + self.param_mean
         target = self.param_std * target + self.param_mean
         N = input.shape[0]
-        offset[:, (-1)] = offsetg[:, (-1)]
+        offset[:, -1] = offsetg[:, -1]
         weights = torch.zeros_like(input, dtype=torch.float)
-        tmpv = (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp).view(N, -1, 3).permute(0, 2, 1)
+        tmpv = (u_base + w_shp_base @ alpha_shpg + w_exp_base @ alpha_expg).view(N, -1, 3).permute(0, 2, 1)
         tmpv_norm = torch.norm(tmpv, dim=2)
         offset_norm = sqrt(w_shp_base.shape[0] // 3)
         param_diff_pose = torch.abs(input[:, :11] - target[:, :11])
         for ind in range(11):
             if ind in [0, 4, 8]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (0)]
+                weights[:, ind] = param_diff_pose[:, ind] * tmpv_norm[:, 0]
             elif ind in [1, 5, 9]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (1)]
+                weights[:, ind] = param_diff_pose[:, ind] * tmpv_norm[:, 1]
             elif ind in [2, 6, 10]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (2)]
+                weights[:, ind] = param_diff_pose[:, ind] * tmpv_norm[:, 2]
             else:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * offset_norm
+                weights[:, ind] = param_diff_pose[:, ind] * offset_norm
         magic_number = 0.00057339936
         param_diff_shape_exp = torch.abs(input[:, 12:] - target[:, 12:])
         w = torch.cat((w_shp_base, w_exp_base), dim=1)
@@ -336,7 +338,7 @@ class WPDCLoss(nn.Module):
         maxes, _ = weights.max(dim=1)
         maxes = maxes.view(-1, 1)
         weights /= maxes
-        weights[:, (11)] = 0
+        weights[:, 11] = 0
         return weights
 
     def forward(self, input, target, weights_scale=10):

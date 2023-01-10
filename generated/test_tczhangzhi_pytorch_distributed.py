@@ -4,6 +4,7 @@ del sys
 apex_distributed = _module
 dataparallel = _module
 distributed = _module
+distributed_slurm_main = _module
 horovod_distributed = _module
 multiprocessing_distributed = _module
 

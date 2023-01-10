@@ -19,6 +19,10 @@ nn_matching = _module
 preprocessing = _module
 track = _module
 tracker = _module
+deepsort = _module
+MMDet = _module
+detector = _module
+mmdet_utils = _module
 YOLOv3 = _module
 cfg = _module
 darknet = _module
@@ -47,7 +51,6 @@ config = _module
 rtsp_threaded_tracker = _module
 rtsp_webserver = _module
 server_cfg = _module
-yolov3_deepsort = _module
 yolov3_deepsort_eval = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
@@ -100,6 +103,9 @@ import time
 import matplotlib.pyplot as plt
 
 
+import warnings
+
+
 from torch.utils.cpp_extension import CUDA_HOME
 
 
@@ -107,9 +113,6 @@ from torch.utils.cpp_extension import CppExtension
 
 
 from torch.utils.cpp_extension import CUDAExtension
-
-
-import warnings
 
 
 import math

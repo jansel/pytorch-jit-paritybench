@@ -27,7 +27,9 @@ lstm_bayesian_layer_test = _module
 weight_sampler_test = _module
 weight_sampler = _module
 utils = _module
+layer_wrappers = _module
 minibatch_weighting = _module
+layer_wrappers_test = _module
 variational_estimator_test = _module
 variational_estimator = _module
 setup = _module
@@ -118,6 +120,9 @@ from torch.nn import functional as F
 import torch.functional as F
 
 
+import types
+
+
 class BayesianModule(nn.Module):
     """
     creates base class for BNN, in order to enable specific behavior
@@ -127,46 +132,7 @@ class BayesianModule(nn.Module):
         super().__init__()
 
 
-class GaussianVariational(nn.Module):
-
-    def __init__(self, mu, rho):
-        super().__init__()
-        self.mu = nn.Parameter(mu)
-        self.rho = nn.Parameter(rho)
-        self.register_buffer('eps_w', torch.Tensor(self.mu.shape))
-        self.sigma = None
-        self.w = None
-        self.pi = np.pi
-
-    def sample(self):
-        """
-        Samples weights by sampling form a Normal distribution, multiplying by a sigma, which is 
-        a function from a trainable parameter, and adding a mean
-
-        sets those weights as the current ones
-
-        returns:
-            torch.tensor with same shape as self.mu and self.rho
-        """
-        self.eps_w.data.normal_()
-        self.sigma = torch.log1p(torch.exp(self.rho))
-        self.w = self.mu + self.sigma * self.eps_w
-        return self.w
-
-    def log_posterior(self):
-        """
-        Calculates the log_likelihood for each of the weights sampled as a part of the complexity cost
-
-        returns:
-            torch.tensor with shape []
-        """
-        assert self.w is not None, "You can only have a log posterior for W if you've already sampled it"
-        log_sqrt2pi = np.log(np.sqrt(2 * self.pi))
-        log_posteriors = -log_sqrt2pi - torch.log(self.sigma) - (self.w - self.mu) ** 2 / (2 * self.sigma ** 2)
-        return log_posteriors.mean()
-
-
-class ScaleMixturePrior(nn.Module):
+class PriorWeightDistribution(nn.Module):
 
     def __init__(self, pi=1, sigma1=0.1, sigma2=0.001, dist=None):
         super().__init__()
@@ -193,8 +159,49 @@ class ScaleMixturePrior(nn.Module):
             prob_n2 = torch.exp(self.dist2.log_prob(w))
         if self.dist2 is None:
             prob_n2 = 0
-        prior_pdf = self.pi * prob_n1 + (1 - self.pi) * prob_n2
-        return torch.log(prior_pdf).mean()
+        prior_pdf = self.pi * prob_n1 + (1 - self.pi) * prob_n2 + 1e-06
+        return (torch.log(prior_pdf) - 0.5).sum()
+
+
+class TrainableRandomDistribution(nn.Module):
+
+    def __init__(self, mu, rho):
+        super().__init__()
+        self.mu = nn.Parameter(mu)
+        self.rho = nn.Parameter(rho)
+        self.register_buffer('eps_w', torch.Tensor(self.mu.shape))
+        self.sigma = None
+        self.w = None
+        self.pi = np.pi
+
+    def sample(self):
+        """
+        Samples weights by sampling form a Normal distribution, multiplying by a sigma, which is 
+        a function from a trainable parameter, and adding a mean
+
+        sets those weights as the current ones
+
+        returns:
+            torch.tensor with same shape as self.mu and self.rho
+        """
+        self.eps_w.data.normal_()
+        self.sigma = torch.log1p(torch.exp(self.rho))
+        self.w = self.mu + self.sigma * self.eps_w
+        return self.w
+
+    def log_posterior(self, w=None):
+        """
+        Calculates the log_likelihood for each of the weights sampled as a part of the complexity cost
+
+        returns:
+            torch.tensor with shape []
+        """
+        assert self.w is not None, "You can only have a log posterior for W if you've already sampled it"
+        if w is None:
+            w = self.w
+        log_sqrt2pi = np.log(np.sqrt(2 * self.pi))
+        log_posteriors = -log_sqrt2pi - torch.log(self.sigma) - (w - self.mu) ** 2 / (2 * self.sigma ** 2) - 0.5
+        return log_posteriors.sum()
 
 
 class BayesianConv2d(BayesianModule):
@@ -242,12 +249,15 @@ class BayesianConv2d(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_mu = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size).normal_(posterior_mu_init, 0.1))
         self.weight_rho = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size).normal_(posterior_rho_init, 0.1))
-        self.weight_sampler = GaussianVariational(self.weight_mu, self.weight_rho)
-        self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
-        self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
-        self.weight_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_sampler = TrainableRandomDistribution(self.weight_mu, self.weight_rho)
+        if self.bias:
+            self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
+            self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
+            self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
+            self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        else:
+            self.register_buffer('bias_zero', torch.zeros(self.out_channels))
+        self.weight_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -260,7 +270,7 @@ class BayesianConv2d(BayesianModule):
             b_log_posterior = self.bias_sampler.log_posterior()
             b_log_prior = self.bias_prior_dist.log_prior(b)
         else:
-            b = torch.zeros(self.out_channels)
+            b = self.bias_zero
             b_log_posterior = 0
             b_log_prior = 0
         self.log_variational_posterior = self.weight_sampler.log_posterior() + b_log_posterior
@@ -272,7 +282,7 @@ class BayesianConv2d(BayesianModule):
             bias = self.bias_mu
             assert bias is self.bias_mu, 'The bias inputed should be this layer parameter, not a clone.'
         else:
-            bias = torch.zeros(self.out_channels)
+            bias = self.bias_zero
         return F.conv2d(input=x, weight=self.weight_mu, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
@@ -296,7 +306,7 @@ class BayesianLinear(BayesianModule):
     
     """
 
-    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.4, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None):
+    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.4, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-7.0, freeze=False, prior_dist=None):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -310,12 +320,12 @@ class BayesianLinear(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_mu = nn.Parameter(torch.Tensor(out_features, in_features).normal_(posterior_mu_init, 0.1))
         self.weight_rho = nn.Parameter(torch.Tensor(out_features, in_features).normal_(posterior_rho_init, 0.1))
-        self.weight_sampler = GaussianVariational(self.weight_mu, self.weight_rho)
+        self.weight_sampler = TrainableRandomDistribution(self.weight_mu, self.weight_rho)
         self.bias_mu = nn.Parameter(torch.Tensor(out_features).normal_(posterior_mu_init, 0.1))
         self.bias_rho = nn.Parameter(torch.Tensor(out_features).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
-        self.weight_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
+        self.weight_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -328,7 +338,7 @@ class BayesianLinear(BayesianModule):
             b_log_posterior = self.bias_sampler.log_posterior()
             b_log_prior = self.bias_prior_dist.log_prior(b)
         else:
-            b = torch.zeros(self.out_features)
+            b = torch.zeros(self.out_features, device=x.device)
             b_log_posterior = 0
             b_log_prior = 0
         self.log_variational_posterior = self.weight_sampler.log_posterior() + b_log_posterior
@@ -343,6 +353,85 @@ class BayesianLinear(BayesianModule):
             return F.linear(x, self.weight_mu, self.bias_mu)
         else:
             return F.linear(x, self.weight_mu, torch.zeros(self.out_features))
+
+
+class BayesianRNN(BayesianModule):
+    """
+    implements base class for B-RNN to enable posterior sharpening
+    """
+
+    def __init__(self, sharpen=False):
+        super().__init__()
+        self.weight_ih_mu = None
+        self.weight_hh_mu = None
+        self.bias = None
+        self.weight_ih_sampler = None
+        self.weight_hh_sampler = None
+        self.bias_sampler = None
+        self.weight_ih = None
+        self.weight_hh = None
+        self.bias = None
+        self.sharpen = sharpen
+        self.weight_ih_eta = None
+        self.weight_hh_eta = None
+        self.bias_eta = None
+        self.ff_parameters = None
+        self.loss_to_sharpen = None
+
+    def sample_weights(self):
+        pass
+
+    def init_sharpen_parameters(self):
+        if self.sharpen:
+            self.weight_ih_eta = nn.Parameter(torch.Tensor(self.weight_ih_mu.size()))
+            self.weight_hh_eta = nn.Parameter(torch.Tensor(self.weight_hh_mu.size()))
+            self.bias_eta = nn.Parameter(torch.Tensor(self.bias_mu.size()))
+            self.ff_parameters = []
+            self.init_eta()
+
+    def init_eta(self):
+        stdv = 1.0 / math.sqrt(self.weight_hh_eta.shape[0])
+        self.weight_ih_eta.data.uniform_(-stdv, stdv)
+        self.weight_hh_eta.data.uniform_(-stdv, stdv)
+        self.bias_eta.data.uniform_(-stdv, stdv)
+
+    def set_loss_to_sharpen(self, loss):
+        self.loss_to_sharpen = loss
+
+    def sharpen_posterior(self, loss, input_shape):
+        """
+        sharpens the posterior distribution by using the algorithm proposed in
+        @article{DBLP:journals/corr/FortunatoBV17,
+          author    = {Meire Fortunato and
+                       Charles Blundell and
+                       Oriol Vinyals},
+          title     = {Bayesian Recurrent Neural Networks},
+          journal   = {CoRR},
+          volume    = {abs/1704.02798},
+          year      = {2017},
+          url       = {http://arxiv.org/abs/1704.02798},
+          archivePrefix = {arXiv},
+          eprint    = {1704.02798},
+          timestamp = {Mon, 13 Aug 2018 16:48:21 +0200},
+          biburl    = {https://dblp.org/rec/journals/corr/FortunatoBV17.bib},
+          bibsource = {dblp computer science bibliography, https://dblp.org}
+        }
+        """
+        bs, seq_len, in_size = input_shape
+        gradients = torch.autograd.grad(outputs=loss, inputs=self.ff_parameters, grad_outputs=torch.ones(loss.size()), create_graph=True, retain_graph=True, only_inputs=True)
+        grad_weight_ih, grad_weight_hh, grad_bias = gradients
+        _ = self.sample_weights()
+        weight_ih_sharpened = self.weight_ih_mu - self.weight_ih_eta * grad_weight_ih + self.weight_ih_sampler.sigma
+        weight_hh_sharpened = self.weight_hh_mu - self.weight_hh_eta * grad_weight_hh + self.weight_hh_sampler.sigma
+        bias_sharpened = self.bias_mu - self.bias_eta * grad_bias + self.bias_sampler.sigma
+        if self.bias is not None:
+            b_log_posterior = self.bias_sampler.log_posterior(w=bias_sharpened)
+            b_log_prior_ = self.bias_prior_dist.log_prior(bias_sharpened)
+        else:
+            b_log_posterior = b_log_prior = 0
+        self.log_variational_posterior += (self.weight_ih_sampler.log_posterior(w=weight_ih_sharpened) + b_log_posterior + self.weight_hh_sampler.log_posterior(w=weight_hh_sharpened)) / seq_len
+        self.log_prior += self.weight_ih_prior_dist.log_prior(weight_ih_sharpened) + b_log_prior + self.weight_hh_prior_dist.log_prior(weight_hh_sharpened) / seq_len
+        return weight_ih_sharpened, weight_hh_sharpened, bias_sharpened
 
 
 def kl_divergence_from_nn(model):
@@ -386,11 +475,39 @@ def variational_estimator(nn_class):
 
     def sample_elbo(self, inputs, labels, criterion, sample_nbr, complexity_cost_weight=1):
         """ Samples the ELBO Loss for a batch of data, consisting of inputs and corresponding-by-index labels
+                The ELBO Loss consists of the sum of the KL Divergence of the model
+                 (explained above, interpreted as a "complexity part" of the loss)
+                 with the actual criterion - (loss function) of optimization of our model
+                 (the performance part of the loss).
+                As we are using variational inference, it takes several (quantified by the parameter sample_nbr) Monte-Carlo
+                 samples of the weights in order to gather a better approximation for the loss.
+            Parameters:
+                inputs: torch.tensor -> the input data to the model
+                labels: torch.tensor -> label data for the performance-part of the loss calculation
+                        The shape of the labels must match the label-parameter shape of the criterion (one hot encoded or as index, if needed)
+                criterion: torch.nn.Module, custom criterion (loss) function, torch.nn.functional function -> criterion to gather
+                            the performance cost for the model
+                sample_nbr: int -> The number of times of the weight-sampling and predictions done in our Monte-Carlo approach to
+                            gather the loss to be .backwarded in the optimization of the model.
+
+        """
+        loss = 0
+        for _ in range(sample_nbr):
+            outputs = self(inputs)
+            loss += criterion(outputs, labels)
+            loss += self.nn_kl_divergence() * complexity_cost_weight
+        return loss / sample_nbr
+    setattr(nn_class, 'sample_elbo', sample_elbo)
+
+    def sample_elbo_detailed_loss(self, inputs, labels, criterion, sample_nbr, complexity_cost_weight=1):
+        """ Samples the ELBO Loss for a batch of data, consisting of inputs and corresponding-by-index labels.
+            This version of the function returns the performance part and complexity part of the loss individually
+            as well as an array of predictions
 
                 The ELBO Loss consists of the sum of the KL Divergence of the model 
                  (explained above, interpreted as a "complexity part" of the loss)
                  with the actual criterion - (loss function) of optimization of our model
-                 (the performance part of the loss). 
+                 (the performance part of the loss).
 
                 As we are using variational inference, it takes several (quantified by the parameter sample_nbr) Monte-Carlo
                  samples of the weights in order to gather a better approximation for the loss.
@@ -402,16 +519,25 @@ def variational_estimator(nn_class):
                 criterion: torch.nn.Module, custom criterion (loss) function, torch.nn.functional function -> criterion to gather
                             the performance cost for the model
                 sample_nbr: int -> The number of times of the weight-sampling and predictions done in our Monte-Carlo approach to 
-                            gather the loss to be .backwarded in the optimization of the model.        
+                            gather the loss to be .backwarded in the optimization of the model.
+            Returns:
+                array of predictions
+                ELBO Loss
+                performance part
+                complexity part
         
         """
         loss = 0
+        likelihood_cost = 0
+        complexity_cost = 0
+        y_hat = []
         for _ in range(sample_nbr):
             outputs = self(inputs)
-            loss = criterion(outputs, labels)
-            loss += self.nn_kl_divergence() * complexity_cost_weight
-        return loss / sample_nbr
-    setattr(nn_class, 'sample_elbo', sample_elbo)
+            y_hat.append(outputs.cpu().detach().numpy())
+            likelihood_cost += criterion(outputs, labels)
+            complexity_cost += self.nn_kl_divergence() * complexity_cost_weight
+        return np.array(y_hat), (likelihood_cost + complexity_cost) / sample_nbr, likelihood_cost / sample_nbr, complexity_cost / sample_nbr
+    setattr(nn_class, 'sample_elbo_detailed_loss', sample_elbo_detailed_loss)
 
     def freeze_model(self):
         """
@@ -449,7 +575,7 @@ def variational_estimator(nn_class):
         for module in self.modules():
             if isinstance(module, BayesianModule):
                 for attr in module.modules():
-                    if isinstance(attr, GaussianVariational):
+                    if isinstance(attr, TrainableRandomDistribution):
                         attr.rho.data = torch.log(torch.expm1(delta * torch.abs(attr.mu.data)) + 1e-10)
         self.unfreeze_()
     setattr(nn_class, 'MOPED_', moped)
@@ -471,6 +597,19 @@ def variational_estimator(nn_class):
         result = torch.stack([self(inputs) for _ in range(sample_nbr)])
         return result.mean(dim=0), result.std(dim=0)
     setattr(nn_class, 'mfvi_forward', mfvi_forward)
+
+    def forward_with_sharpening(self, x, labels, criterion):
+        preds = self(x)
+        loss = criterion(preds, labels)
+        for module in self.modules():
+            if isinstance(module, BayesianRNN):
+                module.loss_to_sharpen = loss
+        y_hat: self(x)
+        for module in self.modules():
+            if isinstance(module, BayesianRNN):
+                module.loss_to_sharpen = None
+        return self(x)
+    setattr(nn_class, 'forward_with_sharpening', forward_with_sharpening)
     return nn_class
 
 
@@ -507,6 +646,7 @@ class BayesianRegressor(nn.Module):
 
     def forward(self, x):
         x_ = self.blinear1(x)
+        x_ = F.relu(x_)
         return self.blinear2(x_)
 
 
@@ -559,7 +699,7 @@ class BayesianConv1d(BayesianModule):
     
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, groups=1, stride=1, padding=0, dilation=1, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None):
+    def __init__(self, in_channels, out_channels, kernel_size, groups=1, stride=1, padding=0, dilation=1, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-7.0, freeze=False, prior_dist=None):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -578,12 +718,16 @@ class BayesianConv1d(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_mu = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, kernel_size).normal_(posterior_mu_init, 0.1))
         self.weight_rho = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, kernel_size).normal_(posterior_rho_init, 0.1))
-        self.weight_sampler = GaussianVariational(self.weight_mu, self.weight_rho)
-        self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
-        self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
-        self.weight_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_sampler = TrainableRandomDistribution(self.weight_mu, self.weight_rho)
+        if self.bias:
+            self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
+            self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
+            self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
+            self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        else:
+            self.register_buffer('bias_zero', torch.zeros(self.out_channels))
+        self.weight_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -596,7 +740,7 @@ class BayesianConv1d(BayesianModule):
             b_log_posterior = self.bias_sampler.log_posterior()
             b_log_prior = self.bias_prior_dist.log_prior(b)
         else:
-            b = torch.zeros(self.out_channels)
+            b = self.bias_zero
             b_log_posterior = 0
             b_log_prior = 0
         self.log_variational_posterior = self.weight_sampler.log_posterior() + b_log_posterior
@@ -608,7 +752,7 @@ class BayesianConv1d(BayesianModule):
             bias = self.bias_mu
             assert bias is self.bias_mu, 'The bias inputed should be this layer parameter, not a clone.'
         else:
-            bias = torch.zeros(self.out_channels)
+            bias = self.bias_zero
         return F.conv1d(input=x, weight=self.weight_mu, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
@@ -657,12 +801,15 @@ class BayesianConv3d(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_mu = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size).normal_(posterior_mu_init, 0.1))
         self.weight_rho = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size).normal_(posterior_rho_init, 0.1))
-        self.weight_sampler = GaussianVariational(self.weight_mu, self.weight_rho)
-        self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
-        self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
-        self.weight_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_sampler = TrainableRandomDistribution(self.weight_mu, self.weight_rho)
+        if self.bias:
+            self.bias_mu = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_mu_init, 0.1))
+            self.bias_rho = nn.Parameter(torch.Tensor(out_channels).normal_(posterior_rho_init, 0.1))
+            self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
+            self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        else:
+            self.register_buffer('bias_zero', torch.zeros(self.out_channels))
+        self.weight_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -675,7 +822,7 @@ class BayesianConv3d(BayesianModule):
             b_log_posterior = self.bias_sampler.log_posterior()
             b_log_prior = self.bias_prior_dist.log_prior(b)
         else:
-            b = torch.zeros(self.out_channels)
+            b = self.bias_zero
             b_log_posterior = 0
             b_log_prior = 0
         self.log_variational_posterior = self.weight_sampler.log_posterior() + b_log_posterior
@@ -687,7 +834,7 @@ class BayesianConv3d(BayesianModule):
             bias = self.bias_mu
             assert bias is self.bias_mu, 'The bias inputed should be this layer parameter, not a clone.'
         else:
-            bias = torch.zeros(self.out_channels)
+            bias = self.bias_zero
         return F.conv3d(input=x, weight=self.weight_mu, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
@@ -734,8 +881,8 @@ class BayesianEmbedding(BayesianModule):
         self.sparse = sparse
         self.weight_mu = nn.Parameter(torch.Tensor(num_embeddings, embedding_dim).normal_(posterior_mu_init, 0.1))
         self.weight_rho = nn.Parameter(torch.Tensor(num_embeddings, embedding_dim).normal_(posterior_rho_init, 0.1))
-        self.weight_sampler = GaussianVariational(self.weight_mu, self.weight_rho)
-        self.weight_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_sampler = TrainableRandomDistribution(self.weight_mu, self.weight_rho)
+        self.weight_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -751,7 +898,7 @@ class BayesianEmbedding(BayesianModule):
         return F.embedding(x, self.weight_mu, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
 
 
-class BayesianGRU(BayesianModule):
+class BayesianGRU(BayesianRNN):
     """
     Bayesian GRU layer, implements the linear layer proposed on Weight Uncertainity on Neural Networks
     (Bayes by Backprop paper).
@@ -771,8 +918,8 @@ class BayesianGRU(BayesianModule):
     
     """
 
-    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None):
-        super().__init__()
+    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None, **kwargs):
+        super().__init__(**kwargs)
         self.in_features = in_features
         self.out_features = out_features
         self.use_bias = bias
@@ -785,19 +932,20 @@ class BayesianGRU(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_ih_mu = nn.Parameter(torch.Tensor(in_features, out_features * 4).normal_(posterior_mu_init, 0.1))
         self.weight_ih_rho = nn.Parameter(torch.Tensor(in_features, out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.weight_ih_sampler = GaussianVariational(self.weight_ih_mu, self.weight_ih_rho)
+        self.weight_ih_sampler = TrainableRandomDistribution(self.weight_ih_mu, self.weight_ih_rho)
         self.weight_ih = None
         self.weight_hh_mu = nn.Parameter(torch.Tensor(out_features, out_features * 4).normal_(posterior_mu_init, 0.1))
         self.weight_hh_rho = nn.Parameter(torch.Tensor(out_features, out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.weight_hh_sampler = GaussianVariational(self.weight_hh_mu, self.weight_hh_rho)
+        self.weight_hh_sampler = TrainableRandomDistribution(self.weight_hh_mu, self.weight_hh_rho)
         self.weight_hh = None
         self.bias_mu = nn.Parameter(torch.Tensor(out_features * 4).normal_(posterior_mu_init, 0.1))
         self.bias_rho = nn.Parameter(torch.Tensor(out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
+        self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
         self.bias = None
-        self.weight_ih_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.weight_hh_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_ih_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_hh_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.init_sharpen_parameters()
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -815,6 +963,7 @@ class BayesianGRU(BayesianModule):
         bias = b
         self.log_variational_posterior = self.weight_hh_sampler.log_posterior() + b_log_posterior + self.weight_ih_sampler.log_posterior()
         self.log_prior = self.weight_ih_prior_dist.log_prior(weight_ih) + b_log_prior + self.weight_hh_prior_dist.log_prior(weight_hh)
+        self.ff_parameters = [weight_ih, weight_hh, bias]
         return weight_ih, weight_hh, bias
 
     def get_frozen_weights(self):
@@ -826,8 +975,15 @@ class BayesianGRU(BayesianModule):
             bias = 0
         return weight_ih, weight_hh, bias
 
-    def forward_(self, x, hidden_states):
-        weight_ih, weight_hh, bias = self.sample_weights()
+    def forward_(self, x, hidden_states, sharpen_loss):
+        if self.loss_to_sharpen is not None:
+            sharpen_loss = self.loss_to_sharpen
+            weight_ih, weight_hh, bias = self.sharpen_posterior(loss=sharpen_loss, input_shape=x.shape)
+        elif sharpen_loss is not None:
+            sharpen_loss = sharpen_loss
+            weight_ih, weight_hh, bias = self.sharpen_posterior(loss=sharpen_loss, input_shape=x.shape)
+        else:
+            weight_ih, weight_hh, bias = self.sample_weights()
         bs, seq_sz, _ = x.size()
         hidden_seq = []
         if hidden_states is None:
@@ -837,7 +993,7 @@ class BayesianGRU(BayesianModule):
         HS = self.out_features
         hidden_seq = []
         for t in range(seq_sz):
-            x_t = x[:, (t), :]
+            x_t = x[:, t, :]
             A_t = x_t @ weight_ih[:, :HS * 2] + h_t @ weight_hh[:, :HS * 2] + bias[:HS * 2]
             r_t, z_t = torch.sigmoid(A_t[:, :HS]), torch.sigmoid(A_t[:, HS:HS * 2])
             n_t = torch.tanh(x_t @ weight_ih[:, HS * 2:HS * 3] + bias[HS * 2:HS * 3] + r_t * (h_t @ weight_hh[:, HS * 3:HS * 4] + bias[HS * 3:HS * 4]))
@@ -858,7 +1014,7 @@ class BayesianGRU(BayesianModule):
         HS = self.out_features
         hidden_seq = []
         for t in range(seq_sz):
-            x_t = x[:, (t), :]
+            x_t = x[:, t, :]
             A_t = x_t @ weight_ih[:, :HS * 2] + h_t @ weight_hh[:, :HS * 2] + bias[:HS * 2]
             r_t, z_t = torch.sigmoid(A_t[:, :HS]), torch.sigmoid(A_t[:, HS:HS * 2])
             n_t = torch.tanh(x_t @ weight_ih[:, HS * 2:HS * 3] + bias[HS * 2:HS * 3] + r_t * (h_t @ weight_hh[:, HS * 3:HS * 4] + bias[HS * 3:HS * 4]))
@@ -868,13 +1024,15 @@ class BayesianGRU(BayesianModule):
         hidden_seq = hidden_seq.transpose(0, 1).contiguous()
         return hidden_seq, h_t
 
-    def forward(self, x, hidden_states=None):
+    def forward(self, x, hidden_states=None, sharpen_loss=None):
         if self.freeze:
             return self.forward_frozen(x, hidden_states)
-        return self.forward_(x, hidden_states)
+        if not self.sharpen:
+            sharpen_loss = None
+        return self.forward_(x, hidden_states, sharpen_loss)
 
 
-class BayesianLSTM(BayesianModule):
+class BayesianLSTM(BayesianRNN):
     """
     Bayesian LSTM layer, implements the linear layer proposed on Weight Uncertainity on Neural Networks
     (Bayes by Backprop paper).
@@ -894,8 +1052,8 @@ class BayesianLSTM(BayesianModule):
     
     """
 
-    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None, peephole=False):
-        super().__init__()
+    def __init__(self, in_features, out_features, bias=True, prior_sigma_1=0.1, prior_sigma_2=0.002, prior_pi=1, posterior_mu_init=0, posterior_rho_init=-6.0, freeze=False, prior_dist=None, peephole=False, **kwargs):
+        super().__init__(**kwargs)
         self.in_features = in_features
         self.out_features = out_features
         self.use_bias = bias
@@ -909,19 +1067,20 @@ class BayesianLSTM(BayesianModule):
         self.prior_dist = prior_dist
         self.weight_ih_mu = nn.Parameter(torch.Tensor(in_features, out_features * 4).normal_(posterior_mu_init, 0.1))
         self.weight_ih_rho = nn.Parameter(torch.Tensor(in_features, out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.weight_ih_sampler = GaussianVariational(self.weight_ih_mu, self.weight_ih_rho)
+        self.weight_ih_sampler = TrainableRandomDistribution(self.weight_ih_mu, self.weight_ih_rho)
         self.weight_ih = None
         self.weight_hh_mu = nn.Parameter(torch.Tensor(out_features, out_features * 4).normal_(posterior_mu_init, 0.1))
         self.weight_hh_rho = nn.Parameter(torch.Tensor(out_features, out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.weight_hh_sampler = GaussianVariational(self.weight_hh_mu, self.weight_hh_rho)
+        self.weight_hh_sampler = TrainableRandomDistribution(self.weight_hh_mu, self.weight_hh_rho)
         self.weight_hh = None
         self.bias_mu = nn.Parameter(torch.Tensor(out_features * 4).normal_(posterior_mu_init, 0.1))
         self.bias_rho = nn.Parameter(torch.Tensor(out_features * 4).normal_(posterior_rho_init, 0.1))
-        self.bias_sampler = GaussianVariational(self.bias_mu, self.bias_rho)
+        self.bias_sampler = TrainableRandomDistribution(self.bias_mu, self.bias_rho)
         self.bias = None
-        self.weight_ih_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.weight_hh_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
-        self.bias_prior_dist = ScaleMixturePrior(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_ih_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.weight_hh_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.bias_prior_dist = PriorWeightDistribution(self.prior_pi, self.prior_sigma_1, self.prior_sigma_2, dist=self.prior_dist)
+        self.init_sharpen_parameters()
         self.log_prior = 0
         self.log_variational_posterior = 0
 
@@ -933,12 +1092,13 @@ class BayesianLSTM(BayesianModule):
             b_log_posterior = self.bias_sampler.log_posterior()
             b_log_prior = self.bias_prior_dist.log_prior(b)
         else:
-            b = 0
+            b = None
             b_log_posterior = 0
             b_log_prior = 0
         bias = b
         self.log_variational_posterior = self.weight_hh_sampler.log_posterior() + b_log_posterior + self.weight_ih_sampler.log_posterior()
         self.log_prior = self.weight_ih_prior_dist.log_prior(weight_ih) + b_log_prior + self.weight_hh_prior_dist.log_prior(weight_hh)
+        self.ff_parameters = [weight_ih, weight_hh, bias]
         return weight_ih, weight_hh, bias
 
     def get_frozen_weights(self):
@@ -950,8 +1110,15 @@ class BayesianLSTM(BayesianModule):
             bias = 0
         return weight_ih, weight_hh, bias
 
-    def forward_(self, x, hidden_states):
-        weight_ih, weight_hh, bias = self.sample_weights()
+    def forward_(self, x, hidden_states, sharpen_loss):
+        if self.loss_to_sharpen is not None:
+            sharpen_loss = self.loss_to_sharpen
+            weight_ih, weight_hh, bias = self.sharpen_posterior(loss=sharpen_loss, input_shape=x.shape)
+        elif sharpen_loss is not None:
+            sharpen_loss = sharpen_loss
+            weight_ih, weight_hh, bias = self.sharpen_posterior(loss=sharpen_loss, input_shape=x.shape)
+        else:
+            weight_ih, weight_hh, bias = self.sample_weights()
         bs, seq_sz, _ = x.size()
         hidden_seq = []
         if hidden_states is None:
@@ -961,7 +1128,7 @@ class BayesianLSTM(BayesianModule):
         HS = self.out_features
         hidden_seq = []
         for t in range(seq_sz):
-            x_t = x[:, (t), :]
+            x_t = x[:, t, :]
             if self.peephole:
                 gates = x_t @ weight_ih + c_t @ weight_hh + bias
             else:
@@ -990,7 +1157,7 @@ class BayesianLSTM(BayesianModule):
         HS = self.out_features
         hidden_seq = []
         for t in range(seq_sz):
-            x_t = x[:, (t), :]
+            x_t = x[:, t, :]
             if self.peephole:
                 gates = x_t @ weight_ih + c_t @ weight_hh + bias
             else:
@@ -1008,10 +1175,12 @@ class BayesianLSTM(BayesianModule):
         hidden_seq = hidden_seq.transpose(0, 1).contiguous()
         return hidden_seq, (h_t, c_t)
 
-    def forward(self, x, hidden_states=None):
+    def forward(self, x, hidden_states=None, sharpen_loss=None):
         if self.freeze:
             return self.forward_frozen(x, hidden_states)
-        return self.forward_(x, hidden_states)
+        if not self.sharpen:
+            sharpen_posterior = False
+        return self.forward_(x, hidden_states, sharpen_loss)
 
 
 import torch
@@ -1023,11 +1192,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BayesianConv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     False),
-    (BayesianEmbedding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (BayesianGRU,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
@@ -1062,7 +1227,4 @@ class Test_piEsposito_blitz_bayesian_deep_learning(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

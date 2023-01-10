@@ -717,7 +717,7 @@ class channel_selection(nn.Module):
         selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().numpy()))
         if selected_index.size == 1:
             selected_index = np.resize(selected_index, (1,))
-        output = input_tensor[:, (selected_index), :, :]
+        output = input_tensor[:, selected_index, :, :]
         return output
 
 

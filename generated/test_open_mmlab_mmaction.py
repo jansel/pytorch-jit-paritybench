@@ -1,13 +1,13 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+c3d_sports1m_3d_rgb_vgg_c3d_seg1_f16s1 = _module
 i3d_kinetics400_3d_rgb_r50_c3d_inflate3x1x1_seg1_f32s2 = _module
 i3d_kinetics400_3d_rgb_r50_c3d_inflate3x1x1_seg1_f32s2_video = _module
 slowonly_kinetics400_se_rgb_r50_seg1_4x16_finetune = _module
 slowonly_kinetics400_se_rgb_r50_seg1_4x16_scratch = _module
 slowonly_kinetics400_se_rgb_r50_seg1_8x8_finetune = _module
 slowonly_kinetics400_se_rgb_r50_seg1_8x8_scratch = _module
-tsn_kinetics400_2d_rgb_r50_seg3_f1s1 = _module
 tsn_flow_bninception = _module
 tsn_rgb_bninception = _module
 ava_fast_rcnn_nl_r50_c4_1x_kinetics_pretrain_crop = _module
@@ -87,6 +87,7 @@ anchor_head = _module
 rpn_head = _module
 backbones = _module
 bninception = _module
+c3d = _module
 inception_v1_i3d = _module
 resnet = _module
 resnet_i3d = _module
@@ -158,6 +159,7 @@ slowfast_kinetics400_se_rgb_r50_seg1_4x16 = _module
 slowonly_kinetics400_se_rgb_r101_seg1_8x8 = _module
 slowonly_kinetics400_se_rgb_r50_seg1_4x16 = _module
 slowonly_kinetics400_se_rgb_r50_seg1_8x8 = _module
+tsn_kinetics400_2d_rgb_r50_seg3_f1s1 = _module
 eval_localize_results = _module
 generate_lmdb = _module
 test_detector = _module
@@ -331,7 +333,7 @@ def tensor2video_snaps(tensor, mean=(0, 0, 0), std=(1, 1, 1), to_rgb=True):
     std = np.array(std, dtype=np.float32)
     video_snaps = []
     for vid_id in range(num_videos):
-        img = tensor[(vid_id), :, (num_frames // 2), (...)].cpu().numpy().transpose(1, 2, 0)
+        img = tensor[vid_id, :, num_frames // 2, ...].cpu().numpy().transpose(1, 2, 0)
         img = mmcv.imdenormalize(img, mean, std, to_bgr=to_rgb).astype(np.uint8)
         video_snaps.append(np.ascontiguousarray(img))
     return video_snaps
@@ -528,15 +530,15 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
     nms_type = nms_cfg_.pop('type', 'nms')
     nms_op = getattr(nms_wrapper, nms_type)
     for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
+        cls_inds = multi_scores[:, i] > score_thr
         if not cls_inds.any():
             continue
         if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
+            _bboxes = multi_bboxes[cls_inds, :]
         else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+            _bboxes = multi_bboxes[cls_inds, i * 4:(i + 1) * 4]
         _scores = multi_scores[cls_inds, i]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets = torch.cat([_bboxes, _scores[:, None]], dim=1)
         cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
         cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1, dtype=torch.long)
         bboxes.append(cls_dets)
@@ -545,7 +547,7 @@ def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
         bboxes = torch.cat(bboxes)
         labels = torch.cat(labels)
         if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
+            _, inds = bboxes[:, -1].sort(descending=True)
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             labels = labels[inds]
@@ -659,7 +661,7 @@ def nms(dets, iou_thr, device_id=None):
         inds = nms_cpu.nms(dets_th, iou_thr)
     if is_numpy:
         inds = inds.cpu().numpy()
-    return dets[(inds), :], inds
+    return dets[inds, :], inds
 
 
 def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
@@ -685,18 +687,18 @@ def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
         recovered_proposals.append(_proposals)
     aug_proposals = torch.cat(recovered_proposals, dim=0)
     merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
-    scores = merged_proposals[:, (4)]
+    scores = merged_proposals[:, 4]
     _, order = scores.sort(0, descending=True)
     num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
     order = order[:num]
-    merged_proposals = merged_proposals[(order), :]
+    merged_proposals = merged_proposals[order, :]
     return merged_proposals
 
 
 class RPNTestMixin(object):
 
     def simple_test_rpn(self, x, img_meta, rpn_test_cfg):
-        x_slice = (xx[:, :, (xx.size(2) // 2), :, :] for xx in x)
+        x_slice = (xx[:, :, xx.size(2) // 2, :, :] for xx in x)
         rpn_outs = self.rpn_head(x_slice)
         proposal_inputs = rpn_outs + (img_meta, rpn_test_cfg)
         proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
@@ -728,7 +730,7 @@ def bbox2result(bboxes, labels, num_classes, thr=0.01):
         bboxes = bboxes.cpu().numpy()
         labels = labels.cpu().numpy()
         if labels.ndim == 1:
-            return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+            return [bboxes[labels == i, :] for i in range(num_classes - 1)]
         else:
             scores = labels
             thr = (thr,) * num_classes if isinstance(thr, float) else thr
@@ -736,8 +738,8 @@ def bbox2result(bboxes, labels, num_classes, thr=0.01):
             assert len(thr) == num_classes
             result = []
             for i in range(num_classes - 1):
-                where = scores[:, (i + 1)] > thr[i + 1]
-                result.append(np.concatenate((bboxes[(where), :4], scores[(where), i + 1:i + 2]), axis=1))
+                where = scores[:, i + 1] > thr[i + 1]
+                result.append(np.concatenate((bboxes[where, :4], scores[where, i + 1:i + 2]), axis=1))
             return result
 
 
@@ -814,7 +816,7 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin):
         x = self.extract_feat(img_group)
         losses = dict()
         if self.with_rpn:
-            x_slice = (xx[:, :, (xx.size(2) // 2), :, :] for xx in x)
+            x_slice = (xx[:, :, xx.size(2) // 2, :, :] for xx in x)
             rpn_outs = self.rpn_head(x_slice)
             rpn_loss_inputs = rpn_outs + (gt_bboxes, img_meta, self.train_cfg.rpn)
             rpn_losses = self.rpn_head.loss(*rpn_loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
@@ -826,7 +828,7 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin):
         if not self.train_cfg.train_detector:
             proposal_list = []
             for proposal in proposals:
-                select_inds = proposal[:, (4)] >= min(self.train_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                select_inds = proposal[:, 4] >= min(self.train_cfg.person_det_score_thr, max(proposal[:, 4]))
                 proposal_list.append(proposal[select_inds])
         if self.with_bbox:
             bbox_assigner = build_assigner(self.train_cfg.rcnn.assigner)
@@ -867,7 +869,7 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin):
             for proposal in proposals:
                 proposal = proposal[0, ...]
                 if not self.test_cfg.train_detector:
-                    select_inds = proposal[:, (4)] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                    select_inds = proposal[:, 4] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, 4]))
                     proposal = proposal[select_inds]
                 proposal_list.append(proposal)
         img_meta = img_meta[0]
@@ -890,7 +892,7 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin):
             for proposal in proposals:
                 proposal = proposal[0, ...]
                 if not self.test_cfg.train_detector:
-                    select_inds = proposal[:, (4)] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                    select_inds = proposal[:, 4] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, 4]))
                     proposal = proposal[select_inds]
                 proposal_list.append(proposal)
         det_bboxes, det_labels = self.aug_test_bboxes(self.extract_feats(img_groups), img_metas, proposal_list, self.test_cfg.rcnn)
@@ -992,11 +994,11 @@ class AnchorGenerator(object):
         h_ratios = torch.sqrt(self.ratios)
         w_ratios = 1 / h_ratios
         if self.scale_major:
-            ws = (w * w_ratios[:, (None)] * self.scales[(None), :]).view(-1)
-            hs = (h * h_ratios[:, (None)] * self.scales[(None), :]).view(-1)
+            ws = (w * w_ratios[:, None] * self.scales[None, :]).view(-1)
+            hs = (h * h_ratios[:, None] * self.scales[None, :]).view(-1)
         else:
-            ws = (w * self.scales[:, (None)] * w_ratios[(None), :]).view(-1)
-            hs = (h * self.scales[:, (None)] * h_ratios[(None), :]).view(-1)
+            ws = (w * self.scales[:, None] * w_ratios[None, :]).view(-1)
+            hs = (h * self.scales[:, None] * h_ratios[None, :]).view(-1)
         base_anchors = torch.stack([x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)], dim=-1).round()
         return base_anchors
 
@@ -1016,7 +1018,7 @@ class AnchorGenerator(object):
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
         shifts = shifts.type_as(base_anchors)
-        all_anchors = base_anchors[(None), :, :] + shifts[:, (None), :]
+        all_anchors = base_anchors[None, :, :] + shifts[:, None, :]
         all_anchors = all_anchors.view(-1, 4)
         return all_anchors
 
@@ -1030,7 +1032,7 @@ class AnchorGenerator(object):
         valid_y[:valid_h] = 1
         valid_xx, valid_yy = self._meshgrid(valid_x, valid_y)
         valid = valid_xx & valid_yy
-        valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
+        valid = valid[:, None].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
         return valid
 
 
@@ -1047,7 +1049,7 @@ class SamplingResult(object):
         self.pos_is_gt = gt_flags[pos_inds]
         self.num_gts = gt_bboxes.shape[0]
         self.pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
-        self.pos_gt_bboxes = gt_bboxes[(self.pos_assigned_gt_inds), :]
+        self.pos_gt_bboxes = gt_bboxes[self.pos_assigned_gt_inds, :]
         if assign_result.labels is not None:
             self.pos_gt_labels = assign_result.labels[pos_inds]
         else:
@@ -1132,7 +1134,7 @@ class PseudoSampler(BaseSampler):
 def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0):
     img_h, img_w = img_shape[:2]
     if allowed_border >= 0:
-        inside_flags = valid_flags & (flat_anchors[:, (0)] >= -allowed_border) & (flat_anchors[:, (1)] >= -allowed_border) & (flat_anchors[:, (2)] < img_w + allowed_border) & (flat_anchors[:, (3)] < img_h + allowed_border)
+        inside_flags = valid_flags & (flat_anchors[:, 0] >= -allowed_border) & (flat_anchors[:, 1] >= -allowed_border) & (flat_anchors[:, 2] < img_w + allowed_border) & (flat_anchors[:, 3] < img_h + allowed_border)
     else:
         inside_flags = valid_flags
     return inside_flags
@@ -1178,7 +1180,7 @@ def unmap(data, count, inds, fill=0):
     else:
         new_size = (count,) + data.size()[1:]
         ret = data.new_full(new_size, fill)
-        ret[(inds), :] = data
+        ret[inds, :] = data
     return ret
 
 
@@ -1186,7 +1188,7 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
     if not inside_flags.any():
         return (None,) * 6
-    anchors = flat_anchors[(inside_flags), :]
+    anchors = flat_anchors[inside_flags, :]
     if sampling:
         assign_result, sampling_result = assign_and_sample(anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
@@ -1203,8 +1205,8 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     neg_inds = sampling_result.neg_inds
     if len(pos_inds) > 0:
         pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes, target_means, target_stds)
-        bbox_targets[(pos_inds), :] = pos_bbox_targets
-        bbox_weights[(pos_inds), :] = 1.0
+        bbox_targets[pos_inds, :] = pos_bbox_targets
+        bbox_weights[pos_inds, :] = 1.0
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
@@ -1294,10 +1296,10 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
     max_ratio = np.abs(np.log(wh_ratio_clip))
     dw = dw.clamp(min=-max_ratio, max=max_ratio)
     dh = dh.clamp(min=-max_ratio, max=max_ratio)
-    px = ((rois[:, (0)] + rois[:, (2)]) * 0.5).unsqueeze(1).expand_as(dx)
-    py = ((rois[:, (1)] + rois[:, (3)]) * 0.5).unsqueeze(1).expand_as(dy)
-    pw = (rois[:, (2)] - rois[:, (0)] + 1.0).unsqueeze(1).expand_as(dw)
-    ph = (rois[:, (3)] - rois[:, (1)] + 1.0).unsqueeze(1).expand_as(dh)
+    px = ((rois[:, 0] + rois[:, 2]) * 0.5).unsqueeze(1).expand_as(dx)
+    py = ((rois[:, 1] + rois[:, 3]) * 0.5).unsqueeze(1).expand_as(dy)
+    pw = (rois[:, 2] - rois[:, 0] + 1.0).unsqueeze(1).expand_as(dw)
+    ph = (rois[:, 3] - rois[:, 1] + 1.0).unsqueeze(1).expand_as(dh)
     gw = pw * dw.exp()
     gh = ph * dh.exp()
     gx = torch.addcmul(px, 1, pw, dx)
@@ -1502,9 +1504,9 @@ class AnchorHead(nn.Module):
                 else:
                     max_scores, _ = scores[:, 1:].max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
-                anchors = anchors[(topk_inds), :]
-                bbox_pred = bbox_pred[(topk_inds), :]
-                scores = scores[(topk_inds), :]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                scores = scores[topk_inds, :]
             bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
             mlvl_bboxes.append(bboxes)
             mlvl_scores.append(scores)
@@ -1558,19 +1560,19 @@ class RPNHead(AnchorHead):
                 scores = rpn_cls_score.sigmoid()
             else:
                 rpn_cls_score = rpn_cls_score.reshape(-1, 2)
-                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+                scores = rpn_cls_score.softmax(dim=1)[:, 1]
             rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
             if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
                 _, topk_inds = scores.topk(cfg.nms_pre)
-                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
-                anchors = anchors[(topk_inds), :]
+                rpn_bbox_pred = rpn_bbox_pred[topk_inds, :]
+                anchors = anchors[topk_inds, :]
                 scores = scores[topk_inds]
             proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
             if cfg.min_bbox_size > 0:
-                w = proposals[:, (2)] - proposals[:, (0)] + 1
-                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                w = proposals[:, 2] - proposals[:, 0] + 1
+                h = proposals[:, 3] - proposals[:, 1] + 1
                 valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
-                proposals = proposals[(valid_inds), :]
+                proposals = proposals[valid_inds, :]
                 scores = scores[valid_inds]
             proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
             proposals, _ = nms(proposals, cfg.nms_thr)
@@ -1581,10 +1583,10 @@ class RPNHead(AnchorHead):
             proposals, _ = nms(proposals, cfg.nms_thr)
             proposals = proposals[:cfg.max_num, :]
         else:
-            scores = proposals[:, (4)]
+            scores = proposals[:, 4]
             num = min(cfg.max_num, proposals.shape[0])
             _, topk_inds = scores.topk(num)
-            proposals = proposals[(topk_inds), :]
+            proposals = proposals[topk_inds, :]
         return proposals
 
 
@@ -2082,6 +2084,87 @@ class BNInception(nn.Module):
                     m.eval()
                     m.weight.requires_grad = False
                     m.bias.requires_grad = False
+
+
+class C3D(nn.Module):
+
+    def __init__(self, pretrained=None, modality='RGB'):
+        super(C3D, self).__init__()
+        self.pretrained = pretrained
+        self.modality = modality
+        inplace = True
+        assert modality in ['RGB']
+        self.conv1a = nn.Conv3d(3, 64, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu1a = nn.ReLU(inplace)
+        self.pool1 = nn.MaxPool3d((1, 2, 2), stride=(1, 2, 2), dilation=(1, 1, 1), ceil_mode=True)
+        self.conv2a = nn.Conv3d(64, 128, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu2a = nn.ReLU(inplace)
+        self.pool2 = nn.MaxPool3d((2, 2, 2), stride=(2, 2, 2), dilation=(1, 1, 1), ceil_mode=True)
+        self.conv3a = nn.Conv3d(128, 256, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu3a = nn.ReLU(inplace)
+        self.conv3b = nn.Conv3d(256, 256, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu3b = nn.ReLU(inplace)
+        self.pool3 = nn.MaxPool3d((2, 2, 2), stride=(2, 2, 2), dilation=(1, 1, 1), ceil_mode=True)
+        self.conv4a = nn.Conv3d(256, 512, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu4a = nn.ReLU(inplace)
+        self.conv4b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu4b = nn.ReLU(inplace)
+        self.pool4 = nn.MaxPool3d((2, 2, 2), stride=(2, 2, 2), dilation=(1, 1, 1), ceil_mode=True)
+        self.conv5a = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu5a = nn.ReLU(inplace)
+        self.conv5b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=True)
+        self.relu5b = nn.ReLU(inplace)
+        self.pool5 = nn.MaxPool3d((2, 2, 2), stride=(2, 2, 2), dilation=(1, 1, 1), ceil_mode=True)
+        self.fc6 = nn.Linear(8192, 4096)
+        self.relu6 = nn.ReLU(inplace)
+        self.drop6 = nn.Dropout(p=0.5)
+        self.fc7 = nn.Linear(4096, 4096)
+        self.relu7 = nn.ReLU(inplace)
+
+    def init_weights(self):
+        if isinstance(self.pretrained, str):
+            logger = logging.getLogger()
+            load_checkpoint(self, self.pretrained, strict=False, logger=logger)
+        elif self.pretrained is None:
+            for m in self.modules():
+                if isinstance(m, nn.Conv3d):
+                    normal_init(m, std=0.01, bias=1)
+                elif isinstance(m, nn.Linear):
+                    normal_init(m, std=0.005, bias=1)
+
+    def forward(self, input):
+        conv1a = self.conv1a(input)
+        conv1a = self.relu1a(conv1a)
+        pool1 = self.pool1(conv1a)
+        conv2a = self.conv2a(pool1)
+        conv2a = self.relu2a(conv2a)
+        pool2 = self.pool2(conv2a)
+        conv3a = self.conv3a(pool2)
+        conv3a = self.relu3a(conv3a)
+        conv3b = self.conv3b(conv3a)
+        conv3b = self.relu3b(conv3b)
+        pool3 = self.pool3(conv3b)
+        conv4a = self.conv4a(pool3)
+        conv4a = self.relu4a(conv4a)
+        conv4b = self.conv4b(conv4a)
+        conv4b = self.relu4b(conv4b)
+        pool4 = self.pool4(conv4b)
+        conv5a = self.conv5a(pool4)
+        conv5a = self.relu5a(conv5a)
+        conv5b = self.conv5b(conv5a)
+        conv5b = self.relu5b(conv5b)
+        pool5 = self.pool5(conv5b)
+        pool5 = pool5.flatten(start_dim=1)
+        fc6 = self.fc6(pool5)
+        fc6 = self.relu6(fc6)
+        fc6 = self.drop6(fc6)
+        fc7 = self.fc7(fc6)
+        fc7 = self.relu7(fc7)
+        fc7 = fc7.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        return fc7
+
+    def train(self, mode=True):
+        super(C3D, self).train(mode)
 
 
 class InceptionV1_I3D(nn.Module):
@@ -3148,7 +3231,7 @@ class ResNet_I3D(nn.Module):
 class pathway(nn.Module):
     arch_settings = {(18): (BasicBlock, (2, 2, 2, 2)), (34): (BasicBlock, (3, 4, 6, 3)), (50): (Bottleneck, (3, 4, 6, 3)), (101): (Bottleneck, (3, 4, 23, 3)), (152): (Bottleneck, (3, 8, 36, 3))}
 
-    def __init__(self, depth, num_stages=4, channel_mul_inv=1, lateral=True, alpha=8, beta_inv=8, lateral_type='conv', lateral_op='concat', conv1_kernel_t=1, conv1_stride_t=1, pool1_kernel_t=1, pool1_stride_t=1, spatial_strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), style='pytorch', inflate_freqs=(1, 1, 1, 1), inflate_style='3x1x1', nonlocal_stages=(-1,), nonlocal_freqs=(0, 1, 1, 0), nonlocal_cfg=None, with_cp=False):
+    def __init__(self, depth, num_stages=4, channel_mul_inv=1, lateral=True, alpha=8, beta_inv=8, lateral_type='conv', lateral_op='concat', conv1_kernel_t=1, fusion_kernel_size=5, spatial_strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), style='pytorch', inflate_freqs=(1, 1, 1, 1), inflate_style='3x1x1', nonlocal_stages=(-1,), nonlocal_freqs=(0, 1, 1, 0), nonlocal_cfg=None, with_cp=False):
         super(pathway, self).__init__()
         self.block, stage_blocks = self.arch_settings[depth]
         self.stage_blocks = stage_blocks[:num_stages]
@@ -3160,15 +3243,15 @@ class pathway(nn.Module):
                 lateral_inplanes = self.inplanes // beta_inv
             elif lateral_type == 'conv':
                 lateral_inplanes = self.inplanes * 2 // beta_inv
-                self.conv1_lateral = nn.Conv3d(self.inplanes // beta_inv, self.inplanes * 2 // beta_inv, kernel_size=(5, 1, 1), stride=(alpha, 1, 1), padding=(2, 0, 0), bias=False)
+                self.conv1_lateral = nn.Conv3d(self.inplanes // beta_inv, self.inplanes * 2 // beta_inv, kernel_size=(fusion_kernel_size, 1, 1), stride=(alpha, 1, 1), padding=((fusion_kernel_size - 1) // 2, 0, 0), bias=False)
             else:
                 raise NotImplementedError
         else:
             lateral_inplanes = 0
-        self.conv1 = nn.Conv3d(3, 64 // channel_mul_inv, kernel_size=(conv1_kernel_t, 7, 7), stride=(conv1_stride_t, 2, 2), padding=((conv1_kernel_t - 1) // 2, 3, 3), bias=False)
+        self.conv1 = nn.Conv3d(3, 64 // channel_mul_inv, kernel_size=(conv1_kernel_t, 7, 7), stride=(1, 2, 2), padding=((conv1_kernel_t - 1) // 2, 3, 3), bias=False)
         self.bn1 = nn.BatchNorm3d(64 // channel_mul_inv)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=(pool1_kernel_t, 3, 3), stride=(pool1_stride_t, 2, 2), padding=(pool1_kernel_t // 2, 1, 1))
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
         self.res_layers = []
         self.lateral_connections = []
         for i, num_blocks in enumerate(self.stage_blocks):
@@ -3186,7 +3269,7 @@ class pathway(nn.Module):
                 elif lateral_type == 'conv':
                     lateral_inplanes = self.inplanes * 2 // beta_inv
                     lateral_name = 'layer{}_lateral'.format(i + 1)
-                    setattr(self, lateral_name, nn.Conv3d(self.inplanes // beta_inv, self.inplanes * 2 // beta_inv, kernel_size=(5, 1, 1), stride=(alpha, 1, 1), padding=(2, 0, 0), bias=False))
+                    setattr(self, lateral_name, nn.Conv3d(self.inplanes // beta_inv, self.inplanes * 2 // beta_inv, kernel_size=(fusion_kernel_size, 1, 1), stride=(alpha, 1, 1), padding=((fusion_kernel_size - 1) // 2, 0, 0), bias=False))
                     self.lateral_connections.append(lateral_name)
             else:
                 lateral_inplanes = 0
@@ -3201,8 +3284,17 @@ class ResNet_I3D_SlowFast(nn.Module):
 
     Args:
         depth (int): Depth of resnet, from {18, 34, 50, 101, 152}.
+        alpha (int): The frame ratio between fast and slow pathways.
+            The original parameter tau in pySlowFast is removed. In the original
+            paper, it says: "Our Fast pathway works with a small temporal stride
+            of τ/α, where α > 1 is the frame rate ratio between the Fast and
+            Slow pathways." Here we force τ/α to be 1 and adjust `new_length`
+            and `new_step` in dataset accordingly.
+        beta_inv (int): The channel width ratio between slow and fast pathways.
+        pretrained_slow (str): Path of 2D pretrained weights for slow pathway.
+        pretrained_fast (str): Path of 2D pretrained weights for fast pathway.
         num_stages (int): Resnet stages, normally 4.
-        strides (Sequence[int]): Strides of the first block of each stage.
+        spatial_strides (Sequence[int]): Spatial strides of the first block of each stage.
         dilations (Sequence[int]): Dilation of each stage.
         out_indices (Sequence[int]): Output from which stages.
         style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
@@ -3218,21 +3310,17 @@ class ResNet_I3D_SlowFast(nn.Module):
     """
     arch_settings = {(18): (BasicBlock, (2, 2, 2, 2)), (34): (BasicBlock, (3, 4, 6, 3)), (50): (Bottleneck, (3, 4, 6, 3)), (101): (Bottleneck, (3, 4, 23, 3)), (152): (Bottleneck, (3, 8, 36, 3))}
 
-    def __init__(self, depth, tau=16, alpha=8, beta_inv=8, pretrained_slow=None, pretrained_fast=None, num_stages=4, slow_only=False, fast_only=False, lateral_type='conv', lateral_op='concat', spatial_strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), out_indices=(0, 1, 2, 3), slow_conv1_kernel_t=1, slow_conv1_stride_t=1, slow_pool1_kernel_t=1, slow_pool1_stride_t=1, fast_conv1_kernel_t=5, fast_conv1_stride_t=1, fast_pool1_kernel_t=1, fast_pool1_stride_t=1, style='pytorch', frozen_stages=-1, slow_inflate_freq=(0, 0, 1, 1), fast_inflate_freq=(1, 1, 1, 1), inflate_stride=(1, 1, 1, 1), inflate_style='3x1x1', nonlocal_stages=(-1,), nonlocal_freq=(0, 1, 1, 0), nonlocal_cfg=None, bn_eval=True, bn_frozen=False, partial_bn=False, with_cp=False):
+    def __init__(self, depth, alpha=8, beta_inv=8, pretrained_slow=None, pretrained_fast=None, num_stages=4, lateral_type='conv', lateral_op='concat', spatial_strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), out_indices=(0, 1, 2, 3), slow_conv1_kernel_t=1, fast_conv1_kernel_t=5, style='pytorch', frozen_stages=-1, slow_inflate_freq=(0, 0, 1, 1), fast_inflate_freq=(1, 1, 1, 1), fusion_kernel_size=5, inflate_stride=(1, 1, 1, 1), inflate_style='3x1x1', nonlocal_stages=(-1,), nonlocal_freq=(0, 1, 1, 0), nonlocal_cfg=None, bn_eval=True, bn_frozen=False, partial_bn=False, with_cp=False):
         super(ResNet_I3D_SlowFast, self).__init__()
         if depth not in self.arch_settings:
             raise KeyError('invalid depth {} for resnet'.format(depth))
         self.depth = depth
-        self.tau = tau
         self.alpha = alpha
         self.beta_inv = beta_inv
         self.pretrained_slow = pretrained_slow
         self.pretrained_fast = pretrained_fast
         self.num_stages = num_stages
         assert num_stages >= 1 and num_stages <= 4
-        self.slow_only = slow_only
-        self.fast_only = fast_only
-        assert not (self.slow_only and self.fast_only)
         self.lateral_type = lateral_type
         self.lateral_op = lateral_op
         assert lateral_type in ['conv']
@@ -3258,124 +3346,105 @@ class ResNet_I3D_SlowFast(nn.Module):
         self.bn_frozen = bn_frozen
         self.partial_bn = partial_bn
         self.with_cp = with_cp
-        if not self.fast_only:
-            self.slow_path = pathway(depth, num_stages=num_stages, channel_mul_inv=1, lateral=not self.slow_only, alpha=alpha, beta_inv=beta_inv, lateral_type=lateral_type, lateral_op=lateral_op, conv1_kernel_t=slow_conv1_kernel_t, conv1_stride_t=slow_conv1_stride_t, pool1_kernel_t=slow_pool1_kernel_t, pool1_stride_t=slow_pool1_stride_t, spatial_strides=spatial_strides, dilations=dilations, style=style, inflate_freqs=self.slow_inflate_freq, inflate_style=inflate_style, nonlocal_stages=nonlocal_stages, nonlocal_freqs=nonlocal_freq, nonlocal_cfg=nonlocal_cfg, with_cp=with_cp)
-        if not self.slow_only:
-            self.fast_path = pathway(depth, num_stages=num_stages, channel_mul_inv=beta_inv, lateral=False, conv1_kernel_t=fast_conv1_kernel_t, conv1_stride_t=fast_conv1_stride_t, pool1_kernel_t=fast_pool1_kernel_t, pool1_stride_t=fast_pool1_stride_t, spatial_strides=spatial_strides, dilations=dilations, style=style, inflate_freqs=self.fast_inflate_freq, inflate_style=inflate_style, nonlocal_stages=nonlocal_stages, nonlocal_freqs=nonlocal_freq, nonlocal_cfg=nonlocal_cfg, with_cp=with_cp)
+        self.fusion_kernel_size = fusion_kernel_size
+        self.slow_path = pathway(depth, num_stages=num_stages, channel_mul_inv=1, lateral=True, alpha=alpha, beta_inv=beta_inv, lateral_type=lateral_type, lateral_op=lateral_op, conv1_kernel_t=slow_conv1_kernel_t, spatial_strides=spatial_strides, dilations=dilations, style=style, inflate_freqs=self.slow_inflate_freq, inflate_style=inflate_style, nonlocal_stages=nonlocal_stages, nonlocal_freqs=nonlocal_freq, nonlocal_cfg=nonlocal_cfg, with_cp=with_cp)
+        self.fast_path = pathway(depth, num_stages=num_stages, channel_mul_inv=beta_inv, lateral=False, conv1_kernel_t=fast_conv1_kernel_t, spatial_strides=spatial_strides, dilations=dilations, style=style, inflate_freqs=self.fast_inflate_freq, inflate_style=inflate_style, nonlocal_stages=nonlocal_stages, nonlocal_freqs=nonlocal_freq, nonlocal_cfg=nonlocal_cfg, with_cp=with_cp)
 
     def init_weights(self):
         logger = logging.getLogger()
-        if not self.fast_only:
-            if self.pretrained_slow:
-                resnet2d = ResNet(self.depth)
-                load_checkpoint(resnet2d, self.pretrained_slow, strict=False, logger=logger)
-                for name, module in self.slow_path.named_modules():
-                    if isinstance(module, NonLocalModule):
-                        module.init_weights()
-                    elif isinstance(module, nn.Conv3d) and rhasattr(resnet2d, name):
-                        old_weight = rgetattr(resnet2d, name).weight.data
-                        old_shape = old_weight.shape
-                        new_shape = module.weight.data.shape
-                        if new_shape[1] != old_shape[1]:
-                            new_ch = new_shape[1] - old_shape[1]
-                            pad_shape = old_shape
-                            pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[2:]
-                            old_weight = torch.cat((old_weight, torch.zeros(pad_shape).type_as(old_weight)), dim=1)
-                        new_weight = old_weight.unsqueeze(2).expand_as(module.weight.data) / new_shape[2]
-                        module.weight.data.copy_(new_weight)
-                        logging.info('{}.weight loaded from weights file into {}'.format(name, new_weight.shape))
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            new_bias = rgetattr(resnet2d, name).bias.data
-                            module.bias.data.copy_(new_bias)
-                            logging.info('{}.bias loaded from weights file into {}'.format(name, new_bias.shape))
-                    elif isinstance(module, nn.BatchNorm3d) and rhasattr(resnet2d, name):
-                        for attr in ['weight', 'bias', 'running_mean', 'running_var']:
-                            logging.info('{}.{} loaded from weights file into {}'.format(name, attr, getattr(rgetattr(resnet2d, name), attr).shape))
-                            setattr(module, attr, getattr(rgetattr(resnet2d, name), attr))
-                    else:
-                        None
-            else:
-                for m in self.slow_path.modules():
-                    if isinstance(m, nn.Conv3d):
-                        kaiming_init(m)
-                    elif isinstance(m, nn.BatchNorm3d):
-                        constant_init(m, 1)
-        if not self.slow_only:
-            if self.pretrained_fast:
-                resnet2d = ResNet(self.depth, base_channels=64 // self.beta_inv)
-                load_checkpoint(resnet2d, self.pretrained_fast, strict=False, logger=logger)
-                for name, module in self.fast_path.named_modules():
-                    if isinstance(module, NonLocalModule):
-                        module.init_weights()
-                    elif isinstance(module, nn.Conv3d) and rhasattr(resnet2d, name):
-                        old_weight = rgetattr(resnet2d, name).weight.data
-                        old_shape = old_weight.shape
-                        new_shape = module.weight.data.shape
-                        if new_shape[1] != old_shape[1]:
-                            new_ch = new_shape[1] - old_shape[1]
-                            pad_shape = old_shape
-                            pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[2:]
-                            old_weight = torch.cat((old_weight, torch.zeros(pad_shape).type_as(old_weight)), dim=1)
-                        new_weight = old_weight.unsqueeze(2).expand_as(module.weight.data) / new_shape[2]
-                        module.weight.data.copy_(new_weight)
-                        logging.info('{}.weight loaded from weights file into {}'.format(name, new_weight.shape))
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            new_bias = rgetattr(resnet2d, name).bias.data
-                            module.bias.data.copy_(new_bias)
-                            logging.info('{}.bias loaded from weights file into {}'.format(name, new_bias.shape))
-                    elif isinstance(module, nn.BatchNorm3d) and rhasattr(resnet2d, name):
-                        for attr in ['weight', 'bias', 'running_mean', 'running_var']:
-                            logging.info('{}.{} loaded from weights file into {}'.format(name, attr, getattr(rgetattr(resnet2d, name), attr).shape))
-                            setattr(module, attr, getattr(rgetattr(resnet2d, name), attr))
-                    else:
-                        None
-            else:
-                for m in self.fast_path.modules():
-                    if isinstance(m, nn.Conv3d):
-                        kaiming_init(m)
-                    elif isinstance(m, nn.BatchNorm3d):
-                        constant_init(m, 1)
+        if self.pretrained_slow:
+            resnet2d = ResNet(self.depth)
+            load_checkpoint(resnet2d, self.pretrained_slow, strict=False, logger=logger)
+            for name, module in self.slow_path.named_modules():
+                if isinstance(module, NonLocalModule):
+                    module.init_weights()
+                elif isinstance(module, nn.Conv3d) and rhasattr(resnet2d, name):
+                    old_weight = rgetattr(resnet2d, name).weight.data
+                    old_shape = old_weight.shape
+                    new_shape = module.weight.data.shape
+                    if new_shape[1] != old_shape[1]:
+                        new_ch = new_shape[1] - old_shape[1]
+                        pad_shape = old_shape
+                        pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[2:]
+                        old_weight = torch.cat((old_weight, torch.zeros(pad_shape).type_as(old_weight)), dim=1)
+                    new_weight = old_weight.unsqueeze(2).expand_as(module.weight.data) / new_shape[2]
+                    module.weight.data.copy_(new_weight)
+                    logging.info('{}.weight loaded from weights file into {}'.format(name, new_weight.shape))
+                    if hasattr(module, 'bias') and module.bias is not None:
+                        new_bias = rgetattr(resnet2d, name).bias.data
+                        module.bias.data.copy_(new_bias)
+                        logging.info('{}.bias loaded from weights file into {}'.format(name, new_bias.shape))
+                elif isinstance(module, nn.BatchNorm3d) and rhasattr(resnet2d, name):
+                    for attr in ['weight', 'bias', 'running_mean', 'running_var']:
+                        logging.info('{}.{} loaded from weights file into {}'.format(name, attr, getattr(rgetattr(resnet2d, name), attr).shape))
+                        setattr(module, attr, getattr(rgetattr(resnet2d, name), attr))
+                else:
+                    None
+        else:
+            for m in self.slow_path.modules():
+                if isinstance(m, nn.Conv3d):
+                    kaiming_init(m)
+                elif isinstance(m, nn.BatchNorm3d):
+                    constant_init(m, 1)
+        if self.pretrained_fast:
+            resnet2d = ResNet(self.depth, base_channels=64 // self.beta_inv)
+            load_checkpoint(resnet2d, self.pretrained_fast, strict=False, logger=logger)
+            for name, module in self.fast_path.named_modules():
+                if isinstance(module, NonLocalModule):
+                    module.init_weights()
+                elif isinstance(module, nn.Conv3d) and rhasattr(resnet2d, name):
+                    old_weight = rgetattr(resnet2d, name).weight.data
+                    old_shape = old_weight.shape
+                    new_shape = module.weight.data.shape
+                    if new_shape[1] != old_shape[1]:
+                        new_ch = new_shape[1] - old_shape[1]
+                        pad_shape = old_shape
+                        pad_shape = pad_shape[:1] + (new_ch,) + pad_shape[2:]
+                        old_weight = torch.cat((old_weight, torch.zeros(pad_shape).type_as(old_weight)), dim=1)
+                    new_weight = old_weight.unsqueeze(2).expand_as(module.weight.data) / new_shape[2]
+                    module.weight.data.copy_(new_weight)
+                    logging.info('{}.weight loaded from weights file into {}'.format(name, new_weight.shape))
+                    if hasattr(module, 'bias') and module.bias is not None:
+                        new_bias = rgetattr(resnet2d, name).bias.data
+                        module.bias.data.copy_(new_bias)
+                        logging.info('{}.bias loaded from weights file into {}'.format(name, new_bias.shape))
+                elif isinstance(module, nn.BatchNorm3d) and rhasattr(resnet2d, name):
+                    for attr in ['weight', 'bias', 'running_mean', 'running_var']:
+                        logging.info('{}.{} loaded from weights file into {}'.format(name, attr, getattr(rgetattr(resnet2d, name), attr).shape))
+                        setattr(module, attr, getattr(rgetattr(resnet2d, name), attr))
+                else:
+                    None
+        else:
+            for m in self.fast_path.modules():
+                if isinstance(m, nn.Conv3d):
+                    kaiming_init(m)
+                elif isinstance(m, nn.BatchNorm3d):
+                    constant_init(m, 1)
 
     def forward(self, x):
-        if not self.fast_only:
-            x_slow = x[:, :, ::self.tau, :, :]
-            x_slow = self.slow_path.conv1(x_slow)
-            x_slow = self.slow_path.bn1(x_slow)
-            x_slow = self.slow_path.relu(x_slow)
-            x_slow = self.slow_path.maxpool(x_slow)
-        if not self.slow_only:
-            x_fast = x[:, :, ::self.tau // self.alpha, :, :]
-            x_fast = self.fast_path.conv1(x_fast)
-            x_fast = self.fast_path.bn1(x_fast)
-            x_fast = self.fast_path.relu(x_fast)
-            x_fast = self.fast_path.maxpool(x_fast)
-        if not self.fast_only and not self.slow_only:
-            x_fast_lateral = self.slow_path.conv1_lateral(x_fast)
-            x_slow = torch.cat((x_slow, x_fast_lateral), dim=1)
+        x_slow = self.slow_path.conv1(x[:, :, ::self.alpha])
+        x_slow = self.slow_path.bn1(x_slow)
+        x_slow = self.slow_path.relu(x_slow)
+        x_slow = self.slow_path.maxpool(x_slow)
+        x_fast = self.fast_path.conv1(x)
+        x_fast = self.fast_path.bn1(x_fast)
+        x_fast = self.fast_path.relu(x_fast)
+        x_fast = self.fast_path.maxpool(x_fast)
+        x_fast_lateral = self.slow_path.conv1_lateral(x_fast)
+        x_slow = torch.cat((x_slow, x_fast_lateral), dim=1)
         outs = []
-        if not self.fast_only:
-            for i, layer_name in enumerate(self.slow_path.res_layers):
-                res_layer = getattr(self.slow_path, layer_name)
-                x_slow = res_layer(x_slow)
-                if not self.slow_only:
-                    res_layer_fast = getattr(self.fast_path, layer_name)
-                    x_fast = res_layer_fast(x_fast)
-                    if self.lateral_type == 'conv' and i != 3:
-                        lateral_name = self.slow_path.lateral_connections[i]
-                        conv_lateral = getattr(self.slow_path, lateral_name)
-                        x_fast_lateral = conv_lateral(x_fast)
-                        x_slow = torch.cat((x_slow, x_fast_lateral), dim=1)
-                if i in self.out_indices:
-                    if not self.slow_only:
-                        outs.append((x_slow, x_fast))
-                    else:
-                        outs.append(x_slow)
-        else:
-            for i, layer_name in enumerate(self.fast_path.res_layers):
-                res_layer = getattr(self.fast_path, layer_name)
-                x_fast = res_layer(x_fast)
-                if i in self.out_indices:
-                    outs.append(x_fast)
+        for i, layer_name in enumerate(self.slow_path.res_layers):
+            res_layer = getattr(self.slow_path, layer_name)
+            x_slow = res_layer(x_slow)
+            res_layer_fast = getattr(self.fast_path, layer_name)
+            x_fast = res_layer_fast(x_fast)
+            if self.lateral_type == 'conv' and i != 3:
+                lateral_name = self.slow_path.lateral_connections[i]
+                conv_lateral = getattr(self.slow_path, lateral_name)
+                x_fast_lateral = conv_lateral(x_fast)
+                x_slow = torch.cat((x_slow, x_fast_lateral), dim=1)
+            if i in self.out_indices:
+                outs.append((x_slow, x_fast))
         if len(outs) == 1:
             return outs[0]
         else:
@@ -3819,11 +3888,11 @@ def recall_prec(pred_vec, target_vec):
     prec = pred_vec.new_full((pred_vec.size(0),), 0).float()
     num_pos = 0
     for i in range(target_vec.size(0)):
-        if target_vec[(i), :].float().sum(0) == 0:
+        if target_vec[i, :].float().sum(0) == 0:
             continue
-        correct_labels = pred_vec[(i), :] & target_vec[(i), :]
-        recall[i] = correct_labels.float().sum(0, keepdim=True) / target_vec[(i), :].float().sum(0, keepdim=True)
-        prec[i] = correct_labels.float().sum(0, keepdim=True) / (pred_vec[(i), :].float().sum(0, keepdim=True) + 1e-06)
+        correct_labels = pred_vec[i, :] & target_vec[i, :]
+        recall[i] = correct_labels.float().sum(0, keepdim=True) / target_vec[i, :].float().sum(0, keepdim=True)
+        prec[i] = correct_labels.float().sum(0, keepdim=True) / (pred_vec[i, :].float().sum(0, keepdim=True) + 1e-06)
         num_pos += 1
     recall = recall.float().sum(0, keepdim=True).mul_(100.0 / num_pos)
     prec = prec.float().sum(0, keepdim=True).mul_(100.0 / num_pos)
@@ -3839,7 +3908,7 @@ def multilabel_accuracy(pred, target, topk=1, thr=0.5):
     pred_bin_labels = pred.new_full((pred.size(0),), 0, dtype=torch.long)
     pred_vec_labels = pred.new_full(pred.size(), 0, dtype=torch.long)
     for i in range(pred.size(0)):
-        inds = torch.nonzero(pred[(i), 1:] > thr).squeeze() + 1
+        inds = torch.nonzero(pred[i, 1:] > thr).squeeze() + 1
         if inds.numel() > 0:
             pred_vec_labels[i, inds] = 1
         if pred[i, 0] > thr:
@@ -3847,7 +3916,7 @@ def multilabel_accuracy(pred, target, topk=1, thr=0.5):
     target_bin_labels = target.new_full((target.size(0),), 0, dtype=torch.long)
     target_vec_labels = target.new_full(target.size(), 0, dtype=torch.long)
     for i in range(target.size(0)):
-        inds = torch.nonzero(target[(i), :] >= 1).squeeze()
+        inds = torch.nonzero(target[i, :] >= 1).squeeze()
         if inds.numel() > 0:
             target_vec_labels[i, target[i, inds]] = 1
             target_bin_labels[i] = 1
@@ -3887,23 +3956,23 @@ def singleclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
     nms_cfg_ = nms_cfg.copy()
     nms_type = nms_cfg_.pop('type', 'nms')
     nms_op = getattr(nms_wrapper, nms_type)
-    cls_inds = multi_scores[:, (0)] > score_thr
+    cls_inds = multi_scores[:, 0] > score_thr
     if not cls_inds.any():
         bboxes = multi_bboxes.new_zeros((0, 5))
         scores = multi_bboxes.new_zeros((0, multi_scores.size(1)))
         return bboxes, scores
-    _bboxes = multi_bboxes[(cls_inds), :]
-    _scores = multi_scores[(cls_inds), :]
+    _bboxes = multi_bboxes[cls_inds, :]
+    _scores = multi_scores[cls_inds, :]
     cls_dets = torch.cat([_bboxes, _scores[:, 0:1]], dim=1)
     cls_dets, nms_keep = nms_op(cls_dets, **nms_cfg_)
-    cls_scores = _scores[(nms_keep), :]
+    cls_scores = _scores[nms_keep, :]
     bboxes.append(cls_dets)
     scores.append(cls_scores)
     if bboxes:
         bboxes = torch.cat(bboxes)
         scores = torch.cat(scores)
         if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
+            _, inds = bboxes[:, -1].sort(descending=True)
             inds = inds[:max_num]
             bboxes = bboxes[inds]
             scores = scores[inds]
@@ -4008,9 +4077,9 @@ class BBoxHead(nn.Module):
                 losses['loss_cls'] = weighted_cross_entropy(cls_score, labels, label_weights, reduce=reduce)
                 losses['acc'] = accuracy(cls_score, labels)
             else:
-                losses['loss_person_cls'] = weighted_binary_cross_entropy(cls_score[:, (0)], labels[:, (0)] >= 1, label_weights)
-                pos_inds = torch.nonzero(labels[:, (0)] > 0).squeeze(1)
-                losses['loss_action_cls'] = weighted_multilabel_binary_cross_entropy(cls_score[(pos_inds), 1:], labels[(pos_inds), :], class_weights[(pos_inds), 1:])
+                losses['loss_person_cls'] = weighted_binary_cross_entropy(cls_score[:, 0], labels[:, 0] >= 1, label_weights)
+                pos_inds = torch.nonzero(labels[:, 0] > 0).squeeze(1)
+                losses['loss_action_cls'] = weighted_multilabel_binary_cross_entropy(cls_score[pos_inds, 1:], labels[pos_inds, :], class_weights[pos_inds, 1:])
                 acc, recall_thr, prec_thr, recall_k, prec_k = multilabel_accuracy(cls_score, labels, topk=(3, 5), thr=0.5)
                 losses['acc'] = acc
                 losses['recall@thr=0.5'] = recall_thr
@@ -4022,7 +4091,7 @@ class BBoxHead(nn.Module):
         if bbox_pred is not None:
             pos_inds = labels > 0
             if self.reg_class_agnostic:
-                pos_inds = labels[:, (0)] > 0
+                pos_inds = labels[:, 0] > 0
                 pos_bbox_pred = bbox_pred.view(bbox_pred.size(0), 4)[pos_inds]
             else:
                 pos_inds = labels > 0
@@ -4047,8 +4116,8 @@ class BBoxHead(nn.Module):
             assert crop_quadruple is not None
             decropped = bboxes.clone()
             x1, y1, tw, th = crop_quadruple
-            decropped[(...), 0::2] = bboxes[(...), 0::2] + x1
-            decropped[(...), 1::2] = bboxes[(...), 1::2] + y1
+            decropped[..., 0::2] = bboxes[..., 0::2] + x1
+            decropped[..., 1::2] = bboxes[..., 1::2] + y1
             return decropped
         if crop_quadruple is not None:
             bboxes = _bbox_crop_undo(bboxes, crop_quadruple)
@@ -4076,13 +4145,13 @@ class BBoxHead(nn.Module):
         Returns:
             list[Tensor]: Refined bboxes of each image in a mini-batch.
         """
-        img_ids = rois[:, (0)].long().unique(sorted=True)
+        img_ids = rois[:, 0].long().unique(sorted=True)
         assert img_ids.numel() == len(img_metas)
         bboxes_list = []
         for i in range(len(img_metas)):
-            inds = torch.nonzero(rois[:, (0)] == i).squeeze()
+            inds = torch.nonzero(rois[:, 0] == i).squeeze()
             num_rois = inds.numel()
-            bboxes_ = rois[(inds), 1:]
+            bboxes_ = rois[inds, 1:]
             label_ = labels[inds]
             bbox_pred_ = bbox_preds[inds]
             img_meta_ = img_metas[i]
@@ -4114,7 +4183,7 @@ class BBoxHead(nn.Module):
             new_rois = delta2bbox(rois, bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
         else:
             bboxes = delta2bbox(rois[:, 1:], bbox_pred, self.target_means, self.target_stds, img_meta['img_shape'])
-            new_rois = torch.cat((rois[:, ([0])], bboxes), dim=1)
+            new_rois = torch.cat((rois[:, [0]], bboxes), dim=1)
         return new_rois
 
 
@@ -4179,8 +4248,8 @@ class ClsHead(nn.Module):
 
 def classwise_regression_loss(pred, labels, targets):
     indexer = labels.data - 1
-    prep = pred[:, (indexer), :]
-    class_pred = torch.cat((torch.diag(prep[:, :, (0)]).view(-1, 1), torch.diag(prep[:, :, (1)]).view(-1, 1)), dim=1)
+    prep = pred[:, indexer, :]
+    class_pred = torch.cat((torch.diag(prep[:, :, 0]).view(-1, 1), torch.diag(prep[:, :, 1]).view(-1, 1)), dim=1)
     loss = F.smooth_l1_loss(class_pred.view(-1), targets.view(-1)) * 2
     return loss
 
@@ -4206,7 +4275,7 @@ class OHEMHingeLoss(torch.autograd.Function):
         keep_num = int(group_size * ohem_ratio)
         loss = torch.zeros(1)
         for i in range(losses.size(0)):
-            loss += sorted_losses[(i), :keep_num].sum()
+            loss += sorted_losses[i, :keep_num].sum()
         ctx.loss_ind = indices[:, :keep_num]
         ctx.labels = labels
         ctx.slopes = slopes
@@ -4310,14 +4379,14 @@ class SSNHead(nn.Module):
         fg_per_video = int(train_cfg.ssn.sampler.num_per_video * (train_cfg.ssn.sampler.fg_ratio / denum))
         bg_per_video = int(train_cfg.ssn.sampler.num_per_video * (train_cfg.ssn.sampler.bg_ratio / denum))
         incomplete_per_video = train_cfg.ssn.sampler.num_per_video - fg_per_video - bg_per_video
-        losses['loss_act'] = F.cross_entropy(act_score[(act_indexer), :], labels[act_indexer])
-        losses['loss_comp'] = completeness_loss(comp_score[(comp_indexer), :], labels[comp_indexer], fg_per_video, fg_per_video + incomplete_per_video, ohem_ratio=fg_per_video / incomplete_per_video)
+        losses['loss_act'] = F.cross_entropy(act_score[act_indexer, :], labels[act_indexer])
+        losses['loss_comp'] = completeness_loss(comp_score[comp_indexer, :], labels[comp_indexer], fg_per_video, fg_per_video + incomplete_per_video, ohem_ratio=fg_per_video / incomplete_per_video)
         losses['loss_comp'] = losses['loss_comp'] * train_cfg.ssn.loss_weight.comp_loss_weight
         if bbox_pred is not None:
             reg_indexer = (prop_type == 0).nonzero().squeeze()
             bbox_targets = bbox_targets.view(-1, 2)
             bbox_pred = bbox_pred.view(-1, self.completeness_fc.out_features, 2)
-            losses['loss_reg'] = classwise_regression_loss(bbox_pred[(reg_indexer), :, :], labels[reg_indexer], bbox_targets[(reg_indexer), :])
+            losses['loss_reg'] = classwise_regression_loss(bbox_pred[reg_indexer, :, :], labels[reg_indexer], bbox_targets[reg_indexer, :])
             losses['loss_reg'] = losses['loss_reg'] * train_cfg.ssn.loss_weight.reg_loss_weight
         return losses
 
@@ -4420,8 +4489,8 @@ def make_border_mask(batch, channels, height, width, tensor_type, border_ratio=0
 
 def make_smoothness_mask(batch, height, width, tensor_type):
     mask = torch.ones(batch, 2, height, width).type(tensor_type)
-    mask[:1, (-1), :] = 0
-    mask[:0, :, (-1)] = 0
+    mask[:1, -1, :] = 0
+    mask[:0, :, -1] = 0
     return mask
 
 
@@ -4563,8 +4632,8 @@ class MotionNet(nn.Module):
             downsampled6_input_concat = torch.cat(downsampled_imgs_6[:self.num_frames], 1)
             warped6_concat = torch.cat(Warped6_xs, 1)
             PhotoDifference6 = downsampled6_input_concat - warped6_concat
-            U6 = predict_flow6[:, ::2, (...)]
-            V6 = predict_flow6[:, 1::2, (...)]
+            U6 = predict_flow6[:, ::2, ...]
+            V6 = predict_flow6[:, 1::2, ...]
             FlowDeltasU6 = self.conv_FlowDelta(U6.view(-1, 1, U6.size(2), U6.size(3))).view(-1, self.num_frames, 2, U6.size(2), U6.size(3))
             FlowDeltasU6_xs = torch.split(FlowDeltasU6, 1, 1)
             FlowDeltasV6 = self.conv_FlowDelta(V6.view(-1, 1, V6.size(2), V6.size(3))).view(-1, self.num_frames, 2, V6.size(2), V6.size(3))
@@ -4598,8 +4667,8 @@ class MotionNet(nn.Module):
             downsampled5_input_concat = torch.cat(downsampled_imgs_5[:self.num_frames], 1)
             warped5_concat = torch.cat(Warped5_xs, 1)
             PhotoDifference5 = downsampled5_input_concat - warped5_concat
-            U5 = predict_flow5[:, ::2, (...)]
-            V5 = predict_flow5[:, 1::2, (...)]
+            U5 = predict_flow5[:, ::2, ...]
+            V5 = predict_flow5[:, 1::2, ...]
             FlowDeltasU5 = self.conv_FlowDelta(U5.view(-1, 1, U5.size(2), U5.size(3))).view(-1, self.num_frames, 2, U5.size(2), U5.size(3))
             FlowDeltasU5_xs = torch.split(FlowDeltasU5, 1, 1)
             FlowDeltasV5 = self.conv_FlowDelta(V5.view(-1, 1, V5.size(2), V5.size(3))).view(-1, self.num_frames, 2, V5.size(2), V5.size(3))
@@ -4633,8 +4702,8 @@ class MotionNet(nn.Module):
             downsampled4_input_concat = torch.cat(downsampled_imgs_4[:self.num_frames], 1)
             warped4_concat = torch.cat(Warped4_xs, 1)
             PhotoDifference4 = downsampled4_input_concat - warped4_concat
-            U4 = predict_flow4[:, ::2, (...)]
-            V4 = predict_flow4[:, 1::2, (...)]
+            U4 = predict_flow4[:, ::2, ...]
+            V4 = predict_flow4[:, 1::2, ...]
             FlowDeltasU4 = self.conv_FlowDelta(U4.view(-1, 1, U4.size(2), U4.size(3))).view(-1, self.num_frames, 2, U4.size(2), U4.size(3))
             FlowDeltasU4_xs = torch.split(FlowDeltasU4, 1, 1)
             FlowDeltasV4 = self.conv_FlowDelta(V4.view(-1, 1, V4.size(2), V4.size(3))).view(-1, self.num_frames, 2, V4.size(2), V4.size(3))
@@ -4668,8 +4737,8 @@ class MotionNet(nn.Module):
             downsampled3_input_concat = torch.cat(downsampled_imgs_3[:self.num_frames], 1)
             warped3_concat = torch.cat(Warped3_xs, 1)
             PhotoDifference3 = downsampled3_input_concat - warped3_concat
-            U3 = predict_flow3[:, ::2, (...)]
-            V3 = predict_flow3[:, 1::2, (...)]
+            U3 = predict_flow3[:, ::2, ...]
+            V3 = predict_flow3[:, 1::2, ...]
             FlowDeltasU3 = self.conv_FlowDelta(U3.view(-1, 1, U3.size(2), U3.size(3))).view(-1, self.num_frames, 2, U3.size(2), U3.size(3))
             FlowDeltasU3_xs = torch.split(FlowDeltasU3, 1, 1)
             FlowDeltasV3 = self.conv_FlowDelta(V3.view(-1, 1, V3.size(2), V3.size(3))).view(-1, self.num_frames, 2, V3.size(2), V3.size(3))
@@ -4703,8 +4772,8 @@ class MotionNet(nn.Module):
             downsampled2_input_concat = torch.cat(downsampled_imgs_2[:self.num_frames], 1)
             warped2_concat = torch.cat(Warped2_xs, 1)
             PhotoDifference2 = downsampled2_input_concat - warped2_concat
-            U2 = predict_flow2[:, ::2, (...)]
-            V2 = predict_flow2[:, 1::2, (...)]
+            U2 = predict_flow2[:, ::2, ...]
+            V2 = predict_flow2[:, 1::2, ...]
             FlowDeltasU2 = self.conv_FlowDelta(U2.view(-1, 1, U2.size(2), U2.size(3))).view(-1, self.num_frames, 2, U2.size(2), U2.size(3))
             FlowDeltasU2_xs = torch.split(FlowDeltasU2, 1, 1)
             FlowDeltasV2 = self.conv_FlowDelta(V2.view(-1, 1, V2.size(2), V2.size(3))).view(-1, self.num_frames, 2, V2.size(2), V2.size(3))
@@ -4989,7 +5058,7 @@ class SingleRoIExtractor(nn.Module):
         Returns:
             Tensor: Level index (0-based) of each RoI, shape (k, )
         """
-        scale = torch.sqrt((rois[:, (3)] - rois[:, (1)] + 1) * (rois[:, (4)] - rois[:, (2)] + 1))
+        scale = torch.sqrt((rois[:, 3] - rois[:, 1] + 1) * (rois[:, 4] - rois[:, 2] + 1))
         target_lvls = torch.floor(torch.log2(scale / self.finest_scale + 1e-06))
         target_lvls = target_lvls.clamp(min=0, max=num_levels - 1).long()
         return target_lvls
@@ -5004,7 +5073,7 @@ class SingleRoIExtractor(nn.Module):
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
-                rois_ = rois[(inds), :]
+                rois_ = rois[inds, :]
                 roi_feats_t = self.roi_layers[i](feats[i], rois_)
                 roi_feats[inds] += roi_feats_t
         return roi_feats
@@ -5062,7 +5131,7 @@ class SingleRoIStraight3DExtractor(nn.Module):
         Returns:
             Tensor: Level index (0-based) of each RoI, shape (k, )
         """
-        scale = torch.sqrt((rois[:, (3)] - rois[:, (1)] + 1) * (rois[:, (4)] - rois[:, (2)] + 1))
+        scale = torch.sqrt((rois[:, 3] - rois[:, 1] + 1) * (rois[:, 4] - rois[:, 2] + 1))
         target_lvls = torch.floor(torch.log2(scale / self.finest_scale + 1e-06))
         target_lvls = target_lvls.clamp(min=0, max=num_levels - 1).long()
         return target_lvls
@@ -5074,7 +5143,7 @@ class SingleRoIStraight3DExtractor(nn.Module):
                 feats[0] = torch.mean(feats[0], 2, keepdim=True)
             roi_feats = []
             for t in range(feats[0].size(2)):
-                feat = feats[0][:, :, (t), :, :].contiguous()
+                feat = feats[0][:, :, t, :, :].contiguous()
                 roi_feats.append(self.roi_layers[0](feat, rois))
             return torch.stack(roi_feats, dim=2)
         if self.with_temporal_pool:
@@ -5088,41 +5157,15 @@ class SingleRoIStraight3DExtractor(nn.Module):
         for i in range(num_levels):
             inds = target_lvls == i
             if inds.any():
-                rois_ = rois[(inds), :]
+                rois_ = rois[inds, :]
                 for t in range(t_size):
-                    feat_ = feats[i][:, :, (t), :, :].contiguous()
+                    feat_ = feats[i][:, :, t, :, :].contiguous()
                     roi_feats_t = self.roi_layers[i](feat_, rois_)
-                    roi_feats[(inds), :, (t), :, :] += roi_feats_t
+                    roi_feats[inds, :, t, :, :] += roi_feats_t
         return roi_feats
 
 
 SEGMENTAL_CONSENSUSES = Registry('segmental_consensus')
-
-
-class _SimpleConsensus(torch.autograd.Function):
-    """Simplest segmental consensus module"""
-
-    def __init__(self, consensus_type='avg', dim=1):
-        super(_SimpleConsensus, self).__init__()
-        assert consensus_type in ['avg']
-        self.consensus_type = consensus_type
-        self.dim = dim
-        self.shape = None
-
-    def forward(self, x):
-        self.shape = x.size()
-        if self.consensus_type == 'avg':
-            output = x.mean(dim=self.dim, keepdim=True)
-        else:
-            output = None
-        return output
-
-    def backward(self, grad_output):
-        if self.consensus_type == 'avg':
-            grad_in = grad_output.expand(self.shape) / float(self.shape[self.dim])
-        else:
-            grad_in = None
-        return grad_in
 
 
 class SimpleConsensus(nn.Module):
@@ -5137,7 +5180,11 @@ class SimpleConsensus(nn.Module):
         pass
 
     def forward(self, input):
-        return _SimpleConsensus(self.consensus_type, self.dim)(input)
+        if self.consensus_type == 'avg':
+            output = input.mean(dim=self.dim, keepdim=True)
+        else:
+            return None
+        return output
 
 
 def parse_stage_config(stage_cfg):
@@ -5186,9 +5233,9 @@ class StructuredTemporalPyramidPooling(nn.Module):
                     stage_stpp.append(part_feat)
             return stage_stpp
         feature_parts = []
-        feature_parts.extend(get_stage_stpp(src[:, :x1, :], self.parts[0], self.norm_num[0], scaling[:, (0)]))
+        feature_parts.extend(get_stage_stpp(src[:, :x1, :], self.parts[0], self.norm_num[0], scaling[:, 0]))
         feature_parts.extend(get_stage_stpp(src[:, x1:x2, :], self.parts[1], self.norm_num[1], None))
-        feature_parts.extend(get_stage_stpp(src[:, x2:, :], self.parts[2], self.norm_num[2], scaling[:, (1)]))
+        feature_parts.extend(get_stage_stpp(src[:, x2:, :], self.parts[2], self.norm_num[2], scaling[:, 1]))
         stpp_feat = torch.cat(feature_parts, dim=1)
         if not self.sc:
             return stpp_feat, stpp_feat
@@ -5223,12 +5270,12 @@ class STPPReorganized(nn.Module):
         assert input.size(1) == self.feat_dim
         n_ticks = proposal_ticks.size(0)
         out_act_scores = torch.zeros((n_ticks, self.act_score_len)).type_as(input)
-        raw_act_scores = input[:, (self.act_slice)]
+        raw_act_scores = input[:, self.act_slice]
         out_comp_scores = torch.zeros((n_ticks, self.comp_score_len)).type_as(input)
-        raw_comp_scores = input[:, (self.comp_slice)]
+        raw_comp_scores = input[:, self.comp_slice]
         if self.with_regression:
             out_reg_scores = torch.zeros((n_ticks, self.reg_score_len)).type_as(input)
-            raw_reg_scores = input[:, (self.reg_slice)]
+            raw_reg_scores = input[:, self.reg_slice]
         else:
             out_reg_scores = None
             raw_reg_scores = None
@@ -5254,12 +5301,12 @@ class STPPReorganized(nn.Module):
                         pl = int(part_ticks[i])
                         pr = int(part_ticks[i + 1])
                         if pr - pl >= 1:
-                            out_scores[(index), :] += raw_scores[pl:pr, offset * score_len:(offset + 1) * score_len].mean(dim=0) * s
+                            out_scores[index, :] += raw_scores[pl:pr, offset * score_len:(offset + 1) * score_len].mean(dim=0) * s
                         offset += 1
         for i in range(n_ticks):
             ticks = proposal_ticks[i].cpu().numpy()
             if self.sc:
-                out_act_scores[(i), :] = raw_act_scores[ticks[1]:max(ticks[1] + 1, ticks[2]), :].mean(dim=0)
+                out_act_scores[i, :] = raw_act_scores[ticks[1]:max(ticks[1] + 1, ticks[2]), :].mean(dim=0)
             else:
                 pspool(out_act_scores, i, raw_act_scores, ticks, scaling[i], self.act_score_len, self.stpp_cfg)
             pspool(out_comp_scores, i, raw_comp_scores, ticks, scaling[i], self.comp_score_len, self.stpp_cfg)
@@ -5424,7 +5471,7 @@ class SimpleSpatialTemporalModule(nn.Module):
 
     def __init__(self, spatial_type='avg', spatial_size=7, temporal_size=1):
         super(SimpleSpatialTemporalModule, self).__init__()
-        assert spatial_type in ['avg', 'max']
+        assert spatial_type in ['identity', 'avg', 'max']
         self.spatial_type = spatial_type
         self.spatial_size = spatial_size
         if spatial_size != -1:
@@ -5448,7 +5495,10 @@ class SimpleSpatialTemporalModule(nn.Module):
         pass
 
     def forward(self, input):
-        return self.pool_func(input)
+        if self.spatial_type == 'identity':
+            return input
+        else:
+            return self.pool_func(input)
 
 
 class SlowFastSpatialTemporalModule(nn.Module):
@@ -5595,7 +5645,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (AnchorHead,
      lambda: ([], {'num_classes': 4, 'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 256, 64, 64])], {}),
+     lambda: ([torch.rand([4, 256, 4, 4])], {}),
      False),
     (BNInception,
      lambda: ([], {}),
@@ -5607,15 +5657,19 @@ TESTCASES = [
      False),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
-     lambda: ([(torch.rand([4, 4, 64, 64, 64]), torch.rand([4, 4, 4, 4]))], {}),
+     lambda: ([(torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
      False),
+    (C3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
     (InceptionV1_I3D,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
      True),
     (RPNHead,
      lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (ResNet_S3D,
      lambda: ([], {'depth': 18}),
@@ -5625,6 +5679,10 @@ TESTCASES = [
      lambda: ([], {'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}),
      lambda: ([torch.rand([0, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
+    (SimpleConsensus,
+     lambda: ([], {'consensus_type': 'avg'}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (SimpleSpatialModule,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -5672,4 +5730,10 @@ class Test_open_mmlab_mmaction(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

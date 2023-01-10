@@ -228,9 +228,9 @@ class QuestionEmbedding(nn.Module):
         self.rnn.flatten_parameters()
         output, hidden = self.rnn(x, hidden)
         if self.ndirections == 1:
-            return output[:, (-1)]
-        forward_ = output[:, (-1), :self.num_hid]
-        backward = output[:, (0), self.num_hid:]
+            return output[:, -1]
+        forward_ = output[:, -1, :self.num_hid]
+        backward = output[:, 0, self.num_hid:]
         return torch.cat((forward_, backward), dim=1)
 
     def forward_all(self, x):
@@ -251,23 +251,19 @@ TESTCASES = [
     (Attention,
      lambda: ([], {'v_dim': 4, 'q_dim': 4, 'num_hid': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
-     True),
+     False),
     (FCNet,
      lambda: ([], {'dims': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (NewAttention,
      lambda: ([], {'v_dim': 4, 'q_dim': 4, 'num_hid': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
-     True),
+     False),
     (SimpleClassifier,
      lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (WordEmbedding,
-     lambda: ([], {'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
+     False),
 ]
 
 class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
@@ -282,7 +278,4 @@ class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

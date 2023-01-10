@@ -100,9 +100,6 @@ batch_size = 1
 embedding_size = 3
 
 
-hidden_size = 100
-
-
 input_size = 5
 
 
@@ -114,8 +111,10 @@ sequence_length = 6
 
 class Model(nn.Module):
 
-    def __init__(self):
+    def __init__(self, num_layers, hidden_size):
         super(Model, self).__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
         self.embedding = nn.Embedding(input_size, embedding_size)
         self.rnn = nn.RNN(input_size=embedding_size, hidden_size=5, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
@@ -318,27 +317,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (EncoderRNN,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64), torch.rand([1, 1, 4])], {}),
-     True),
     (InceptionA,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (RNNClassifier,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     False),
 ]
 
 class Test_hunkim_PyTorchZeroToAll(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

@@ -440,7 +440,7 @@ class Decoder(nn.Module):
             if test_inputs is not None:
                 if t >= test_inputs.size(1):
                     break
-                current_input = test_inputs[:, (t), :].unsqueeze(1)
+                current_input = test_inputs[:, t, :].unsqueeze(1)
             elif t > 0:
                 current_input = outputs[-1]
             x = current_input
@@ -614,29 +614,4 @@ class MaskedL1Loss(nn.Module):
         mask_ = mask.expand_as(input)
         loss = self.criterion(input * mask_, target * mask_)
         return loss / mask_.sum()
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (AttentionLayer,
-     lambda: ([], {'conv_channels': 4, 'embed_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4]), (torch.rand([4, 4, 4]), torch.rand([4, 4, 4]))], {}),
-     False),
-    (SinusoidalEncoding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
-]
-
-class Test_r9y9_deepvoice3_pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

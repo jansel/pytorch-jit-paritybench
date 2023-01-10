@@ -836,7 +836,7 @@ TESTCASES = [
     (PyramidPooling,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     False),
+     True),
     (ResBlock,
      lambda: ([], {'dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

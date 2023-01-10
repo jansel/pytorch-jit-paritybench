@@ -190,12 +190,12 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Generator,
      lambda: ([], {'input_size': 4, 'ngf': 4, 'n_residual_layers': 1}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (ResnetBlock,
      lambda: ([], {'dim': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
 ]
 
 class Test_descriptinc_melgan_neurips(_paritybench_base):

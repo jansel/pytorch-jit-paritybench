@@ -716,6 +716,14 @@ class Graph:
             raise ValueError('Do Not Exist This Strategy')
 
 
+def iden(x):
+    return x
+
+
+def zero(x):
+    return 0
+
+
 class st_gcn_block(nn.Module):
     """Applies a spatial temporal graph convolution over an input graph sequence.
 
@@ -749,9 +757,9 @@ class st_gcn_block(nn.Module):
         self.gcn = ConvTemporalGraphical(in_channels, out_channels, kernel_size[1])
         self.tcn = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, (kernel_size[0], 1), (stride, 1), padding), nn.BatchNorm2d(out_channels), nn.Dropout(dropout, inplace=True))
         if not residual:
-            self.residual = lambda x: 0
+            self.residual = zero
         elif in_channels == out_channels and stride == 1:
-            self.residual = lambda x: x
+            self.residual = iden
         else:
             self.residual = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(stride, 1)), nn.BatchNorm2d(out_channels))
         self.relu = nn.ReLU(inplace=True)
@@ -791,7 +799,7 @@ class ST_GCN_18(nn.Module):
         spatial_kernel_size = A.size(0)
         temporal_kernel_size = 9
         kernel_size = temporal_kernel_size, spatial_kernel_size
-        self.data_bn = nn.BatchNorm1d(in_channels * A.size(1)) if data_bn else lambda x: x
+        self.data_bn = nn.BatchNorm1d(in_channels * A.size(1)) if data_bn else iden
         kwargs0 = {k: v for k, v in kwargs.items() if k != 'dropout'}
         self.st_gcn_networks = nn.ModuleList((st_gcn_block(in_channels, 64, kernel_size, 1, residual=False, **kwargs0), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 128, kernel_size, 2, **kwargs), st_gcn_block(128, 128, kernel_size, 1, **kwargs), st_gcn_block(128, 128, kernel_size, 1, **kwargs), st_gcn_block(128, 256, kernel_size, 2, **kwargs), st_gcn_block(256, 256, kernel_size, 1, **kwargs), st_gcn_block(256, 256, kernel_size, 1, **kwargs)))
         if edge_importance_weighting:
@@ -967,7 +975,7 @@ class JointsMSELoss(nn.Module):
             heatmap_pred = heatmaps_pred[idx].squeeze()
             heatmap_gt = heatmaps_gt[idx].squeeze()
             if self.use_target_weight:
-                loss += 0.5 * self.criterion(heatmap_pred.mul(target_weight[:, (idx)]), heatmap_gt.mul(target_weight[:, (idx)]))
+                loss += 0.5 * self.criterion(heatmap_pred.mul(target_weight[:, idx]), heatmap_gt.mul(target_weight[:, idx]))
             else:
                 loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
         return loss / num_joints
@@ -1001,7 +1009,7 @@ class JointsOHKMMSELoss(nn.Module):
             heatmap_pred = heatmaps_pred[idx].squeeze()
             heatmaps_targets = heatmaps_targets[idx].squeeze()
             if self.use_target_weight:
-                loss.append(0.5 * self.criterion(heatmap_pred.mul(target_weights[:, (idx)]), heatmaps_targets.mul(target_weights[:, (idx)])))
+                loss.append(0.5 * self.criterion(heatmap_pred.mul(target_weights[:, idx]), heatmaps_targets.mul(target_weights[:, idx])))
             else:
                 loss.append(0.5 * self.criterion(heatmap_pred, heatmaps_targets))
         loss = [l.mean(dim=1).unsqueeze(dim=1) for l in loss]
@@ -1161,6 +1169,10 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ConvTemporalGraphical,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
     (JointsMSELoss,
      lambda: ([], {'use_target_weight': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -1173,4 +1185,7 @@ class Test_open_mmlab_mmskeleton(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

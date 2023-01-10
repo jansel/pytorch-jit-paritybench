@@ -297,7 +297,7 @@ def lovasz_softmax_flat(probas, labels, only_present=False):
         fg = (labels == c).float()
         if only_present and fg.sum() == 0:
             continue
-        errors = (fg - probas[:, (c)]).abs()
+        errors = (fg - probas[:, c]).abs()
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
         fg_sorted = fg[perm]
@@ -371,7 +371,7 @@ class OhemCrossEntropy2d(nn.Module):
         if self.min_kept >= num_valid:
             None
         elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
+            prob = input_prob[:, valid_flag]
             pred = prob[label, np.arange(len(label), dtype=np.int32)]
             threshold = self.thresh
             if self.min_kept > 0:
@@ -944,7 +944,7 @@ class MultiModalNN(nn.Module):
 
     def forward(self, numeric_feats, categorical_feats):
         if self.no_of_embs != 0:
-            x = [emb_layer(categorical_feats[:, (i)]) for i, emb_layer in enumerate(self.emb_layers)]
+            x = [emb_layer(categorical_feats[:, i]) for i, emb_layer in enumerate(self.emb_layers)]
             x = torch.cat(x, 1)
             x = self.emb_dropout_layer(x)
         if self.n_numeric_feats != 0:

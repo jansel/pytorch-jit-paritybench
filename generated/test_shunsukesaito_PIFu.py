@@ -110,20 +110,20 @@ def index(feat, uv):
     """
 
     :param feat: [B, C, H, W] image features
-    :param uv: [B, 2, N] uv coordinates in the image plane, range [0, 1]
+    :param uv: [B, 2, N] uv coordinates in the image plane, range [-1, 1]
     :return: [B, C, N] image features at the uv coordinates
     """
     uv = uv.transpose(1, 2)
     uv = uv.unsqueeze(2)
     samples = torch.nn.functional.grid_sample(feat, uv, align_corners=True)
-    return samples[:, :, :, (0)]
+    return samples[:, :, :, 0]
 
 
 def orthogonal(points, calibrations, transforms=None):
     """
     Compute the orthogonal projections of 3D points into the image plane by given projection matrix
     :param points: [B, 3, N] Tensor of 3D points
-    :param calibrations: [B, 3, 4] Tensor of projection matrix
+    :param calibrations: [B, 4, 4] Tensor of projection matrix
     :param transforms: [B, 2, 3] Tensor of image transform matrix
     :return: xyz: [B, 3, N] Tensor of xyz coordinates in the image plane
     """
@@ -141,7 +141,7 @@ def perspective(points, calibrations, transforms=None):
     """
     Compute the perspective projections of 3D points into the image plane by given projection matrix
     :param points: [Bx3xN] Tensor of 3D points
-    :param calibrations: [Bx3x4] Tensor of projection matrix
+    :param calibrations: [Bx4x4] Tensor of projection matrix
     :param transforms: [Bx2x3] Tensor of image transform matrix
     :return: xy: [Bx2xN] Tensor of xy coordinates in the image plane
     """
@@ -371,9 +371,9 @@ class SurfaceClassifier(nn.Module):
         tmpy = feature
         for i, f in enumerate(self.filters):
             if self.no_residual:
-                y = f(y)
+                y = self._modules['conv' + str(i)](y)
             else:
-                y = f(y if i == 0 else torch.cat([y, tmpy], 1))
+                y = self._modules['conv' + str(i)](y if i == 0 else torch.cat([y, tmpy], 1))
             if i != len(self.filters) - 1:
                 y = F.leaky_relu(y)
             if self.num_views > 1 and i == len(self.filters) // 2:
@@ -705,7 +705,7 @@ class HGPIFuNet(BasePIFuNet):
         xyz = self.projection(points, calibs, transforms)
         xy = xyz[:, :2, :]
         z = xyz[:, 2:3, :]
-        in_img = (xy[:, (0)] >= -1.0) & (xy[:, (0)] <= 1.0) & (xy[:, (1)] >= -1.0) & (xy[:, (1)] <= 1.0)
+        in_img = (xy[:, 0] >= -1.0) & (xy[:, 0] <= 1.0) & (xy[:, 1] >= -1.0) & (xy[:, 1] <= 1.0)
         z_feat = self.normalizer(z, calibs=calibs)
         if self.opt.skip_hourglass:
             tmpx_local_feature = self.index(self.tmpx, xy)
@@ -715,7 +715,7 @@ class HGPIFuNet(BasePIFuNet):
             if self.opt.skip_hourglass:
                 point_local_feat_list.append(tmpx_local_feature)
             point_local_feat = torch.cat(point_local_feat_list, 1)
-            pred = in_img[:, (None)].float() * self.surface_classifier(point_local_feat)
+            pred = in_img[:, None].float() * self.surface_classifier(point_local_feat)
             self.intermediate_preds_list.append(pred)
         self.preds = self.intermediate_preds_list[-1]
 
@@ -1018,16 +1018,12 @@ TESTCASES = [
      True),
     (SurfaceClassifier,
      lambda: ([], {'filter_channels': [4, 4]}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (Vgg16,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (VhullPIFuNet,
-     lambda: ([], {'num_views': 4}),
-     lambda: ([torch.rand([4, 3, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
 ]
 
 class Test_shunsukesaito_PIFu(_paritybench_base):
@@ -1060,7 +1056,4 @@ class Test_shunsukesaito_PIFu(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

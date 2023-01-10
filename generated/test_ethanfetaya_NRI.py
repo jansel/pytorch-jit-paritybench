@@ -100,7 +100,7 @@ class RecurrentBaseline(nn.Module):
         x = x.view(ins.size(0), -1)
         x = x.unsqueeze(0)
         x, hidden = self.rnn(x, hidden)
-        x = x[(0), :, :]
+        x = x[0, :, :]
         x = F.relu(self.fc2_1(x))
         x = self.fc2_2(x)
         x = x.view(ins.size(0), ins.size(1), -1)
@@ -113,11 +113,11 @@ class RecurrentBaseline(nn.Module):
         for step in range(0, inputs.size(2) - 1):
             if burn_in:
                 if step <= burn_in_steps:
-                    ins = inputs[:, :, (step), :]
+                    ins = inputs[:, :, step, :]
                 else:
                     ins = outputs[step - 1]
             elif not step % prediction_steps:
-                ins = inputs[:, :, (step), :]
+                ins = inputs[:, :, step, :]
             else:
                 ins = outputs[step - 1]
             output, hidden = self.step(ins, hidden)
@@ -400,7 +400,7 @@ class SimulationDecoder(nn.Module):
         return torch.abs(rx.transpose(1, 2) + rx - 2 * xx)
 
     def forward(self, inputs, relations, rel_rec, rel_send, pred_steps=1):
-        relations = relations[:, :, (1)]
+        relations = relations[:, :, 1]
         loc = inputs[:, :, :-1, :2].contiguous()
         vel = inputs[:, :, :-1, 2:].contiguous()
         loc = loc.permute(0, 2, 1, 3).contiguous()
@@ -413,12 +413,12 @@ class SimulationDecoder(nn.Module):
         if inputs.is_cuda:
             edges = edges
             offdiag_indices = offdiag_indices
-        edges[:, (offdiag_indices)] = relations.float()
+        edges[:, offdiag_indices] = relations.float()
         edges = edges.view(relations.size(0), inputs.size(1), inputs.size(1))
         self.out = []
         for _ in range(0, self.sample_freq):
-            x = loc[:, :, (0)].unsqueeze(-1)
-            y = loc[:, :, (1)].unsqueeze(-1)
+            x = loc[:, :, 0].unsqueeze(-1)
+            y = loc[:, :, 1].unsqueeze(-1)
             xx = x.expand(x.size(0), x.size(1), x.size(1))
             yy = y.expand(y.size(0), y.size(1), y.size(1))
             dist_x = xx - xx.transpose(1, 2)
@@ -644,13 +644,13 @@ class RNNDecoder(nn.Module):
         for step in range(0, inputs.size(1) - 1):
             if burn_in:
                 if step <= burn_in_steps:
-                    ins = inputs[:, (step), :, :]
+                    ins = inputs[:, step, :, :]
                 else:
                     ins = pred_all[step - 1]
             else:
                 assert pred_steps <= time_steps
                 if not step % pred_steps:
-                    ins = inputs[:, (step), :, :]
+                    ins = inputs[:, step, :, :]
                 else:
                     ins = pred_all[step - 1]
             if dynamic_graph and step >= burn_in_steps:
@@ -669,10 +669,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CNN,
-     lambda: ([], {'n_in': 4, 'n_hid': 4, 'n_out': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     False),
     (MLP,
      lambda: ([], {'n_in': 4, 'n_hid': 4, 'n_out': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -696,7 +692,4 @@ class Test_ethanfetaya_NRI(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

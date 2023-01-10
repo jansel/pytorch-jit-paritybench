@@ -109,6 +109,12 @@ official_tokenization = _module
 pytorch_optimization = _module
 utils = _module
 zh_wiki = _module
+run_clue_classifier = _module
+run_clue_classifier_trainer = _module
+grid_search = _module
+warmup_dataset_and_model = _module
+run_chid = _module
+run_cmrc2018 = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -567,7 +573,7 @@ class BertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -1216,7 +1222,7 @@ class RobertaClassificationHead(nn.Module):
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
     def forward(self, features, **kwargs):
-        x = features[:, (0), :]
+        x = features[:, 0, :]
         x = self.dropout(x)
         x = self.dense(x)
         x = torch.tanh(x)
@@ -1237,9 +1243,9 @@ class PositionalEmbedding(nn.Module):
         sinusoid_inp = torch.ger(pos_seq, self.inv_freq)
         pos_emb = torch.cat([sinusoid_inp.sin(), sinusoid_inp.cos()], dim=-1)
         if bsz is not None:
-            return pos_emb[:, (None), :].expand(-1, bsz, -1)
+            return pos_emb[:, None, :].expand(-1, bsz, -1)
         else:
-            return pos_emb[:, (None), :]
+            return pos_emb[:, None, :]
 
 
 class PositionwiseFF(nn.Module):
@@ -1330,14 +1336,14 @@ class RelPartialLearnableMultiHeadAttn(nn.Module):
             attn_mask = attn_mask == 1
             if attn_mask.dim() == 2:
                 if next(self.parameters()).dtype == torch.float16:
-                    attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -65000).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[None, :, :, None], -65000).type_as(attn_score)
                 else:
-                    attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -1e+30).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[None, :, :, None], -1e+30).type_as(attn_score)
             elif attn_mask.dim() == 3:
                 if next(self.parameters()).dtype == torch.float16:
-                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -65000).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, None], -65000).type_as(attn_score)
                 else:
-                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -1e+30).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, None], -1e+30).type_as(attn_score)
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         if head_mask is not None:
@@ -1521,7 +1527,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if labels is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
                         out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
@@ -1530,9 +1536,9 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if labels is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i[:, cluster_prob_idx] + tail_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
+                        logprob_i = head_logprob[:, cluster_prob_idx, None] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if labels is not None:
                     if hasattr(self, 'keep_order') and self.keep_order or keep_order:
@@ -1586,8 +1592,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
                     tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
-                    logprob_i = head_logprob[:, (-i)] + tail_logprob_i
-                    out[:, (start_idx), (stop_idx)] = logprob_i
+                    logprob_i = head_logprob[:, -i] + tail_logprob_i
+                    out[:, start_idx, stop_idx] = logprob_i
             return out
 
 
@@ -2277,7 +2283,7 @@ class PoolerEndLogits(nn.Module):
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
             slen, hsz = hidden_states.shape[-2:]
-            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
+            start_positions = start_positions[:, None, None].expand(-1, -1, hsz)
             start_states = hidden_states.gather(-2, start_positions)
             start_states = start_states.expand(-1, slen, -1)
         x = self.dense_0(torch.cat([hidden_states, start_states], dim=-1))
@@ -2321,13 +2327,13 @@ class PoolerAnswerClass(nn.Module):
         hsz = hidden_states.shape[-1]
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
-            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
+            start_positions = start_positions[:, None, None].expand(-1, -1, hsz)
             start_states = hidden_states.gather(-2, start_positions).squeeze(-2)
         if cls_index is not None:
-            cls_index = cls_index[:, (None), (None)].expand(-1, -1, hsz)
+            cls_index = cls_index[:, None, None].expand(-1, -1, hsz)
             cls_token_state = hidden_states.gather(-2, cls_index).squeeze(-2)
         else:
-            cls_token_state = hidden_states[:, (-1), :]
+            cls_token_state = hidden_states[:, -1, :]
         x = self.dense_0(torch.cat([start_states, cls_token_state], dim=-1))
         x = self.activation(x)
         x = self.dense_1(x).squeeze(-1)
@@ -2467,14 +2473,14 @@ class SequenceSummary(nn.Module):
                     we take the last token of the sequence as classification token
         """
         if self.summary_type == 'last':
-            output = hidden_states[:, (-1)]
+            output = hidden_states[:, -1]
         elif self.summary_type == 'first':
-            output = hidden_states[:, (0)]
+            output = hidden_states[:, 0]
         elif self.summary_type == 'mean':
             output = hidden_states.mean(dim=1)
         elif self.summary_type == 'cls_index':
             if cls_index is None:
-                cls_index = torch.full_like(hidden_states[(...), :1, :], hidden_states.shape[-2] - 1, dtype=torch.long)
+                cls_index = torch.full_like(hidden_states[..., :1, :], hidden_states.shape[-2] - 1, dtype=torch.long)
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
@@ -2728,9 +2734,9 @@ def get_masks(slen, lengths, causal, padding_mask=None):
     else:
         assert lengths.max().item() <= slen
         alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
-        mask = alen < lengths[:, (None)]
+        mask = alen < lengths[:, None]
     if causal:
-        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(None), :, (None)]
+        attn_mask = alen[None, None, :].repeat(bs, slen, 1) <= alen[None, :, None]
     else:
         attn_mask = mask
     assert mask.size() == (bs, slen)
@@ -2804,7 +2810,7 @@ class XLNetRelativeAttention(nn.Module):
         """perform relative shift to form the relative attention score."""
         x_size = x.shape
         x = x.reshape(x_size[1], x_size[0], x_size[2], x_size[3])
-        x = x[1:, (...)]
+        x = x[1:, ...]
         x = x.reshape(x_size[0], x_size[1] - 1, x_size[2], x_size[3])
         x = torch.index_select(x, 1, torch.arange(klen, device=x.device, dtype=torch.long))
         return x
@@ -4018,14 +4024,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ALBertEmbeddings,
-     lambda: ([], {'config': _mock_config(embedding_size=4, hidden_size=4, vocab_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (AlbertEmbeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, embedding_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (AlbertOnlyNSPHead,
      lambda: ([], {'config': _mock_config(hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4037,10 +4035,6 @@ TESTCASES = [
     (BertAttention,
      lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-    (BertEmbeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
      False),
     (BertIntermediate,
      lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
@@ -4074,10 +4068,6 @@ TESTCASES = [
      lambda: ([], {'nf': 4, 'nx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Embeddings,
-     lambda: ([], {'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
     (FFN,
      lambda: ([], {'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation='relu')}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4183,16 +4173,4 @@ class Test_CLUEbenchmark_CLUE(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
 

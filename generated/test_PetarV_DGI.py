@@ -174,6 +174,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Discriminator,
+     lambda: ([], {'n_h': 4}),
+     lambda: ([torch.rand([4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
     (GCN,
      lambda: ([], {'in_ft': 4, 'out_ft': 4, 'act': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
@@ -193,4 +197,7 @@ class Test_PetarV_DGI(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

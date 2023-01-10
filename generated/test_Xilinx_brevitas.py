@@ -2,40 +2,159 @@ import sys
 _module = sys.modules[__name__]
 del sys
 gen_github_actions = _module
+gen_vitis_ai_actions = _module
+utils = _module
+conf = _module
+noxfile = _module
+setup = _module
 brevitas = _module
 config = _module
 core = _module
 bit_width = _module
+const = _module
+parameter = _module
 function_wrapper = _module
+clamp = _module
+misc = _module
+ops_ste = _module
+shape = _module
 quant = _module
+binary = _module
+delay = _module
+int_base = _module
+ternary = _module
 restrict_val = _module
 scaling = _module
+int_scaling = _module
+runtime = _module
+standalone = _module
 stats = _module
+stats_op = _module
+stats_wrapper = _module
+view_wrapper = _module
+utils = _module
+zero_point = _module
+export = _module
+handler = _module
+manager = _module
+onnx = _module
+debug = _module
+finn = _module
 function = _module
-autograd_ops = _module
+acc = _module
+act = _module
+parameter = _module
+acc = _module
+act = _module
+base = _module
+parameter = _module
+manager = _module
+transform = _module
+generic = _module
+function = _module
+handler = _module
+manager = _module
+handler = _module
+manager = _module
+standard = _module
+function = _module
+qdq = _module
+qoperator = _module
+function = _module
+act = _module
+base = _module
+parameter = _module
+pool = _module
+manager = _module
+vitis_ai = _module
+handler = _module
+manager = _module
+pyxir = _module
+function = _module
+handler = _module
+manager = _module
+xir = _module
+function = _module
+handler = _module
+manager = _module
+pytorch = _module
+handler = _module
+act = _module
+base = _module
+parameter = _module
+manager = _module
+autograd_ste_ops = _module
 ops = _module
+ops_ste = _module
 shape = _module
+fx = _module
+backport = _module
+graph = _module
+graph_module = _module
+immutable_collections = _module
+interpreter = _module
+node = _module
+proxy = _module
+subgraph_rewriter = _module
+symbolic_trace = _module
+torch_function = _module
+_overrides = _module
+patch = _module
+signatures = _module
+brevitas_tracer = _module
+value_tracer = _module
+base = _module
+calibrate = _module
+equalize = _module
+fixed_point = _module
+per_input = _module
+standardize = _module
+target = _module
+flexml = _module
+utils = _module
+inject = _module
+defaults = _module
+enum = _module
+jit = _module
 loss = _module
 base_loss = _module
 weighted_bit_width = _module
 nn = _module
 hadamard_classifier = _module
+mixin = _module
+act = _module
+base = _module
 quant_accumulator = _module
 quant_activation = _module
 quant_avg_pool = _module
 quant_bn = _module
 quant_conv = _module
-quant_conv1d = _module
-quant_convtranspose1d = _module
+quant_convtranspose = _module
+quant_dropout = _module
+quant_eltwise = _module
 quant_layer = _module
 quant_linear = _module
+quant_max_pool = _module
 quant_scale_bias = _module
-proxy = _module
+quant_upsample = _module
+utils = _module
 parameter_quant = _module
 quant_proxy = _module
 runtime_quant = _module
-quant_tensor = _module
 utils = _module
+none = _module
+scaled_int = _module
+shifted_scaled_int = _module
+solver = _module
+act = _module
+bias = _module
+common = _module
+parameter = _module
+trunc = _module
+weight = _module
+quant_tensor = _module
+torch_handler = _module
+jit_utils = _module
 logging = _module
 python_utils = _module
 quant_utils = _module
@@ -46,11 +165,8 @@ bnn_pynq_train = _module
 cfg = _module
 logger = _module
 CNV = _module
-LFC = _module
-SFC = _module
-TFC = _module
+FC = _module
 models = _module
-common = _module
 losses = _module
 tensor_norm = _module
 trainer = _module
@@ -91,19 +207,55 @@ preprocess_dataset = _module
 utilities = _module
 audio_processing = _module
 stft = _module
-conf = _module
-noxfile = _module
-setup = _module
+tests = _module
 common = _module
-generate_quant_input = _module
-test_act_scaling = _module
-test_conv1d = _module
-test_import = _module
+binary_quant_fixture = _module
+bit_width_fixture = _module
+int_quant_fixture = _module
+shared_quant_fixture = _module
+ternary_quant_fixture = _module
+test_binary_quant = _module
+test_bit_width = _module
+test_int_quant = _module
+test_stats = _module
+test_ternary_quant = _module
+test_generic_export = _module
+test_pytorch_qf_export = _module
+hyp_helper = _module
+test_autograd_ste_ops = _module
 test_ops = _module
-test_quant = _module
-test_transposed_conv1d = _module
+test_ops_ste = _module
+test_shape = _module
+test_tracer = _module
+test_transforms = _module
+hyp_helper = _module
+test_weighted_bit_width = _module
+test_act = _module
+test_conv2d = _module
+test_linear = _module
+test_merge_bn = _module
+test_wbiol = _module
+test_act_scaling = _module
+test_weight_scaling = _module
+test_brevitas_import = _module
+test_python_utils = _module
+test_examples_import = _module
+test_jit_trace = _module
 test_pretrained_accuracy = _module
+brevitas_finn = _module
+test_brevitas_avg_pool_export = _module
+test_debug_export = _module
+test_wbiol = _module
+test_bnn_pynq_finn_export = _module
+test_mobilenet_finn_export = _module
+test_quartznet_finn_export = _module
+brevitas_ort = _module
+test_onnx_standard = _module
+brevitas_pyxir = _module
+test_dpu_export = _module
+test_xir_export = _module
 conftest = _module
+marker = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -125,16 +277,25 @@ xrange = range
 wraps = functools.wraps
 
 
-import torch
+import warnings
+
+
+from typing import List
 
 
 from typing import Optional
 
 
-from enum import auto
+from torch.utils import cpp_extension
+
+
+import torch
 
 
 from torch import Tensor
+
+
+from torch.nn import Module
 
 
 from torch.nn import Parameter
@@ -143,67 +304,169 @@ from torch.nn import Parameter
 from typing import Tuple
 
 
-from typing import Union
-
-
-from torch.nn import Module
-
-
 from typing import Callable
+
+
+from typing import Union
 
 
 import math
 
 
-from torch.nn import Sequential
-
-
-from typing import List
-
-
 from torch import nn
 
 
-from abc import ABCMeta
+from abc import ABC
 
 
 from abc import abstractmethod
 
 
-from functools import reduce
+from functools import partial
 
 
-import torch.nn as nn
+from torch.autograd import Function
 
 
-from torch.nn import AvgPool2d
+from typing import TYPE_CHECKING
 
 
-import re
+from torch.nn import Sequential
 
 
-from torch.nn import Conv2d
+import copy
+
+
+from copy import copy
+
+
+import torch.onnx
+
+
+from torch.nn.functional import max_pool1d
+
+
+from torch.nn.functional import max_pool2d
 
 
 from torch.nn import functional as F
 
 
-from torch.nn.functional import conv2d
+import inspect
 
 
-from torch.nn.parameter import Parameter
+import torch.nn.functional as F
+
+
+import numpy as np
+
+
+from typing import Any
+
+
+from typing import Dict
+
+
+from typing import Set
+
+
+import types
+
+
+import re
+
+
+import torch.nn as nn
+
+
+from typing import Type
+
+
+from typing import Iterator
+
+
+from typing import Iterable
+
+
+from typing import NamedTuple
+
+
+import functools
+
+
+from types import CodeType
+
+
+from types import FunctionType
+
+
+from types import ModuleType
+
+
+from itertools import chain
+
+
+from inspect import getfullargspec
+
+
+from inspect import getcallargs
+
+
+import collections
+
+
+from random import sample
+
+
+from functools import reduce
+
+
+from copy import deepcopy
+
+
+from inspect import signature
+
+
+from abc import ABCMeta
+
+
+from warnings import warn
+
+
+import torch.jit
+
+
+from inspect import isclass
+
+
+from torch.nn import AvgPool2d
+
+
+from torch.nn import AdaptiveAvgPool2d
 
 
 from torch.nn import Conv1d
 
 
-from torch.nn.functional import conv1d
+from torch.nn import Conv2d
+
+
+from torch.nn.functional import conv2d
 
 
 from torch.nn import ConvTranspose1d
 
 
+from torch.nn import ConvTranspose2d
+
+
 from torch.nn.functional import conv_transpose1d
+
+
+from torch.nn.functional import conv_transpose2d
+
+
+from torch.nn import Dropout
 
 
 from torch.nn import Linear
@@ -212,13 +475,31 @@ from torch.nn import Linear
 from torch.nn.functional import linear
 
 
-from functools import partial
+from torch.nn import MaxPool1d
 
 
-from collections import namedtuple
+from torch.nn import MaxPool2d
 
 
-from typing import Dict
+from torch.nn import Upsample
+
+
+from torch.nn import UpsamplingBilinear2d
+
+
+from torch.nn import UpsamplingNearest2d
+
+
+from torch.nn.functional import interpolate
+
+
+from torch import tensor
+
+
+from torch.nn import Identity
+
+
+from enum import Enum
 
 
 from torch.nn import ModuleList
@@ -227,19 +508,10 @@ from torch.nn import ModuleList
 from torch.nn import BatchNorm2d
 
 
-from torch.nn import MaxPool2d
-
-
 from torch.nn import BatchNorm1d
 
 
-from torch.nn import Dropout
-
-
 from torch import hub
-
-
-from torch.autograd import Function
 
 
 import torch.nn.init as init
@@ -293,16 +565,7 @@ import torchvision.datasets as datasets
 from torch.utils.data import Dataset
 
 
-import torch.nn.functional as F
-
-
-import copy
-
-
 from scipy.io.wavfile import write
-
-
-import numpy as np
 
 
 from scipy.signal import get_window
@@ -314,1272 +577,1837 @@ from scipy.io.wavfile import read
 from torch.autograd import Variable
 
 
-from string import Template
+from torchvision.models import resnet18
 
 
-from torch.utils.cpp_extension import BuildExtension
+from torchvision.models import mobilenet_v2
 
 
-from torch.utils.cpp_extension import include_paths
+from torchvision.models import alexnet
 
 
-from torch.utils.cpp_extension import library_paths
+from torchvision.models import squeezenet1_0
 
 
-class IdentityBitWidth(torch.jit.ScriptModule):
+from torchvision.models import shufflenet_v2_x0_5
 
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tensor:
+
+from torchvision.models import mnasnet0_5
+
+
+from torchvision.models import densenet121
+
+
+from torchvision import models
+
+
+class InplaceLogTwo(torch.nn.Module):
+    """
+    Module wrapper for :func:`~torch.log2_`.
+
+    Examples:
+        >>> inplace_log_two = InplaceLogTwo()
+        >>> x = torch.tensor(8.0)
+        >>> inplace_log_two(x)
+        >>> x
+        tensor(3.)
+
+    Notes:
+        Inplace operations in TorchScript can be problematic, compilation is disabled.
+    """
+
+    def __init__(self) ->None:
+        super(InplaceLogTwo, self).__init__()
+
+    @torch.jit.ignore
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        x.log2_()
         return x
 
 
-class ZeroLsbTruncBitWidth(torch.jit.ScriptModule):
-
-    def forward(self, input_bit_width: Tensor, zero_hw_sentinel: Tensor):
-        return zero_hw_sentinel
-
-
-MIN_INT_BIT_WIDTH = 2
-
-
-class CeilSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(CeilSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return ceil_ste(x)
-
-
-class ClampMin(torch.jit.ScriptModule):
-    __constants__ = ['min_val']
-
-    def __init__(self, min_val: float) ->None:
-        super(ClampMin, self).__init__()
-        self.min_val = min_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return x.clamp_min(self.min_val)
-
-
-class FloorSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(FloorSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return floor_ste(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class LogTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(LogTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.log2(x)
-
-
-class PowerOfTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(PowerOfTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return 2.0 ** x
-
-
-class RoundSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(RoundSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return round_ste(x)
-
-
-@torch.jit.script
-def identity(x: torch.Tensor) ->torch.Tensor:
-    """ Identity function
-
-    Parameters
-    ----------
-    x : Tensor
-        Input Tensor
-
-    Returns
-    -------
-    Tensor
-        Unaltered input tensor
-
+class KLMinimizerThreshold(torch.nn.Module):
     """
-    return x
-
-
-NON_ZERO_EPSILON = 1e-06
-
-
-REMOVE_ZERO_BIT_WIDTH = 0.1
-
-
-class RemoveBitwidthParameter(torch.jit.ScriptModule):
-    __constants__ = ['min_overall_bit_width', 'non_zero_epsilon', 'override_pretrained', 'remove_at_least_init_val']
-
-    def __init__(self, bit_width_to_remove, remove_at_least_init_val, restrict_bit_width_impl, override_pretrained):
-        super(RemoveBitwidthParameter, self).__init__()
-        if bit_width_to_remove < 0:
-            raise Exception('Bit width to clamp has to be at least 0, instead is {}.'.format(bit_width_to_remove))
-        elif bit_width_to_remove == 0:
-            bit_width_coeff_init = 1 / REMOVE_ZERO_BIT_WIDTH
-        else:
-            bit_width_coeff_init = 1 / bit_width_to_remove
-        self.bit_width_coeff = Parameter(torch.tensor(bit_width_coeff_init))
-        self.restrict_bit_width_impl = restrict_bit_width_impl
-        self.non_zero_epsilon = NON_ZERO_EPSILON
-        self.override_pretrained = override_pretrained
-        self.remove_at_least_init_val = remove_at_least_init_val
-
-    @torch.jit.script_method
-    def forward(self, zero_hw_sentinel) ->Tensor:
-        bit_width_to_remove = 1.0 / (self.non_zero_epsilon + torch.abs(self.bit_width_coeff))
-        bit_width_to_remove = self.restrict_bit_width_impl(bit_width_to_remove)
-        return bit_width_to_remove
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        bit_width_coeff_key = prefix + 'bit_width_coeff'
-        if self.override_pretrained and bit_width_coeff_key in state_dict:
-            del state_dict[bit_width_coeff_key]
-        super(RemoveBitwidthParameter, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        if config.IGNORE_MISSING_KEYS and bit_width_coeff_key in missing_keys:
-            missing_keys.remove(bit_width_coeff_key)
-
-
-@torch.jit.script
-def tensor_clamp(x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor) ->torch.Tensor:
+    Based on:
+    https://github.com/apache/incubator-mxnet/blob/master/python/mxnet/contrib/quantization.py
     """
 
-    Parameters
-    ----------
-    x : Tensor
-        Tensor on which to apply the clamp operation
-    min_val : Tensor
-        Tensor containing the minimum values for the clamp operation. Must have the same shape of `x`
-    max_val : Tensor
-        Tensor containing the maximum values for the clamp operation. Must have the same shape of `x`
-
-    Returns
-    -------
-    Tensor
-        Tensor for which every element of `x` is clamped between the corresponding minimum and maximum values.
-    """
-    out = torch.where(x > max_val, max_val, x)
-    out = torch.where(out < min_val, min_val, out)
-    return out
-
-
-class IdentityQuant(torch.jit.ScriptModule):
-    """ Placeholder Class that returns the input without performing any operation. The scale and bit_width output
-    arguments are set to zero_hw_sentinel (0).
-    """
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        return x, zero_hw_sentinel, zero_hw_sentinel
-
-
-class BinaryQuant(torch.jit.ScriptModule):
-    """ Class that implement the binary quantization of the input tensor, which is then converted to its floating point
-    representation according to the scale factor.
-
-    The scale factor is determined internally through the scaling_impl module.
-
-    Parameters
-    ----------
-    scaling_impl : Module
-        Module that determines the value of the scale factor
-
-    Attributes
-    ----------
-    scaling_impl: Module
-       Module that determines the value of the scale factor
-    bit_width: Int
-        For binary quantization, the bit_width is constant and fixed to 1
-
-    Methods
-    -------
-    forward(x, zero_hw_sentinel)
-        Perform the binary quantization using :func:`~brevitas.function.ops_ste.binary_sign_ste`. After that, the
-        result is converted to floating point through the scale factor.
-        The scale factor is determined by the attribute `scaling_impl`.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-
-    """
-    __constants__ = ['bit_width']
-
-    def __init__(self, scaling_impl: Module):
-        super(BinaryQuant, self).__init__()
-        self.scaling_impl = scaling_impl
-        self.bit_width = 1
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        scale = self.scaling_impl(zero_hw_sentinel)
-        y = binary_sign_ste(x) * scale
-        return y, scale, zero_hw_sentinel + self.bit_width
-
-
-class ClampedBinaryQuant(torch.jit.ScriptModule):
-    """ Class that implement the binary quantization of the input tensor, which is then converted to its floating point
-    representation according to the scale factor.
-
-    Before performing the binarization, the input tensor is clamped in the range of admissible values, determined by the
-    scale factor.
-    The scale factor is determined internally through the scaling_impl module.
-
-    Parameters
-    ----------
-    scaling_impl : Module
-        Module that determines the value of the scale factor
-
-    Attributes
-    ----------
-    scaling_impl : Module
-       Module that determines the value of the scale factor
-    bit_width : Int
-        For binary quantization, the bit_width is constant and fixed to 1
-
-    Methods
-    -------
-    forward(x, zero_hw_sentinel)
-        Perform the binary quantization using :func:`~brevitas.function.ops_ste.binary_sign_ste`. After that, the
-        result is converted to floating point through the scale factor.
-        The scale factor is determined by the attribute `scaling_impl`.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-
-    """
-    __constants__ = ['bit_width']
-
-    def __init__(self, scaling_impl: Module):
-        super(ClampedBinaryQuant, self).__init__()
-        self.scaling_impl = scaling_impl
-        self.bit_width = 1
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        scale = self.scaling_impl(zero_hw_sentinel)
-        y = tensor_clamp(x, -scale, scale)
-        y = binary_sign_ste(y) * scale
-        return y, scale, zero_hw_sentinel + self.bit_width
-
-
-class TernaryQuant(torch.jit.ScriptModule):
-    """ Class that implement the ternary quantization of the input tensor, which is then converted to its floating point
-    representation according to the scale factor.
-
-    The scale factor is determined internally through the scaling_impl module. The threshold is a user-defined value in
-    the range (0,1).
-
-    The quantization is performed in such a way that all input values in the range
-    (-scale*threshold, scale*threshold) are quantized to 0. Values greater than the upper bound are quantized to 'scale'
-    . Values lower than the lower bound are quantized to '-scale'.
-
-    Parameters
-    ----------
-    scaling_impl : Module
-        Module that determines the value of the scale factor
-    threshold: Float
-        User-defined value that determines, together with the scale factor, the range of values that are quantized to 0.
-
-    Attributes
-    ----------
-    scaling_impl : Module
-       Module that determines the value of the scale factor
-    bit_width : Int
-        For binary quantization, the bit_width is constant and fixed to 2
-    threshold: Float
-        User-defined value that determines, together with the scale factor, the range of values that are quantized to 0.
-
-    Methods
-    -------
-    forward(x, zero_hw_sentinel)
-        Perform the ternary quantization using :func:`~brevitas.function.ops_ste.ternary_sign_ste`. After that, the
-        result is converted to floating point through the scale factor.
-        The scale factor is determined by the attribute `scaling_impl`.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-    """
-    __constants__ = ['threshold', 'bit_width']
-
-    def __init__(self, scaling_impl: Module, threshold: float):
-        super(TernaryQuant, self).__init__()
-        self.scaling_impl = scaling_impl
-        self.threshold = threshold
-        self.bit_width = 2
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        scale = self.scaling_impl(zero_hw_sentinel)
-        mask = x.abs().ge(self.threshold * scale)
-        y = mask.float() * ternary_sign_ste(x)
-        y = y * scale
-        return y, scale, zero_hw_sentinel + self.bit_width
-
-
-class IntQuant(torch.jit.ScriptModule):
-    """ Class that implement the quantization of the input tensor, which is then converted to its floating point
-    representation according to the scale factor (i.e. scale/int_scale).
-
-    All values required for the quantization are determined externally.
-
-
-    Parameters
-    ----------
-    float_to_int_impl: Module
-        Module that performs the conversion from floating point to integer representation
-    tensor_clamp_impl: Module
-        Module that performs the clamping of the input values for a proper integer representation
-    signed: Bool
-        Bool that determines whether to use signed or unsigned integers.
-    narrow_range: Bool
-        Bool that determines whether to enable or not the narrow range representation.
-
-    Methods
-    -------
-    to_int(scale, int_scale_msb_clamp_bit_width, x)
-        Perform the conversion to integer of the input tensor.
-        After diving by the scale factor (i.e. scale/int_scale), the input tensor is clamped in the range of admissible
-        integer values, and then converted to integer according to the strategy defined by `float_to_int_impl`.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Floating point component of the scale factor
-        int_scale: Tensor
-            Integer component of the scale factor
-        msb_clamp_bit_width: Tensor
-            Bit_width to be used for the conversion to integer
-
-    forward(scale, int_scale, msb_clamp_bit_width, x)
-        Perform the quantization of the input tensor. The value is first converted to its integer representation and
-        quantized, then converted to its floating representation multiplying it by the scale factor
-        (i.e. scale/scale_int)
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Floating point component of the scale factor
-        int_scale: Tensor
-            Integer component of the scale factor
-        msb_clamp_bit_width: Tensor
-            Bit_width to be used for the conversion to integer
-
-        Returns
-        -------
-        Tensor
-            The quantized tensor after its conversion to floating point
-
-    min_int(bit_width)
-        Determines the minimum integer representable according to the values of `signed`, `narrow_range`, and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the minimum integer representable
-
-        Returns
-        -------
-        Tensor
-            The minimum integer representable
-
-    max_int(bit_width)
-        Determines the maximum signed integer representable according to the values of `signed`, `narrow_range`, and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the maximum integer representable
-
-        Returns
-        -------
-        Tensor
-            The maximum integer representable
-
-    max_uint(bit_width)
-        Determines the maximum unsigned integer representable according to the values of `narrow_range` and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the maximum integer representable
-
-        Returns
-        -------
-        Tensor
-            The maximum integer representable
-    """
-    __constants__ = ['signed', 'narrow_range']
-
-    def __init__(self, narrow_range: bool, signed: bool, float_to_int_impl: Module, tensor_clamp_impl: Module):
-        super(IntQuant, self).__init__()
-        self.float_to_int_impl = float_to_int_impl
-        self.tensor_clamp_impl = tensor_clamp_impl
+    def __init__(self, signed, bit_width_impl, num_bins=1000 + 1, smoothing_eps=0.0001):
+        super(KLMinimizerThreshold, self).__init__()
+        self.num_bins = num_bins
+        self.smoothing_eps = smoothing_eps
         self.signed = signed
-        self.narrow_range = narrow_range
+        self.bit_width_impl = bit_width_impl
+        self.absmax_impl = AbsMax()
 
-    def to_int(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
-        y = x / scale
-        y = y * int_scale
-        min_int_val = self.min_int(msb_clamp_bit_width)
-        max_int_val = self.max_int(msb_clamp_bit_width)
-        y = self.tensor_clamp_impl(y, min_val=min_int_val, max_val=max_int_val)
-        y = self.float_to_int_impl(y)
-        return y
+    def smooth_normalize_distribution(self, p, eps):
+        is_zeros = (p == 0).float()
+        n_zeros = is_zeros.sum()
+        n_nonzeros = torch.numel(p) - n_zeros
+        if not n_nonzeros:
+            return None
+        eps1 = eps * n_zeros / n_nonzeros
+        hist = p.float()
+        hist += eps * is_zeros + -eps1 * n_nonzeros
+        dist = torch.distributions.categorical.Categorical(logits=hist)
+        return dist
 
-    @torch.jit.script_method
-    def min_int(self, bit_width):
-        return min_int(self.signed, self.narrow_range, bit_width)
-
-    @torch.jit.script_method
-    def max_int(self, bit_width):
-        return max_int(self.signed, bit_width)
-
-    @torch.jit.script_method
-    def max_uint(self, bit_width):
-        return max_uint(self.narrow_range, bit_width)
-
-    @torch.jit.script_method
-    def forward(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
-        y_int = self.to_int(scale, int_scale, msb_clamp_bit_width, x)
-        y = y_int / int_scale
-        y = y * scale
-        return y
-
-
-class PrescaledRestrictIntQuantWithInputBitWidth(torch.jit.ScriptModule):
-    """ Wrapper around :class:`~brevitas.core.quant.IntQuant`, that is responsible for the actual quantization of the
-    input.
-
-    The modules tensor_clamp_impl and float_to_int_impl, and the booleans `signed` and `narrow_range` are required by
-    `IntQuant` to perform the quantization.
-
-    In order to perform the actual quantization, it is required to determine the following values: scale, int_scale,
-    bit_width.
-    Scale is determined externally, int_scale is set to 1, while bit_width is determined internally through
-    msb_clamp_bit_width_impl.
-    Must be noted that there is a name overload and that the actual scale factor is obtained computing scale/int_scale.
-
-    Parameters
-    ----------
-    narrow_range: Bool
-        Bool that determines whether to enable or not the narrow range representation.
-    signed: Bool
-        Bool that determines whether to use signed or unsigned integers.
-    tensor_clamp_impl: Module
-        Module that performs the clamping of the input values for a proper integer representation
-    msb_clamp_bit_width_impl: Module
-        Module that determines the bit_width for the integer conversion
-    float_to_int_impl: Module
-        Module that performs the conversion from floating point to integer representation
-
-    Attributes
-    ----------
-    int_quant : Module
-       Module that performs the actual quantization
-    msb_clamp_bit_width_impl : Int
-        Module that determines the bit_width for the integer conversion
-
-    Methods
-    -------
-    forward(x, scale, input_bit_width, zero_hw_sentinel)
-        After determining internally the bit_width value, it calls IntQuant to perform the quantization of the input
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Scale factor that regulates the conversion between integer and floating point version of the input tensor
-        input_bit_width
-            Bit_width that, going in `msb_clamp_bit_with`, is used to determine the bit_width for the quantization
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-    """
-
-    def __init__(self, narrow_range: bool, signed: bool, tensor_clamp_impl: Module, msb_clamp_bit_width_impl: Module, float_to_int_impl: Module):
-        super(PrescaledRestrictIntQuantWithInputBitWidth, self).__init__()
-        self.int_quant = IntQuant(signed=signed, narrow_range=narrow_range, tensor_clamp_impl=tensor_clamp_impl, float_to_int_impl=float_to_int_impl)
-        self.msb_clamp_bit_width_impl = msb_clamp_bit_width_impl
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, scale: Tensor, input_bit_width: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        msb_clamp_bit_width = self.msb_clamp_bit_width_impl(input_bit_width, zero_hw_sentinel)
-        y = self.int_quant(scale, zero_hw_sentinel + 1, msb_clamp_bit_width, x)
-        return y, scale, msb_clamp_bit_width
+    def forward(self, x: Tensor):
+        absmax = self.absmax_impl(x)
+        bit_width = self.bit_width_impl()
+        num_quantized_bins = max_int(self.signed, False, bit_width).int()
+        thresholds = torch.zeros(self.num_bins // 2 + 1 - num_quantized_bins // 2, device=x.device)
+        divergence = torch.zeros_like(thresholds)
+        quantized_bins = torch.zeros(num_quantized_bins, device=x.device)
+        hist = torch.histc(x, bins=self.num_bins, min=-absmax, max=absmax).int()
+        hist_edges = torch.linspace(-absmax, absmax, self.num_bins + 1)
+        for i in range(num_quantized_bins // 2, self.num_bins // 2 + 1):
+            p_bin_idx_start = self.num_bins // 2 - i
+            p_bin_idx_stop = self.num_bins // 2 + i + 1
+            thresholds[i - num_quantized_bins // 2] = hist_edges[p_bin_idx_stop]
+            sliced_nd_hist = hist[p_bin_idx_start:p_bin_idx_stop]
+            p = sliced_nd_hist.clone()
+            left_outlier_count = torch.sum(hist[0:p_bin_idx_start])
+            p[0] += left_outlier_count
+            right_outlier_count = torch.sum(hist[p_bin_idx_stop:])
+            p[-1] += right_outlier_count
+            is_nonzeros = (sliced_nd_hist != 0).float()
+            num_merged_bins = torch.numel(p) // num_quantized_bins
+            for j in range(num_quantized_bins):
+                start = j * num_merged_bins
+                stop = start + num_merged_bins
+                quantized_bins[j] = sliced_nd_hist[start:stop].sum()
+            quantized_bins[-1] += sliced_nd_hist[num_quantized_bins * num_merged_bins:].sum()
+            q = torch.zeros_like(p, dtype=torch.float32, device=x.device)
+            for j in range(num_quantized_bins):
+                start = j * num_merged_bins
+                if j == num_quantized_bins - 1:
+                    stop = -1
+                else:
+                    stop = start + num_merged_bins
+                norm = is_nonzeros[start:stop].sum()
+                if norm != 0:
+                    q[start:stop] = quantized_bins[j] / norm
+            q[sliced_nd_hist == 0] = 0.0
+            p = self.smooth_normalize_distribution(p, self.smoothing_eps)
+            q = self.smooth_normalize_distribution(q, self.smoothing_eps)
+            if q is None:
+                divergence[i - num_quantized_bins // 2] = float('inf')
+            else:
+                divergence[i - num_quantized_bins // 2] = torch.distributions.kl.kl_divergence(p, q)
+        min_divergence_idx = torch.argmin(divergence)
+        opt_threshold = thresholds[min_divergence_idx]
+        return opt_threshold
 
 
-class PrescaledRestrictIntQuant(torch.jit.ScriptModule):
-    """ Wrapper around :class:`~brevitas.core.quant.IntQuant`, that is responsible for the actual quantization of the
-    input.
+class BaseHandler(Module, ABC):
 
-    The modules tensor_clamp_impl and float_to_int_impl, and the booleans `signed` and `narrow_range` are required by
-    `IntQuant` to perform the quantization.
+    def attach_debug_info(self, module):
+        pass
 
-    In order to perform the actual quantization, it is required to determine the following values: scale, int_scale,
-    bit_width.
-    Scale is determined externally, int_scale is set to 1, while bit_width is determined internally through
-    msb_clamp_bit_width_impl.
-    Must be noted that there is a name overload and that the actual scale factor is obtained computing scale/int_scale.
+    def prepare_for_export(self, module):
+        pass
 
-    Parameters
-    ----------
-    narrow_range: Bool
-        Bool that determines whether to enable or not the narrow range representation.
-    signed: Bool
-        Bool that determines whether to use signed or unsigned integers.
-    tensor_clamp_impl: Module
-        Module that performs the clamping of the input values for a proper integer representation
-    msb_clamp_bit_width_impl: Module
-        Module that determines the bit_width for the integer conversion
-    float_to_int_impl: Module
-        Module that performs the conversion from floating point to integer representation
-
-    Attributes
-    ----------
-    int_quant: Module
-       Module that performs the actual quantization
-    msb_clamp_bit_width_impl: Int
-        Module that determines the bit_width for the integer conversion
-
-    Methods
-    -------
-    forward(x, scale, zero_hw_sentinel)
-        After determining internally the bit_width value, it calls IntQuant to perform the quantization of the input
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Scale factor that regulates the conversion between integer and floating point version of the input tensor
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-    """
-
-    def __init__(self, narrow_range: bool, signed: bool, tensor_clamp_impl: Module, msb_clamp_bit_width_impl: Module, float_to_int_impl: Module):
-        super(PrescaledRestrictIntQuant, self).__init__()
-        self.int_quant = IntQuant(signed=signed, narrow_range=narrow_range, tensor_clamp_impl=tensor_clamp_impl, float_to_int_impl=float_to_int_impl)
-        self.msb_clamp_bit_width_impl = msb_clamp_bit_width_impl
-
-    @torch.jit.script_method
-    def forward(self, x: Tensor, scale: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        msb_clamp_bit_width = self.msb_clamp_bit_width_impl(zero_hw_sentinel)
-        y = self.int_quant(scale, zero_hw_sentinel + 1, msb_clamp_bit_width, x)
-        return y, scale, msb_clamp_bit_width
+    def reset(self):
+        pass
 
 
-class IdentityPrescaledIntQuant(torch.jit.ScriptModule):
-    """ Placeholder Class that returns the input without performing any operation.
-    """
+class _JitTraceExportWrapper(nn.Module):
 
-    @torch.jit.script_method
-    def forward(self, x, input_scale, input_bit_width, zero_hw_sentinel) ->Tuple[Tensor, Tensor, Tensor]:
-        return x, input_scale, input_bit_width
+    def __init__(self, model_to_trace):
+        super(_JitTraceExportWrapper, self).__init__()
+        self.fn_to_trace = lambda *args, **kwargs: model_to_trace(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        return self.fn_to_trace(*args, **kwargs)
 
 
-class RescalingIntQuant(torch.jit.ScriptModule):
-    """ Wrapper around :class:`~brevitas.core.quant.IntQuant`, that is responsible for the actual quantization of the
-    input.
-
-    The modules tensor_clamp_impl and float_to_int_impl, and the booleans `signed` and `narrow_range` are required by
-    `IntQuant` to perform the quantization.
-
-    The `runtime` boolean is required to determine how to compute the scale factor.
-    The `int_scaling_impl` module is required to  determine int_scale.
-
-    In order to perform the actual quantization, it is required to determine the following values: scale, int_scale,
-    bit_width. All values are determined internally.
-    Must be noted that there is a name overload and that the actual scale factor is obtained computing scale/int_scale.
-
-    Parameters
-    ----------
-    narrow_range: Bool
-        Bool that determines whether to enable or not the narrow range representation.
-    signed: Bool
-        Bool that determines whether to use signed or unsigned integers.
-    tensor_clamp_impl: Module
-        Module that performs the clamping of the input values for a proper integer representation
-    msb_clamp_bit_width_impl: Module
-        Module that determines the bit_width for the integer conversion
-    float_to_int_impl: Module
-        Module that performs the conversion from floating point to integer representation
-
-    Attributes
-    ----------
-    int_quant: Module
-       Module that performs the actual quantization
-    runtime: Bool
-        Value that determines how the scaling factor is computed in `scaling_impl`
-    scaling_impl: Module
-        Module that is responsible for the computation of the scale factor
-    int_scaling_impl: Module
-        Module that is responsible for the computation of the int_scale factor
-    msb_clamp_bit_width_impl: Int
-        Module that determines the bit_width for the integer conversion
-
-    Methods
-    -------
-    forward(x, zero_hw_sentinel)
-        After determining internally the bit_width value, the scale factor, and the int_scale factor
-        the method calls IntQuant to perform the quantization of the input.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        zero_hw_sentinel: Tensor
-            Constant buffer required to move stateless (as in, not part of the model's state_dict) constant values
-            to the appropriate device and converting them to Tensor
-
-        Returns
-        -------
-        Tuple(Tensor, Tensor, Tensor)
-            Tuple with three values where:
-            y is the quantized Tensor;
-            scale is the scale factor;
-            bit_width is the bit_width of the quantization.
-    """
-    __constants__ = ['runtime']
-
-    def __init__(self, narrow_range: bool, runtime: bool, signed: bool, scaling_impl: Module, int_scaling_impl: Module, tensor_clamp_impl: Module, msb_clamp_bit_width_impl: Module, float_to_int_impl: Module):
-        super(RescalingIntQuant, self).__init__()
-        self.int_quant = IntQuant(signed=signed, narrow_range=narrow_range, tensor_clamp_impl=tensor_clamp_impl, float_to_int_impl=float_to_int_impl)
-        self.runtime = runtime
-        self.scaling_impl = scaling_impl
-        self.int_scaling_impl = int_scaling_impl
-        self.msb_clamp_bit_width_impl = msb_clamp_bit_width_impl
+class _InputQuantTensorFunction(Function):
+    """Account symbolically for scale and zero-point of an input quant tensor"""
 
     @staticmethod
-    def scaling_init_from_min_max(min_val_init: Union[int, float], max_val_init: Union[int, float]) ->torch.Tensor:
-        """ Static Method that is used in the step of initializing the scale factor
+    def symbolic(g, x, scale, zero_point):
+        if zero_point is not None:
+            x = g.op('Sub', x, zero_point)
+        if scale is not None:
+            x = g.op('Mul', x, scale)
+        return x
 
-        Parameters
-        ----------
-        min_val_init: Tensor
-            Minimum value used for initialization
-        max_val_init: Tensor
-            Maximum value used for initialization
+    @staticmethod
+    def forward(ctx, x, scale, zero_point):
+        return x
 
-        Returns
-        -------
-        Tensor
-            The largest number, in absolute value, between `max_val_init` and `min_val_init`
-        """
-        scaling_init = max(abs(float(min_val_init)), abs(float(max_val_init)))
-        return torch.tensor(scaling_init)
 
-    @torch.jit.script_method
-    def forward(self, x: Tensor, zero_hw_sentinel: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
-        msb_clamp_bit_width = self.msb_clamp_bit_width_impl(zero_hw_sentinel)
-        if self.runtime:
-            scale = self.scaling_impl(x)
+class _InputPreprocessingModule(Module):
+
+    def __init__(self, scale, zero_point):
+        super(_InputPreprocessingModule, self).__init__()
+        if scale is not None:
+            self.register_buffer('scale', scale)
         else:
-            scale = self.scaling_impl(zero_hw_sentinel)
-        int_scale = self.int_scaling_impl(msb_clamp_bit_width)
-        y = self.int_quant(scale, int_scale, msb_clamp_bit_width, x)
-        output_bit_width = msb_clamp_bit_width
-        output_scale = scale / int_scale
-        return y, output_scale, output_bit_width
-
-
-class AffineRescaling(torch.jit.ScriptModule):
-
-    def __init__(self, affine_shape):
-        super(AffineRescaling, self).__init__()
-        self.affine_weight = Parameter(torch.ones(affine_shape))
-        self.affine_bias = Parameter(torch.zeros(affine_shape))
+            self.scale = None
+        if zero_point is not None:
+            self.register_buffer('zero_point', zero_point)
+        else:
+            self.zero_point = None
 
     def forward(self, x):
-        out = x * self.affine_weight + self.affine_bias
-        out = torch.abs(out)
+        if torch.onnx.is_in_onnx_export():
+            x = _InputQuantTensorFunction.apply(x, self.scale, self.zero_point)
+        return x
+
+
+class DebugMarkerFunction(Function):
+
+    @staticmethod
+    def symbolic(g, input, export_debug_name):
+        ret = g.op('brevitas.onnx::DebugMarker', input, export_debug_name_s=export_debug_name)
+        return ret
+
+    @staticmethod
+    def forward(ctx, input, export_debug_name):
+        return input
+
+
+class ONNXBaseHandler(BaseHandler, ABC):
+
+    def __init__(self):
+        super().__init__()
+        self.symbolic_kwargs = None
+        self.export_debug_name = None
+        self.debug_input = False
+        self.debug_output = False
+
+    @abstractmethod
+    def prepare_for_export(self, module):
+        pass
+
+    @abstractmethod
+    def symbolic_execution(self, *args, **kwargs):
+        pass
+
+    def reset(self):
+        self.symbolic_kwargs = None
+
+    def attach_debug_info(self, m):
+        self.export_debug_name = m.export_debug_name
+        self.debug_input = m.export_input_debug
+        self.debug_output = m.export_output_debug
+
+    def forward(self, inp: Tensor, *args, **kwargs):
+        debug_fn = lambda x, name: DebugMarkerFunction.apply(x, self.export_debug_name + name)
+        if self.export_debug_name is not None and self.debug_input:
+            inp = debug_fn(inp, '.input')
+        out = self.symbolic_execution(inp, *args, **kwargs)
+        if self.export_debug_name is not None and self.debug_output:
+            if isinstance(out, Tensor):
+                out = debug_fn(out, '.output')
+            elif isinstance(out, tuple) and isinstance(out[0], Tensor):
+                out = list(out)
+                out[0] = debug_fn(out[0], '.output')
+                out = tuple(out)
         return out
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(AffineRescaling, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        affine_weight_key = prefix + 'affine_weight'
-        affine_bias_key = prefix + 'affine_bias'
-        if config.IGNORE_MISSING_KEYS and affine_weight_key in missing_keys:
-            missing_keys.remove(affine_weight_key)
-        if config.IGNORE_MISSING_KEYS and affine_bias_key in missing_keys:
-            missing_keys.remove(affine_bias_key)
 
-
-SCALING_SCALAR_SHAPE = ()
-
-
-class AbsAve(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsAve, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        if self.reduce_dim is None:
-            return torch.mean(torch.abs(x))
-        else:
-            return torch.mean(torch.abs(x), dim=self.reduce_dim)
-
-
-class AbsMax(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsMax, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        if self.reduce_dim is None:
-            return torch.max(torch.abs(x))
-        else:
-            return torch.max(torch.abs(x), dim=self.reduce_dim)[0]
-
-
-class AbsMaxAve(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsMaxAve, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.mean(torch.max(torch.abs(x), dim=self.reduce_dim)[0])
-
-
-STD_DEV_EPSILON = 1e-08
-
-
-class MeanSigmaStd(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim', 'output_shape', 'std_dev_epsilon', 'const_sigma']
-
-    def __init__(self, reduce_dim, const_sigma, learned_sigma, output_shape) ->None:
-        super(MeanSigmaStd, self).__init__()
-        self.reduce_dim = reduce_dim
-        self.const_sigma = const_sigma
-        self.learned_sigma = learned_sigma
-        self.output_shape = output_shape
-        self.std_dev_epsilon = STD_DEV_EPSILON
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        abs_val = torch.abs(x)
-        if self.reduce_dim is None:
-            mean_val = torch.mean(abs_val)
-            std_val = torch.sqrt(torch.var(abs_val) + self.std_dev_epsilon)
-        else:
-            mean_val = torch.mean(torch.abs(x), dim=self.reduce_dim)
-            mean_val = mean_val.view(self.output_shape)
-            std_val = torch.sqrt(torch.var(abs_val, dim=self.reduce_dim) + self.std_dev_epsilon)
-            std_val = std_val.view(self.output_shape)
-        if self.const_sigma is not None:
-            return mean_val + self.const_sigma * std_val
-        else:
-            return mean_val + self.learned_sigma * std_val
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(MeanSigmaStd, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        sigma_key = prefix + 'learned_sigma'
-        if config.IGNORE_MISSING_KEYS and sigma_key in missing_keys:
-            missing_keys.remove(sigma_key)
-
-
-@torch.jit.script
-def over_batch_over_output_channels(x):
-    return x.shape[0], x.shape[1], -1
-
-
-class OverBatchOverOutputChannelView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverBatchOverOutputChannelView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_batch_over_tensor(x):
-    return x.shape[0], -1
-
-
-class OverBatchOverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverBatchOverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_batch_over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_output_channels(x):
-    return x.shape[0], -1
-
-
-class OverOutputChannelView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverOutputChannelView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_output_channels(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-@torch.jit.script
-def over_tensor(x):
-    return -1
-
-
-class OverTensorView(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(OverTensorView, self).__init__()
-
-    @torch.jit.script_method
-    def shape(self, x: torch.Tensor):
-        return over_tensor(x)
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        shape = self.shape(x)
-        return x.view(shape)
-
-
-class StatsInputViewShapeImpl(object):
-    OVER_TENSOR = OverTensorView
-    OVER_OUTPUT_CHANNELS = OverOutputChannelView
-    OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
-    OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
-
-
-class _ViewCatParameterWrapper(torch.jit.ScriptModule):
-    __constants__ = ['shape', 'cat_dim']
-
-    def __init__(self, parameter, view_shape_impl, cat_dim):
-        super(_ViewCatParameterWrapper, self).__init__()
-        self.parameter = parameter
-        self.shape = view_shape_impl().shape(parameter)
-        self.cat_dim = cat_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.cat([self.parameter.view(self.shape), x], dim=self.cat_dim)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(_ViewCatParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        parameter_key = prefix + 'parameter'
-        if parameter_key in missing_keys:
-            missing_keys.remove(parameter_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(_ViewCatParameterWrapper, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + 'parameter']
-        return output_dict
-
-
-class _ViewParameterWrapper(torch.jit.ScriptModule):
-    __constants__ = ['shape']
-
-    def __init__(self, parameter, view_shape_impl):
-        super(_ViewParameterWrapper, self).__init__()
-        self.parameter = parameter
-        self.shape = view_shape_impl().shape(parameter)
-
-    @torch.jit.script_method
-    def forward(self):
-        return self.parameter.view(self.shape)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(_ViewParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        parameter_key = prefix + 'parameter'
-        if parameter_key in missing_keys:
-            missing_keys.remove(parameter_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(_ViewParameterWrapper, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + 'parameter']
-        return output_dict
-
-
-@torch.jit.script
-def min_int(signed: bool, narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
-    """ Compute the minimum integer representable
-
-    The minimum integer representable depends on the number of bits, whether the negative numbers are included
-    in the representation, and whether the narrow range setting is used.
-    For positive-only number, the minimum value will always be zero.
-    If the sign and narrow range flags are both set, then the representation will be such that there is symmetry
-    between positive and negative values.
-    For example, for 3 bit representation, with sign and narrow range, the
-    values representable are in the range [-3, 3].
-    If the narrow range is not enabled, then the possible values will be in the range [-4, 3].
-
-    Parameters
-    ----------
-    signed : Bool
-        Flag that indicates whether negative numbers must be included or not
-    narrow_range : Bool
-        Flag that indicates whether the narrow range setting is enabled or not
-    bit_width : Tensor
-        Number of bits available for the representation
-
-    Returns
-    -------
-    Tensor
-        Minimum integer that can be represented according to the input parameters
-
-    """
-    if signed and narrow_range:
-        value = -2 ** (bit_width - 1) + 1
-    elif signed and not narrow_range:
-        value = -2 ** (bit_width - 1)
+class BitWidthHandlerMixin(object):
+
+    @classmethod
+    def validate_bit_width(cls, bit_width: Tensor, reference: int, le_then=False):
+        if bit_width is None:
+            raise RuntimeError('Bit width cannot be None')
+        bit_width = int(bit_width.item())
+        if bit_width > reference:
+            raise RuntimeError(f'Bit width {bit_width} is not supported.')
+        elif bit_width < reference and not le_then:
+            raise RuntimeError(f'Bit width {bit_width} is not supported, should be {reference}b.')
+        return bit_width
+
+    @classmethod
+    def validate_8b_bit_width(cls, bit_width: Tensor, le_then=False):
+        return cls.validate_bit_width(bit_width, 8, le_then)
+
+    @classmethod
+    def validate_16b_bit_width(cls, bit_width: Tensor, le_then=False):
+        return cls.validate_bit_width(bit_width, 16, le_then)
+
+    @classmethod
+    def validate_32b_bit_width(cls, bit_width: Tensor, le_then=False):
+        return cls.validate_bit_width(bit_width, 32, le_then)
+
+
+QUANT_TENSOR_FN_HANDLER = {}
+
+
+class QuantTensorBase(NamedTuple):
+    value: Tensor
+    scale: Optional[Tensor]
+    zero_point: Optional[Tensor]
+    bit_width: Optional[Tensor]
+    signed_t: Optional[Tensor]
+    training_t: Optional[Tensor]
+
+
+def _is_all_nested_not_none(input_data):
+    if isinstance(input_data, QuantTensor):
+        return input_data.is_not_none
+    elif isinstance(input_data, (tuple, list)):
+        return all([_is_all_nested_not_none(v) for v in input_data])
+    elif isinstance(input_data, dict):
+        return all([_is_all_nested_not_none(v) for v in input_data.values()])
     else:
-        value = 0 * bit_width
-    return value
+        return True
 
 
-class SignedFpIntScale(torch.jit.ScriptModule):
-    __constants__ = ['signed', 'narrow_range']
-
-    def __init__(self, narrow_range):
-        super(SignedFpIntScale, self).__init__()
-        self.signed = True
-        self.narrow_range = narrow_range
-
-    @torch.jit.script_method
-    def forward(self, bit_width):
-        return -min_int(self.signed, self.narrow_range, bit_width)
-
-
-@torch.jit.script
-def max_int(signed: bool, bit_width: torch.Tensor) ->torch.Tensor:
-    """ Compute the maximum integer representable
-
-    The maximum integer representable depends on the number of bits, and whether the negative numbers are included
-    in the representation. If so, one bit is lost in the computation of the maximum value.
-
-    Parameters
-    ----------
-    signed : Bool
-        Flag that indicates whether negative numbers must be included or not
-    bit_width : Tensor
-        Number of bits available for the representation
-
-    Returns
-    -------
-    Tensor
-        Maximum integer that can be represented according to the input parameters
-
-    """
-    if signed:
-        value = 2 ** (bit_width - 1) - 1
+def _unpack_quant_tensor(input_data):
+    if isinstance(input_data, QuantTensor):
+        return input_data.tensor
+    elif isinstance(input_data, tuple):
+        return tuple([_unpack_quant_tensor(v) for v in input_data])
+    elif isinstance(input_data, list):
+        return [_unpack_quant_tensor(v) for v in input_data]
+    elif isinstance(input_data, dict):
+        return {k: _unpack_quant_tensor(v) for k, v in input_data.items()}
     else:
-        value = 2 ** bit_width - 1
-    return value
+        return input_data
 
 
-class UnsignedFpIntScale(torch.jit.ScriptModule):
-    __constants__ = ['signed']
+class QuantTensor(QuantTensorBase):
 
-    def __init__(self):
-        super(UnsignedFpIntScale, self).__init__()
-        self.signed = False
+    def __new__(cls, value, scale=None, zero_point=None, bit_width=None, signed=None, training=None):
+        if scale is not None and not isinstance(scale, torch.Tensor):
+            scale = torch.tensor(scale, dtype=torch.float)
+        if zero_point is not None and not isinstance(zero_point, torch.Tensor):
+            zero_point = torch.tensor(zero_point, dtype=torch.float)
+        if bit_width is not None and not isinstance(bit_width, torch.Tensor):
+            bit_width = torch.tensor(bit_width, dtype=torch.float)
+        if signed is not None:
+            signed = torch.tensor(signed, dtype=torch.bool)
+        if training is not None:
+            training = torch.tensor(training, dtype=torch.bool)
+        return super().__new__(cls, value, scale, zero_point, bit_width, signed, training)
 
-    @torch.jit.script_method
-    def forward(self, bit_width):
-        return max_int(self.signed, bit_width)
+    @property
+    def signed(self):
+        if self.signed_t is not None:
+            return self.signed_t.item()
+        else:
+            return None
 
+    @property
+    def training(self):
+        if self.training_t is not None:
+            return self.training_t.item()
+        else:
+            return None
 
-class PowerOfTwoIntScale(torch.jit.ScriptModule):
-    __constants__ = ['signed']
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        if func not in QUANT_TENSOR_FN_HANDLER or not all(issubclass(t, QuantTensor) for t in types) or not (_is_all_nested_not_none(args) and _is_all_nested_not_none(kwargs)):
+            args = _unpack_quant_tensor(args)
+            kwargs = _unpack_quant_tensor(kwargs)
+            return func(*args, **kwargs)
+        return QUANT_TENSOR_FN_HANDLER[func](*args, **kwargs)
 
-    def __init__(self, signed):
-        super(PowerOfTwoIntScale, self).__init__()
-        self.signed = signed
+    @property
+    def tensor(self):
+        return self.value
 
-    @torch.jit.script_method
-    def forward(self, bit_width):
-        return max_int(self.signed, bit_width) + 1
+    @property
+    def is_not_none(self):
+        return self.value is not None and self.scale is not None and self.zero_point is not None and self.bit_width is not None and self.signed is not None
 
+    @property
+    def _pre_round_int_value(self):
+        int_value = self.value / self.scale
+        int_value = int_value + self.zero_point
+        return int_value
 
-@torch.jit.script
-def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
-    """ Compute the maximum unsigned integer representable
+    @property
+    def is_valid(self):
+        if self.is_not_none:
+            with torch.no_grad():
+                pre_round_int_value = self._pre_round_int_value
+                rounded_int_value = torch.round(pre_round_int_value)
+                is_int = torch.isclose(pre_round_int_value, rounded_int_value).all()
+                if self.bit_width >= 2:
+                    if self.signed:
+                        is_upper_b = (2.0 ** (self.bit_width - 1) - 1 >= rounded_int_value).all()
+                        is_lower_b = (-2.0 ** (self.bit_width - 1) <= rounded_int_value).all()
+                    else:
+                        is_upper_b = (2.0 ** self.bit_width - 1 >= rounded_int_value).all()
+                        is_lower_b = (0.0 <= rounded_int_value).all()
+                    return (is_int & is_upper_b & is_lower_b).item()
+                else:
+                    unique_vals = rounded_int_value.unique(sorted=False, return_counts=False, return_inverse=False)
+                    is_binary = unique_vals.view(-1).size()[0] == 2
+                    is_signed = (unique_vals < 0.0).any().item()
+                    sign_match = is_signed == self.signed
+                    return is_int.item() and is_binary and sign_match
+        else:
+            return False
 
-    The maximum unsigned integer representable depends on the number of bits, and whether the narrow range setting
-    is used. If so, the maximum value represented is decreased by one unit.
+    @property
+    def device(self):
+        value_device = self.value.device
+        is_same_device = True
+        for t in [self.scale, self.zero_point, self.bit_width]:
+            if t is not None:
+                is_same_device &= value_device == t.device
+        if not is_same_device:
+            raise RuntimeError('Value and metadata are on different devices')
+        return value_device
 
-    Parameters
-    ----------
-    narrow_range : Bool
-        Flag that indicates whether to decrease the possible maximum value represented
-    bit_width : Tensor
-        Number of bits available for the representation
+    def set(self, **kwargs):
+        return self._replace(**kwargs)
 
-    Returns
-    -------
-    Tensor
-        Maximum unsigned integer that can be represented according to the input parameters
+    def detach_(self):
+        self.value.detach_()
+        self.scale.detach_()
+        self.zero_point.detach_()
+        self.bit_width.detach_()
 
-    """
-    if narrow_range:
-        value = 2 ** bit_width - 2
-    else:
-        value = 2 ** bit_width - 1
-    return value
+    def detach(self):
+        return QuantTensor(self.value.detach(), self.scale.detach() if self.scale is not None else None, self.zero_point.detach() if self.zero_point is not None else None, self.bit_width.detach() if self.bit_width is not None else None, self.signed, self.training)
 
+    def contiguous(self):
+        return QuantTensor(self.value.contiguous(), self.scale.contiguous() if self.scale is not None else None, self.zero_point.contiguous() if self.zero_point is not None else None, self.bit_width.contiguous() if self.bit_width is not None else None, self.signed, self.training)
 
-def pack_quant_tensor(tensor, scale, bit_width):
-    return QuantTensor._make([tensor, scale, bit_width])
-
-
-class QuantTensor(namedtuple('QuantTensor', ['tensor', 'scale', 'bit_width'])):
+    def int(self, float_datatype=False):
+        if self.is_valid:
+            int_value = round_ste(self._pre_round_int_value)
+            if float_datatype:
+                return int_value
+            else:
+                return int_value.int()
+        else:
+            raise RuntimeError(f'QuantTensor not valid.')
 
     @staticmethod
-    def check_input_type(other):
-        if not isinstance(other, QuantTensor):
-            raise Exception('Other tensor is not a QuantTensor')
+    def check_input_type(tensor):
+        if not isinstance(tensor, QuantTensor):
+            raise RuntimeError('Tensor is not a QuantTensor')
+
+    @staticmethod
+    def is_zero_zero_point(tensor):
+        QuantTensor.check_input_type(tensor)
+        if tensor.zero_point is not None:
+            return (tensor.zero_point == 0.0).all()
+        else:
+            return None
 
     def check_scaling_factors_same(self, other):
+        if self.training is not None and self.training:
+            return True
         if not torch.allclose(self.scale, other.scale):
-            raise Exception('Scalign factors are different')
+            raise RuntimeError('Scaling factors are different')
+
+    def check_zero_points_same(self, other):
+        if self.training is not None and self.training:
+            return True
+        if not torch.allclose(self.zero_point, other.zero_point):
+            raise RuntimeError('Zero points are different')
+
+    def check_bit_width_same(self, other):
+        if not torch.allclose(self.bit_width, other.bit_width):
+            raise RuntimeError('Bit widths are different')
+
+    def check_sign_same(self, other):
+        if not self.signed == other.signed:
+            raise RuntimeError('Signs are different')
+
+    def view(self, *args, **kwargs):
+        return self.set(value=self.value.view(*args, **kwargs))
+
+    def reshape(self, *args, **kwargs):
+        return self.set(value=self.value.reshape(*args, **kwargs))
+
+    def flatten(self, *args, **kwargs):
+        return self.set(value=self.value.flatten(*args, **kwargs))
+
+    def transpose(self, *args, **kwargs):
+        value = self.value.transpose(*args, **kwargs)
+        tensor_meta = {'scale': self.scale, 'zero_point': self.zero_point, 'bit_width': self.bit_width}
+        for k, tm in tensor_meta.items():
+            if tm is not None and len(value.shape) == len(tm.shape):
+                tensor_meta[k] = tm.transpose(*args, **kwargs)
+        return self.set(value=value, **tensor_meta)
+
+    def permute(self, *args, **kwargs):
+        value = self.value.permute(*args, **kwargs)
+        tensor_meta = {'scale': self.scale, 'zero_point': self.zero_point, 'bit_width': self.bit_width}
+        for k, tm in tensor_meta.items():
+            if tm is not None and len(value.shape) == len(tm.shape):
+                tensor_meta[k] = tm.permute(*args, **kwargs)
+        return self.set(value=value, **tensor_meta)
+
+    def size(self, *args, **kwargs):
+        return self.value.size(*args, **kwargs)
+
+    @property
+    def shape(self):
+        return self.value.shape
+
+    def dim(self):
+        return self.value.dim()
+
+    def add(self, other):
+        return self + other
+
+    @staticmethod
+    def cat(tensors, dim, out=None):
+        if out is not None:
+            raise RuntimeError('Out not supported.')
+        if len(tensors) < 2:
+            return tensors[0]
+        else:
+            first_qt = tensors[0]
+            if all([(isinstance(qt, QuantTensor) and qt.is_not_none) for qt in tensors]):
+                for qt in tensors[1:]:
+                    first_qt.check_scaling_factors_same(qt)
+                    first_qt.check_zero_points_same(qt)
+                    first_qt.check_bit_width_same(qt)
+                    first_qt.check_sign_same(qt)
+                output_value = torch.cat([qt.value for qt in tensors], dim=dim)
+                output_scale = sum([qt.scale for qt in tensors]) / len(tensors)
+                output_zero_point = sum([qt.zero_point for qt in tensors]) / len(tensors)
+                output_bit_width = sum([qt.bit_width for qt in tensors]) / len(tensors)
+                output_signed = first_qt.signed
+                output_training = any([qt.training for qt in tensors])
+                return QuantTensor(value=output_value, scale=output_scale, zero_point=output_zero_point, bit_width=output_bit_width, signed=output_signed, training=output_training)
+            else:
+                tensors = [(qt.value if isinstance(qt, QuantTensor) else qt) for qt in tensors]
+                output_value = torch.cat(tensors, dim=dim)
+                return QuantTensor(output_value)
 
     def __neg__(self):
-        return QuantTensor._make([-self.tensor, self.scale, self.bit_width])
+        neg_value = (-self.int(float_datatype=True) - self.zero_point) * self.scale
+        if self.signed:
+            return QuantTensor(value=neg_value, scale=self.scale, zero_point=self.zero_point, bit_width=self.bit_width, signed=self.signed, training=self.training)
+        else:
+            return QuantTensor(value=neg_value, scale=self.scale, zero_point=self.zero_point, bit_width=self.bit_width + 1, signed=True, training=self.training)
 
     def __add__(self, other):
-        QuantTensor.check_input_type(other)
-        self.check_scaling_factors_same(other)
-        output_tensor = self.tensor + other.tensor
-        output_scale = (self.scale + other.scale) / 2
-        max_uint_val = max_uint(narrow_range=False, bit_width=self.bit_width)
-        max_uint_val += max_uint(narrow_range=False, bit_width=other.bit_width)
-        output_bit_width = ceil_ste(torch.log2(max_uint_val))
-        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        if isinstance(other, QuantTensor) and self.is_not_none and other.is_not_none:
+            self.check_scaling_factors_same(other)
+            output_value = self.value + other.value
+            output_scale = (self.scale + other.scale) / 2
+            output_zero_point = self.zero_point + other.zero_point
+            max_val = max_int(signed=self.signed, narrow_range=False, bit_width=self.bit_width)
+            max_val += max_int(signed=other.signed, narrow_range=False, bit_width=other.bit_width)
+            min_val = min_int(signed=self.signed, narrow_range=False, bit_width=self.bit_width)
+            min_val += min_int(signed=other.signed, narrow_range=False, bit_width=other.bit_width)
+            output_bit_width = ceil_ste(torch.log2(max_val - min_val))
+            output_signed = self.signed or other.signed
+            output_training = self.training or other.training
+            output = QuantTensor(value=output_value, scale=output_scale, zero_point=output_zero_point, bit_width=output_bit_width, signed=output_signed, training=output_training)
+        elif isinstance(other, QuantTensor):
+            output = QuantTensor(self.value + other.value)
+        else:
+            output = QuantTensor(self.value + other)
         return output
 
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
     def __mul__(self, other):
-        QuantTensor.check_input_type(other)
-        output_tensor = self.tensor * other.tensor
-        output_scale = self.scale * other.scale
-        output_bit_width = self.bit_width + other.bit_width
-        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        if isinstance(other, QuantTensor) and self.is_not_none and other.is_not_none:
+            output_value = self.value * other.value
+            output_scale = self.scale * other.scale
+            output_bit_width = self.bit_width + other.bit_width
+            output_signed = self.signed or other.signed
+            output_training = self.training or other.training
+            if self.is_zero_zero_point(self) and self.is_zero_zero_point(other):
+                output_zero_point = self.zero_point * other.zero_point
+            else:
+                raise RuntimeError('Zero-points of mul operands are non-zero, not supported.')
+            output = QuantTensor(value=output_value, scale=output_scale, zero_point=output_zero_point, bit_width=output_bit_width, signed=output_signed, training=output_training)
+        elif isinstance(other, QuantTensor):
+            output = QuantTensor(self.value * other.value)
+        else:
+            output = QuantTensor(self.value * other)
         return output
 
     def __sub__(self, other):
         return self.__add__(-other)
 
     def __truediv__(self, other):
-        QuantTensor.check_input_type(other)
-        output_tensor = self.tensor / other.tensor
-        output_scale = self.scale / other.scale
-        output_bit_width = self.bit_width - other.bit_width
-        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        if isinstance(other, QuantTensor) and self.is_not_none and other.is_not_none:
+            output_tensor = self.value / other.tensor
+            output_scale = self.scale / other.scale
+            output_bit_width = self.bit_width - other.bit_width
+            output_signed = self.signed or other.signed
+            output_training = self.training or other.training
+            if self.is_zero_zero_point(self) and self.is_zero_zero_point(other):
+                output_zero_point = self.zero_point / other.zero_point
+            else:
+                output_zero_point = None
+            output = QuantTensor(value=output_tensor, scale=output_scale, zero_point=output_zero_point, bit_width=output_bit_width, signed=output_signed, training=output_training)
+        elif isinstance(other, QuantTensor):
+            output = QuantTensor(self.value / other.value)
+        else:
+            output = QuantTensor(self.value / other)
         return output
 
     def __abs__(self):
-        return QuantTensor._make([abs(self.tensor), self.scale, self.bit_width])
+        if self.signed:
+            abs_value = (torch.abs(self.int(float_datatype=True)) - self.zero_point) * self.scale
+            return QuantTensor(value=abs_value, scale=self.scale, zero_point=self.zero_point, bit_width=self.bit_width - 1, signed=False, training=self.training)
+        else:
+            return self
 
     def __pos__(self):
         return self
 
-    def __int__(self):
-        return round_ste(self.tensor / self.scale)
 
-    def __float__(self):
-        return self.tensor
+class _CachedIO:
 
-    def __index__(self):
-        raise NotImplementedError
+    def __init__(self, quant_tensor: QuantTensor, metadata_only: bool):
+        self.shape = quant_tensor.value.shape
+        if metadata_only:
+            self.quant_tensor = quant_tensor.set(value=None)
+        else:
+            self.quant_tensor = quant_tensor
 
-    def __round__(self):
-        raise NotImplementedError
+    @property
+    def scale(self):
+        return self.quant_tensor.scale
 
-    def __trunc__(self):
-        raise NotImplementedError
+    @property
+    def zero_point(self):
+        return self.quant_tensor.zero_point
 
-    def __floor__(self):
-        raise NotImplementedError
+    @property
+    def bit_width(self):
+        return self.quant_tensor.bit_width
 
-    def __ceil__(self):
-        raise NotImplementedError
-
-    def __complex__(self):
-        raise NotImplementedError
-
-    def __invert__(self):
-        raise NotImplementedError
-
-    def __matmul__(self, other):
-        raise NotImplementedError
-
-    def __floordiv__(self, other):
-        raise NotImplementedError
-
-    def __mod__(self, other):
-        raise NotImplementedError
-
-    def __divmod__(self, other):
-        raise NotImplementedError
-
-    def __pow__(self, other):
-        raise NotImplementedError
-
-    def __lshift__(self, other):
-        raise NotImplementedError
-
-    def __rshift__(self, other):
-        raise NotImplementedError
-
-    def __and__(self, other):
-        raise NotImplementedError
-
-    def __xor__(self, other):
-        raise NotImplementedError
-
-    def __or__(self, other):
-        raise NotImplementedError
+    @property
+    def signed(self):
+        return self.quant_tensor.signed
 
 
-class QuantLayer(object):
+class QuantLayerMixin(object):
     __metaclass__ = ABCMeta
 
-    def __init__(self, compute_output_scale, compute_output_bit_width, return_quant_tensor):
-        self.compute_output_scale = compute_output_scale
-        self.compute_output_bit_width = compute_output_bit_width
+    def __init__(self, return_quant_tensor: bool, export_mode: bool=False, export_debug_name: Optional[str]=None, export_handler: Optional=None, cache_inference_quant_inp: bool=False, cache_inference_quant_out: bool=False, cache_quant_io_metadata_only: bool=True):
+        self.accept_quant_tensor = True
         self.return_quant_tensor = return_quant_tensor
+        self.export_handler = export_handler
+        self.cache_inference_quant_inp = cache_inference_quant_inp
+        self.cache_inference_quant_out = cache_inference_quant_out
+        self.cache_quant_io_metadata_only = cache_quant_io_metadata_only
+        self._export_mode = export_mode
+        self._export_debug_name = export_debug_name
+        self._cached_inp = None
+        self._cached_out = None
+        self.export_input_debug = False
+        self.export_output_debug = False
 
-    def unpack_input(self, input):
-        if isinstance(input, QuantTensor):
-            return input
+    @property
+    def export_debug_name(self):
+        return self._export_debug_name
+
+    @export_debug_name.setter
+    def export_debug_name(self, value):
+        self._export_debug_name = value
+
+    @property
+    @abstractmethod
+    def channelwise_separable(self) ->bool:
+        pass
+
+    @property
+    @abstractmethod
+    def requires_export_handler(self):
+        pass
+
+    @property
+    def export_mode(self):
+        if self._export_mode and self.training:
+            raise RuntimeError("Can't enter export mode during training, only during inference")
+        return self._export_mode
+
+    @export_mode.setter
+    def export_mode(self, value):
+        if value and self.requires_export_handler and self.export_handler is None:
+            raise RuntimeError("Can't enable export mode on a layer without an export handler")
+        elif value and not self.requires_export_handler and self.export_handler is None:
+            return
+        elif value and self.export_handler is not None:
+            self.export_handler.prepare_for_export(self)
+            self.export_handler.attach_debug_info(self)
+        elif not value and self.export_handler is not None:
+            self.export_handler.reset()
+        self._export_mode = value
+
+    @property
+    def is_quant_input_signed(self) ->Optional[bool]:
+        if self._cached_inp is not None:
+            return self._cached_inp.signed
         else:
-            return input, None, None
+            return None
 
-    def pack_output(self, output, output_scale, output_bit_width):
+    def _set_global_is_quant_layer(self, value):
+        config._IS_INSIDE_QUANT_LAYER = value
+
+    def quant_input_scale(self):
+        if self._cached_inp is not None:
+            return self._cached_inp.scale
+        else:
+            return None
+
+    def quant_input_zero_point(self):
+        if self._cached_inp is not None:
+            return self._cached_inp.zero_point
+        else:
+            return None
+
+    def quant_input_bit_width(self):
+        if self._cached_inp is not None:
+            return self._cached_inp.bit_width
+        else:
+            return None
+
+    @property
+    def is_quant_output_signed(self) ->Optional[bool]:
+        if self._cached_out is not None:
+            return self._cached_out.signed
+        else:
+            return None
+
+    def quant_output_scale(self):
+        if self._cached_out is not None:
+            return self._cached_out.scale
+        else:
+            return None
+
+    def quant_output_zero_point(self):
+        if self._cached_out is not None:
+            return self._cached_out.zero_point
+        else:
+            return None
+
+    def quant_output_bit_width(self):
+        if self._cached_out is not None:
+            return self._cached_out.bit_width
+        else:
+            return None
+
+    def unpack_input(self, inp: Union[Tensor, QuantTensor]):
+        self._set_global_is_quant_layer(True)
+        if torch._C._get_tracing_state() is not None and isinstance(inp, tuple) and len(inp) == len(QuantTensor._fields) and all([isinstance(t, Tensor) for t in inp]):
+            inp = QuantTensor(*inp)
+        if isinstance(inp, QuantTensor):
+            if not self.training and not self._export_mode and self.cache_inference_quant_inp:
+                cached_inp = _CachedIO(inp.detach(), self.cache_quant_io_metadata_only)
+                self._cached_inp = cached_inp
+            return inp
+        else:
+            inp = QuantTensor(inp, training=self.training)
+            if not self.training and self.cache_inference_quant_inp:
+                cached_inp = _CachedIO(inp.detach(), self.cache_quant_io_metadata_only)
+                self._cached_inp = cached_inp
+            return inp
+
+    def pack_output(self, quant_output: QuantTensor):
+        if not self.training and self.cache_inference_quant_out:
+            self._cached_out = _CachedIO(quant_output.detach(), self.cache_quant_io_metadata_only)
+        self._set_global_is_quant_layer(False)
         if self.return_quant_tensor:
-            return QuantTensor(tensor=output, scale=output_scale, bit_width=output_bit_width)
+            return quant_output
         else:
-            return output
+            return quant_output.value
 
 
-class HadamardClassifier(QuantLayer, nn.Module):
+class ScaleHandlerMixin(object):
 
-    def __init__(self, in_channels, out_channels, fixed_scale=False, compute_output_scale: bool=False, compute_output_bit_width: bool=False, return_quant_tensor: bool=False):
-        QuantLayer.__init__(self, compute_output_scale=compute_output_scale, compute_output_bit_width=compute_output_bit_width, return_quant_tensor=return_quant_tensor)
+    @classmethod
+    def validate_scalar_scale(cls, scale: Tensor):
+        if scale is None:
+            raise RuntimeError('Scale cannot be None.')
+        if scale.view(-1).shape[0] != 1:
+            raise RuntimeError('Only per-tensor scaling is supported.')
+        return scale.item()
+
+    @classmethod
+    def validate_scalar_int_exponent(cls, scale: Tensor):
+        cls.validate_scalar_scale(scale)
+        exponent = math.log2(scale)
+        if not exponent.is_integer():
+            raise RuntimeError('Only power-of-two scale factors are supported.')
+        exponent = int(exponent)
+        return exponent
+
+    @classmethod
+    def validate_neg_scalar_int_exponent(cls, scale: Tensor):
+        return -cls.validate_scalar_int_exponent(scale)
+
+
+class DPUQuantLayerHandler(ONNXBaseHandler, BitWidthHandlerMixin, ScaleHandlerMixin, ABC):
+
+    @classmethod
+    def quant_input_scale(cls, module: QuantLayerMixin):
+        scale = module.quant_input_scale()
+        return cls.validate_neg_scalar_int_exponent(scale)
+
+    @classmethod
+    def quant_output_scale(cls, module: QuantLayerMixin):
+        scale = module.quant_output_scale()
+        return cls.validate_neg_scalar_int_exponent(scale)
+
+    @classmethod
+    def quant_input_bit_width(cls, module: QuantLayerMixin):
+        bit_width = module.quant_input_bit_width()
+        return cls.validate_8b_bit_width(bit_width)
+
+    @classmethod
+    def quant_output_bit_width(cls, module: QuantLayerMixin):
+        bit_width = module.quant_output_bit_width()
+        return cls.validate_8b_bit_width(bit_width)
+
+    @classmethod
+    def quant_output_shape(cls, module: QuantLayerMixin):
+        cached_out = module._cached_out
+        if cached_out is None:
+            raise RuntimeError('Caching of outputs is required')
+        return cached_out.shape
+
+    def prepare_from_cached_io(self, cached_io):
+        cached_inp, cached_out = cached_io
+        self.symbolic_kwargs = {'output_shape': cached_out.shape, 'input_bit_width': self.validate_8b_bit_width(cached_inp.bit_width), 'input_scale': self.validate_neg_scalar_int_exponent(cached_inp.scale), 'output_bit_width': self.validate_8b_bit_width(cached_out.bit_width), 'output_scale': self.validate_neg_scalar_int_exponent(cached_out.scale)}
+
+
+DOMAIN_STRING = 'xir.onnx'
+
+
+class DPUQuantReLUFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, output_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        ret = g.op(f'{DOMAIN_STRING}::Relu', x, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale])
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, output_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        return x
+
+
+def _replace_dependency(injector, current_attr, spec):
+    replaced_dependency = injector.__dependencies__[current_attr]
+    injector.__dependencies__[current_attr] = spec
+    _check_loops(injector.__name__, injector.__dependencies__)
+    _check_circles(injector.__dependencies__)
+    return replaced_dependency
+
+
+VALUE_ATTR_NAME = 'value'
+
+
+def _is_narrow_range(quant_injector):
+    if 'narrow_range' in quant_injector:
+        return quant_injector.narrow_range
+    return None
+
+
+def _is_signed(quant_injector):
+    if 'signed' in quant_injector:
+        return quant_injector.signed
+    return None
+
+
+class AutoName(str, Enum):
+
+    def _generate_next_value_(name, start, count, last_values):
+        return name
+
+    def __str__(self):
+        return self.value
+
+    def __eq__(self, other):
+        return str(self).lower() == str(other).lower()
+
+
+def float_to_int_impl_to_enum(module):
+    if isinstance(module, RoundSte):
+        return FloatToIntImplType.ROUND
+    elif isinstance(module, RoundToZeroSte):
+        return FloatToIntImplType.ROUND_TO_ZERO
+    elif isinstance(module, FloorSte):
+        return FloatToIntImplType.FLOOR
+    elif isinstance(module, CeilSte):
+        return FloatToIntImplType.CEIL
+    elif isinstance(module, DPURoundSte):
+        return DPURoundSte
+    else:
+        return None
+
+
+def _rounding_mode(quant_injector):
+    if 'float_to_int_impl_type' in quant_injector:
+        return str(quant_injector.float_to_int_impl_type)
+    elif 'float_to_int_impl' in quant_injector:
+        try:
+            return str(float_to_int_impl_to_enum(quant_injector.float_to_int_impl))
+        except:
+            return None
+    else:
+        return None
+
+
+def _update_state_dict_impl(quant_injector):
+    try:
+        impl = quant_injector.update_state_dict_impl
+    except:
+        impl = None
+    return impl
+
+
+def _is_act_enabled(act_impl, tensor_quant):
+    if act_impl is None:
+        return False
+    elif isinstance(act_impl, nn.Hardtanh) and tensor_quant is not None:
+        return False
+    else:
+        return True
+
+
+def _is_passthrough_act(quant_injector):
+    if 'passthrough_act' in quant_injector:
+        return quant_injector.passthrough_act
+    return False
+
+
+DEFAULT_MOMENTUM = 0.1
+
+
+SCALAR_SHAPE = ()
+
+
+@torch.jit.ignore
+def inplace_momentum_update(tensor: torch.Tensor, update: torch.Tensor, momentum: Optional[float], counter: int, new_counter: int) ->torch.Tensor:
+    if momentum is None:
+        tensor.mul_(counter / new_counter)
+        tensor.add_(update / new_counter)
+    else:
+        tensor.mul_(1 - momentum)
+        tensor.add_(momentum * update)
+    return tensor
+
+
+@torch.jit.ignore
+def inplace_tensor_mul(tensor: torch.Tensor, value: torch.Tensor) ->torch.Tensor:
+    tensor.mul_(value)
+    return tensor
+
+
+class MinMaxScalingInit:
+
+    def __init__(self, min_val: float, max_val: float):
+        self.scaling_init = torch.tensor(max(abs(float(min_val)), abs(float(max_val))))
+
+    def __call__(self):
+        return self.scaling_init
+
+
+MIN_INT_BIT_WIDTH = 2
+
+
+def solve_bit_width_impl_from_enum(impl_type):
+    if impl_type == BitWidthImplType.CONST:
+        return BitWidthConst
+    elif impl_type == BitWidthImplType.PARAMETER:
+        return BitWidthParameter
+    else:
+        raise Exception(f'{impl_type} not recognized.')
+
+
+def solve_restrict_value_impl_from_enum(impl_type):
+    if impl_type == RestrictValueType.FP:
+        return FloatRestrictValue
+    elif impl_type == RestrictValueType.LOG_FP:
+        return LogFloatRestrictValue
+    elif impl_type == RestrictValueType.POWER_OF_TWO:
+        return PowerOfTwoRestrictValue
+    else:
+        raise RuntimeError(f'{impl_type} not recognized.')
+
+
+DEFAULT_STD_DEV_EPSILON = 1e-08
+
+
+SCALING_STATS_REDUCE_DIM = 1
+
+
+def solve_float_to_int_impl_from_enum(impl_type):
+    if impl_type == FloatToIntImplType.ROUND:
+        return RoundSte
+    elif impl_type == FloatToIntImplType.FLOOR:
+        return FloorSte
+    elif impl_type == FloatToIntImplType.CEIL:
+        return CeilSte
+    elif impl_type == FloatToIntImplType.ROUND_TO_ZERO:
+        return RoundToZeroSte
+    elif impl_type == FloatToIntImplType.DPU:
+        return DPURoundSte
+    else:
+        raise Exception(f'{impl_type} not recognized.')
+
+
+class ConvertRuntimeStatsToParameter:
+
+    def __init__(self, restrict_scaling_impl: Module):
+        self.restrict_scaling_impl = restrict_scaling_impl
+        scaling_impl_postfix = 'fused_activation_quant_proxy.tensor_quant.scaling_impl'
+        self.scaling_impl_postfix = scaling_impl_postfix
+        self.runtime_stats_postfix = scaling_impl_postfix + '.runtime_stats'
+        self.running_stats_postfix = scaling_impl_postfix + '.runtime_stats.running_stats'
+        self.scaling_parameter_postfix = scaling_impl_postfix + '.value'
+
+    def __call__(self, prefix, state_dict):
+        running_stats_key = prefix + self.running_stats_postfix
+        scaling_parameter_key = prefix + self.scaling_parameter_postfix
+        if running_stats_key in state_dict and not scaling_parameter_key in state_dict:
+            scaling_init = state_dict[running_stats_key]
+            scaling_init = scaling_init.abs()
+            scaling_init = self.restrict_scaling_impl.restrict_init_tensor(scaling_init)
+            state_dict[scaling_parameter_key] = scaling_init
+        for k in list(state_dict.keys()):
+            if k.startswith(prefix + self.runtime_stats_postfix):
+                del state_dict[k]
+
+
+class DPUQuantEltwiseAddFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, y, input_bit_width, input_scale, other_bit_width, other_scale, output_bit_width, output_scale):
+        ret = g.op(f'{DOMAIN_STRING}::Add', x, y, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale, other_bit_width, other_scale], vai_quant_out_i=[output_bit_width, output_scale])
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, y, input_bit_width, input_scale, other_bit_width, other_scale, output_bit_width, output_scale):
+        return x
+
+
+def filter_kwargs(kwargs_prefix, kwargs: dict):
+    return {k[len(kwargs_prefix):]: v for k, v in kwargs.items() if k.startswith(kwargs_prefix)}
+
+
+class QuantProxyMixin(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, quant, proxy_protocol, none_quant_injector, proxy_prefix: str, kwargs_prefix: str, **kwargs):
+        proxy_name = proxy_prefix + 'quant'
+        if quant is None:
+            quant_injector = none_quant_injector.let(**filter_kwargs(kwargs_prefix, kwargs))
+            quant = quant_injector.proxy_class(self, quant_injector)
+        elif isclass(quant) and issubclass(quant, (Injector, ExtendedInjector)):
+            quant_injector = quant
+            quant_injector = quant_injector.let(**filter_kwargs(kwargs_prefix, kwargs))
+            quant = quant_injector.proxy_class(self, quant_injector)
+        else:
+            if not isinstance(quant, proxy_protocol):
+                raise RuntimeError('The quantizer passed does not adhere to the quantization protocol.')
+            quant.add_tracked_module(self)
+            if filter_kwargs(kwargs_prefix, kwargs):
+                warn('Keyword arguments are being passed but they not being used.')
+        setattr(self, proxy_name, quant)
+
+
+class DPUQuantMaxPoolFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, kernel_shape, pads, strides, ceil_mode, dilations, out_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        if isinstance(pads, int) and pads != 0 or isinstance(pads, (list, tuple)) and any([(p != 0) for p in pads]):
+            x = g.op(f'{DOMAIN_STRING}::Pad', x, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[input_bit_width, input_scale], pads_i=pads)
+        ret = g.op(f'{DOMAIN_STRING}::MaxPool', x, kernel_shape_i=kernel_shape, strides_i=strides, auto_pad_s='VALID', dilations_i=dilations, ceil_mode_i=ceil_mode, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale])
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, kernel_shape, pads, strides, ceil_mode, dilations, out_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        return torch.empty(out_shape, dtype=torch.float, device=x.device)
+
+
+class Kernel2dApplHandlerMixin(ABC):
+
+    @staticmethod
+    def padding(module):
+        if isinstance(module.padding, int):
+            padding = [module.padding] * 4
+        else:
+            padding = list(module.padding) + list(module.padding)
+        return padding
+
+    @staticmethod
+    def stride(module):
+        if isinstance(module.stride, int):
+            return [module.stride] * 2
+        else:
+            return list(module.stride)
+
+    @staticmethod
+    def dilation(module):
+        if isinstance(module.dilation, int):
+            return [module.dilation] * 2
+        else:
+            return list(module.dilation)
+
+    @staticmethod
+    def kernel_shape(module):
+        if isinstance(module.kernel_size, int):
+            return [module.kernel_size] * 2
+        else:
+            return list(module.kernel_size)
+
+
+class QuantMaxPool2d(QuantLayerMixin, MaxPool2d):
+
+    def __init__(self, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False, return_quant_tensor: bool=True):
+        MaxPool2d.__init__(self, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, return_indices=return_indices, ceil_mode=ceil_mode)
+        QuantLayerMixin.__init__(self, return_quant_tensor=return_quant_tensor)
+
+    @property
+    def channelwise_separable(self) ->bool:
+        return True
+
+    @property
+    def requires_export_handler(self):
+        return False
+
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        if self.export_mode:
+            out = self.export_handler(x.value)
+            self._set_global_is_quant_layer(False)
+            return out
+        x = x.set(value=super().forward(x.value))
+        return self.pack_output(x)
+
+
+class DPUQuantMaxPool2dHandler(DPUQuantLayerHandler, Kernel2dApplHandlerMixin, ABC):
+    handled_layer = QuantMaxPool2d
+
+    @staticmethod
+    def _solve_max_pool2d_kwargs(inp, args, kwargs):
+        signature = inspect.signature(F._max_pool2d)
+        ba = signature.bind(inp, *args, **kwargs)
+        ba.apply_defaults()
+        if 'return_indices' in ba.arguments:
+            assert not ba.arguments['return_indices']
+            del ba.arguments['return_indices']
+        return ba.arguments
+
+    def prepare_for_export(self, module: QuantMaxPool2d):
+        self.symbolic_kwargs = {'kernel_shape': self.kernel_shape(module), 'pads': self.padding(module), 'strides': self.stride(module), 'ceil_mode': module.ceil_mode, 'dilations': self.dilation(module), 'output_shape': self.quant_output_shape(module), 'input_bit_width': self.quant_input_bit_width(module), 'input_scale': self.quant_input_scale(module), 'output_bit_width': self.quant_output_bit_width(module), 'output_scale': self.quant_output_scale(module)}
+
+    def symbolic_execution(self, inp: Tensor):
+        ret = DPUQuantMaxPoolFn.apply(inp, *self.symbolic_kwargs.values())
+        return ret
+
+    def cached_symbolic_execution(self, inp: Tensor, *args, **kwargs):
+        solved_kwargs = self._solve_max_pool2d_kwargs(inp, args, kwargs)
+        return DPUQuantMaxPoolFn.apply(*solved_kwargs.values(), *self.symbolic_kwargs.values())
+
+
+class DPUQuantAvgPoolFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, kernel_shape, strides, pads, out_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        if kernel_shape == [1, 1]:
+            return x
+        if list(out_shape[2:]) == [1, 1]:
+            ret = g.op(f'{DOMAIN_STRING}::GlobalAveragePool', x, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale])
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::AveragePool', x, kernel_shape_i=kernel_shape, strides_i=strides, pads_i=pads, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale])
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, kernel_shape, strides, pads, out_shape, input_bit_width, input_scale, output_bit_width, output_scale):
+        return torch.empty(out_shape, dtype=torch.float, device=x.device)
+
+
+class DPUQuantLinearFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, int_weight, int_bias, out_shape, input_bit_width, input_scale, output_bit_width, output_scale, weight_bit_width, weight_scale, bias_bit_width, bias_scale):
+        vai_quant_s = ['vai_quant_in', 'vai_quant_out', 'vai_quant_weights']
+        if int_bias is not None:
+            vai_quant_s += ['vai_quant_biases']
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, int_weight, int_bias, transB_i=1, vai_quant_s=vai_quant_s, vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale], vai_quant_weights_i=[weight_bit_width, weight_scale], vai_quant_biases_i=[bias_bit_width, bias_scale])
+        elif int_bias is None and torch_version <= version.parse('1.4.0'):
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, int_weight, torch.tensor(0), transB_i=1, vai_quant_s=vai_quant_s, vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale], vai_quant_weights_i=[weight_bit_width, weight_scale])
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, int_weight, transB_i=1, vai_quant_s=vai_quant_s, vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale], vai_quant_weights_i=[weight_bit_width, weight_scale])
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, int_weight, int_bias, out_shape, input_bit_width, input_scale, output_bit_width, output_scale, weight_bit_width, weight_scale, int_bias_bit_width, int_bias_scale):
+        return torch.empty(out_shape, dtype=torch.float, device=x.device)
+
+
+class HeScalingInit:
+
+    def __init__(self, tracked_parameter_list: List[torch.nn.Parameter]):
+        self.tracked_parameter_list = tracked_parameter_list
+
+    def __call__(self):
+        scaling_init = 0.0
+        for param in self.tracked_parameter_list:
+            two_dim_param = param.view(param.shape[0], -1)
+            scaling_init += math.sqrt(2.0 / two_dim_param.shape[1])
+        scaling_init /= len(self.tracked_parameter_list)
+        return torch.tensor(scaling_init)
+
+
+class ParameterFromStatsScalingInit:
+
+    def __init__(self, parameter_stats_scaling_init_impl):
+        self.init_impl = parameter_stats_scaling_init_impl
+
+    def __call__(self):
+        return self.init_impl(torch.tensor(0.0))
+
+
+class ScalingConstInit:
+
+    def __init__(self, scaling_const):
+        self.scaling_const = scaling_const
+
+    def __call__(self):
+        return self.scaling_const
+
+
+class DPUQuantConv2dFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, int_weight, int_bias, out_shape, input_bit_width, input_scale, output_bit_width, output_scale, weight_bit_width, weight_scale, bias_bit_width, bias_scale, kernel_size, padding, stride, groups, dilation):
+        if isinstance(padding, int) and padding != 0 or isinstance(padding, (list, tuple)) and any([(p != 0) for p in padding]):
+            x = g.op(f'{DOMAIN_STRING}::Pad', x, vai_quant_s=['vai_quant_in', 'vai_quant_out'], vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[input_bit_width, input_scale], pads_i=padding)
+        vai_quant_s = ['vai_quant_in', 'vai_quant_out', 'vai_quant_weights']
+        if int_bias is not None:
+            vai_quant_s += ['vai_quant_biases']
+            ret = g.op(f'{DOMAIN_STRING}::Conv', x, int_weight, int_bias, vai_quant_s=vai_quant_s, vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale], vai_quant_weights_i=[weight_bit_width, weight_scale], vai_quant_biases_i=[bias_bit_width, bias_scale], kernel_shape_i=kernel_size, strides_i=stride, auto_pad_s='VALID', group_i=groups, dilations_i=dilation)
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::Conv', x, int_weight, vai_quant_s=vai_quant_s, vai_quant_in_i=[input_bit_width, input_scale], vai_quant_out_i=[output_bit_width, output_scale], vai_quant_weights_i=[weight_bit_width, weight_scale], kernel_shape_i=kernel_size, strides_i=stride, auto_pad_s='VALID', group_i=groups, dilations_i=dilation)
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, int_weight, int_bias, out_shape, input_bit_width, input_scale, output_bit_width, output_scale, weight_bit_width, weight_scale, int_bias_bit_width, int_bias_scale, kernel_size, padding, stride, groups, dilation):
+        return torch.empty(out_shape, dtype=torch.float, device=x.device)
+
+
+class XIRFixFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, bit_width, fix_point, signed):
+        ret = g.op(f'{DOMAIN_STRING}::Fix', x, bit_width_i=bit_width, fix_point_i=fix_point, signed_i=int(signed))
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, bit_width, fix_point, signed):
+        return x
+
+
+class XIRConv2dFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, weight, bias, is_depthwise, kernel_size, padding, padding_type, stride, dilation, output_shape):
+        if is_depthwise and bias is not None:
+            ret = g.op(f'{DOMAIN_STRING}::DepthwiseConv2d', x, weight, bias, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        elif is_depthwise and bias is None:
+            ret = g.op(f'{DOMAIN_STRING}::DepthwiseConv2d', x, weight, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        elif not is_depthwise and bias is not None:
+            ret = g.op(f'{DOMAIN_STRING}::Conv2d', x, weight, bias, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::Conv2d', x, weight, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, is_depthwise, kernel_size, padding, padding_type, stride, dilation, output_shape):
+        return torch.empty(output_shape, dtype=x.dtype, device=x.device)
+
+
+class XIRConvTranpose2dFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, weight, bias, is_depthwise, kernel_size, padding, padding_type, stride, dilation):
+        if is_depthwise and bias is not None:
+            ret = g.op(f'{DOMAIN_STRING}::DepthwiseConvTranpose2d', x, weight, bias, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        elif is_depthwise and bias is None:
+            ret = g.op(f'{DOMAIN_STRING}::DepthwiseConvTranpose2d', x, weight, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        elif not is_depthwise and bias is not None:
+            ret = g.op(f'{DOMAIN_STRING}::ConvTranspose2d', x, weight, bias, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::ConvTranspose2d', x, weight, kernel_shape_i=kernel_size, padding_type_s=padding_type, pads_i=padding, strides_i=stride, dilations_i=dilation)
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, is_depthwise, kernel_size, padding, padding_type, stride, dilation, output_shape):
+        return torch.empty(output_shape, dtype=x.dtype, device=x.device)
+
+
+class XIRGemmFn(Function):
+
+    @staticmethod
+    def symbolic(g, x, weight, bias):
+        if bias is not None:
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, weight, bias, transA_i=0, transB_i=1)
+        elif bias is None and torch_version <= version.parse('1.4.0'):
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, weight, torch.tensor(0), transA_i=0, transB_i=1)
+        else:
+            ret = g.op(f'{DOMAIN_STRING}::Gemm', x, weight, transA_i=0, transB_i=1)
+        return ret
+
+    @staticmethod
+    def forward(ctx, x, weight, bias):
+        return torch.nn.functional.linear(x, weight, bias)
+
+
+class ZeroPointHandlerMixin(object):
+
+    @classmethod
+    def zero_point_with_dtype(cls, signed, zero_point):
+        if not signed:
+            if (zero_point < 0).any():
+                raise RuntimeError('Zero points have to be positive under unsigned quantization')
+            return zero_point.type(torch.uint8)
+        else:
+            return zero_point.type(torch.int8)
+
+    @classmethod
+    def quant_input_zero_point(cls, module):
+        signed = module.is_quant_input_signed
+        zero_point = module.quant_input_zero_point()
+        return cls.zero_point_with_dtype(signed, zero_point)
+
+    @classmethod
+    def quant_weight_zero_point(cls, module):
+        signed = module.is_quant_weight_signed
+        zero_point = module.quant_weight_zero_point()
+        return cls.zero_point_with_dtype(signed, zero_point)
+
+    @classmethod
+    def quant_output_zero_point(cls, module):
+        signed = module.is_quant_output_signed
+        zero_point = module.quant_output_zero_point()
+        return cls.zero_point_with_dtype(signed, zero_point)
+
+
+def _is_scalar(x: Tensor):
+    return x.shape == SCALAR_SHAPE
+
+
+class PytorchQuantLayerHandler(BaseHandler, BitWidthHandlerMixin, ZeroPointHandlerMixin, ABC):
+
+    @classmethod
+    @abstractmethod
+    def explicit_output_dtype(cls) ->bool:
+        pass
+
+    @classmethod
+    @abstractmethod
+    def prepare_qf(cls, module):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def validate(cls, module):
+        pass
+
+    @classmethod
+    def gen_quant_impl_kwargs(cls, scale: Tensor, zero_point: Tensor, signed: bool, include_dtype=True):
+        if _is_scalar(scale):
+            assert _is_scalar(zero_point), 'Scalar zero point required'
+            scale, zero_point = scale.item(), zero_point.item()
+            quant_impl = torch.quantize_per_tensor
+        else:
+            if _is_scalar(zero_point):
+                zero_point = zero_point.expand_as(scale)
+            quant_impl = torch.quantize_per_channel
+        quant_kwargs = {'scale': scale, 'zero_point': zero_point}
+        if include_dtype and signed:
+            quant_kwargs['dtype'] = torch.qint8
+        elif include_dtype and not signed:
+            quant_kwargs['dtype'] = torch.quint8
+        return quant_impl, quant_kwargs
+
+    @classmethod
+    def prepare_input_quant(cls, module):
+        scale = module.quant_input_scale()
+        zero_point = cls.quant_input_zero_point(module)
+        signed = module.is_quant_input_signed
+        quant_impl, quant_kwargs = cls.gen_quant_impl_kwargs(scale, zero_point, signed)
+        return quant_impl, quant_kwargs
+
+    @classmethod
+    def prepare_output_quant(cls, module):
+        scale = module.quant_output_scale()
+        zero_point = cls.quant_output_zero_point(module)
+        signed = module.is_quant_output_signed
+        incl_dtype = cls.explicit_output_dtype()
+        quant_impl, quant_kwargs = cls.gen_quant_impl_kwargs(scale, zero_point, signed, incl_dtype)
+        return quant_impl, quant_kwargs
+
+
+BaseArgumentTypes = Union[str, int, float, bool, torch.dtype, torch.Tensor]
+
+
+Argument = Optional[Union[Tuple[Any, ...], List[Any], Dict[str, Any], slice, 'Node', BaseArgumentTypes]]
+
+
+_help_mutation = """If you are attempting to modify the kwargs or args of a torch.fx.Node object,
+instead create a new copy of it and assign the copy to the node:
+    new_args = ... # copy and mutate args
+    node.args = new_args
+"""
+
+
+def _no_mutation(self, *args, **kwargs):
+    raise NotImplementedError(f"'{type(self).__name__}' object does not support mutation. {_help_mutation}")
+
+
+def _create_immutable_container(base, mutable_functions):
+    container = type('immutable_' + base.__name__, (base,), {})
+    for attr in mutable_functions:
+        setattr(container, attr, _no_mutation)
+    return container
+
+
+immutable_dict = _create_immutable_container(dict, ['__delitem__', '__setitem__', 'clear', 'pop', 'popitem', 'update'])
+
+
+immutable_list = _create_immutable_container(list, ['__delitem__', '__iadd__', '__imul__', '__setitem__', 'append', 'clear', 'extend', 'insert', 'pop', 'remove'])
+
+
+def map_aggregate(a: Argument, fn: Callable[[Argument], Argument]) ->Argument:
+    """ Apply fn to each Node appearing arg. arg may be a list, tuple, slice, or dict with string keys. """
+    if isinstance(a, tuple):
+        return tuple(map_aggregate(elem, fn) for elem in a)
+    elif isinstance(a, list):
+        return immutable_list(map_aggregate(elem, fn) for elem in a)
+    elif isinstance(a, dict):
+        return immutable_dict((k, map_aggregate(v, fn)) for k, v in a.items())
+    elif isinstance(a, slice):
+        return slice(map_aggregate(a.start, fn), map_aggregate(a.stop, fn), map_aggregate(a.step, fn))
+    else:
+        return fn(a)
+
+
+class Node:
+    """
+    ``Node`` is the data structure that represents individual operations within
+    a ``Graph``. For the most part, Nodes represent callsites to various entities,
+    such as operators, methods, and Modules (some exceptions include nodes that
+    specify function inputs and outputs). Each ``Node`` has a function specified
+    by its ``op`` property. The ``Node`` semantics for each value of ``op`` are as follows:
+
+    - ``placeholder`` represents a function input. The ``name`` attribute specifies the name this value will take on.
+      ``target`` is similarly the name of the argument. ``args`` holds either: 1) nothing, or 2) a single argument
+      denoting the default parameter of the function input. ``kwargs`` is don't-care. Placeholders correspond to
+      the function parameters (e.g. ``x``) in the graph printout.
+    - ``get_attr`` retrieves a parameter from the module hierarchy. ``name`` is similarly the name the result of the
+      fetch is assigned to. ``target`` is the fully-qualified name of the parameter's position in the module hierarchy.
+      ``args`` and ``kwargs`` are don't-care
+    - ``call_function`` applies a free function to some values. ``name`` is similarly the name of the value to assign
+      to. ``target`` is the function to be applied. ``args`` and ``kwargs`` represent the arguments to the function,
+      following the Python calling convention
+    - ``call_module`` applies a module in the module hierarchy's ``forward()`` method to given arguments. ``name`` is
+      as previous. ``target`` is the fully-qualified name of the module in the module hierarchy to call.
+      ``args`` and ``kwargs`` represent the arguments to invoke the module on, *including the self argument*.
+    - ``call_method`` calls a method on a value. ``name`` is as similar. ``target`` is the string name of the method
+      to apply to the ``self`` argument. ``args`` and ``kwargs`` represent the arguments to invoke the module on,
+      *including the self argument*
+    - ``output`` contains the output of the traced function in its ``args[0]`` attribute. This corresponds to the "return" statement
+      in the Graph printout.
+    """
+
+    def __init__(self, graph: 'Graph', name: str, op: str, target: 'Target', args: Tuple['Argument', ...], kwargs: Dict[str, 'Argument'], type: Optional[Any]=None) ->None:
+        self.graph = graph
+        self.name = name
+        assert op in ['placeholder', 'call_method', 'call_module', 'call_function', 'get_attr', 'output', 'root']
+        self.op = op
+        if op in ['call_method', 'call_module']:
+            assert isinstance(target, str)
+        self.target = target
+        self._input_nodes: Dict[Node, None] = {}
+        self.__update_args_kwargs(map_arg(args, lambda x: x), map_arg(kwargs, lambda x: x))
+        self.users: Dict['Node', None] = {}
+        self.type: Optional[Any] = type
+        self._prev = self
+        self._next = self
+        self._erased = False
+
+    @property
+    def next(self) ->'Node':
+        """
+        Returns the next ``Node`` in the linked list of Nodes.
+
+        Returns:
+
+            The next ``Node`` in the linked list of Nodes.
+        """
+        return self._next
+
+    @property
+    def prev(self) ->'Node':
+        """
+        Returns the previous ``Node`` in the linked list of Nodes.
+
+        Returns:
+
+            The previous ``Node`` in the linked list of Nodes.
+        """
+        return self._prev
+
+    def prepend(self, x: 'Node') ->None:
+        """
+        Insert x before this node in the list of nodes in the graph. Example::
+
+            Before: p -> self
+                    bx -> x -> ax
+            After:  p -> x -> self
+                    bx -> ax
+
+        Args:
+            x (Node): The node to put before this node. Must be a member of the same graph.
+        """
+        assert self.graph == x.graph, 'Attempting to move a Node into a different Graph'
+        x._remove_from_list()
+        p = self._prev
+        p._next, x._prev = x, p
+        x._next, self._prev = self, x
+
+    def append(self, x: 'Node') ->None:
+        """
+        Insert x after this node in the list of nodes in the graph.
+        Equvalent to ``self.next.prepend(x)``
+
+        Args:
+            x (Node): The node to put after this node. Must be a member of the same graph.
+        """
+        self._next.prepend(x)
+
+    def _remove_from_list(self):
+        p, n = self._prev, self._next
+        p._next, n._prev = n, p
+
+    @property
+    def args(self) ->Tuple[Argument, ...]:
+        """
+        The tuple of arguments to this ``Node``. The interpretation of arguments
+        depends on the node's opcode. See the :class:`Node` docstring for more
+        information.
+
+        Assignment to this property is allowed. All accounting of uses and users
+        is updated automatically on assignment.
+        """
+        return self._args
+
+    @args.setter
+    def args(self, a: Tuple[Argument, ...]):
+        """
+        Set the tuple of arguments to this Node. The interpretation of arguments
+        depends on the node's opcode. See the ``fx.Graph`` docstring for more
+        information.
+        """
+        self.__update_args_kwargs(map_arg(a, lambda x: x), self._kwargs)
+
+    @property
+    def kwargs(self) ->Dict[str, Argument]:
+        """
+        The dict of keyword arguments to this ``Node``. The interpretation of arguments
+        depends on the node's opcode. See the :class:`Node` docstring for more
+        information.
+
+        Assignment to this property is allowed. All accounting of uses and users
+        is updated automatically on assignment.
+        """
+        return self._kwargs
+
+    @kwargs.setter
+    def kwargs(self, k: Dict[str, Argument]):
+        """
+        Set the dict of kwargs to this Node. The interpretation of arguments
+        depends on the node's opcode. See the ``fx.Graph`` docstring for more
+        information.
+        """
+        self.__update_args_kwargs(self._args, map_arg(k, lambda x: x))
+
+    @property
+    def all_input_nodes(self) ->List['Node']:
+        """
+        Return all Nodes that are inputs to this Node. This is equivalent to
+        iterating over ``args`` and ``kwargs`` and only collecting the values that
+        are Nodes.
+
+        Returns:
+
+            List of ``Nodes`` that appear in the ``args`` and ``kwargs`` of this
+            ``Node``, in that order.
+        """
+        return list(self._input_nodes.keys())
+
+    def __update_args_kwargs(self, new_args: Tuple['Argument', ...], new_kwargs: Dict[str, 'Argument']):
+        """
+        This API is internal. Do *not* call it directly.
+        """
+        self._args = new_args
+        self._kwargs = new_kwargs
+        for old_use in self._input_nodes.keys():
+            old_use.users.pop(self)
+        self._input_nodes = {}
+        map_arg(self._args, lambda n: self._input_nodes.setdefault(n))
+        map_arg(self._kwargs, lambda n: self._input_nodes.setdefault(n))
+        for new_use in self._input_nodes.keys():
+            new_use.users.setdefault(self)
+
+    def __repr__(self) ->str:
+        return self.name
+
+    def replace_all_uses_with(self, replace_with: 'Node') ->List['Node']:
+        """
+        Replace all uses of ``self`` in the Graph with the Node ``replace_with``.
+
+        Args:
+
+            replace_with (Node): The node to replace all uses of ``self`` with.
+
+        Returns:
+
+            The list of Nodes on which this change was made.
+        """
+        to_process = list(self.users)
+        for use_node in to_process:
+
+            def maybe_replace_node(n: Node) ->Node:
+                if n == self:
+                    return replace_with
+                else:
+                    return n
+            new_args = map_arg(use_node.args, maybe_replace_node)
+            new_kwargs = map_arg(use_node.kwargs, maybe_replace_node)
+            assert isinstance(new_args, tuple)
+            assert isinstance(new_kwargs, dict)
+            use_node.__update_args_kwargs(new_args, new_kwargs)
+        assert len(self.users) == 0
+        return to_process
+
+
+Target = Union[Callable[..., Any], str]
+
+
+class _InsertPoint:
+
+    def __init__(self, graph, new_insert):
+        self.graph = graph
+        self.orig_insert, graph._insert = graph._insert, new_insert
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, type, value, tb):
+        self.graph._insert = self.orig_insert
+
+
+def _format_args(args: Tuple[Argument, ...], kwargs: Dict[str, Argument]) ->str:
+    args_s = ', '.join(repr(a) for a in args)
+    kwargs_s = ', '.join(f'{k} = {repr(v)}' for k, v in kwargs.items())
+    if args_s and kwargs_s:
+        return f'{args_s}, {kwargs_s}'
+    return args_s or kwargs_s
+
+
+def _format_target(base: str, target: str) ->str:
+    elems = target.split('.')
+    r = base
+    for e in elems:
+        if not e.isidentifier():
+            r = f'getattr({r}, "{e}")'
+        else:
+            r = f'{r}.{e}'
+    return r
+
+
+def _is_magic(x: str) ->bool:
+    return x.startswith('__') and x.endswith('__')
+
+
+class _node_list:
+
+    def __init__(self, graph: 'Graph', direction: str='_next'):
+        assert direction in ['_next', '_prev']
+        self.graph = graph
+        self.direction = direction
+
+    def __len__(self):
+        return self.graph._len
+
+    def __iter__(self):
+        root, direction = self.graph._root, self.direction
+        cur = getattr(root, direction)
+        while cur is not root:
+            if not cur._erased:
+                yield cur
+            cur = getattr(cur, direction)
+
+    def __reversed__(self):
+        return _node_list(self.graph, '_next' if self.direction == '_prev' else '_prev')
+
+
+def _shadows_builtin_name(name: str) ->bool:
+    return name in builtins.__dict__ or name in keyword.kwlist or name in {'inf', 'nan', 'NoneType'}
+
+
+def _snake_case(s: str) ->str:
+    """
+    Transforms the given string ``s`` to a Python-style variable name
+
+    Examples:
+        ``mod.snake_case`` -> ``mod.snake_case``
+        ``mod.pascalCase``-> ``mod.pascal_case``
+        ``mod.ALL_CAPS`` -> ``mod.all_caps``
+    """
+    chars = []
+    prev_lower = False
+    for c in s:
+        if prev_lower and c.isupper():
+            chars.append('_')
+        chars.append(c.lower())
+        prev_lower = c.islower()
+    return ''.join(chars)
+
+
+def _type_repr(obj):
+    """Return the repr() of an object, special-casing types (internal helper).
+    If obj is a type, we return a shorter version than the default
+    type.__repr__, based on the module and qualified name, which is
+    typically enough to uniquely identify a type.  For everything
+    else, we fall back on repr(obj).
+    """
+    if isinstance(obj, type) and obj.__module__ != 'typing':
+        if obj.__module__ == 'builtins':
+            return obj.__qualname__
+        return f'{obj.__module__}.{obj.__qualname__}'
+    if obj is ...:
+        return '...'
+    if isinstance(obj, types.FunctionType):
+        return obj.__name__
+    return repr(obj)
+
+
+def _find_module_of_method(orig_method: Callable[..., Any]) ->str:
+    name = orig_method.__name__
+    module = orig_method.__module__
+    if module is not None:
+        return module
+    for guess in [torch, torch.nn.functional]:
+        if getattr(guess, name, None) is orig_method:
+            return guess.__name__
+    raise RuntimeError(f'cannot find module for {orig_method}')
+
+
+def get_qualified_name(func: Callable[..., Any]) ->str:
+    if getattr(builtins, func.__name__, None) is func:
+        return func.__name__
+    name = func.__name__
+    module = _find_module_of_method(func)
+    module = module.replace('torch._ops', 'torch.ops')
+    return f'{module}.{name}'
+
+
+reflectable_magic_methods = {'add': '{} + {}', 'sub': '{} - {}', 'mul': '{} * {}', 'floordiv': '{} // {}', 'truediv': '{} / {}', 'div': '{} / {}', 'mod': '{} % {}', 'pow': '{} ** {}', 'lshift': '{} << {}', 'rshift': '{} >> {}', 'and': '{} & {}', 'or': '{} | {}', 'xor': '{} ^ {}', 'getitem': '{}[{}]'}
+
+
+magic_methods = dict({'eq': '{} == {}', 'ne': '{} != {}', 'lt': '{} < {}', 'gt': '{} > {}', 'le': '{} <= {}', 'ge': '{} >= {}', 'pos': '+{}', 'neg': '-{}', 'invert': '~{}'}, **reflectable_magic_methods)
+
+
+def _addindent(s_, numSpaces):
+    s = s_.split('\n')
+    if len(s) == 1:
+        return s_
+    first = s.pop(0)
+    s = [(numSpaces * ' ' + line) for line in s]
+    s = '\n'.join(s)
+    s = first + '\n' + s
+    return s
+
+
+def _assign_attr(from_obj: Any, to_module: torch.nn.Module, target: str):
+    *prefix, field = target.split('.')
+    for item in prefix:
+        t = getattr(to_module, item, None)
+        if t is None:
+            t = torch.nn.Module()
+            setattr(to_module, item, t)
+        to_module = t
+    setattr(to_module, field, from_obj)
+
+
+def _copy_attr(from_module: torch.nn.Module, to_module: torch.nn.Module, target: str):
+    *prefix, field = target.split('.')
+    for item in prefix:
+        f = getattr(from_module, item)
+        t = getattr(to_module, item, None)
+        if f is t:
+            return
+        if t is None:
+            t = torch.nn.Module()
+            setattr(to_module, item, t)
+        from_module, to_module = f, t
+    orig = getattr(from_module, field)
+    if isinstance(orig, torch.Tensor) and not isinstance(orig, torch.nn.Parameter):
+        to_module.register_buffer(field, orig)
+    else:
+        setattr(to_module, field, orig)
+
+
+def exec_with_source(src: str, globals: Dict[str, Any]):
+    global _next_id
+    key = f'<eval_with_key_{_next_id}>'
+    _next_id += 1
+    _eval_cache[key] = [(line + '\n') for line in src.splitlines()]
+    exec(compile(src, key, 'exec'), globals)
+
+
+def _forward_from_src(src: str):
+    gbls: Dict[str, Any] = {'inf': math.inf, 'nan': math.nan, 'NoneType': type(None)}
+    exec_with_source(src, gbls)
+    return gbls['forward']
+
+
+def deserialize_graphmodule(body: dict) ->torch.nn.Module:
+    """
+    Deserialize a GraphModule given the dictionary of the original module,
+    using the code to reconstruct the graph. We delete the actual graph before
+    saving the dictionary so that changes to the in-memory graph format do not
+    get serialized.
+    """
+
+
+    class CodeOnlyModule(torch.nn.Module):
+
+        def __init__(self, body):
+            super().__init__()
+            self.__dict__ = body
+    try:
+        CodeOnlyModule.forward = _forward_from_src(body['_code'])
+    except KeyError:
+        CodeOnlyModule.forward = _forward_from_src(body['code'])
+
+
+    class KeepModules(Tracer):
+
+        def is_leaf_module(self, _: torch.nn.Module, __: str) ->bool:
+            return True
+    com = CodeOnlyModule(body)
+    return GraphModule(com, KeepModules().trace(com))
+
+
+class HadamardClassifier(QuantLayerMixin, nn.Module):
+
+    def __init__(self, in_channels, out_channels, fixed_scale=False, return_quant_tensor: bool=False):
+        QuantLayerMixin.__init__(self, return_quant_tensor=return_quant_tensor)
         nn.Module.__init__(self)
         if hadamard is None:
             raise Exception('Hadamard layer requires scipy to be installed.')
@@ -1595,21 +2423,28 @@ class HadamardClassifier(QuantLayer, nn.Module):
             self.scale = nn.Parameter(torch.tensor(init_scale))
         self.eps = 1e-08
 
-    def forward(self, x):
+    def forward(self, inp):
         output_scale = None
+        output_zp = None
         output_bit_width = None
-        x, input_scale, input_bit_width = self.unpack_input(x)
-        norm = x.norm(p='fro', keepdim=True) + self.eps
-        x = x / norm
-        out = -self.scale * nn.functional.linear(x, self.proj[:self.out_channels, :self.in_channels])
-        if self.compute_output_scale:
-            output_scale = input_scale * self.scale / norm
-        if self.compute_output_bit_width:
-            output_bit_width = self.max_output_bit_width(input_bit_width)
-        return self.pack_output(out, output_scale, output_bit_width)
+        inp = self.unpack_input(inp)
+        norm = inp.value.norm(p='fro', keepdim=True) + self.eps
+        out = inp.value / norm
+        out = nn.functional.linear(out, self.proj[:self.out_channels, :self.in_channels])
+        out = -self.scale * out
+        if inp.scale is not None:
+            output_scale = inp.scale * self.scale / norm
+        if inp.bit_width is not None:
+            output_bit_width = self.max_output_bit_width(inp.bit_width)
+        if self.return_quant_tensor and inp.zero_point is not None and (inp.zero_point != 0.0).any():
+            raise RuntimeError('Computing zero point of output accumulator not supported yet.')
+        else:
+            output_zp = inp.zero_point
+        out = QuantTensor(value=out, scale=output_scale, zero_point=output_zp, bit_width=output_bit_width, signed=True, training=self.training)
+        return out
 
     def max_output_bit_width(self, input_bit_width):
-        max_input_val = max_uint(bit_width=input_bit_width, narrow_range=False)
+        max_input_val = max_int(bit_width=input_bit_width, narrow_range=False, signed=False)
         max_output_val = max_input_val * self.in_channels
         output_bit_width = ceil_ste(torch.log2(max_output_val))
         return output_bit_width
@@ -1626,185 +2461,155 @@ class HadamardClassifier(QuantLayer, nn.Module):
             missing_keys.remove(proj_key)
 
 
-class QuantAccumulator(QuantLayer, Module):
-    __metaclass__ = ABCMeta
-
-    def __init__(self):
-        QuantLayer.__init__(self, compute_output_scale=True, compute_output_bit_width=True, return_quant_tensor=True)
-        Module.__init__(self)
-
-    @property
-    def acc_quant_proxy(self):
-        return self._act_quant_proxy
-
-    @acc_quant_proxy.setter
-    def acc_quant_proxy(self, act_quant_proxy):
-        self._acc_quant_proxy = act_quant_proxy
-
-    def forward(self, input):
-        tensor, input_scale, input_bit_width = self.unpack_input(input)
-        output, output_scale, output_bit_width = self.acc_quant_proxy(tensor, input_scale, input_bit_width)
-        return self.pack_output(output, output_scale, output_bit_width)
+NON_ZERO_EPSILON = 1e-06
 
 
-ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+REMOVE_ZERO_BIT_WIDTH = 0.1
 
 
-ZERO_HW_SENTINEL_VALUE = 0.0
+class QuantDropout(QuantLayerMixin, Dropout):
 
-
-class QuantProxy(nn.Module):
-    __metaclass__ = ABCMeta
-
-    def __init__(self):
-        super(QuantProxy, self).__init__()
-        self.register_buffer(ZERO_HW_SENTINEL_NAME, torch.tensor(ZERO_HW_SENTINEL_VALUE))
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(QuantProxy, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        zero_hw_sentinel_key = prefix + ZERO_HW_SENTINEL_NAME
-        if zero_hw_sentinel_key in missing_keys:
-            missing_keys.remove(zero_hw_sentinel_key)
-        if zero_hw_sentinel_key in unexpected_keys:
-            unexpected_keys.remove(zero_hw_sentinel_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(QuantProxy, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + ZERO_HW_SENTINEL_NAME]
-        return output_dict
-
-
-class TensorClamp(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(TensorClamp, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor):
-        return tensor_clamp(x, min_val=min_val, max_val=max_val)
-
-
-class QuantActivation(QuantLayer, Module):
-    __metaclass__ = ABCMeta
-
-    def __init__(self, return_quant_tensor):
-        QuantLayer.__init__(self, compute_output_scale=True, compute_output_bit_width=True, return_quant_tensor=return_quant_tensor)
-        Module.__init__(self)
+    def __init__(self, p: float=0.5, return_quant_tensor: bool=True):
+        Dropout.__init__(self, p=p, inplace=False)
+        QuantLayerMixin.__init__(self, return_quant_tensor=return_quant_tensor)
 
     @property
-    def act_quant_proxy(self):
-        return self._act_quant_proxy
-
-    @act_quant_proxy.setter
-    def act_quant_proxy(self, act_quant_proxy):
-        self._act_quant_proxy = act_quant_proxy
-
-    def quant_act_scale(self):
-        if isinstance(self.act_quant_proxy.fused_activation_quant_proxy.tensor_quant, IdentityQuant):
-            raise Exception("Can't generate scaling factor without quantization enabled")
-        zero_hw_sentinel = self.act_quant_proxy.zero_hw_sentinel
-        scaling_impl = self.act_quant_proxy.fused_activation_quant_proxy.tensor_quant.scaling_impl
-        current_status = scaling_impl.training
-        scaling_impl.eval()
-        _, out, _ = self.act_quant_proxy(zero_hw_sentinel)
-        scaling_impl.train(current_status)
-        return out
-
-    def forward(self, input):
-        tensor, _, _ = self.unpack_input(input)
-        output, output_scale, output_bit_width = self.act_quant_proxy(tensor)
-        return self.pack_output(output, output_scale, output_bit_width)
-
-
-class FusedActivationQuantProxy(torch.jit.ScriptModule):
-
-    def __init__(self, activation_impl, tensor_quant):
-        super(FusedActivationQuantProxy, self).__init__()
-        self.activation_impl = activation_impl
-        self.tensor_quant = tensor_quant
-
-    @torch.jit.script_method
-    def forward(self, x, zero_hw_sentinel):
-        x = self.activation_impl(x)
-        x, output_scale, output_bit_width = self.tensor_quant(x, zero_hw_sentinel)
-        return x, output_scale, output_bit_width
-
-
-SCALING_MIN_VAL = 2e-09
-
-
-class ConstScalarClamp(torch.jit.ScriptModule):
-    __constants__ = ['min_val', 'max_val']
-
-    def __init__(self, min_val, max_val) ->None:
-        super(ConstScalarClamp, self).__init__()
-        self.min_val = min_val
-        self.max_val = max_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.clamp(x, min=self.min_val, max=self.max_val)
-
-
-OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
-
-
-class ParameterQuantProxy(QuantProxy):
-    __metaclass__ = ABCMeta
+    def channelwise_separable(self) ->bool:
+        return True
 
     @property
-    def tensor_quant(self):
-        return self._tensor_quant
+    def requires_export_handler(self):
+        return False
 
-    @tensor_quant.setter
-    def tensor_quant(self, tensor_quant):
-        self._tensor_quant = tensor_quant
-
-    @tensor_quant.deleter
-    def tensor_quant(self):
-        del self._tensor_quant
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        x = x.set(value=super().forward(x.value))
+        return self.pack_output(x)
 
 
-class TensorClampSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(TensorClampSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor):
-        return tensor_clamp_ste(x, min_val, max_val)
-
-
-class WeightReg(nn.Module):
-
-    def __init__(self):
-        super(WeightReg, self).__init__()
-        pass
-
-    def forward(self, weight):
-        return weight + 0
+def rename_state_dict_by_prefix(old_prefix, new_prefix, state_dict):
+    keys_map = {}
+    for k in state_dict.keys():
+        if k.startswith(old_prefix):
+            new_key = new_prefix + k[len(old_prefix):]
+            keys_map[k] = new_key
+    for old_key in keys_map.keys():
+        state_dict[keys_map[old_key]] = state_dict.pop(old_key)
 
 
-def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias, affine_only):
-    mul_factor = bn_weight
-    add_factor = bn_bias * torch.sqrt(bn_var + bn_eps)
-    add_factor = add_factor - bn_mean * (bn_weight - 1.0)
-    if not affine_only:
-        mul_factor = mul_factor / torch.sqrt(bn_var + bn_eps)
-        add_factor = add_factor - bn_mean
-        add_factor = add_factor / torch.sqrt(bn_var + bn_eps)
-    return mul_factor, add_factor
+class QuantMaxPool1d(QuantLayerMixin, MaxPool1d):
+
+    def __init__(self, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False, return_quant_tensor: bool=True):
+        MaxPool1d.__init__(self, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, return_indices=return_indices, ceil_mode=ceil_mode)
+        QuantLayerMixin.__init__(self, return_quant_tensor=return_quant_tensor)
+
+    @property
+    def channelwise_separable(self) ->bool:
+        return True
+
+    @property
+    def requires_export_handler(self):
+        return False
+
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        if self.export_mode:
+            return self.export_handler(x.value)
+        x = x.set(value=super().forward(x.value))
+        return self.pack_output(x)
 
 
-class ScaleBias(nn.Module):
+class ScaleBias(Module):
 
-    def __init__(self, num_features):
+    def __init__(self, num_features: int, bias: bool, runtime_shape=(1, -1, 1, 1)):
         super(ScaleBias, self).__init__()
-        self.weight = nn.Parameter(torch.ones(num_features))
-        self.bias = nn.Parameter(torch.zeros(num_features))
+        self.num_features = num_features
+        self.weight = Parameter(torch.ones(num_features))
+        self.bias = Parameter(torch.zeros(num_features)) if bias else None
+        self.runtime_shape = runtime_shape
 
-    def forward(self, x):
-        return x * self.weight + self.bias
+    def forward(self, input):
+        return input * self.weight.view(self.runtime_shape) + self.bias.view(self.runtime_shape)
+
+
+class QuantUpsample(QuantLayerMixin, Upsample):
+
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None, return_quant_tensor: bool=True):
+        Upsample.__init__(self, size=size, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
+        QuantLayerMixin.__init__(self, return_quant_tensor)
+
+    @property
+    def channelwise_separable(self) ->bool:
+        return True
+
+    @property
+    def requires_export_handler(self):
+        return False
+
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        if self.export_mode:
+            out = self.export_handler(x.value)
+            self._set_global_is_quant_layer(False)
+            return out
+        y_value = interpolate(x.value, self.size, self.scale_factor, self.mode, self.align_corners)
+        if self.mode != 'nearest':
+            assert x.scale is not None, 'Input scale factor required to interpolate correctly'
+            y_value = round_ste(y_value / x.scale) * x.scale
+        y = x.set(value=y_value)
+        return self.pack_output(y)
+
+
+class QuantUpsamplingBilinear2d(QuantLayerMixin, UpsamplingBilinear2d):
+
+    def __init__(self, size=None, scale_factor=None, return_quant_tensor: bool=True):
+        UpsamplingBilinear2d.__init__(self, size=size, scale_factor=scale_factor)
+        QuantLayerMixin.__init__(self, return_quant_tensor)
+
+    @property
+    def channelwise_separable(self) ->bool:
+        return True
+
+    @property
+    def requires_export_handler(self):
+        return False
+
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        if self.export_mode:
+            out = self.export_handler(x.value)
+            self._set_global_is_quant_layer(False)
+            return out
+        y_value = interpolate(x.value, self.size, self.scale_factor, self.mode, self.align_corners)
+        assert x.scale is not None, 'Input scale factor required to interpolate correctly'
+        y_value = round_ste(y_value / x.scale) * x.scale
+        y = x.set(value=y_value)
+        return self.pack_output(y)
+
+
+class QuantUpsamplingNearest2d(QuantLayerMixin, UpsamplingNearest2d):
+
+    def __init__(self, size=None, scale_factor=None, return_quant_tensor: bool=True):
+        UpsamplingNearest2d.__init__(self, size=size, scale_factor=scale_factor)
+        QuantLayerMixin.__init__(self, return_quant_tensor)
+
+    @property
+    def channelwise_separable(self) ->bool:
+        return True
+
+    @property
+    def requires_export_handler(self):
+        return False
+
+    def forward(self, input: Union[Tensor, QuantTensor]):
+        x = self.unpack_input(input)
+        if self.export_mode:
+            out = self.export_handler(x.value)
+            self._set_global_is_quant_layer(False)
+            return out
+        y_value = interpolate(x.value, self.size, self.scale_factor, self.mode, self.align_corners)
+        y = x.set(value=y_value)
+        return self.pack_output(y)
 
 
 class TupleSequential(Sequential):
@@ -1829,13 +2634,10 @@ CNV_OUT_CH_POOL = [(64, False), (64, True), (128, False), (128, True), (256, Fal
 INTERMEDIATE_FC_FEATURES = [(256, 512), (512, 512)]
 
 
-INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
+KERNEL_SIZE = 3
 
 
 LAST_FC_IN_FEATURES = 512
-
-
-LAST_FC_PER_OUT_CH_SCALING = False
 
 
 class TensorNorm(nn.Module):
@@ -1869,74 +2671,25 @@ class TensorNorm(nn.Module):
             return (x - self.running_mean) / (self.running_var + self.eps).pow(0.5) * self.weight + self.bias
 
 
-ACT_PER_OUT_CH_SCALING = False
-
-
-HARD_TANH_MAX = 1.0
-
-
-HARD_TANH_MIN = -1.0
-
-
-NARROW_RANGE_ENABLED = True
-
-
-def get_act_quant(act_bit_width, act_quant_type):
-    return QuantHardTanh(quant_type=act_quant_type, bit_width=act_bit_width, bit_width_impl_type=BIT_WIDTH_IMPL_TYPE, min_val=HARD_TANH_MIN, max_val=HARD_TANH_MAX, scaling_impl_type=ACT_SCALING_IMPL_TYPE, restrict_scaling_type=SCALING_VALUE_TYPE, scaling_per_channel=ACT_PER_OUT_CH_SCALING, narrow_range=NARROW_RANGE_ENABLED)
-
-
-BIAS_ENABLED = False
-
-
-CONV_PER_OUT_CH_SCALING = False
-
-
-KERNEL_SIZE = 3
-
-
-WEIGHT_SCALING_CONST = 1.0
-
-
-def get_quant_conv2d(in_ch, out_ch, bit_width, quant_type):
-    return QuantConv2d(in_channels=in_ch, kernel_size=KERNEL_SIZE, out_channels=out_ch, weight_quant_type=quant_type, weight_bit_width=bit_width, weight_narrow_range=NARROW_RANGE_ENABLED, weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE, weight_scaling_const=WEIGHT_SCALING_CONST, weight_scaling_per_output_channel=CONV_PER_OUT_CH_SCALING, weight_restrict_scaling_type=SCALING_VALUE_TYPE, weight_bit_width_impl_type=BIT_WIDTH_IMPL_TYPE, bias=BIAS_ENABLED)
-
-
-def get_quant_linear(in_features, out_features, per_out_ch_scaling, bit_width, quant_type):
-    return QuantLinear(bias=BIAS_ENABLED, in_features=in_features, out_features=out_features, weight_quant_type=quant_type, weight_bit_width=bit_width, weight_scaling_const=WEIGHT_SCALING_CONST, weight_bit_width_impl_type=BIT_WIDTH_IMPL_TYPE, weight_scaling_per_output_channel=per_out_ch_scaling, weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE, weight_narrow_range=NARROW_RANGE_ENABLED)
-
-
-def get_quant_type(bit_width):
-    if bit_width is None:
-        return QuantType.FP
-    elif bit_width == 1:
-        return QuantType.BINARY
-    else:
-        return QuantType.INT
-
-
 class CNV(Module):
 
-    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width=None, in_bit_width=None, in_ch=3):
+    def __init__(self, num_classes, weight_bit_width, act_bit_width, in_bit_width, in_ch):
         super(CNV, self).__init__()
-        weight_quant_type = get_quant_type(weight_bit_width)
-        act_quant_type = get_quant_type(act_bit_width)
-        in_quant_type = get_quant_type(in_bit_width)
-        max_in_val = 1 - 2 ** -7
         self.conv_features = ModuleList()
         self.linear_features = ModuleList()
-        self.conv_features.append(QuantHardTanh(bit_width=in_bit_width, quant_type=in_quant_type, max_val=max_in_val, restrict_scaling_type=RestrictValueType.POWER_OF_TWO, scaling_impl_type=ScalingImplType.CONST))
+        self.conv_features.append(QuantIdentity(act_quant=CommonActQuant, bit_width=in_bit_width, min_val=-1.0, max_val=1.0 - 2.0 ** -7, narrow_range=False, restrict_scaling_type=RestrictValueType.POWER_OF_TWO))
         for out_ch, is_pool_enabled in CNV_OUT_CH_POOL:
-            self.conv_features.append(get_quant_conv2d(in_ch=in_ch, out_ch=out_ch, bit_width=weight_bit_width, quant_type=weight_quant_type))
+            self.conv_features.append(QuantConv2d(kernel_size=KERNEL_SIZE, in_channels=in_ch, out_channels=out_ch, bias=False, weight_quant=CommonWeightQuant, weight_bit_width=weight_bit_width))
             in_ch = out_ch
             self.conv_features.append(BatchNorm2d(in_ch, eps=0.0001))
-            self.conv_features.append(get_act_quant(act_bit_width, act_quant_type))
+            self.conv_features.append(QuantIdentity(act_quant=CommonActQuant, bit_width=act_bit_width))
             if is_pool_enabled:
                 self.conv_features.append(MaxPool2d(kernel_size=2))
         for in_features, out_features in INTERMEDIATE_FC_FEATURES:
-            self.linear_features.append(get_quant_linear(in_features=in_features, out_features=out_features, per_out_ch_scaling=INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
+            self.linear_features.append(QuantLinear(in_features=in_features, out_features=out_features, bias=False, weight_quant=CommonWeightQuant, weight_bit_width=weight_bit_width))
             self.linear_features.append(BatchNorm1d(out_features, eps=0.0001))
-            self.linear_features.append(get_act_quant(act_bit_width, act_quant_type))
-        self.linear_features.append(get_quant_linear(in_features=LAST_FC_IN_FEATURES, out_features=num_classes, per_out_ch_scaling=LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
+            self.linear_features.append(QuantIdentity(act_quant=CommonActQuant, bit_width=act_bit_width))
+        self.linear_features.append(QuantLinear(in_features=LAST_FC_IN_FEATURES, out_features=num_classes, bias=False, weight_quant=CommonWeightQuant, weight_bit_width=weight_bit_width))
         self.linear_features.append(TensorNorm())
         for m in self.modules():
             if isinstance(m, QuantConv2d) or isinstance(m, QuantLinear):
@@ -1960,106 +2713,25 @@ class CNV(Module):
         return x
 
 
-FC_OUT_FEATURES = [64, 64, 64]
+DROPOUT = 0.2
 
 
-HIDDEN_DROPOUT = 0.2
+class FC(Module):
 
-
-IN_DROPOUT = 0.2
-
-
-class LFC(Module):
-
-    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width=None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
-        super(LFC, self).__init__()
-        weight_quant_type = get_quant_type(weight_bit_width)
-        act_quant_type = get_quant_type(act_bit_width)
-        in_quant_type = get_quant_type(in_bit_width)
+    def __init__(self, num_classes, weight_bit_width, act_bit_width, in_bit_width, in_channels, out_features, in_features=(28, 28)):
+        super(FC, self).__init__()
         self.features = ModuleList()
-        self.features.append(get_act_quant(in_bit_width, in_quant_type))
-        self.features.append(Dropout(p=IN_DROPOUT))
+        self.features.append(QuantIdentity(act_quant=CommonActQuant, bit_width=in_bit_width))
+        self.features.append(Dropout(p=DROPOUT))
         in_features = reduce(mul, in_features)
-        for out_features in FC_OUT_FEATURES:
-            self.features.append(get_quant_linear(in_features=in_features, out_features=out_features, per_out_ch_scaling=INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
+        for out_features in out_features:
+            self.features.append(QuantLinear(in_features=in_features, out_features=out_features, bias=False, weight_bit_width=weight_bit_width, weight_quant=CommonWeightQuant))
             in_features = out_features
             self.features.append(BatchNorm1d(num_features=in_features))
-            self.features.append(get_act_quant(act_bit_width, act_quant_type))
-            self.features.append(Dropout(p=HIDDEN_DROPOUT))
-        self.features.append(get_quant_linear(in_features=in_features, out_features=num_classes, per_out_ch_scaling=LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
-        self.features.append(BatchNorm1d(num_features=num_classes))
-        for m in self.modules():
-            if isinstance(m, QuantLinear):
-                torch.nn.init.uniform_(m.weight.data, -1, 1)
-
-    def clip_weights(self, min_val, max_val):
-        for mod in self.features:
-            if isinstance(mod, QuantLinear):
-                mod.weight.data.clamp_(min_val, max_val)
-
-    def forward(self, x):
-        x = x.view(x.shape[0], -1)
-        x = 2.0 * x - torch.tensor([1.0], device=x.device)
-        for mod in self.features:
-            x = mod(x)
-        return x
-
-
-class SFC(Module):
-
-    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width=None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
-        super(SFC, self).__init__()
-        weight_quant_type = get_quant_type(weight_bit_width)
-        act_quant_type = get_quant_type(act_bit_width)
-        in_quant_type = get_quant_type(in_bit_width)
-        self.features = ModuleList()
-        self.features.append(get_act_quant(in_bit_width, in_quant_type))
-        self.features.append(Dropout(p=IN_DROPOUT))
-        in_features = reduce(mul, in_features)
-        for out_features in FC_OUT_FEATURES:
-            self.features.append(get_quant_linear(in_features=in_features, out_features=out_features, per_out_ch_scaling=INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
-            in_features = out_features
-            self.features.append(BatchNorm1d(num_features=in_features))
-            self.features.append(get_act_quant(act_bit_width, act_quant_type))
-            self.features.append(Dropout(p=HIDDEN_DROPOUT))
-        self.features.append(get_quant_linear(in_features=in_features, out_features=num_classes, per_out_ch_scaling=LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
-        self.features.append(BatchNorm1d(num_features=num_classes))
-        for m in self.modules():
-            if isinstance(m, QuantLinear):
-                torch.nn.init.uniform_(m.weight.data, -1, 1)
-
-    def clip_weights(self, min_val, max_val):
-        for mod in self.features:
-            if isinstance(mod, QuantLinear):
-                mod.weight.data.clamp_(min_val, max_val)
-
-    def forward(self, x):
-        x = x.view(x.shape[0], -1)
-        x = 2.0 * x - torch.tensor([1.0], device=x.device)
-        for mod in self.features:
-            x = mod(x)
-        return x
-
-
-class TFC(Module):
-
-    def __init__(self, num_classes=10, weight_bit_width=None, act_bit_width=None, in_bit_width=None, in_ch=1, in_features=(28, 28)):
-        super(TFC, self).__init__()
-        weight_quant_type = get_quant_type(weight_bit_width)
-        act_quant_type = get_quant_type(act_bit_width)
-        in_quant_type = get_quant_type(in_bit_width)
-        self.features = ModuleList()
-        self.features.append(get_act_quant(in_bit_width, in_quant_type))
-        self.features.append(Dropout(p=IN_DROPOUT))
-        in_features = reduce(mul, in_features)
-        for out_features in FC_OUT_FEATURES:
-            self.features.append(get_quant_linear(in_features=in_features, out_features=out_features, per_out_ch_scaling=INTERMEDIATE_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
-            in_features = out_features
-            self.features.append(BatchNorm1d(num_features=in_features))
-            self.features.append(get_act_quant(act_bit_width, act_quant_type))
-            self.features.append(Dropout(p=HIDDEN_DROPOUT))
-        self.features.append(get_quant_linear(in_features=in_features, out_features=num_classes, per_out_ch_scaling=LAST_FC_PER_OUT_CH_SCALING, bit_width=weight_bit_width, quant_type=weight_quant_type))
-        self.features.append(BatchNorm1d(num_features=num_classes))
+            self.features.append(QuantIdentity(act_quant=CommonActQuant, bit_width=act_bit_width))
+            self.features.append(Dropout(p=DROPOUT))
+        self.features.append(QuantLinear(in_features=in_features, out_features=num_classes, bias=False, weight_bit_width=weight_bit_width, weight_quant=CommonWeightQuant))
+        self.features.append(TensorNorm())
         for m in self.modules():
             if isinstance(m, QuantLinear):
                 torch.nn.init.uniform_(m.weight.data, -1, 1)
@@ -2107,35 +2779,14 @@ class SqrHingeLoss(nn.Module):
         return squared_hinge_loss.apply(input, target)
 
 
-ENABLE_BIAS_QUANT = False
-
-
-WEIGHT_NARROW_RANGE = True
-
-
-WEIGHT_SCALING_PER_OUTPUT_CHANNEL = True
-
-
-ACT_MAX_VAL = 1
-
-
-ACT_PER_CHANNEL_BROADCASTABLE_SHAPE = None
-
-
-ACT_RETURN_QUANT_TENSOR = False
-
-
-ACT_SCALING_PER_CHANNEL = False
-
-
 class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, weight_bit_width, act_bit_width, act_scaling_per_channel, bias, groups=1, bn_eps=1e-05, shared_act=None, return_quant_tensor=False):
         super(ConvBlock, self).__init__()
-        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, bit_width=weight_bit_width, weight_scaling_per_output_channel=True)
+        self.conv = QuantConv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, weight_bit_width=weight_bit_width, weight_quant=CommonIntWeightPerChannelQuant)
         self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
         if shared_act is None:
-            self.activ = make_quant_relu(bit_width=act_bit_width, scaling_per_channel=act_scaling_per_channel, per_channel_broadcastable_shape=(1, out_channels, 1, 1), return_quant_tensor=return_quant_tensor)
+            self.activ = QuantReLU(act_quant=CommonUintActQuant, bit_width=act_bit_width, scaling_per_channel=act_scaling_per_channel, per_channel_broadcastable_shape=(1, out_channels, 1, 1), return_quant_tensor=return_quant_tensor)
         else:
             self.activ = shared_act
 
@@ -2180,14 +2831,14 @@ class MobileNet(nn.Module):
                 stage.add_module('unit{}'.format(j + 1), mod)
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.final_pool = make_quant_avg_pool(kernel_size=7, stride=1, signed=False, bit_width=bit_width)
-        self.output = make_quant_linear(in_channels, num_classes, bias=True, enable_bias_quant=True, bit_width=bit_width, weight_scaling_per_output_channel=False)
+        self.final_pool = QuantAvgPool2d(kernel_size=7, stride=1, bit_width=bit_width)
+        self.output = QuantLinear(in_channels, num_classes, bias=True, bias_quant=IntBias, weight_quant=CommonIntWeightPerTensorQuant, weight_bit_width=bit_width)
 
     def forward(self, x):
-        quant_tensor = self.features(x)
-        x, scale, bit_width = self.final_pool(quant_tensor)
+        x = self.features(x)
+        x = self.final_pool(x)
         x = x.view(x.size(0), -1)
-        out = self.output(pack_quant_tensor(x, scale, bit_width))
+        out = self.output(x)
         return out
 
 
@@ -2236,16 +2887,6 @@ class ProxylessUnit(nn.Module):
         return x
 
 
-HADAMARD_FIXED_SCALE = False
-
-
-def make_hadamard_classifier(in_channels, out_channels, fixed_scale=HADAMARD_FIXED_SCALE):
-    return qnn.HadamardClassifier(in_channels=in_channels, out_channels=out_channels, fixed_scale=fixed_scale)
-
-
-HARD_TANH_THRESHOLD = 10.0
-
-
 class ProxylessNAS(nn.Module):
 
     def __init__(self, channels, init_block_channels, final_block_channels, residuals, shortcuts, kernel_sizes, expansions, bit_width, depthwise_bit_width, first_layer_weight_bit_width, hadamard_classifier, bn_eps=0.001, in_channels=3, num_classes=1000):
@@ -2268,7 +2909,7 @@ class ProxylessNAS(nn.Module):
                 expansion = expansions_per_stage[j]
                 stride = 2 if j == 0 and i != 0 else 1
                 if not shortcut:
-                    shared_act = make_quant_hard_tanh(bit_width=bit_width, return_quant_tensor=True)
+                    shared_act = QuantIdentity(bit_width=bit_width, act_quant=CommonIntActQuant, return_quant_tensor=True)
                 unit = ProxylessUnit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, bn_eps=bn_eps, expansion=expansion, residual=residual, shortcut=shortcut, bit_width=bit_width, depthwise_bit_width=depthwise_bit_width, shared_act=shared_act)
                 stage.add_module('unit{}'.format(j + 1), unit)
                 in_channels = out_channels
@@ -2276,17 +2917,17 @@ class ProxylessNAS(nn.Module):
         final_block = ConvBlock(in_channels=in_channels, out_channels=final_block_channels, kernel_size=1, stride=1, padding=0, groups=1, bn_eps=bn_eps, act_scaling_per_channel=False, act_bit_width=bit_width, weight_bit_width=bit_width, bias=False, return_quant_tensor=True)
         self.features.add_module('final_block', final_block)
         in_channels = final_block_channels
-        self.final_pool = make_quant_avg_pool(kernel_size=7, stride=1, signed=False, bit_width=bit_width)
+        self.final_pool = QuantAvgPool2d(kernel_size=7, stride=1, bit_width=bit_width)
         if hadamard_classifier:
-            self.output = make_hadamard_classifier(in_channels=in_channels, out_channels=num_classes)
+            self.output = HadamardClassifier(in_channels=in_channels, out_channels=num_classes, fixed_scale=False)
         else:
-            self.output = make_quant_linear(in_channels=in_channels, out_channels=num_classes, bias=True, enable_bias_quant=True, bit_width=bit_width, weight_scaling_per_output_channel=False)
+            self.output = QuantLinear(in_features=in_channels, out_features=num_classes, bias=True, bias_quant=IntBias, weight_bit_width=bit_width, weight_quant=CommonIntWeightPerTensorQuant)
 
     def forward(self, x):
         x = self.features(x)
-        x, scale, bit_width = self.final_pool(x)
+        x = self.final_pool(x)
         x = x.view(x.size(0), -1)
-        x = self.output(pack_quant_tensor(x, scale, bit_width))
+        x = self.output(x)
         return x
 
 
@@ -2297,8 +2938,8 @@ def make_layers(cfg, batch_norm, bit_width):
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            conv2d = make_quant_conv2d(in_channels, v, kernel_size=3, stride=1, padding=1, groups=1, bias=not batch_norm, bit_width=bit_width)
-            act = make_quant_relu(bit_width)
+            conv2d = QuantConv2d(in_channels, v, kernel_size=3, stride=1, padding=1, groups=1, bias=not batch_norm, weight_bit_width=bit_width, weight_quant=CommonIntWeightPerChannelQuant)
+            act = QuantReLU(act_quant=CommonUintActQuant, bit_width=bit_width, return_quant_tensor=True)
             if batch_norm:
                 layers += [conv2d, nn.BatchNorm2d(v), act]
             else:
@@ -2312,8 +2953,8 @@ class QuantVGG(nn.Module):
     def __init__(self, cfg, batch_norm, bit_width=8, num_classes=1000):
         super(QuantVGG, self).__init__()
         self.features = make_layers(cfg, batch_norm, bit_width)
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        self.classifier = nn.Sequential(make_quant_linear(512 * 7 * 7, 4096, bias=True, bit_width=bit_width), make_quant_relu(bit_width), nn.Dropout(), make_quant_linear(4096, 4096, bias=True, bit_width=bit_width), make_quant_relu(bit_width), nn.Dropout(), make_quant_linear(4096, num_classes, bias=False, bit_width=bit_width, weight_scaling_per_output_channel=False))
+        self.avgpool = QuantAvgPool2d(kernel_size=(7, 7), stride=1, bit_width=bit_width)
+        self.classifier = nn.Sequential(QuantLinear(512 * 7 * 7, 4096, bias=True, weight_quant=CommonIntWeightPerChannelQuant, weight_bit_width=bit_width), QuantReLU(act_quant=CommonUintActQuant, bit_width=bit_width), nn.Dropout(), QuantLinear(4096, 4096, bias=True, weight_quant=CommonIntWeightPerChannelQuant, weight_bit_width=bit_width), QuantReLU(act_quant=CommonUintActQuant, bit_width=bit_width), nn.Dropout(), QuantLinear(4096, num_classes, bias=False, weight_quant=CommonIntWeightPerTensorQuant, weight_bit_width=bit_width))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2334,7 +2975,8 @@ class QuantVGG(nn.Module):
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
 
 class AudioPreprocessor(nn.Module):
@@ -2475,8 +3117,8 @@ class STFT(torch.nn.Module):
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
         cutoff = int(self.filter_length / 2 + 1)
         fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
-        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
+        forward_basis = torch.FloatTensor(fourier_basis[:, None, :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, None, :])
         if window is not None:
             assert filter_length >= win_length
             fft_window = get_window(window, win_length, fftbins=True)
@@ -2513,7 +3155,7 @@ class STFT(torch.nn.Module):
             approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
             window_sum = torch.autograd.Variable(torch.from_numpy(window_sum), requires_grad=False)
             window_sum = window_sum if magnitude.is_cuda else window_sum
-            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
+            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
             inverse_transform *= float(self.filter_length) / self.hop_length
         inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
         inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
@@ -2530,16 +3172,16 @@ def normalize_batch(x, seq_len, normalize_type):
         x_mean = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
         x_std = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
         for i in range(x.shape[0]):
-            x_mean[(i), :] = x[(i), :, :seq_len[i]].mean(dim=1)
-            x_std[(i), :] = x[(i), :, :seq_len[i]].std(dim=1)
+            x_mean[i, :] = x[i, :, :seq_len[i]].mean(dim=1)
+            x_std[i, :] = x[i, :, :seq_len[i]].std(dim=1)
         x_std += CONSTANT
         return (x - x_mean.unsqueeze(2)) / x_std.unsqueeze(2)
     elif normalize_type == 'all_features':
         x_mean = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
         x_std = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
         for i in range(x.shape[0]):
-            x_mean[i] = x[(i), :, :seq_len[i].item()].mean()
-            x_std[i] = x[(i), :, :seq_len[i].item()].std()
+            x_mean[i] = x[i, :, :seq_len[i].item()].mean()
+            x_std[i] = x[i, :, :seq_len[i].item()].std()
         x_std += CONSTANT
         return (x - x_mean.view(-1, 1, 1)) / x_std.view(-1, 1, 1)
     else:
@@ -2638,7 +3280,7 @@ class FilterbankFeatures(nn.Module):
         if self.dither > 0:
             x += self.dither * torch.randn_like(x)
         if self.preemph is not None:
-            x = torch.cat((x[:, (0)].unsqueeze(1), x[:, 1:] - self.preemph * x[:, :-1]), dim=1)
+            x = torch.cat((x[:, 0].unsqueeze(1), x[:, 1:] - self.preemph * x[:, :-1]), dim=1)
         x = self.stft(x)
         if self.mag_power != 1.0:
             x = x.pow(self.mag_power)
@@ -2855,11 +3497,11 @@ class SpecAugment(nn.Module):
             for i in range(self.freq_masks):
                 x_left = int(self._rng.uniform(0, sh[1] - self.freq_width))
                 w = int(self._rng.uniform(0, self.freq_width))
-                mask[(idx), x_left:x_left + w, :] = 1
+                mask[idx, x_left:x_left + w, :] = 1
             for i in range(self.time_masks):
                 y_left = int(self._rng.uniform(0, sh[2] - self.time_width))
                 w = int(self._rng.uniform(0, self.time_width))
-                mask[(idx), :, y_left:y_left + w] = 1
+                mask[idx, :, y_left:y_left + w] = 1
         x = x.masked_fill(mask.type(torch.bool), 0)
         return x
 
@@ -2892,7 +3534,7 @@ class SpecCutout(nn.Module):
                 rect_y = int(self._rng.uniform(0, sh[2] - self.rect_time))
                 w_x = int(self._rng.uniform(0, self.rect_time))
                 w_y = int(self._rng.uniform(0, self.rect_freq))
-                mask[(idx), rect_x:rect_x + w_x, rect_y:rect_y + w_y] = 1
+                mask[idx, rect_x:rect_x + w_x, rect_y:rect_y + w_y] = 1
         x = x.masked_fill(mask.type(torch.bool), 0)
         return x
 
@@ -3771,6 +4413,12 @@ class CTCLossNM(nn.Module):
 BIAS_CONFIGS = False
 
 
+SCALING_MIN_VAL = 2e-09
+
+
+WEIGHT_NARROW_RANGE = True
+
+
 def make_quantconv1d(feat_in, feat_out, kernel_size, stride, padding, bit_width, dilation=1, group=1):
     return quant_nn.QuantConv1d(in_channels=feat_in, out_channels=feat_out, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=group, weight_bit_width=bit_width, weight_quant_type=QUANT_TYPE, weight_narrow_range=WEIGHT_NARROW_RANGE, weight_scaling_impl_type=WEIGHT_SCALING_IMPL_TYPE, weight_scaling_stats_op=WEIGHT_SCALING_STATS_OP, weight_scaling_min_val=SCALING_MIN_VAL, bias_bit_width=bit_width, bias_quant_type=QUANT_TYPE_BIAS, bias_narrow_range=BIAS_CONFIGS, compute_output_scale=BIAS_CONFIGS, compute_output_bit_width=BIAS_CONFIGS, return_quant_tensor=False)
 
@@ -3788,7 +4436,7 @@ class MaskedConv1d(nn.Module):
             out_channels = heads
             groups = heads
         self.conv = make_quantconv1d(in_channels, out_channels, kernel_size, bias=bias, stride=stride, padding=padding, dilation=dilation, groups=groups, scaling_per_channel=scaling_per_channel, bit_width=bit_width)
-        self.is_depthwise = in_channels == out_channels and in_channels == groups
+        self.channelwise_separable = in_channels == out_channels and in_channels == groups
         self.use_mask = use_mask
         self.heads = heads
 
@@ -3836,11 +4484,28 @@ def get_same_padding(kernel_size, stride, dilation):
 
 def make_jasper_activation(activation, channels, bit_width, absolute_act_val, scaling_per_channel):
     brevitas_activation = brevitas_activations[activation]
-    return brevitas_activation(bit_width=bit_width, scaling_per_channel=scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, max_val=absolute_act_val, per_channel_broadcastable_shape=(1, channels, 1), scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=False)
+    return brevitas_activation(bit_width=bit_width, scaling_per_channel=scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, restrict_scaling_type=ACT_RESTRICT_SCALING_TYPE, max_val=absolute_act_val, per_channel_broadcastable_shape=(1, channels, 1), scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=False)
 
 
 def make_norm_scale(bit_width, absolute_act_val, scaling_per_channel):
-    return quant_nn.QuantHardTanh(bit_width=bit_width, scaling_per_channel=scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, max_val=absolute_act_val, min_val=-absolute_act_val, scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=True)
+    return quant_nn.QuantHardTanh(bit_width=bit_width, scaling_per_channel=scaling_per_channel, quant_type=QUANT_TYPE, scaling_impl_type=ACT_SCALING_IMPL_TYPE, scaling_min_val=SCALING_MIN_VAL, restrict_scaling_type=ACT_RESTRICT_SCALING_TYPE, max_val=absolute_act_val, min_val=-absolute_act_val, scaling_stats_permute_dims=(1, 0, 2), return_quant_tensor=True)
+
+
+def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias):
+    denom = torch.sqrt(bn_var + bn_eps)
+    mul_factor = bn_weight / denom
+    add_factor = -bn_mean * mul_factor + bn_bias
+    return mul_factor, add_factor
+
+
+def rename_state_dict_by_postfix(old_postfix, new_postfix, state_dict):
+    keys_map = {}
+    for k in state_dict.keys():
+        if k.endswith(old_postfix):
+            new_key = k[:len(k) - len(old_postfix)] + new_postfix
+            keys_map[k] = new_key
+    for old_key in keys_map.keys():
+        state_dict[keys_map[old_key]] = state_dict.pop(old_key)
 
 
 class JasperBlock(nn.Module):
@@ -3855,7 +4520,6 @@ class JasperBlock(nn.Module):
         self.conv_mask = conv_mask
         self.separable = separable
         self.residual_mode = residual_mode
-        self.quant_normalization = make_norm_scale(bit_width=bit_width, absolute_act_val=absolute_act_val, scaling_per_channel=activation_other_scaling_per_output_channel)
         self.conv_module_to_merge = []
         inplanes_loop = inplanes
         conv = nn.ModuleList()
@@ -3880,8 +4544,10 @@ class JasperBlock(nn.Module):
             for ip in res_panes:
                 res_list.append(nn.ModuleList(self._get_conv_bn_layer(ip, planes, kernel_size=1, normalization=normalization, norm_groups=norm_groups, bit_width=bit_width, scaling_per_channel=weight_scaling_per_output_channel)))
             self.res = res_list
+            self.quant_normalization = make_norm_scale(bit_width=bit_width, absolute_act_val=absolute_act_val, scaling_per_channel=activation_other_scaling_per_output_channel)
         else:
             self.res = None
+            self.quant_normalization = None
         self.mout = nn.Sequential(*self._get_act_dropout_layer(drop_prob=dropout, activation=activation, channels=inplanes_loop, absolute_act_val=absolute_act_val, scaling_per_channel=activation_other_scaling_per_output_channel, bit_width=bit_width))
 
     def _get_conv(self, in_channels, out_channels, bit_width, scaling_per_channel, kernel_size=11, stride=1, dilation=1, padding=0, bias=False, groups=1, heads=-1, separable=False):
@@ -3934,18 +4600,21 @@ class JasperBlock(nn.Module):
         for i, l in enumerate(self.mconv):
             if isinstance(l, MaskedConv1d):
                 out, lens = l(out, lens)
-                check_flag = check_flag or l.is_depthwise
-                if l.is_depthwise:
-                    out, scale, bit = self.norm_depthwise[count_norm](out)
-                    count_norm += 1
             else:
                 out = l(out)
+            if isinstance(l, (MaskedConv1d, QuantConv1d)):
+                check_flag = check_flag or l.channelwise_separable
+                if l.channelwise_separable:
+                    out = self.norm_depthwise[count_norm](out)
+                    if isinstance(out, QuantTensor):
+                        out = out.value
+                    count_norm += 1
         if check_flag:
             assert len(self.norm_depthwise) == count_norm
         if self.res is not None:
             out = self.quant_normalization(out)
             if self.training:
-                out, scale, bit = out
+                out = out.value
             for i, layer in enumerate(self.res):
                 res_out = xs[i]
                 for j, res_layer in enumerate(layer):
@@ -3955,22 +4624,30 @@ class JasperBlock(nn.Module):
                         res_out = res_layer(res_out)
                 res_out = self.quant_normalization(res_out)
                 if self.training:
-                    res_out, scale, bit = res_out
+                    res_out = res_out.value
                 if self.residual_mode == 'add':
                     out = out + res_out
                 else:
                     out = torch.max(out, res_out)
         if isinstance(out, QuantTensor):
-            out, scale, bit = out
+            out = out.value
         out = self.mout(out)
         if self.res is not None and self.dense_residual:
             return xs + [out], lens
         return [out], lens
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        if not self.conv_mask:
+            rename_state_dict_by_postfix('conv.weight', 'weight', state_dict)
         if self.fused_bn:
             self.fuse_bn(state_dict, prefix)
         super(JasperBlock, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        extra_k = 'quant_normalization'
+        is_prefix_to_fix = any([(prefix == 'encoder.' + p) for p in ['0.', '16.', '17.']])
+        if is_prefix_to_fix:
+            for i, k in enumerate(unexpected_keys):
+                if extra_k in k:
+                    del unexpected_keys[i]
 
     def fuse_bn(self, state_dict, prefix):
         index = 0
@@ -3988,7 +4665,9 @@ class JasperBlock(nn.Module):
                 if name.split('.')[-1] == 'running_mean':
                     bn_prefix = '.'.join(prefix_long)
                     module_number = int(prefix_long[-1])
-                    conv_name = prefix_long[:-1] + [str(module_number - 1)] + ['conv']
+                    conv_name = prefix_long[:-1] + [str(module_number - 1)]
+                    if self.conv_mask:
+                        conv_name = conv_name + ['conv']
                     conv_name = '.'.join(conv_name)
                     conv_mod = self.conv_module_to_merge[index]
                     index = index + 1
@@ -4002,13 +4681,12 @@ class JasperBlock(nn.Module):
                     keys_to_delete = keys_to_delete + [bn_running_mean_key]
                     keys_to_delete = keys_to_delete + [bn_running_var_key]
                     keys_to_delete = keys_to_delete + [bn_num_batches_traked_key]
-                    mul_factor, add_factor = mul_add_from_bn(bn_mean=state_dict[bn_running_mean_key], bn_var=state_dict[bn_running_var_key], bn_eps=0.001, bn_weight=state_dict[bn_weight_key], bn_bias=state_dict[bn_bias_key], affine_only=False)
+                    mul_factor, add_factor = mul_add_from_bn(bn_mean=state_dict[bn_running_mean_key], bn_var=state_dict[bn_running_var_key], bn_eps=0.001, bn_weight=state_dict[bn_weight_key], bn_bias=state_dict[bn_bias_key])
                     if isinstance(conv_mod, MaskedConv1d):
                         conv_mod = conv_mod.conv
-                    mul_shape = conv_mod.per_output_channel_broadcastable_shape
                     conv_weight_key = conv_name + '.weight'
                     conv_bias_key = conv_name + '.bias'
-                    result = state_dict[conv_weight_key] * mul_factor.view(mul_shape)
+                    result = state_dict[conv_weight_key] * mul_factor.view(-1, 1, 1)
                     state_dict[conv_weight_key] = result
                     if conv_mod.bias is not None and conv_bias_key in state_dict:
                         state_dict[conv_bias_key] += add_factor
@@ -4176,9 +4854,12 @@ class Quartznet(nn.Module):
         self.greedy_ctc_decoder = greedyctcdecoder
 
     def forward(self, input_tensors):
-        audio_signal_e1, a_sig_length_e1, _, _ = input_tensors
-        processed_signal_e1, p_length_e1 = self.preprocessing(input_signal=audio_signal_e1, length=a_sig_length_e1)
-        encoded_e1, encoded_len_e1 = self.encoder(audio_signal=processed_signal_e1, length=p_length_e1)
+        if self.preprocessing is not None:
+            audio_signal_e1, a_sig_length_e1, _, _ = input_tensors
+            processed_signal_e1, p_length_e1 = self.preprocessing(input_signal=audio_signal_e1, length=a_sig_length_e1)
+            encoded_e1, encoded_len_e1 = self.encoder(audio_signal=processed_signal_e1, length=p_length_e1)
+        else:
+            encoded_e1 = self.encoder(input_tensors)
         log_probs_e1 = self.decoder(encoder_output=encoded_e1)
         predictions_e1 = self.greedy_ctc_decoder(log_probs=log_probs_e1)
         return predictions_e1
@@ -4189,7 +4870,19 @@ class Quartznet(nn.Module):
         None
 
 
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
 MAX_WAV_VALUE = 32768.0
+
+
+ACT_MAX_VAL = 1
 
 
 ACT_MIN_VAL = -1
@@ -4340,6 +5033,68 @@ class TacotronSTFT(torch.nn.Module):
         return mel_output
 
 
+class UnpackShape(Module):
+
+    def forward(self, x):
+        size = x.size()
+        batchsize, num_channels, height, width = size
+        return x
+
+
+class ReshapeModule(Module):
+
+    def forward(self, x):
+        groups = 1
+        batchsize, num_channels, height, width = x.size()
+        channels_per_group = num_channels // groups
+        x = x.view(batchsize, groups, channels_per_group, height, width)
+        return x
+
+
+class CatChunkUnrolledModule(Module):
+
+    def forward(self, x: Tensor):
+        x1, x2 = x.chunk(2, dim=1)
+        x = torch.cat([x1, x2], dim=1)
+        return x
+
+
+class CatChunkRolledModule(Module):
+
+    def forward(self, x: Tensor):
+        x = x.chunk(2, dim=1)
+        x = torch.cat(x, dim=1)
+        return x
+
+
+class InPlaceTorchAddModule(Module):
+
+    def forward(self, x: Tensor):
+        x.add_(x)
+        return x
+
+
+class InPlacePythonAddModule(Module):
+
+    def forward(self, x: Tensor):
+        x += x
+        return x
+
+
+class PythonAddModule(Module):
+
+    def forward(self, x: Tensor):
+        x = x + x
+        return x
+
+
+class TorchAddModule(Module):
+
+    def forward(self, x: Tensor):
+        x = torch.add(x, x)
+        return x
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -4347,18 +5102,22 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AffineRescaling,
-     lambda: ([], {'affine_shape': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (AudioPreprocessor,
      lambda: ([], {'win_length': 4, 'hop_length': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CatChunkRolledModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CatChunkUnrolledModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GreedyCTCDecoder,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (GroupShuffle,
      lambda: ([], {'groups': 1, 'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4367,12 +5126,44 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (InPlacePythonAddModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InPlaceTorchAddModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InplaceLogTwo,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (MultiplyBatch,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4]), torch.rand([4, 4]), torch.rand([4])], {}),
      True),
+    (PythonAddModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (QuantDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (QuantMaxPool1d,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (QuantMaxPool2d,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ReshapeModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ScaleBias,
-     lambda: ([], {'num_features': 4}),
+     lambda: ([], {'num_features': 4, 'bias': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (SpecAugment,
@@ -4395,13 +5186,13 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (WeightReg,
+    (TorchAddModule,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (ZeroLsbTruncBitWidth,
+    (UnpackShape,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
 ]
 
@@ -4447,4 +5238,31 @@ class Test_Xilinx_brevitas(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
 

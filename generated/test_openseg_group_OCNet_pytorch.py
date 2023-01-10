@@ -961,7 +961,7 @@ class OhemCrossEntropy2d(nn.Module):
         if self.min_kept >= num_valid:
             None
         elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
+            prob = input_prob[:, valid_flag]
             pred = prob[label, np.arange(len(label), dtype=np.int32)]
             threshold = self.thresh
             if self.min_kept > 0:
@@ -1329,14 +1329,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelCriterion,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DenseModule,
      lambda: ([], {'in_channels': 4, 'growth': 4, 'layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1370,10 +1362,4 @@ class Test_openseg_group_OCNet_pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

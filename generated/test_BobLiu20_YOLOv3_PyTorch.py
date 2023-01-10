@@ -280,13 +280,13 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     Returns the IoU of two bounding boxes
     """
     if not x1y1x2y2:
-        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:, (2)] / 2
-        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:, (3)] / 2
-        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:, (2)] / 2
-        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:, (3)] / 2
+        b1_x1, b1_x2 = box1[:, 0] - box1[:, 2] / 2, box1[:, 0] + box1[:, 2] / 2
+        b1_y1, b1_y2 = box1[:, 1] - box1[:, 3] / 2, box1[:, 1] + box1[:, 3] / 2
+        b2_x1, b2_x2 = box2[:, 0] - box2[:, 2] / 2, box2[:, 0] + box2[:, 2] / 2
+        b2_y1, b2_y2 = box2[:, 1] - box2[:, 3] / 2, box2[:, 1] + box2[:, 3] / 2
     else:
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)], box1[:, (3)]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)], box2[:, (3)]
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
     inter_rect_x1 = torch.max(b1_x1, b2_x1)
     inter_rect_y1 = torch.max(b1_y1, b2_y1)
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
@@ -328,7 +328,7 @@ class YOLOLoss(nn.Module):
         w = prediction[..., 2]
         h = prediction[..., 3]
         conf = torch.sigmoid(prediction[..., 4])
-        pred_cls = torch.sigmoid(prediction[(...), 5:])
+        pred_cls = torch.sigmoid(prediction[..., 5:])
         if targets is not None:
             mask, noobj_mask, tx, ty, tw, th, tconf, tcls = self.get_target(targets, scaled_anchors, in_w, in_h, self.ignore_threshold)
             mask, noobj_mask = mask, noobj_mask
@@ -351,7 +351,7 @@ class YOLOLoss(nn.Module):
             anchor_h = FloatTensor(scaled_anchors).index_select(1, LongTensor([1]))
             anchor_w = anchor_w.repeat(bs, 1).repeat(1, 1, in_h * in_w).view(w.shape)
             anchor_h = anchor_h.repeat(bs, 1).repeat(1, 1, in_h * in_w).view(h.shape)
-            pred_boxes = FloatTensor(prediction[(...), :4].shape)
+            pred_boxes = FloatTensor(prediction[..., :4].shape)
             pred_boxes[..., 0] = x.data + grid_x
             pred_boxes[..., 1] = y.data + grid_y
             pred_boxes[..., 2] = torch.exp(w.data) * anchor_w

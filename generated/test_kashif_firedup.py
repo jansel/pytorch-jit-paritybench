@@ -15,7 +15,6 @@ core = _module
 td3 = _module
 core = _module
 trpo = _module
-vpg = _module
 core = _module
 vpg = _module
 bench_ppo_cartpole = _module
@@ -64,10 +63,10 @@ import torch
 import torch.nn as nn
 
 
-import torch.nn.functional as F
-
-
 import time
+
+
+import torch.nn.functional as F
 
 
 from torch.distributions.categorical import Categorical
@@ -79,13 +78,16 @@ from torch.distributions.normal import Normal
 import scipy.signal
 
 
-from torch.nn.utils import parameters_to_vector
-
-
 from torch.distributions.kl import kl_divergence
 
 
+from torch.nn.utils import parameters_to_vector
+
+
 from torch.nn.utils import vector_to_parameters
+
+
+import string
 
 
 class MLP(nn.Module):

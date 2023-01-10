@@ -105,7 +105,7 @@ class CRF(nn.Module):
         """
         batch_size, seq_len, n_labels = logits.size()
         alpha = logits.data.new(batch_size, self.n_labels).fill_(-10000)
-        alpha[:, (self.start_idx)] = 0
+        alpha[:, self.start_idx] = 0
         alpha = Variable(alpha)
         c_lens = lens.clone()
         logits_t = logits.transpose(1, 0)
@@ -131,7 +131,7 @@ class CRF(nn.Module):
         """
         batch_size, seq_len, n_labels = logits.size()
         vit = logits.data.new(batch_size, self.n_labels).fill_(-10000)
-        vit[:, (self.start_idx)] = 0
+        vit[:, self.start_idx] = 0
         vit = Variable(vit)
         c_lens = lens.clone()
         logits_t = logits.transpose(1, 0)
@@ -170,7 +170,7 @@ class CRF(nn.Module):
         """
         batch_size, seq_len = labels.size()
         labels_ext = Variable(labels.data.new(batch_size, seq_len + 2))
-        labels_ext[:, (0)] = self.start_idx
+        labels_ext[:, 0] = self.start_idx
         labels_ext[:, 1:-1] = labels
         mask = sequence_mask(lens + 1, max_len=seq_len + 2).long()
         pad_stop = Variable(labels.data.new(1).fill_(self.stop_idx))
@@ -308,22 +308,4 @@ class TransparentDataParallel(nn.DataParallel):
 
     def state_dict(self, *args, **kwargs):
         return self.module.state_dict(*args, **kwargs)
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (TransparentDataParallel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
-]
-
-class Test_kaniblu_pytorch_bilstmcrf(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

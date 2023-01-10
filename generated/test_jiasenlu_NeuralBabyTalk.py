@@ -402,15 +402,15 @@ class CaptionModel(nn.Module):
             for vix in range(beam_size):
                 v = candidates[vix]
                 if t >= 1:
-                    beam_seq[:t, (vix)] = beam_seq_prev[:, (v['q'])]
-                    beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
-                    beam_bn_seq[:t, (vix)] = beam_bn_seq_prev[:, (v['q'])]
-                    beam_bn_seq_logprobs[:t, (vix)] = beam_bn_seq_logprobs_prev[:, (v['q'])]
-                    beam_fg_seq[:t, (vix)] = beam_fg_seq_prev[:, (v['q'])]
-                    beam_fg_seq_logprobs[:t, (vix)] = beam_fg_seq_logprobs_prev[:, (v['q'])]
-                    beam_pnt_mask[:, (vix)] = beam_pnt_mask_prev[:, (v['q'])]
+                    beam_seq[:t, vix] = beam_seq_prev[:, v['q']]
+                    beam_seq_logprobs[:t, vix] = beam_seq_logprobs_prev[:, v['q']]
+                    beam_bn_seq[:t, vix] = beam_bn_seq_prev[:, v['q']]
+                    beam_bn_seq_logprobs[:t, vix] = beam_bn_seq_logprobs_prev[:, v['q']]
+                    beam_fg_seq[:t, vix] = beam_fg_seq_prev[:, v['q']]
+                    beam_fg_seq_logprobs[:t, vix] = beam_fg_seq_logprobs_prev[:, v['q']]
+                    beam_pnt_mask[:, vix] = beam_pnt_mask_prev[:, v['q']]
                 for state_ix in range(len(new_state)):
-                    new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])]
+                    new_state[state_ix][:, vix] = state[state_ix][:, v['q']]
                 new_rnn_output[vix] = rnn_output[v['q']]
                 beam_seq[t, vix] = v['c']
                 beam_seq_logprobs[t, vix] = v['r']
@@ -439,7 +439,7 @@ class CaptionModel(nn.Module):
             the top beam_size most likely sequences."""
             det_prob = F.log_softmax(det_prob, dim=1)
             decoded = F.log_softmax(self.logit(rnn_output), dim=1)
-            lambda_v = det_prob[:, (0)].contiguous()
+            lambda_v = det_prob[:, 0].contiguous()
             prob_det = det_prob[:, 1:].contiguous()
             decoded = decoded + lambda_v.view(beam_size, 1).expand_as(decoded)
             logprobs = torch.cat([decoded, prob_det], 1)
@@ -450,7 +450,7 @@ class CaptionModel(nn.Module):
             roi_mask = roi_idx < 0
             roi_idx_offset = roi_idx + vis_offset
             roi_idx_offset[roi_mask] = 0
-            vis_idx = beam_ppls.data[:, :, (4)].contiguous().view(-1)[roi_idx_offset].long()
+            vis_idx = beam_ppls.data[:, :, 4].contiguous().view(-1)[roi_idx_offset].long()
             vis_idx[roi_mask] = 0
             it_new = it.clone()
             it_new[it > self.vocab_size] = vis_idx[roi_mask == 0] + self.vocab_size
@@ -471,7 +471,7 @@ class CaptionModel(nn.Module):
             beam_fg_seq_logprobs[t] = slp_fg
             for vix in range(beam_size):
                 if beam_seq[t, vix] == 0 or t == self.seq_length - 1:
-                    final_beam = {'seq': beam_seq[:, (vix)].clone(), 'logps': beam_seq_logprobs[:, (vix)].clone(), 'p': beam_logprobs_sum[vix], 'bn_seq': beam_bn_seq[:, (vix)].clone(), 'bn_logps': beam_bn_seq_logprobs[:, (vix)].clone(), 'fg_seq': beam_fg_seq[:, (vix)].clone(), 'fg_logps': beam_fg_seq_logprobs[:, (vix)].clone()}
+                    final_beam = {'seq': beam_seq[:, vix].clone(), 'logps': beam_seq_logprobs[:, vix].clone(), 'p': beam_logprobs_sum[vix], 'bn_seq': beam_bn_seq[:, vix].clone(), 'bn_logps': beam_bn_seq_logprobs[:, vix].clone(), 'fg_seq': beam_fg_seq[:, vix].clone(), 'fg_logps': beam_fg_seq_logprobs[:, vix].clone()}
                     done_beams.append(final_beam)
                     beam_logprobs_sum[vix] = -1000
             pnt_idx_offset = roi_idx + roi_offset + 1
@@ -549,15 +549,15 @@ class CaptionModel(nn.Module):
                 if len(v) != 0:
                     v = v[0]
                     if t >= 1:
-                        beam_seq[:t, (vix)] = beam_seq_prev[:, (v['q'])]
-                        beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
-                        beam_bn_seq[:t, (vix)] = beam_bn_seq_prev[:, (v['q'])]
-                        beam_bn_seq_logprobs[:t, (vix)] = beam_bn_seq_logprobs_prev[:, (v['q'])]
-                        beam_fg_seq[:t, (vix)] = beam_fg_seq_prev[:, (v['q'])]
-                        beam_fg_seq_logprobs[:t, (vix)] = beam_fg_seq_logprobs_prev[:, (v['q'])]
-                        beam_pnt_mask[:, (vix)] = beam_pnt_mask_prev[:, (v['q'])]
+                        beam_seq[:t, vix] = beam_seq_prev[:, v['q']]
+                        beam_seq_logprobs[:t, vix] = beam_seq_logprobs_prev[:, v['q']]
+                        beam_bn_seq[:t, vix] = beam_bn_seq_prev[:, v['q']]
+                        beam_bn_seq_logprobs[:t, vix] = beam_bn_seq_logprobs_prev[:, v['q']]
+                        beam_fg_seq[:t, vix] = beam_fg_seq_prev[:, v['q']]
+                        beam_fg_seq_logprobs[:t, vix] = beam_fg_seq_logprobs_prev[:, v['q']]
+                        beam_pnt_mask[:, vix] = beam_pnt_mask_prev[:, v['q']]
                     for state_ix in range(len(new_state)):
-                        new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])]
+                        new_state[state_ix][:, vix] = state[state_ix][:, v['q']]
                     new_rnn_output[vix] = rnn_output[v['q']]
                     beam_seq[t, vix] = v['c']
                     beam_seq_logprobs[t, vix] = v['r']
@@ -591,7 +591,7 @@ class CaptionModel(nn.Module):
                 the top beam_size most likely sequences."""
                 det_prob[tag] = F.log_softmax(det_prob[tag], dim=1)
                 decoded = F.log_softmax(self.logit(rnn_output[tag]), dim=1)
-                lambda_v = det_prob[tag][:, (0)].contiguous()
+                lambda_v = det_prob[tag][:, 0].contiguous()
                 prob_det = det_prob[tag][:, 1:].contiguous()
                 decoded = decoded + lambda_v.view(beam_size, 1).expand_as(decoded)
                 logprobs = torch.cat([decoded, prob_det], 1)
@@ -602,7 +602,7 @@ class CaptionModel(nn.Module):
                 roi_mask = roi_idx < 0
                 roi_idx_offset = roi_idx + vis_offset
                 roi_idx_offset[roi_mask] = 0
-                vis_idx = beam_ppls.data[:, :, (4)].contiguous().view(-1)[roi_idx_offset].long()
+                vis_idx = beam_ppls.data[:, :, 4].contiguous().view(-1)[roi_idx_offset].long()
                 vis_idx[roi_mask] = 0
                 it_new = it.clone()
                 it_new[it > self.vocab_size] = vis_idx[roi_mask == 0] + self.vocab_size
@@ -637,7 +637,7 @@ class CaptionModel(nn.Module):
                             if idx == beam_seq[idx_0 - 1, vix] or idx == beam_seq[idx_0 - 2, vix]:
                                 skip_flag = True
                         if skip_flag == False:
-                            final_beam = {'seq': beam_seq[:, (vix)].clone(), 'logps': beam_seq_logprobs[:, (vix)].clone(), 'p': beam_logprobs_sum[vix], 'bn_seq': beam_bn_seq[:, (vix)].clone(), 'bn_logps': beam_bn_seq_logprobs[:, (vix)].clone(), 'fg_seq': beam_fg_seq[:, (vix)].clone(), 'fg_logps': beam_fg_seq_logprobs[:, (vix)].clone()}
+                            final_beam = {'seq': beam_seq[:, vix].clone(), 'logps': beam_seq_logprobs[:, vix].clone(), 'p': beam_logprobs_sum[vix], 'bn_seq': beam_bn_seq[:, vix].clone(), 'bn_logps': beam_bn_seq_logprobs[:, vix].clone(), 'fg_seq': beam_fg_seq[:, vix].clone(), 'fg_logps': beam_fg_seq_logprobs[:, vix].clone()}
                             done_beams[tags[vix]].append(final_beam)
                             beam_logprobs_sum[vix] = -1000
                 pnt_idx_offset = roi_idx + roi_offset + 1
@@ -953,7 +953,7 @@ class get_self_critical_reward(nn.Module):
         gts = {i: gts[i % batch_size // seq_per_img] for i in range(2 * batch_size)}
         _, scores = self.CiderD_scorer.compute_score(gts, res)
         scores = scores[:batch_size] - scores[batch_size:]
-        rewards = np.repeat(scores[:, (np.newaxis)], gen_result.shape[1], 1)
+        rewards = np.repeat(scores[:, np.newaxis], gen_result.shape[1], 1)
         return rewards, _
 
 
@@ -1246,7 +1246,7 @@ class AttModel(CaptionModel):
         elif opt == 'RL':
             greedy_result = self._sample(Variable(img.data, volatile=True), Variable(ppls.data, volatile=True), Variable(num.data, volatile=True), {'sample_max': 1, 'beam_size': 1, 'inference_mode': False})
             gen_result = self._sample(img, ppls, num, {'sample_max': 0, 'beam_size': 1, 'inference_mode': False})
-            reward, cider_score = self.get_self_critical_reward(gen_result[:3], greedy_result[:3], gt_seq, num[:, (0)])
+            reward, cider_score = self.get_self_critical_reward(gen_result[:3], greedy_result[:3], gt_seq, num[:, 0])
             reward = Variable(torch.from_numpy(reward).type_as(img.data).float())
             cider_score = Variable(torch.Tensor(1).fill_(cider_score).type_as(img.data))
             lm_loss, bn_loss, fg_loss = self.critRL(gen_result[0], gen_result[1], gen_result[2], gen_result[3], gen_result[4], gen_result[5], reward)
@@ -1267,7 +1267,7 @@ class AttModel(CaptionModel):
         rois_num = ppls.size(1)
         pnt_mask = mask_boxes.data.new(batch_size, rois_num + 1).byte().fill_(1)
         for i in range(batch_size):
-            pnt_mask[(i), :num.data[i, 1] + 1] = 0
+            pnt_mask[i, :num.data[i, 1] + 1] = 0
         pnt_mask = Variable(pnt_mask)
         state = self.init_hidden(seq_batch_size)
         rnn_output = []
@@ -1282,15 +1282,15 @@ class AttModel(CaptionModel):
         rois = ppls.data.new(batch_size, rois_num, 5)
         rois[:, :, 1:] = ppls.data[:, :, :4]
         for i in range(batch_size):
-            rois[(i), :, (0)] = i
+            rois[i, :, 0] = i
         pool_feats = self.roi_align(conv_feats, Variable(rois.view(-1, 5)))
         pool_feats = pool_feats.view(batch_size, rois_num, self.att_feat_size)
         loc_input = ppls.data.new(batch_size, rois_num, 5)
         loc_input[:, :, :4] = ppls.data[:, :, :4] / self.image_crop_size
-        loc_input[:, :, (4)] = ppls.data[:, :, (5)]
+        loc_input[:, :, 4] = ppls.data[:, :, 5]
         loc_feats = self.loc_fc(Variable(loc_input))
         label_input = seq.data.new(batch_size, rois_num)
-        label_input[:, :] = ppls.data[:, :, (4)]
+        label_input[:, :] = ppls.data[:, :, 4]
         label_feat = self.det_fc(Variable(label_input))
         pool_feats = torch.cat((pool_feats, loc_feats, label_feat), 2)
         conv_feats = conv_feats.view(batch_size, self.att_feat_size, -1).transpose(1, 2).contiguous()
@@ -1309,18 +1309,18 @@ class AttModel(CaptionModel):
                 sample_prob = fc_feats.data.new(batch_size).uniform_(0, 1)
                 sample_mask = sample_prob < self.ss_prob
                 if sample_mask.sum() == 0:
-                    it = seq[:, (i), (0)].clone()
+                    it = seq[:, i, 0].clone()
                 else:
                     sample_ind = sample_mask.nonzero().view(-1)
-                    it = seq[:, (i), (0)].data.clone()
+                    it = seq[:, i, 0].data.clone()
                     prob_prev = torch.exp(outputs[-1].data)
                     it.index_copy_(0, sample_ind, torch.multinomial(prob_prev, 1).view(-1).index_select(0, sample_ind))
                     it = Variable(it)
             else:
-                it = seq[:, (i), (0)].clone()
-            if i >= 1 and seq[:, (i), (0)].data.sum() == 0:
+                it = seq[:, i, 0].clone()
+            if i >= 1 and seq[:, i, 0].data.sum() == 0:
                 break
-            roi_label = utils.bbox_target(ppls, mask_boxes[:, :, :, (i + 1)], overlaps, seq[:, (i + 1)], seq_update[:, (i + 1)], self.vocab_size)
+            roi_label = utils.bbox_target(ppls, mask_boxes[:, :, :, i + 1], overlaps, seq[:, i + 1], seq_update[:, i + 1], self.vocab_size)
             roi_labels.append(roi_label.view(seq_batch_size, -1))
             xt = self.embed(it)
             output, det_prob, state = self.core(xt, fc_feats, conv_feats, p_conv_feats, pool_feats, p_pool_feats, pnt_mask, pnt_mask, state)
@@ -1332,7 +1332,7 @@ class AttModel(CaptionModel):
         roi_labels = torch.cat([_.unsqueeze(1) for _ in roi_labels], 1)
         det_output = F.log_softmax(det_output, dim=2)
         decoded = F.log_softmax(self.beta * self.logit(rnn_output), dim=2)
-        lambda_v = det_output[:, :, (0)].contiguous()
+        lambda_v = det_output[:, :, 0].contiguous()
         prob_det = det_output[:, :, 1:].contiguous()
         decoded = decoded + lambda_v.view(seq_batch_size, seq_cnt, 1).expand_as(decoded)
         decoded = decoded.view(seq_cnt * seq_batch_size, -1)
@@ -1343,13 +1343,13 @@ class AttModel(CaptionModel):
         vis_prob = prob_det.sum(2) / roi_cnt
         vis_prob = vis_prob.view(-1, 1)
         seq_update = Variable(seq_update)
-        lm_loss = self.critLM(decoded, vis_prob, seq_update[:, 1:seq_cnt + 1, (0)].clone())
-        vis_idx = seq_update[:, 1:seq_cnt + 1, (0)].data - self.vocab_size
+        lm_loss = self.critLM(decoded, vis_prob, seq_update[:, 1:seq_cnt + 1, 0].clone())
+        vis_idx = seq_update[:, 1:seq_cnt + 1, 0].data - self.vocab_size
         vis_idx[vis_idx < 0] = 0
         vis_idx = Variable(vis_idx.view(-1))
         bn_logprob, fg_logprob = self.ccr_core(vis_idx, pool_feats, rnn_output, roi_labels, seq_batch_size, seq_cnt)
-        bn_loss = self.critBN(bn_logprob, seq_update[:, 1:seq_cnt + 1, (1)].clone())
-        fg_loss = self.critFG(fg_logprob, seq_update[:, 1:seq_cnt + 1, (2)].clone())
+        bn_loss = self.critBN(bn_logprob, seq_update[:, 1:seq_cnt + 1, 1].clone())
+        fg_loss = self.critFG(fg_logprob, seq_update[:, 1:seq_cnt + 1, 2].clone())
         return lm_loss, bn_loss, fg_loss
 
     def _sample(self, img, ppls, num, opt={}):
@@ -1370,15 +1370,15 @@ class AttModel(CaptionModel):
         rois = ppls.data.new(batch_size, rois_num, 5)
         rois[:, :, 1:] = ppls.data[:, :, :4]
         for i in range(batch_size):
-            rois[(i), :, (0)] = i
+            rois[i, :, 0] = i
         pool_feats = self.roi_align(conv_feats, Variable(rois.view(-1, 5)))
         pool_feats = pool_feats.view(batch_size, rois_num, self.att_feat_size)
         loc_input = ppls.data.new(batch_size, rois_num, 5)
         loc_input[:, :, :4] = ppls.data[:, :, :4] / self.image_crop_size
-        loc_input[:, :, (4)] = ppls.data[:, :, (5)]
+        loc_input[:, :, 4] = ppls.data[:, :, 5]
         loc_feats = self.loc_fc(Variable(loc_input))
         label_input = ppls.data.new(batch_size, rois_num).long()
-        label_input[:, :] = ppls.data[:, :, (4)]
+        label_input[:, :] = ppls.data[:, :, 4]
         label_feat = self.det_fc(Variable(label_input))
         pool_feats = torch.cat((pool_feats, loc_feats, label_feat), 2)
         conv_feats = conv_feats.view(batch_size, self.att_feat_size, -1).transpose(1, 2).contiguous()
@@ -1391,7 +1391,7 @@ class AttModel(CaptionModel):
         roi_offset = (torch.arange(0, batch_size) * (rois_num + 1)).view(batch_size).type_as(ppls.data).long()
         pnt_mask = ppls.data.new(batch_size, rois_num + 1).byte().fill_(1)
         for i in range(batch_size):
-            pnt_mask[(i), :num.data[i, 1] + 1] = 0
+            pnt_mask[i, :num.data[i, 1] + 1] = 0
         pnt_mask = Variable(pnt_mask)
         pnt_mask_list = []
         pnt_mask_list.append(pnt_mask)
@@ -1421,7 +1421,7 @@ class AttModel(CaptionModel):
             roi_mask = roi_idx < 0
             roi_idx_offset = roi_idx + vis_offset
             roi_idx_offset[roi_mask] = 0
-            vis_idx = ppls.data[:, :, (4)].clone().view(-1)[roi_idx_offset].long()
+            vis_idx = ppls.data[:, :, 4].clone().view(-1)[roi_idx_offset].long()
             vis_idx[roi_mask] = 0
             pnt_idx_offset = roi_idx + roi_offset + 1
             pnt_idx_offset[roi_mask] = 0
@@ -1470,7 +1470,7 @@ class AttModel(CaptionModel):
             rnn_output, det_prob, state = self.core(xt, fc_feats, conv_feats, p_conv_feats, pool_feats, p_pool_feats, att_mask, pnt_mask_list[-1], state)
             det_prob = F.log_softmax(det_prob, dim=1)
             decoded = F.log_softmax(self.beta * self.logit(rnn_output), dim=1)
-            lambda_v = det_prob[:, (0)].contiguous()
+            lambda_v = det_prob[:, 0].contiguous()
             prob_det = det_prob[:, 1:].contiguous()
             decoded = decoded + lambda_v.view(batch_size, 1).expand_as(decoded)
             logprobs = torch.cat([decoded, prob_det], 1)
@@ -1534,15 +1534,15 @@ class AttModel(CaptionModel):
         rois = ppls.data.new(batch_size, rois_num, 5)
         rois[:, :, 1:] = ppls.data[:, :, :4]
         for i in range(batch_size):
-            rois[(i), :, (0)] = i
+            rois[i, :, 0] = i
         pool_feats = self.roi_align(conv_feats, Variable(rois.view(-1, 5)))
         pool_feats = pool_feats.view(batch_size, rois_num, self.att_feat_size)
         loc_input = ppls.data.new(batch_size, rois_num, 5)
         loc_input[:, :, :4] = ppls.data[:, :, :4] / self.image_crop_size
-        loc_input[:, :, (4)] = ppls.data[:, :, (5)]
+        loc_input[:, :, 4] = ppls.data[:, :, 5]
         loc_feats = self.loc_fc(Variable(loc_input))
         label_input = ppls.data.new(batch_size, rois_num).long()
-        label_input[:, :] = ppls.data[:, :, (4)]
+        label_input[:, :] = ppls.data[:, :, 4]
         label_feat = self.det_fc(Variable(label_input))
         pool_feats = torch.cat((pool_feats, loc_feats, label_feat), 2)
         conv_feats = conv_feats.view(batch_size, self.att_feat_size, -1).transpose(1, 2).contiguous()
@@ -1553,7 +1553,7 @@ class AttModel(CaptionModel):
         p_pool_feats = self.ctx2pool(pool_feats)
         pnt_mask = ppls.data.new(batch_size, rois_num + 1).byte().fill_(1)
         for i in range(batch_size):
-            pnt_mask[(i), :num.data[i, 1] + 1] = 0
+            pnt_mask[i, :num.data[i, 1] + 1] = 0
         pnt_mask = Variable(pnt_mask)
         vis_offset = (torch.arange(0, beam_size) * rois_num).view(beam_size).type_as(ppls.data).long()
         roi_offset = (torch.arange(0, beam_size) * (rois_num + 1)).view(beam_size).type_as(ppls.data).long()
@@ -1579,20 +1579,20 @@ class AttModel(CaptionModel):
             if self.cbs:
                 self.done_beams[k] = self.constraint_beam_search(state, rnn_output, det_prob, beam_fc_feats, beam_conv_feats, beam_p_conv_feats, beam_pool_feats, beam_p_pool_feats, beam_ppls, beam_pnt_mask, vis_offset, roi_offset, tag_size, tags, opt)
                 ii = 0
-                seq[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['seq']
-                seqLogprobs[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['logps']
-                bn_seq[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['bn_seq']
-                bnLogprobs[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['bn_logps']
-                fg_seq[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['fg_seq']
-                fgLogprobs[:, (k)] = self.done_beams[k][tags[-ii - 1]][0]['fg_logps']
+                seq[:, k] = self.done_beams[k][tags[-ii - 1]][0]['seq']
+                seqLogprobs[:, k] = self.done_beams[k][tags[-ii - 1]][0]['logps']
+                bn_seq[:, k] = self.done_beams[k][tags[-ii - 1]][0]['bn_seq']
+                bnLogprobs[:, k] = self.done_beams[k][tags[-ii - 1]][0]['bn_logps']
+                fg_seq[:, k] = self.done_beams[k][tags[-ii - 1]][0]['fg_seq']
+                fgLogprobs[:, k] = self.done_beams[k][tags[-ii - 1]][0]['fg_logps']
             else:
                 self.done_beams[k] = self.beam_search(state, rnn_output, det_prob, beam_fc_feats, beam_conv_feats, beam_p_conv_feats, beam_pool_feats, beam_p_pool_feats, beam_ppls, beam_pnt_mask, vis_offset, roi_offset, opt)
-                seq[:, (k)] = self.done_beams[k][0]['seq']
-                seqLogprobs[:, (k)] = self.done_beams[k][0]['logps']
-                bn_seq[:, (k)] = self.done_beams[k][0]['bn_seq']
-                bnLogprobs[:, (k)] = self.done_beams[k][0]['bn_logps']
-                fg_seq[:, (k)] = self.done_beams[k][0]['fg_seq']
-                fgLogprobs[:, (k)] = self.done_beams[k][0]['fg_logps']
+                seq[:, k] = self.done_beams[k][0]['seq']
+                seqLogprobs[:, k] = self.done_beams[k][0]['logps']
+                bn_seq[:, k] = self.done_beams[k][0]['bn_seq']
+                bnLogprobs[:, k] = self.done_beams[k][0]['bn_logps']
+                fg_seq[:, k] = self.done_beams[k][0]['fg_seq']
+                fgLogprobs[:, k] = self.done_beams[k][0]['fg_logps']
         return seq.t(), bn_seq.t(), fg_seq.t(), seqLogprobs.t(), bnLogprobs.t(), fgLogprobs.t()
 
 

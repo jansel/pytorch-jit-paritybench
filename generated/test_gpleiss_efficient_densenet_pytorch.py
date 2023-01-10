@@ -1,7 +1,6 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-demo = _module
 models = _module
 densenet = _module
 
@@ -25,19 +24,10 @@ xrange = range
 wraps = functools.wraps
 
 
-import time
+import math
 
 
 import torch
-
-
-from torchvision import datasets
-
-
-from torchvision import transforms
-
-
-import math
 
 
 import torch.nn as nn

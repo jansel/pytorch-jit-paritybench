@@ -6,22 +6,32 @@ S3DISDataLoader = _module
 ShapeNetDataLoader = _module
 collect_indoor3d_data = _module
 indoor3d_util = _module
-pointnet = _module
+pointnet2_cls_msg = _module
+pointnet2_utils = _module
+pointnet2_cls_ssg = _module
+pointnet2_utils = _module
+pointnet2_part_seg_msg = _module
+pointnet2_utils = _module
+pointnet2_sem_seg = _module
+pointnet2_utils = _module
+pointnet2_utils = _module
+pointnet_sem_seg = _module
 pointnet2_cls_msg = _module
 pointnet2_cls_ssg = _module
 pointnet2_part_seg_msg = _module
 pointnet2_part_seg_ssg = _module
 pointnet2_sem_seg = _module
 pointnet2_sem_seg_msg = _module
+pointnet2_utils = _module
 pointnet_cls = _module
 pointnet_part_seg = _module
 pointnet_sem_seg = _module
-pointnet_util = _module
+pointnet_utils = _module
 provider = _module
-test_cls = _module
+test_classification = _module
 test_partseg = _module
 test_semseg = _module
-train_cls = _module
+train_classification = _module
 train_partseg = _module
 train_semseg = _module
 eulerangles = _module
@@ -58,10 +68,16 @@ import warnings
 from torch.utils.data import Dataset
 
 
+import torch.nn as nn
+
+
+import torch.nn.functional as F
+
+
 import torch
 
 
-import torch.nn as nn
+from time import time
 
 
 import torch.nn.parallel
@@ -71,12 +87,6 @@ import torch.utils.data
 
 
 from torch.autograd import Variable
-
-
-import torch.nn.functional as F
-
-
-from time import time
 
 
 import logging
@@ -177,7 +187,8 @@ class PointNetEncoder(nn.Module):
         trans = self.stn(x)
         x = x.transpose(2, 1)
         if D > 3:
-            x, feature = x.split(3, dim=2)
+            feature = x[:, :, 3:]
+            x = x[:, :, :3]
         x = torch.bmm(x, trans)
         if D > 3:
             x = torch.cat([x, feature], dim=2)
@@ -204,14 +215,10 @@ class PointNetEncoder(nn.Module):
 
 class get_model(nn.Module):
 
-    def __init__(self, num_class, with_rgb=True):
+    def __init__(self, num_class):
         super(get_model, self).__init__()
-        if with_rgb:
-            channel = 6
-        else:
-            channel = 3
         self.k = num_class
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=True, channel=channel)
+        self.feat = PointNetEncoder(global_feat=False, feature_transform=True, channel=9)
         self.conv1 = torch.nn.Conv1d(1088, 512, 1)
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
@@ -236,10 +243,10 @@ class get_model(nn.Module):
 
 def feature_transform_reguliarzer(trans):
     d = trans.size()[1]
-    I = torch.eye(d)[(None), :, :]
+    I = torch.eye(d)[None, :, :]
     if trans.is_cuda:
         I = I
-    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2)))
+    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1)) - I, dim=(1, 2)))
     return loss
 
 
@@ -271,8 +278,8 @@ def farthest_point_sample(xyz, npoint):
     farthest = torch.randint(0, N, (B,), dtype=torch.long)
     batch_indices = torch.arange(B, dtype=torch.long)
     for i in range(npoint):
-        centroids[:, (i)] = farthest
-        centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
+        centroids[:, i] = farthest
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
         dist = torch.sum((xyz - centroid) ** 2, -1)
         mask = dist < distance
         distance[mask] = dist[mask]
@@ -296,7 +303,7 @@ def index_points(points, idx):
     repeat_shape = list(idx.shape)
     repeat_shape[0] = 1
     batch_indices = torch.arange(B, dtype=torch.long).view(view_shape).repeat(repeat_shape)
-    new_points = points[(batch_indices), (idx), :]
+    new_points = points[batch_indices, idx, :]
     return new_points
 
 
@@ -341,7 +348,7 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    group_first = group_idx[:, :, (0)].view(B, S, 1).repeat([1, 1, nsample])
+    group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
     mask = group_idx == N
     group_idx[mask] = group_first[mask]
     return group_idx
@@ -362,15 +369,10 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
     B, N, C = xyz.shape
     S = npoint
     fps_idx = farthest_point_sample(xyz, npoint)
-    torch.cuda.empty_cache()
     new_xyz = index_points(xyz, fps_idx)
-    torch.cuda.empty_cache()
     idx = query_ball_point(radius, nsample, xyz, new_xyz)
-    torch.cuda.empty_cache()
     grouped_xyz = index_points(xyz, idx)
-    torch.cuda.empty_cache()
     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
-    torch.cuda.empty_cache()
     if points is not None:
         grouped_points = index_points(points, idx)
         new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1)
@@ -561,25 +563,17 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64])], {}),
      False),
-    (PointNetFeaturePropagation,
-     lambda: ([], {'in_channel': 4, 'mlp': [4, 4]}),
-     lambda: ([torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {}),
-     False),
     (PointNetSetAbstraction,
      lambda: ([], {'npoint': 4, 'radius': 4, 'nsample': 4, 'in_channel': 4, 'mlp': [4, 4], 'group_all': 4}),
      lambda: ([torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {}),
      False),
     (STN3d,
      lambda: ([], {'channel': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     False),
-    (STNkd,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (get_model,
      lambda: ([], {'num_class': 4}),
-     lambda: ([torch.rand([4, 6, 64])], {}),
+     lambda: ([torch.rand([4, 9, 64])], {}),
      False),
 ]
 
@@ -595,10 +589,4 @@ class Test_yanx27_Pointnet_Pointnet2_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

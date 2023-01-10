@@ -96,8 +96,8 @@ class MADE(nn.Module):
         self.m[-1] = np.arange(self.nin) if self.natural_ordering else rng.permutation(self.nin)
         for l in range(L):
             self.m[l] = rng.randint(self.m[l - 1].min(), self.nin - 1, size=self.hidden_sizes[l])
-        masks = [(self.m[l - 1][:, (None)] <= self.m[l][(None), :]) for l in range(L)]
-        masks.append(self.m[L - 1][:, (None)] < self.m[-1][(None), :])
+        masks = [(self.m[l - 1][:, None] <= self.m[l][None, :]) for l in range(L)]
+        masks.append(self.m[L - 1][:, None] < self.m[-1][None, :])
         if self.nout > self.nin:
             k = int(self.nout / self.nin)
             masks[-1] = np.concatenate([masks[-1]] * k, axis=1)

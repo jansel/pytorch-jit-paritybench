@@ -216,7 +216,7 @@ def end_pad_concat(labels):
     max_len = max(len(l) for l in labels)
     cat_labels = np.full((batch_size, max_len), fill_value=end_tok, dtype=np.int64)
     for e, l in enumerate(labels):
-        cat_labels[(e), :len(l)] = l
+        cat_labels[e, :len(l)] = l
     return cat_labels
 
 
@@ -561,7 +561,7 @@ class Transducer(model.Model):
         for e, (i, l) in enumerate(zip(*batch)):
             T = i.shape[0]
             U = len(l) + 1
-            lp = out[(e), :T, :U, :]
+            lp = out[e, :T, :U, :]
             preds.append(td.decode_static(lp, beam_size, blank=self.blank)[0])
         return preds
 
@@ -571,7 +571,7 @@ class Transducer(model.Model):
         max_len = max(len(l) for l in labels)
         cat_labels = np.full((batch_size, max_len), fill_value=end_tok, dtype=np.int64)
         for e, l in enumerate(labels):
-            cat_labels[(e), :len(l)] = l
+            cat_labels[e, :len(l)] = l
         labels = torch.LongTensor(cat_labels)
         if self.volatile:
             labels.volatile = True
@@ -588,7 +588,7 @@ TESTCASES = [
     (Attention,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (NNAttention,
      lambda: ([], {'n_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -596,7 +596,7 @@ TESTCASES = [
     (ProdAttention,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_awni_speech(_paritybench_base):

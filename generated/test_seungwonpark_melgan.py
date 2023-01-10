@@ -238,8 +238,8 @@ class STFT(torch.nn.Module):
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
         cutoff = int(self.filter_length / 2 + 1)
         fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
-        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
+        forward_basis = torch.FloatTensor(fourier_basis[:, None, :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, None, :])
         if window is not None:
             assert filter_length >= win_length
             fft_window = get_window(window, win_length, fftbins=True)
@@ -273,7 +273,7 @@ class STFT(torch.nn.Module):
             approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
             window_sum = torch.autograd.Variable(torch.from_numpy(window_sum), requires_grad=False)
             window_sum = window_sum if magnitude.is_cuda else window_sum
-            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
+            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
             inverse_transform *= float(self.filter_length) / self.hop_length
         inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
         inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
@@ -350,15 +350,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Generator,
      lambda: ([], {'mel_channel': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (Identity,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResStack,
-     lambda: ([], {'channel': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
      True),
 ]
 
@@ -368,7 +364,4 @@ class Test_seungwonpark_melgan(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

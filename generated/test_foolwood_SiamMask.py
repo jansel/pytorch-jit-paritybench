@@ -491,7 +491,7 @@ class Refine(nn.Module):
             if not pos is None:
                 p2 = torch.index_select(p2, 0, pos)
         if not pos is None:
-            p3 = corr_feature[:, :, (pos[0]), (pos[1])].view(-1, 256, 1, 1)
+            p3 = corr_feature[:, :, pos[0], pos[1]].view(-1, 256, 1, 1)
         else:
             p3 = corr_feature.permute(0, 2, 3, 1).contiguous().view(-1, 256, 1, 1)
         out = self.deconv(p3)
@@ -706,10 +706,10 @@ class Anchors:
         a0x = im_c - size // 2 * self.stride
         ori = np.array([a0x] * 4, dtype=np.float32)
         zero_anchors = self.anchors + ori
-        x1 = zero_anchors[:, (0)]
-        y1 = zero_anchors[:, (1)]
-        x2 = zero_anchors[:, (2)]
-        y2 = zero_anchors[:, (3)]
+        x1 = zero_anchors[:, 0]
+        y1 = zero_anchors[:, 1]
+        x2 = zero_anchors[:, 2]
+        y2 = zero_anchors[:, 3]
         x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [x1, y1, x2, y2])
         cx, cy, w, h = corner2center([x1, y1, x2, y2])
         disp_x = np.arange(0, size).reshape(1, 1, -1) * self.stride

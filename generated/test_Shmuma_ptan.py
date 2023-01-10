@@ -478,7 +478,7 @@ TESTCASES = [
     (WeightedMSELoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
 ]
 
 class Test_Shmuma_ptan(_paritybench_base):

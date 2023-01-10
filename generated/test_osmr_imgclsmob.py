@@ -16,9 +16,12 @@ bisenet = _module
 bninception = _module
 cbamresnet = _module
 centernet = _module
+cgnet = _module
 channelnet = _module
 common = _module
 condensenet = _module
+dabnet = _module
+danet = _module
 darknet = _module
 darknet53 = _module
 darts = _module
@@ -29,6 +32,7 @@ diapreresnet = _module
 diapreresnet_cifar = _module
 diaresnet = _module
 diaresnet_cifar = _module
+dicenet = _module
 diracnetv2 = _module
 dla = _module
 dpn = _module
@@ -36,21 +40,27 @@ drn = _module
 efficientnet = _module
 efficientnetedge = _module
 espnetv2 = _module
+fastscnn = _module
 fastseresnet = _module
 fbnet = _module
 fcn8sd = _module
 fdmobilenet = _module
 fishnet = _module
+fpenet = _module
 ghostnet = _module
 hardnet = _module
 hrnet = _module
 ibppose_coco = _module
 icnet = _module
 igcv3 = _module
+inceptionresnetv1 = _module
 inceptionresnetv2 = _module
 inceptionv3 = _module
 inceptionv4 = _module
 irevnet = _module
+jasper = _module
+jasperdr = _module
+lednet = _module
 lffd = _module
 lwopenpose_cmupan = _module
 menet = _module
@@ -58,12 +68,14 @@ mixnet = _module
 mnasnet = _module
 mobilenet = _module
 mobilenet_cub = _module
+mobilenetb = _module
 mobilenetv2 = _module
 mobilenetv3 = _module
 model_store = _module
 nasnet = _module
 nin_cifar = _module
 ntsnet_cub = _module
+nvpattexp = _module
 octresnet = _module
 others = _module
 peleenet = _module
@@ -76,8 +88,11 @@ proxylessnas_cub = _module
 pspnet = _module
 pyramidnet = _module
 pyramidnet_cifar = _module
+quartznet = _module
+regnet = _module
 resattnet = _module
 resdropresnet_cifar = _module
+resnesta = _module
 resnet = _module
 resnet_cifar = _module
 resnet_cub = _module
@@ -87,6 +102,7 @@ resnext = _module
 resnext_cifar = _module
 rir_cifar = _module
 ror_cifar = _module
+scnet = _module
 selecsls = _module
 senet = _module
 sepreresnet = _module
@@ -160,12 +176,16 @@ demo_gl = _module
 demo_pt = _module
 demo_tf2 = _module
 gluon = _module
+asr_dataset = _module
 coco_det_dataset = _module
 coco_hpe2_dataset = _module
 coco_hpe3_dataset = _module
 hpatches_mch_dataset = _module
 imagenet1k_rec_cls_dataset = _module
+librispeech_asr_dataset = _module
+mcv_asr_dataset = _module
 widerface_det_dataset = _module
+distillation = _module
 gluoncv2 = _module
 crunet = _module
 crunetb = _module
@@ -180,22 +200,21 @@ ibnresnext = _module
 isqrtcovresnet = _module
 msdnet = _module
 octresnet_cifar = _module
-oth_alpha_pose = _module
-oth_centernet = _module
-oth_centernet2 = _module
-oth_icnet = _module
-oth_mobile_pose = _module
-oth_simple_pose_resnet = _module
+quartznet = _module
+regnetv = _module
 res2net = _module
 sinet = _module
 superpointnet = _module
+visemenet = _module
 losses = _module
 lr_scheduler = _module
+asr_metrics = _module
 seg_metrics_nd = _module
 model_stats = _module
 weighted_random_sampler = _module
 keras_ = _module
 kerascv = _module
+load_model = _module
 other = _module
 cifar1 = _module
 imagenet1k1 = _module
@@ -216,7 +235,9 @@ cub200_2011_utils1 = _module
 imagenet1k1 = _module
 seg_utils = _module
 train_gl_seg = _module
+prep_model = _module
 dataset_utils = _module
+asr_dataset = _module
 cifar100_cls_dataset = _module
 cifar10_cls_dataset = _module
 coco_det_dataset = _module
@@ -227,9 +248,12 @@ cub200_2011_cls_dataset = _module
 hpatches_mch_dataset = _module
 hpe_dataset = _module
 imagenet1k_cls_dataset = _module
+librispeech_asr_dataset = _module
+mcv_asr_dataset = _module
 mpii_hpe_dataset = _module
 seg_dataset = _module
 svhn_cls_dataset = _module
+asr_metrics = _module
 cls_metrics = _module
 det_metrics = _module
 hpe_metrics = _module
@@ -248,9 +272,13 @@ bisenet = _module
 bninception = _module
 cbamresnet = _module
 centernet = _module
+cgnet = _module
 channelnet = _module
 common = _module
 condensenet = _module
+contextnet = _module
+dabnet = _module
+danet = _module
 darknet = _module
 darknet53 = _module
 darts = _module
@@ -261,18 +289,26 @@ diapreresnet = _module
 diapreresnet_cifar = _module
 diaresnet = _module
 diaresnet_cifar = _module
+dicenet = _module
 diracnetv2 = _module
 dla = _module
 dpn = _module
 drn = _module
+edanet = _module
 efficientnet = _module
 efficientnetedge = _module
+enet = _module
+erfnet = _module
+esnet = _module
+espcnet = _module
 espnetv2 = _module
+fastscnn = _module
 fastseresnet = _module
 fbnet = _module
 fcn8sd = _module
 fdmobilenet = _module
 fishnet = _module
+fpenet = _module
 fractalnet_cifar = _module
 ghostnet = _module
 hardnet = _module
@@ -284,18 +320,24 @@ ibnresnext = _module
 ibppose_coco = _module
 icnet = _module
 igcv3 = _module
+inceptionresnetv1 = _module
 inceptionresnetv2 = _module
 inceptionv3 = _module
 inceptionv4 = _module
 irevnet = _module
 isqrtcovresnet = _module
+jasper = _module
+jasperdr = _module
+lednet = _module
 lffd = _module
+linknet = _module
 lwopenpose_cmupan = _module
 menet = _module
 mixnet = _module
 mnasnet = _module
 mobilenet = _module
 mobilenet_cub = _module
+mobilenetb = _module
 mobilenetv2 = _module
 mobilenetv3 = _module
 model_store = _module
@@ -304,19 +346,16 @@ msdnet_cifar10 = _module
 nasnet = _module
 nin_cifar = _module
 ntsnet_cub = _module
+nvpattexp = _module
 octresnet = _module
-oth_bisenet1 = _module
-oth_ibppose = _module
-oth_ibppose1 = _module
-oth_lffd = _module
-oth_lffd25 = _module
-oth_lwopenpose2d = _module
-oth_lwopenpose3d = _module
-oth_naivenet = _module
-oth_pose_resnet = _module
-oth_prnet = _module
-oth_sinet = _module
+_espnet = _module
+_inceptionresnetv1_ = _module
+oth_espnet = _module
+oth_inception_resnet_v1 = _module
+oth_quartznet = _module
+oth_vit = _module
 peleenet = _module
+pfpcnet = _module
 pnasnet = _module
 polynet = _module
 preresnet = _module
@@ -327,8 +366,11 @@ proxylessnas_cub = _module
 pspnet = _module
 pyramidnet = _module
 pyramidnet_cifar = _module
+quartznet = _module
+regnet = _module
 resattnet = _module
 resdropresnet_cifar = _module
+resnesta = _module
 resnet = _module
 resnet_cifar = _module
 resnet_cub = _module
@@ -339,6 +381,8 @@ resnext_cifar = _module
 revnet = _module
 rir_cifar = _module
 ror_cifar = _module
+scnet = _module
+segnet = _module
 selecsls = _module
 senet = _module
 sepreresnet = _module
@@ -359,10 +403,14 @@ sinet = _module
 sknet = _module
 sparsenet = _module
 spnasnet = _module
+sqnet = _module
 squeezenet = _module
 squeezenext = _module
 superpointnet = _module
+tresnet = _module
+unet = _module
 vgg = _module
+visemenet = _module
 voca = _module
 vovnet = _module
 wrn = _module
@@ -381,6 +429,7 @@ coco_hpe3_dataset = _module
 tf2cv = _module
 dla = _module
 grmiposelite_coco = _module
+quartznet = _module
 sinet = _module
 tensorflow_ = _module
 tensorflowcv = _module
@@ -394,6 +443,7 @@ convert_gl2tf2_batchnorm = _module
 convert_gl2tf2_conv2d = _module
 convert_gl2tf2_conv2d_b = _module
 convert_gl2tf2_dwconv2d = _module
+convert_gl2tf2_lstm = _module
 convert_gl2tf_avgpool2d = _module
 convert_gl2tf_batchnorm = _module
 convert_gl2tf_conv1x1 = _module
@@ -404,6 +454,7 @@ convert_gl2tf_gconv2d = _module
 convert_gl2tf_maxpool2d = _module
 train_ch = _module
 train_gl = _module
+train_gl_mealv2 = _module
 train_ke = _module
 train_pt = _module
 train_tf = _module
@@ -450,6 +501,9 @@ import time
 import torch
 
 
+import pandas as pd
+
+
 import torch.utils.data
 
 
@@ -477,22 +531,19 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import WeightedRandomSampler
 
 
+import torch.utils.data as data
+
+
 from torchvision.datasets import CIFAR100
 
 
 from torchvision.datasets import CIFAR10
 
 
-import torch.utils.data as data
-
-
 import copy
 
 
 from torch.nn import functional as F
-
-
-import pandas as pd
 
 
 from torchvision.datasets import ImageFolder
@@ -514,6 +565,12 @@ import torch.nn.init as init
 
 
 from inspect import isfunction
+
+
+from torch.nn.parameter import Parameter
+
+
+from torch.nn import init
 
 
 from torch import nn
@@ -540,7 +597,7 @@ def get_activation_layer(activation):
     activation : function, or str, or nn.Module
         Activation function or name of activation function.
 
-    Returns
+    Returns:
     -------
     nn.Module
         Activation layer.
@@ -628,17 +685,51 @@ def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, gr
     return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+def conv3x3(in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False):
+    """
+    Convolution 3x3 layer.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    """
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
 
 
-def conv1x1(in_channels, out_channels):
-    """1x1 convolution"""
-    return nn.Conv2d(in_channels, out_channels, 1, bias=True)
+def conv1x1(in_channels, out_channels, stride=1, groups=1, bias=False):
+    """
+    Convolution 1x1 layer.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    """
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, groups=groups, bias=bias)
 
 
-def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=False, use_bn=True, activation=lambda : nn.ReLU(inplace=True)):
+def conv7x7_block(in_channels, out_channels, stride=1, padding=3, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     7x7 version of the standard convolution block.
 
@@ -652,17 +743,178 @@ def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=False, us
         Strides of the convolution.
     padding : int or tuple/list of 2 int, default 3
         Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    groups : int, default 1
+        Number of groups.
     bias : bool, default False
         Whether the layer uses a bias vector.
     use_bn : bool, default True
         Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=stride, padding=padding, bias=bias, use_bn=use_bn, activation=activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
-BN_MOMENTUM = 0.1
+def dwconv_block(in_channels, out_channels, kernel_size, stride=1, padding=1, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    """
+    Depthwise version of the standard convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : int or tuple/list of 2 int
+        Convolution window size.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
+
+
+def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, bn_eps=1e-05, activation='relu', data_format='channels_last', **kwargs):
+    """
+    3x3 depthwise version of the standard convolution block (SINet version).
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    strides : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    use_bias : bool, default False
+        Whether the layer uses a bias vector.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default 'relu'
+        Activation function or name of activation function.
+    data_format : str, default 'channels_last'
+        The ordering of the dimensions in tensors.
+    """
+    return dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, bn_eps=bn_eps, activation=activation, data_format=data_format, **kwargs)
+
+
+def is_channels_first():
+    """
+    Is tested data format channels first.
+
+    Returns:
+    -------
+    bool
+        A flag.
+    """
+    return K.image_data_format() == 'channels_first'
+
+
+def round_channels(channels, divisor=8):
+    """
+    Round weighted channel number (make divisible operation).
+
+    Parameters:
+    ----------
+    channels : int or float
+        Original number of channels.
+    divisor : int, default 8
+        Alignment value.
+
+    Returns:
+    -------
+    int
+        Weighted number of channels.
+    """
+    rounded_channels = max(int(channels + divisor / 2.0) // divisor * divisor, divisor)
+    if float(rounded_channels) < 0.9 * channels:
+        rounded_channels += divisor
+    return rounded_channels
+
+
+class SEBlock(nn.Layer):
+    """
+    SINet version of Squeeze-and-Excitation block from 'Squeeze-and-Excitation Networks,'
+    https://arxiv.org/abs/1709.01507.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of channels.
+    reduction : int, default 16
+        Squeeze reduction value.
+    round_mid : bool, default False
+        Whether to round middle channel number (make divisible by 8).
+    activation : function, or str, or nn.Module, default 'relu'
+        Activation function after the first convolution.
+    out_activation : function, or str, or nn.Module, default 'sigmoid'
+        Activation function after the last convolution.
+    data_format : str, default 'channels_last'
+        The ordering of the dimensions in tensors.
+    """
+
+    def __init__(self, channels, reduction=16, round_mid=False, mid_activation='relu', out_activation='sigmoid', data_format='channels_last', **kwargs):
+        super(SEBlock, self).__init__(**kwargs)
+        self.data_format = data_format
+        self.use_conv2 = reduction > 1
+        mid_channels = channels // reduction if not round_mid else round_channels(float(channels) / reduction)
+        self.pool = nn.GlobalAveragePooling2D(data_format=data_format, name='pool')
+        self.fc1 = nn.Dense(units=mid_channels, input_dim=channels, name='fc1')
+        if self.use_conv2:
+            self.activ = get_activation_layer(mid_activation, name='activ')
+            self.fc2 = nn.Dense(units=channels, input_dim=mid_channels, name='fc2')
+        self.sigmoid = get_activation_layer(out_activation, name='sigmoid')
+
+    def call(self, x, training=None):
+        w = self.pool(x)
+        w = self.fc1(w)
+        if self.use_conv2:
+            w = self.activ(w)
+            w = self.fc2(w)
+        w = self.sigmoid(w)
+        axis = -1 if is_channels_first(self.data_format) else 1
+        w = tf.expand_dims(tf.expand_dims(w, axis=axis), axis=axis)
+        x = x * w
+        return x
+
+
+def depthwise_conv3x3(channels, stride=1, padding=1, dilation=1, bias=False):
+    """
+    Depthwise convolution 3x3 layer.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of input/output channels.
+    strides : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    """
+    return nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=channels, bias=bias)
 
 
 def channet_conv1x1(in_channels, out_channels, stride=1, groups=1, bias=False, dropout_rate=0.0, activate=True):
@@ -735,116 +987,6 @@ def channet_conv3x3(in_channels, out_channels, stride, padding=1, dilation=1, gr
     return ChannetConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, dropout_rate=dropout_rate, activate=activate)
 
 
-def is_channels_first():
-    """
-    Is tested data format channels first.
-
-    Returns
-    -------
-    bool
-        A flag.
-    """
-    return K.image_data_format() == 'channels_first'
-
-
-def round_channels(channels, divisor=8):
-    """
-    Round weighted channel number (make divisible operation).
-
-    Parameters:
-    ----------
-    channels : int or float
-        Original number of channels.
-    divisor : int, default 8
-        Alignment value.
-
-    Returns
-    -------
-    int
-        Weighted number of channels.
-    """
-    rounded_channels = max(int(channels + divisor / 2.0) // divisor * divisor, divisor)
-    if float(rounded_channels) < 0.9 * channels:
-        rounded_channels += divisor
-    return rounded_channels
-
-
-class SEBlock(nn.Layer):
-    """
-    SINet version of Squeeze-and-Excitation block from 'Squeeze-and-Excitation Networks,'
-    https://arxiv.org/abs/1709.01507.
-
-    Parameters:
-    ----------
-    channels : int
-        Number of channels.
-    reduction : int, default 16
-        Squeeze reduction value.
-    round_mid : bool, default False
-        Whether to round middle channel number (make divisible by 8).
-    activation : function, or str, or nn.Module, default 'relu'
-        Activation function after the first convolution.
-    out_activation : function, or str, or nn.Module, default 'sigmoid'
-        Activation function after the last convolution.
-    data_format : str, default 'channels_last'
-        The ordering of the dimensions in tensors.
-    """
-
-    def __init__(self, channels, reduction=16, round_mid=False, mid_activation='relu', out_activation='sigmoid', data_format='channels_last', **kwargs):
-        super(SEBlock, self).__init__(**kwargs)
-        self.data_format = data_format
-        self.use_conv2 = reduction > 1
-        mid_channels = channels // reduction if not round_mid else round_channels(float(channels) / reduction)
-        self.pool = nn.GlobalAveragePooling2D(data_format=data_format, name='pool')
-        self.fc1 = nn.Dense(units=mid_channels, input_dim=channels, name='fc1')
-        if self.use_conv2:
-            self.activ = get_activation_layer(mid_activation, name='activ')
-            self.fc2 = nn.Dense(units=channels, input_dim=mid_channels, name='fc2')
-        self.sigmoid = get_activation_layer(out_activation, name='sigmoid')
-
-    def call(self, x, training=None):
-        w = self.pool(x)
-        w = self.fc1(w)
-        if self.use_conv2:
-            w = self.activ(w)
-            w = self.fc2(w)
-        w = self.sigmoid(w)
-        axis = -1 if is_channels_first(self.data_format) else 1
-        w = tf.expand_dims(tf.expand_dims(w, axis=axis), axis=axis)
-        x = x * w
-        return x
-
-
-def dwconv_block(in_channels, out_channels, kernel_size, stride=1, padding=1, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
-    """
-    Depthwise version of the standard convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    kernel_size : int or tuple/list of 2 int
-        Convolution window size.
-    stride : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    bn_eps : float, default 1e-5
-        Small float added to variance in Batch norm.
-    activation : function or str or None, default nn.ReLU(inplace=True)
-        Activation function or name of activation function.
-    """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
-
-
 class DwsConvBlock(nn.Layer):
     """
     SINet version of depthwise separable convolution block with BatchNorms and activations at each convolution layers.
@@ -898,11 +1040,27 @@ class DwsConvBlock(nn.Layer):
 
 
 def channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
+    """
+    Channel shuffle operation from 'ShuffleNet: An Extremely Efficient Convolutional Neural Network for Mobile Devices,'
+    https://arxiv.org/abs/1707.01083.
+
+    Parameters:
+    ----------
+    x : Tensor
+        Input tensor.
+    groups : int
+        Number of groups.
+
+    Returns:
+    -------
+    Tensor
+        Resulted tensor.
+    """
+    batch, channels, height, width = x.size()
+    channels_per_group = channels // groups
+    x = x.view(batch, groups, channels_per_group, height, width)
     x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
+    x = x.view(batch, channels, height, width)
     return x
 
 
@@ -918,7 +1076,7 @@ def channel_shuffle2(x, groups):
     groups : int
         Number of groups.
 
-    Returns
+    Returns:
     -------
     Tensor
         Resulted tensor.
@@ -961,6 +1119,68 @@ def condense_simple_conv3x3(in_channels, out_channels, groups):
         Number of groups.
     """
     return CondenseSimpleConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, groups=groups)
+
+
+def dwsconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, dw_use_bn=True, pw_use_bn=True, bn_eps=1e-05, dw_activation='relu', pw_activation='relu', se_reduction=0, data_format='channels_last', **kwargs):
+    """
+    3x3 depthwise separable version of the standard convolution block (SINet version).
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    strides : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    use_bias : bool, default False
+        Whether the layer uses a bias vector.
+    dw_use_bn : bool, default True
+        Whether to use BatchNorm layer (depthwise convolution block).
+    pw_use_bn : bool, default True
+        Whether to use BatchNorm layer (pointwise convolution block).
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    dw_activation : function or str or None, default 'relu'
+        Activation function after the depthwise convolution block.
+    pw_activation : function or str or None, default 'relu'
+        Activation function after the pointwise convolution block.
+    se_reduction : int, default 0
+        Squeeze reduction value (0 means no-se).
+    data_format : str, default 'channels_last'
+        The ordering of the dimensions in tensors.
+    """
+    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, dw_use_bn=dw_use_bn, pw_use_bn=pw_use_bn, bn_eps=bn_eps, dw_activation=dw_activation, pw_activation=pw_activation, se_reduction=se_reduction, data_format=data_format, **kwargs)
+
+
+def dwa_conv3x3_block(channels, stride=1, padding=1, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    """
+    3x3 version of the depthwise asymmetric separable convolution block.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of input/output channels.
+    stride : int, default 1
+        Strides of the convolution.
+    padding : int, default 1
+        Padding value for convolution layer.
+    dilation : int, default 1
+        Dilation value for convolution layer.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return DwaConvBlock(channels=channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 def dark_convYxY(in_channels, out_channels, alpha, pointwise):
@@ -1176,7 +1396,7 @@ class NasDualPathScheme(object):
     x_prev : Tensor
         Previous processed tensor.
 
-    Returns
+    Returns:
     -------
     x_next : Tensor
         Next processed tensor.
@@ -1205,7 +1425,7 @@ def nasnet_dual_path_scheme_ordinal(module, x, _):
     x : Tensor
         Current processed tensor.
 
-    Returns
+    Returns:
     -------
     x_next : Tensor
         Next processed tensor.
@@ -1337,7 +1557,7 @@ def get_channel_axis():
     """
     Get channel axis.
 
-    Returns
+    Returns:
     -------
     int
         Channel axis.
@@ -1495,7 +1715,7 @@ def flatten(x, reshape=False):
     reshape : bool, default False
         Whether do reshape instead of flatten.
 
-    Returns
+    Returns:
     -------
     keras.backend tensor/variable/symbol
         Resulted tensor/variable/symbol.
@@ -1547,7 +1767,7 @@ class DLA(tf.keras.Model):
         self.in_size = in_size
         self.classes = classes
         self.data_format = data_format
-        self.features = tf.keras.Sequential(name='features')
+        self.features = SimpleSequential(name='features')
         self.features.add(DLAInitBlock(in_channels=in_channels, out_channels=init_block_channels, data_format=data_format, name='init_block'))
         in_channels = init_block_channels
         for i in range(len(levels)):
@@ -1708,6 +1928,36 @@ def drn_init_block(in_channels, out_channels):
     return DRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=1, padding=3, dilation=1, activate=True)
 
 
+def asym_conv3x3_block(padding=1, **kwargs):
+    """
+    3x3 asymmetric separable convolution block.
+
+    Parameters:
+    ----------
+    channels : int
+        Number of input/output channels.
+    padding : int, default 1
+        Padding value for convolution layer.
+    dilation : int, default 1
+        Dilation value for convolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    lw_use_bn : bool, default True
+        Whether to use BatchNorm layer (leftwise convolution block).
+    rw_use_bn : bool, default True
+        Whether to use BatchNorm layer (rightwise convolution block).
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    lw_activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function after the leftwise convolution block.
+    rw_activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function after the rightwise convolution block.
+    """
+    return AsymConvBlock(kernel_size=3, padding=padding, **kwargs)
+
+
 def calc_tf_padding(x, kernel_size, stride=1, dilation=1):
     """
     Calculate TF-same like padding size.
@@ -1723,45 +1973,17 @@ def calc_tf_padding(x, kernel_size, stride=1, dilation=1):
     dilation : int, default 1
         Dilation value for convolution layer.
 
-    Returns
+    Returns:
     -------
     tuple of 4 int
         The size of the padding.
     """
     height, width = x.size()[2:]
-    oh = math.ceil(height / stride)
-    ow = math.ceil(width / stride)
+    oh = math.ceil(float(height) / stride)
+    ow = math.ceil(float(width) / stride)
     pad_h = max((oh - 1) * stride + (kernel_size - 1) * dilation + 1 - height, 0)
     pad_w = max((ow - 1) * stride + (kernel_size - 1) * dilation + 1 - width, 0)
     return pad_h // 2, pad_h - pad_h // 2, pad_w // 2, pad_w - pad_w // 2
-
-
-def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, bn_eps=1e-05, activation='relu', data_format='channels_last', **kwargs):
-    """
-    3x3 depthwise version of the standard convolution block (SINet version).
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    strides : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    use_bias : bool, default False
-        Whether the layer uses a bias vector.
-    bn_eps : float, default 1e-5
-        Small float added to variance in Batch norm.
-    activation : function or str or None, default 'relu'
-        Activation function or name of activation function.
-    data_format : str, default 'channels_last'
-        The ordering of the dimensions in tensors.
-    """
-    return dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, bn_eps=bn_eps, activation=activation, data_format=data_format, **kwargs)
 
 
 def dwconv5x5_block(in_channels, out_channels, stride=1, padding=2, dilation=1, bias=False, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
@@ -1788,6 +2010,40 @@ def dwconv5x5_block(in_channels, out_channels, stride=1, padding=2, dilation=1, 
         Activation function or name of activation function.
     """
     return dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=stride, padding=padding, dilation=dilation, bias=bias, bn_eps=bn_eps, activation=activation)
+
+
+def deconv3x3_block(padding=1, out_padding=1, **kwargs):
+    """
+    3x3 version of the deconvolution block with batch normalization and activation.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int
+        Strides of the deconvolution.
+    padding : int or tuple/list of 2 int, default 1
+        Padding value for deconvolution layer.
+    ext_padding : tuple/list of 4 int, default None
+        Extra padding value for deconvolution layer.
+    out_padding : int or tuple/list of 2 int, default 1
+        Output padding value for deconvolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for deconvolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return DeconvBlock(kernel_size=3, padding=padding, out_padding=out_padding, **kwargs)
 
 
 class AvgPool2d(nn.Layer):
@@ -2078,7 +2334,7 @@ def channel_squeeze(x, groups):
     groups : int
         Number of groups.
 
-    Returns
+    Returns:
     -------
     Tensor
         Resulted tensor.
@@ -2109,42 +2365,6 @@ def drop_conv3x3_block(in_channels, out_channels, stride=1, padding=1, bias=Fals
         Parameter of Dropout layer. Faction of the input units to drop.
     """
     return DropConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, bias=bias, dropout_prob=dropout_prob)
-
-
-def dwsconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, dw_use_bn=True, pw_use_bn=True, bn_eps=1e-05, dw_activation='relu', pw_activation='relu', se_reduction=0, data_format='channels_last', **kwargs):
-    """
-    3x3 depthwise separable version of the standard convolution block (SINet version).
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    strides : int or tuple/list of 2 int, default 1
-        Strides of the convolution.
-    padding : int or tuple/list of 2 int, default 1
-        Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    use_bias : bool, default False
-        Whether the layer uses a bias vector.
-    dw_use_bn : bool, default True
-        Whether to use BatchNorm layer (depthwise convolution block).
-    pw_use_bn : bool, default True
-        Whether to use BatchNorm layer (pointwise convolution block).
-    bn_eps : float, default 1e-5
-        Small float added to variance in Batch norm.
-    dw_activation : function or str or None, default 'relu'
-        Activation function after the depthwise convolution block.
-    pw_activation : function or str or None, default 'relu'
-        Activation function after the pointwise convolution block.
-    se_reduction : int, default 0
-        Squeeze reduction value (0 means no-se).
-    data_format : str, default 'channels_last'
-        The ordering of the dimensions in tensors.
-    """
-    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, dw_use_bn=dw_use_bn, pw_use_bn=pw_use_bn, bn_eps=bn_eps, dw_activation=dw_activation, pw_activation=pw_activation, se_reduction=se_reduction, data_format=data_format, **kwargs)
 
 
 def invdwsconv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, bias=False, bn_eps=1e-05, pw_activation=lambda : nn.ReLU(inplace=True), dw_activation=lambda : nn.ReLU(inplace=True)):
@@ -2241,20 +2461,6 @@ def ibn_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=False,
     return IBNConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias, use_ibn=use_ibn, activate=activate)
 
 
-def incept_conv1x1(in_channels, out_channels):
-    """
-    1x1 version of the InceptionV4 specific convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    """
-    return InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
-
-
 class CovPool(torch.autograd.Function):
     """
     Covariance pooling function.
@@ -2309,14 +2515,14 @@ class NewtonSchulzSqrt(torch.autograd.Function):
         yi = torch.zeros(batch, n - 1, m, m, dtype=x.dtype, device=x.device)
         zi = torch.zeros(batch, n - 1, m, m, dtype=x.dtype, device=x.device)
         b2 = 0.5 * (i3 - a)
-        yi[:, (0), :, :] = a.bmm(b2)
-        zi[:, (0), :, :] = b2
+        yi[:, 0, :, :] = a.bmm(b2)
+        zi[:, 0, :, :] = b2
         for i in range(1, n - 1):
-            b2 = 0.5 * (i3 - zi[:, (i - 1), :, :].bmm(yi[:, (i - 1), :, :]))
-            yi[:, (i), :, :] = yi[:, (i - 1), :, :].bmm(b2)
-            zi[:, (i), :, :] = b2.bmm(zi[:, (i - 1), :, :])
-        b2 = 0.5 * (i3 - zi[:, (n - 2), :, :].bmm(yi[:, (n - 2), :, :]))
-        yn = yi[:, (n - 2), :, :].bmm(b2)
+            b2 = 0.5 * (i3 - zi[:, i - 1, :, :].bmm(yi[:, i - 1, :, :]))
+            yi[:, i, :, :] = yi[:, i - 1, :, :].bmm(b2)
+            zi[:, i, :, :] = b2.bmm(zi[:, i - 1, :, :])
+        b2 = 0.5 * (i3 - zi[:, n - 2, :, :].bmm(yi[:, n - 2, :, :]))
+        yn = yi[:, n - 2, :, :].bmm(b2)
         x_trace_sqrt = torch.sqrt(x_trace)
         c = yn * x_trace_sqrt
         ctx.save_for_backward(x, x_trace, a, yi, zi, yn, x_trace_sqrt)
@@ -2332,14 +2538,14 @@ class NewtonSchulzSqrt(torch.autograd.Function):
         identity = identity0.unsqueeze(dim=0).repeat(batch, 1, 1)
         i3 = 3.0 * identity
         grad_yn = grad_c * x_trace_sqrt
-        b = i3 - yi[:, (n - 2), :, :].bmm(zi[:, (n - 2), :, :])
-        grad_yi = 0.5 * (grad_yn.bmm(b) - zi[:, (n - 2), :, :].bmm(yi[:, (n - 2), :, :]).bmm(grad_yn))
-        grad_zi = -0.5 * yi[:, (n - 2), :, :].bmm(grad_yn).bmm(yi[:, (n - 2), :, :])
+        b = i3 - yi[:, n - 2, :, :].bmm(zi[:, n - 2, :, :])
+        grad_yi = 0.5 * (grad_yn.bmm(b) - zi[:, n - 2, :, :].bmm(yi[:, n - 2, :, :]).bmm(grad_yn))
+        grad_zi = -0.5 * yi[:, n - 2, :, :].bmm(grad_yn).bmm(yi[:, n - 2, :, :])
         for i in range(n - 3, -1, -1):
-            b = i3 - yi[:, (i), :, :].bmm(zi[:, (i), :, :])
-            ziyi = zi[:, (i), :, :].bmm(yi[:, (i), :, :])
-            grad_yi_m1 = 0.5 * (grad_yi.bmm(b) - zi[:, (i), :, :].bmm(grad_zi).bmm(zi[:, (i), :, :]) - ziyi.bmm(grad_yi))
-            grad_zi_m1 = 0.5 * (b.bmm(grad_zi) - yi[:, (i), :, :].bmm(grad_yi).bmm(yi[:, (i), :, :]) - grad_zi.bmm(ziyi))
+            b = i3 - yi[:, i, :, :].bmm(zi[:, i, :, :])
+            ziyi = zi[:, i, :, :].bmm(yi[:, i, :, :])
+            grad_yi_m1 = 0.5 * (grad_yi.bmm(b) - zi[:, i, :, :].bmm(grad_zi).bmm(zi[:, i, :, :]) - ziyi.bmm(grad_yi))
+            grad_zi_m1 = 0.5 * (b.bmm(grad_zi) - yi[:, i, :, :].bmm(grad_yi).bmm(yi[:, i, :, :]) - grad_zi.bmm(ziyi))
             grad_yi = grad_yi_m1
             grad_zi = grad_zi_m1
         grad_a = 0.5 * (grad_yi.bmm(i3 - a) - grad_zi - a.bmm(grad_yi))
@@ -2363,7 +2569,7 @@ class Triuvec(torch.autograd.Function):
         n = cols
         triuvec_inds = torch.ones(n, n).triu().view(n * n).nonzero()
         x_vec = x.reshape(batch, -1)
-        y = x_vec[:, (triuvec_inds)]
+        y = x_vec[:, triuvec_inds]
         ctx.save_for_backward(x, triuvec_inds)
         return y
 
@@ -2372,23 +2578,188 @@ class Triuvec(torch.autograd.Function):
         x, triuvec_inds = ctx.saved_tensors
         batch, n, _ = x.size()
         grad_x = torch.zeros_like(x).view(batch, -1)
-        grad_x[:, (triuvec_inds)] = grad_y
+        grad_x[:, triuvec_inds] = grad_y
         grad_x = grad_x.view(batch, n, n)
         return grad_x
 
 
-def depthwise_conv3x3(channels, stride):
+def outmask_fill(x, x_len, value=0.0):
     """
-    Depthwise convolution 3x3 layer.
+    Masked fill a tensor.
 
     Parameters:
     ----------
-    channels : int
-        Number of input/output channels.
-    strides : int or tuple/list of 2 int
-        Strides of the convolution.
+    x : tensor
+        Input tensor.
+    x_len : tensor
+        Tensor with lengths.
+    value : float, default 0.0
+        Filled value.
+
+    Returns:
+    -------
+    tensor
+        Resulted tensor.
     """
-    return nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
+    max_len = x.size(2)
+    mask = torch.arange(max_len).expand(len(x_len), max_len) >= x_len.unsqueeze(1)
+    mask = mask.unsqueeze(dim=1)
+    x = x.masked_fill(mask=mask, value=value)
+    return x
+
+
+def masked_normalize2(x, x_len):
+    """
+    Normalize a tensor with mask (scheme #2).
+
+    Parameters:
+    ----------
+    x : tensor
+        Input tensor.
+    x_len : tensor
+        Tensor with lengths.
+
+    Returns:
+    -------
+    tensor
+        Resulted tensor.
+    """
+    x = outmask_fill(x, x_len)
+    x_mean = x.sum(dim=2) / x_len.unsqueeze(dim=1)
+    x2_mean = x.square().sum(dim=2) / x_len.unsqueeze(dim=1)
+    x_std = (x2_mean - x_mean.square()).sqrt()
+    x = (x - x_mean.unsqueeze(dim=2)) / x_std.unsqueeze(dim=2)
+    return x
+
+
+def mask_conv1d1(in_channels, out_channels, stride=1, groups=1, bias=False):
+    """
+    Masked 1-dim kernel version of the 1D convolution layer.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int, default 1
+        Strides of the convolution.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    """
+    return MaskConv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, groups=groups, bias=bias)
+
+
+def mask_conv1d1_block(in_channels, out_channels, stride=1, padding=0, **kwargs):
+    """
+    1-dim kernel version of the masked 1D convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int, default 1
+        Strides of the convolution.
+    padding : int, default 0
+        Padding value for convolution layer.
+    """
+    return MaskConvBlock1d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=padding, **kwargs)
+
+
+class CtcDecoder(object):
+    """
+    CTC decoder (to decode a sequence of labels to words).
+
+    Parameters:
+    ----------
+    vocabulary : list of str
+        Vocabulary of the dataset.
+    """
+
+    def __init__(self, vocabulary):
+        super().__init__()
+        self.blank_id = len(vocabulary)
+        self.labels_map = dict([(i, vocabulary[i]) for i in range(len(vocabulary))])
+
+    def __call__(self, predictions):
+        """
+        Decode a sequence of labels to words.
+
+        Parameters:
+        ----------
+        predictions : np.array of int or list of list of int
+            Tensor with predicted labels.
+
+        Returns:
+        -------
+        list of str
+            Words.
+        """
+        hypotheses = []
+        for prediction in predictions:
+            decoded_prediction = []
+            previous = self.blank_id
+            for p in prediction:
+                if (p != previous or previous == self.blank_id) and p != self.blank_id:
+                    decoded_prediction.append(p)
+                previous = p
+            hypothesis = ''.join([self.labels_map[c] for c in decoded_prediction])
+            hypotheses.append(hypothesis)
+        return hypotheses
+
+
+def conv1d1(in_channels, out_channels, stride=1, groups=1, bias=False):
+    """
+    1-dim kernel version of the 1D convolution layer.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int, default 1
+        Strides of the convolution.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    """
+    return nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, groups=groups, bias=bias)
+
+
+def conv5x5_block(in_channels, out_channels, stride=1, padding=2, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    """
+    5x5 version of the standard convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default 2
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 def mixconv1x1_block(in_channels, out_channels, kernel_count, stride=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
@@ -2528,7 +2899,7 @@ def hard_nms(cdds, top_n=10, iou_thresh=0.25):
     iou_thresh : float, default 0.25
         IoU threshold.
 
-    Returns
+    Returns:
     -------
     np.array
         Filtered borders.
@@ -2537,7 +2908,7 @@ def hard_nms(cdds, top_n=10, iou_thresh=0.25):
     assert len(cdds.shape) == 2
     assert cdds.shape[1] >= 5
     cdds = cdds.copy()
-    indices = np.argsort(cdds[:, (0)])
+    indices = np.argsort(cdds[:, 0])
     cdds = cdds[indices]
     cdd_results = []
     res = cdds
@@ -2550,9 +2921,9 @@ def hard_nms(cdds, top_n=10, iou_thresh=0.25):
         start_max = np.maximum(res[:, 1:3], cdd[1:3])
         end_min = np.minimum(res[:, 3:5], cdd[3:5])
         lengths = end_min - start_max
-        intersec_map = lengths[:, (0)] * lengths[:, (1)]
-        intersec_map[np.logical_or(lengths[:, (0)] < 0, lengths[:, (1)] < 0)] = 0
-        iou_map_cur = intersec_map / ((res[:, (3)] - res[:, (1)]) * (res[:, (4)] - res[:, (2)]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) - intersec_map)
+        intersec_map = lengths[:, 0] * lengths[:, 1]
+        intersec_map[np.logical_or(lengths[:, 0] < 0, lengths[:, 1] < 0)] = 0
+        iou_map_cur = intersec_map / ((res[:, 3] - res[:, 1]) * (res[:, 4] - res[:, 2]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) - intersec_map)
         res = res[iou_map_cur < iou_thresh]
     return np.array(cdd_results)
 
@@ -2621,36 +2992,64 @@ def oct_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=False,
     return OctConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias, oct_alpha=oct_alpha, oct_mode=oct_mode, bn_eps=bn_eps, activation=activation, activate=activate)
 
 
-num_filters_list = [32, 64, 128, 256]
+def poly_conv1x1(in_channels, out_channels, num_blocks):
+    """
+    1x1 version of the PolyNet specific convolution block.
+
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    num_blocks : int
+        Number of blocks (BatchNorm layers).
+    """
+    return PolyConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, num_blocks=num_blocks)
 
 
-def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True, dilation=1, stride=1, relu=True, bias=True):
-    modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=bias)]
-    if bn:
-        modules.append(nn.BatchNorm2d(out_channels))
-    if relu:
-        modules.append(nn.ReLU(inplace=True))
-    return nn.Sequential(*modules)
+def poly_res_b_block():
+    """
+    PolyNet type PolyResidual-Res-B block.
+    """
+    return conv1x1_block(in_channels=384, out_channels=1152, stride=1, activation=None)
 
 
-def conv_dw_no_bn(in_channels, out_channels, kernel_size=3, padding=1, stride=1, dilation=1):
-    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation=dilation, groups=in_channels, bias=False), nn.ELU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False), nn.ELU(inplace=True))
+def poly_res_c_block():
+    """
+    PolyNet type PolyResidual-Res-C block.
+    """
+    return conv1x1_block(in_channels=448, out_channels=2048, stride=1, activation=None)
 
 
-def conv_dw(in_channels, out_channels, kernel_size=3, padding=1, stride=1, dilation=1):
-    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation=dilation, groups=in_channels, bias=False), nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2), dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    """
+    4x4 version of the standard convolution block.
 
-
-logger = logging.getLogger(__name__)
-
-
-def padding_same_conv2d(input_size, in_c, out_c, kernel_size=4, stride=1):
-    output_size = input_size // stride
-    padding_num = stride * (output_size - 1) - input_size + kernel_size
-    if padding_num % 2 == 0:
-        return nn.Sequential(nn.Conv2d(in_c, out_c, kernel_size=kernel_size, stride=stride, padding=padding_num // 2, bias=False))
-    else:
-        return nn.Sequential(nn.ConstantPad2d((padding_num // 2, padding_num // 2 + 1, padding_num // 2, padding_num // 2 + 1), 0), nn.Conv2d(in_c, out_c, kernel_size=kernel_size, stride=stride, padding=0, bias=False))
+    Parameters:
+    ----------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    stride : int or tuple/list of 2 int, default 1
+        Strides of the convolution.
+    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default (1, 2, 1, 2)
+        Padding value for convolution layer.
+    dilation : int or tuple/list of 2 int, default 1
+        Dilation value for convolution layer.
+    groups : int, default 1
+        Number of groups.
+    bias : bool, default False
+        Whether the layer uses a bias vector.
+    use_bn : bool, default True
+        Whether to use BatchNorm layer.
+    bn_eps : float, default 1e-5
+        Small float added to variance in Batch norm.
+    activation : function or str or None, default nn.ReLU(inplace=True)
+        Activation function or name of activation function.
+    """
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 def deconv4x4_block(in_channels, out_channels, stride=1, padding=3, ext_padding=(2, 1, 2, 1), out_padding=0, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
@@ -2687,9 +3086,9 @@ def deconv4x4_block(in_channels, out_channels, stride=1, padding=3, ext_padding=
     return DeconvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=stride, padding=padding, ext_padding=ext_padding, out_padding=out_padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
-def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2), dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
+def saconv3x3_block(in_channels, out_channels, stride=1, padding=1, **kwargs):
     """
-    4x4 version of the standard convolution block.
+    3x3 version of the Split-Attention convolution block.
 
     Parameters:
     ----------
@@ -2699,55 +3098,10 @@ def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2), dil
         Number of output channels.
     stride : int or tuple/list of 2 int, default 1
         Strides of the convolution.
-    padding : int, or tuple/list of 2 int, or tuple/list of 4 int, default (1, 2, 1, 2)
+    padding : int or tuple/list of 2 int, default 1
         Padding value for convolution layer.
-    dilation : int or tuple/list of 2 int, default 1
-        Dilation value for convolution layer.
-    groups : int, default 1
-        Number of groups.
-    bias : bool, default False
-        Whether the layer uses a bias vector.
-    use_bn : bool, default True
-        Whether to use BatchNorm layer.
-    bn_eps : float, default 1e-5
-        Small float added to variance in Batch norm.
-    activation : function or str or None, default nn.ReLU(inplace=True)
-        Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
-
-
-BN_moment = 0.1
-
-
-def poly_conv1x1(in_channels, out_channels, num_blocks):
-    """
-    1x1 version of the PolyNet specific convolution block.
-
-    Parameters:
-    ----------
-    in_channels : int
-        Number of input channels.
-    out_channels : int
-        Number of output channels.
-    num_blocks : int
-        Number of blocks (BatchNorm layers).
-    """
-    return PolyConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, num_blocks=num_blocks)
-
-
-def poly_res_b_block():
-    """
-    PolyNet type PolyResidual-Res-B block.
-    """
-    return conv1x1_block(in_channels=384, out_channels=1152, stride=1, activation=None)
-
-
-def poly_res_c_block():
-    """
-    PolyNet type PolyResidual-Res-C block.
-    """
-    return conv1x1_block(in_channels=448, out_channels=2048, stride=1, activation=None)
+    return SAConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, **kwargs)
 
 
 use_context_mans = int(torch.__version__[0]) * 100 + int(torch.__version__[2]) - (1 if 'a' in torch.__version__ else 0) > 3
@@ -3093,7 +3447,7 @@ class SINet(tf.keras.Model):
         Whether to expect fixed spatial size of input image.
     in_channels : int, default 3
         Number of input channels.
-    in_size : tuple of two ints, default (480, 480)
+    in_size : tuple of two ints, default (1024, 2048)
         Spatial size of the expected input image.
     classes : int, default 21
         Number of segmentation classes.
@@ -3133,12 +3487,61 @@ def sparsenet_exponential_fetch(lst):
     lst : list
         List of something.
 
-    Returns
+    Returns:
     -------
     list
         Filtered list.
     """
     return [lst[len(lst) - 2 ** i] for i in range(1 + math.floor(math.log(len(lst), 2)))]
+
+
+def anti_aliased_downsample(x):
+    """
+    Anti-Aliased Downsample operation.
+
+    Parameters:
+    ----------
+    x : Tensor
+        Input tensor.
+
+    Returns:
+    -------
+    Tensor
+        Resulted tensor.
+    """
+    channels = x.shape[1]
+    weight = torch.tensor([1.0, 2.0, 1.0], dtype=x.dtype, device=x.device)
+    weight = weight[:, None] * weight[None, :]
+    weight = weight / torch.sum(weight)
+    weight = weight[None, None, :, :].repeat((channels, 1, 1, 1))
+    x_pad = F.pad(x, pad=(1, 1, 1, 1), mode='reflect')
+    x = F.conv2d(x_pad, weight, stride=2, padding=0, groups=channels)
+    return x
+
+
+def space_to_depth(x):
+    """
+    Space-to-Depth operation.
+
+    Parameters:
+    ----------
+    x : Tensor
+        Input tensor.
+
+    Returns:
+    -------
+    Tensor
+        Resulted tensor.
+    """
+    k = 4
+    batch, channels, height, width = x.size()
+    new_height = height // k
+    new_width = width // k
+    new_channels = channels * k * k
+    x = x.view(batch, channels, new_height, k, new_width, k)
+    x = x.permute(0, 3, 5, 1, 2, 4).contiguous()
+    x = x.view(batch, new_channels, new_height, new_width)
+    return x
 
 
 def wrn_conv1x1(in_channels, out_channels, stride, activate):

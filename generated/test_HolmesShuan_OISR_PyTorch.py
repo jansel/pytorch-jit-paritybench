@@ -331,7 +331,7 @@ class Loss(nn.modules.loss._Loss):
             label = '{} Loss'.format(l['type'])
             fig = plt.figure()
             plt.title(label)
-            plt.plot(axis, self.log[:, (i)].numpy(), label=label)
+            plt.plot(axis, self.log[:, i].numpy(), label=label)
             plt.legend()
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -1096,16 +1096,16 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CALayer,
-     lambda: ([], {'channel': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
+    (CBAM,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ChannelPool,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Discriminator,
-     lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Flatten,
@@ -1132,6 +1132,10 @@ TESTCASES = [
      lambda: ([], {'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SE,
+     lambda: ([], {'gate_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (SpatialGate,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1174,4 +1178,7 @@ class Test_HolmesShuan_OISR_PyTorch(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

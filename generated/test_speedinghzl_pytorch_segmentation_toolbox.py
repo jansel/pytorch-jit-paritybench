@@ -685,7 +685,7 @@ class OhemCrossEntropy2d(nn.Module):
         if min_kept >= num_valid:
             threshold = 1.0
         elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
+            prob = input_prob[:, valid_flag]
             pred = prob[label, np.arange(len(label), dtype=np.int32)]
             threshold = self.thresh
             if min_kept > 0:
@@ -708,7 +708,7 @@ class OhemCrossEntropy2d(nn.Module):
         label = input_label[valid_flag]
         num_valid = valid_flag.sum()
         if num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
+            prob = input_prob[:, valid_flag]
             pred = prob[label, np.arange(len(label), dtype=np.int32)]
             kept_flag = pred <= threshold
             valid_inds = valid_inds[kept_flag]
@@ -926,14 +926,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelCriterion,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DenseModule,
      lambda: ([], {'in_channels': 4, 'growth': 4, 'layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -960,10 +952,4 @@ class Test_speedinghzl_pytorch_segmentation_toolbox(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

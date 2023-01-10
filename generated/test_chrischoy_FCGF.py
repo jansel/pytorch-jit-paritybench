@@ -1,7 +1,9 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+benchmark = _module
 config = _module
+demo = _module
 lib = _module
 data_loaders = _module
 eval = _module
@@ -46,19 +48,19 @@ xrange = range
 wraps = functools.wraps
 
 
+import numpy as np
+
+
+import torch
+
+
 import logging
 
 
 import random
 
 
-import torch
-
-
 import torch.utils.data
-
-
-import numpy as np
 
 
 from scipy.linalg import expm
@@ -99,7 +101,7 @@ class BasicBlockBase(nn.Module):
         super(BasicBlockBase, self).__init__()
         self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=3, stride=stride, dimension=D)
         self.norm1 = get_norm(self.NORM_TYPE, planes, bn_momentum=bn_momentum, D=D)
-        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=1, dilation=dilation, has_bias=False, dimension=D)
+        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=1, dilation=dilation, bias=False, dimension=D)
         self.norm2 = get_norm(self.NORM_TYPE, planes, bn_momentum=bn_momentum, D=D)
         self.downsample = downsample
 

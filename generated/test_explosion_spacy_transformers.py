@@ -1,38 +1,40 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-init_model = _module
-glue_util = _module
-metrics = _module
-run_glue = _module
-test_wordpiece_alignment = _module
-train_textcat = _module
 setup = _module
 spacy_transformers = _module
-_tokenizers = _module
-_train = _module
-activations = _module
-hyper_params = _module
-language = _module
-model_registry = _module
-pipeline = _module
-textcat = _module
-tok2vec = _module
-wordpiecer = _module
-util = _module
-wrapper = _module
+annotation_setters = _module
+architectures = _module
+data_classes = _module
+layers = _module
+_util = _module
+hf_shim = _module
+hf_wrapper = _module
+listener = _module
+split_trf = _module
+transformer_model = _module
+trfs2arrays = _module
+pipeline_component = _module
+span_getters = _module
 tests = _module
-conftest = _module
-test_activations = _module
-test_extensions = _module
-test_language = _module
-test_model_registry = _module
-test_ner = _module
-test_textcat = _module
-test_tok2vec = _module
-test_util = _module
-test_wordpiecer = _module
-test_wrapper = _module
+enable_gpu = _module
+regression = _module
+test_spacy_issue6401 = _module
+test_spacy_issue7029 = _module
+test_alignment = _module
+test_configs = _module
+test_data_classes = _module
+test_deprecations = _module
+test_model_sequence_classification = _module
+test_model_wrapper = _module
+test_pipeline_component = _module
+test_serialize = _module
+test_spanners = _module
+test_tok2vectransformer = _module
+test_truncation = _module
+util = _module
+truncate = _module
+util = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -54,7 +56,25 @@ xrange = range
 wraps = functools.wraps
 
 
-import random
+from typing import Optional
+
+
+from typing import List
+
+
+from typing import Dict
+
+
+from typing import Any
+
+
+from typing import Union
+
+
+from typing import Tuple
+
+
+from typing import cast
 
 
 import torch
@@ -63,23 +83,26 @@ import torch
 import numpy
 
 
-from collections import Counter
-
-
-import re
-
-
-import torch.autograd
-
-
-import torch.nn.utils.clip_grad
-
-
-from typing import Tuple
-
-
 from typing import Callable
 
 
-from typing import Any
+from functools import partial
+
+
+import copy
+
+
+from numpy.testing import assert_array_equal
+
+
+from typing import Set
+
+
+import random
+
+
+import torch.cuda
+
+
+import warnings
 

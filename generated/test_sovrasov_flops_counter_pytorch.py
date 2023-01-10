@@ -3,8 +3,13 @@ _module = sys.modules[__name__]
 del sys
 ptflops = _module
 flops_counter = _module
-sample = _module
+pytorch_engine = _module
+pytorch_ops = _module
+utils = _module
+bert = _module
+classification = _module
 setup = _module
+common_test = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -26,17 +31,20 @@ xrange = range
 wraps = functools.wraps
 
 
+import torch.nn as nn
+
+
 from functools import partial
 
 
 import torch
 
 
-import torch.nn as nn
-
-
 import numpy as np
 
 
-import torchvision.models as models
+import torchvision
+
+
+from torchvision import models as models
 

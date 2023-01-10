@@ -7,6 +7,10 @@ roi_predictor_resnet_attr = _module
 roi_predictor_resnet_inshop = _module
 roi_predictor_vgg_attr = _module
 roi_predictor_vgg_inshop = _module
+global_predictor_resnet = _module
+global_predictor_vgg = _module
+roi_predictor_resnet = _module
+roi_predictor_vgg = _module
 fashion_parsing_segmentation = _module
 demo = _module
 inference = _module
@@ -26,32 +30,39 @@ roi_retriever_resnet = _module
 roi_retriever_resnet_loss_id_triplet = _module
 roi_retriever_vgg_loss_id = _module
 roi_retriever_vgg_loss_id_triplet = _module
+cp_vton = _module
 prepare_attr_pred = _module
 prepare_consumer_to_shop = _module
 prepare_in_shop = _module
 prepare_landmark_detect = _module
+test_attr_predictor = _module
+test_cate_attr_predictor = _module
 test_fashion_recommender = _module
 test_landmark_detector = _module
-test_predictor = _module
 test_retriever = _module
 apis = _module
 env = _module
 test_fashion_recommender = _module
+test_predictor = _module
 test_retriever = _module
+test_virtual_tryon = _module
 train_fashion_recommender = _module
 train_landmark_detector = _module
 train_predictor = _module
 train_retriever = _module
+train_virtual_tryon = _module
 utils = _module
 core = _module
 evaluation = _module
 attr_predict_demo = _module
 attr_predict_eval = _module
+cate_predict_demo = _module
 cate_predict_eval = _module
 landmark_detect_eval = _module
 retrieval_demo = _module
 retrieval_eval = _module
 Attr_Pred = _module
+CP_VTON = _module
 Consumer_to_shop = _module
 In_shop = _module
 Landmark_Detect = _module
@@ -65,19 +76,28 @@ sampler = _module
 registry = _module
 utils = _module
 models = _module
+attr_cate_predictor = _module
 attr_predictor = _module
-attr_predictor = _module
+cate_predictor = _module
 backbones = _module
 resnet = _module
 vgg = _module
 builder = _module
 concats = _module
 concat = _module
+tps_warp = _module
 embed_extractor = _module
 embed_extract = _module
 fashion_recommender = _module
 base = _module
 type_aware_recommend = _module
+feature_extractor = _module
+feature_correlation = _module
+feature_extractor = _module
+feature_norm = _module
+feature_regression = _module
+geometric_matching = _module
+geometric_matching = _module
 global_pool = _module
 global_pool = _module
 landmark_detector = _module
@@ -90,13 +110,17 @@ losses = _module
 bce_with_logit_loss = _module
 ce_loss = _module
 cosine_embed_loss = _module
+l1_loss = _module
 loss_norm = _module
 margin_ranking_loss = _module
 mse_loss = _module
 triplet_loss = _module
+vgg_loss = _module
 predictor = _module
 base = _module
+global_attr_cate_predictor = _module
 global_predictor = _module
+roi_attr_cate_predictor = _module
 roi_predictor = _module
 retriever = _module
 base = _module
@@ -108,6 +132,11 @@ triplet_net = _module
 triplet_net = _module
 type_specific_net = _module
 type_specific_net = _module
+unet = _module
+unet_skip_connection_block = _module
+virtual_tryon = _module
+geometric_matching = _module
+tryon = _module
 visibility_classifier = _module
 visibility_classifier = _module
 checkpoint = _module
@@ -149,6 +178,9 @@ import numpy as np
 import torch
 
 
+import torch.nn as nn
+
+
 import logging
 
 
@@ -162,9 +194,6 @@ import torch.multiprocessing as mp
 
 
 from collections import OrderedDict
-
-
-import torch.nn as nn
 
 
 import torch.optim as optim
@@ -227,7 +256,7 @@ from abc import abstractmethod
 import torch.nn.functional as F
 
 
-import matplotlib
+import torchvision
 
 
 import inspect
@@ -335,6 +364,37 @@ class AttrPredictor(nn.Module):
         nn.init.xavier_uniform_(self.linear_attr.weight)
         if self.linear_attr.bias is not None:
             self.linear_attr.bias.data.fill_(0.01)
+
+
+CATEPREDICTOR = Registry('cate_predictor')
+
+
+class CatePredictor(nn.Module):
+
+    def __init__(self, inchannels, outchannels, loss_cate=dict(type='CELoss', ratio=1, weight=None, size_average=None, reduce=None, reduction='mean')):
+        super(CatePredictor, self).__init__()
+        self.linear_cate = nn.Linear(inchannels, outchannels)
+        self.loss_cate = build_loss(loss_cate)
+
+    def forward_train(self, x, cate):
+        cate_pred = self.linear_cate(x)
+        loss_cate = self.loss_cate(cate_pred, cate)
+        return loss_cate
+
+    def forward_test(self, x):
+        cate_pred = torch.sigmoid(self.linear_cate(x))
+        return cate_pred
+
+    def forward(self, x, cate=None, return_loss=False):
+        if return_loss:
+            return self.forward_train(x, cate)
+        else:
+            return self.forward_test(x)
+
+    def init_weights(self):
+        nn.init.xavier_uniform_(self.linear_cate.weight)
+        if self.linear_cate.bias is not None:
+            self.linear_cate.bias.data.fill_(0.01)
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
@@ -621,6 +681,102 @@ class Concat(nn.Module):
             self.fc_fusion.bias.data.fill_(0.01)
 
 
+TPSWARP = Registry('tps_warp')
+
+
+class TPSWarp(nn.Module):
+
+    def __init__(self, out_h=256, out_w=192, grid_size=3, use_regular_grid=True, reg_factor=0):
+        super(TPSWarp, self).__init__()
+        self.out_h = out_h
+        self.out_w = out_w
+        self.reg_factor = reg_factor
+        self.grid = np.zeros((self.out_h, self.out_w, 3), dtype=np.float32)
+        self.gridX, self.gridY = np.meshgrid(np.linspace(-1, 1, out_w), np.linspace(-1, 1, out_h))
+        self.gridX = torch.FloatTensor(self.gridX).unsqueeze(0).unsqueeze(3)
+        self.gridY = torch.FloatTensor(self.gridY).unsqueeze(0).unsqueeze(3)
+        self.gridX = self.gridX
+        self.gridY = self.gridY
+        if use_regular_grid:
+            axis_coords = np.linspace(-1, 1, grid_size)
+            self.N = grid_size * grid_size
+            P_Y, P_X = np.meshgrid(axis_coords, axis_coords)
+            P_X = np.reshape(P_X, (-1, 1))
+            P_Y = np.reshape(P_Y, (-1, 1))
+            P_X = torch.FloatTensor(P_X)
+            P_Y = torch.FloatTensor(P_Y)
+            self.P_X_base = P_X.clone()
+            self.P_Y_base = P_Y.clone()
+            self.Li = self.compute_L_inverse(P_X, P_Y).unsqueeze(0)
+            self.P_X = P_X.unsqueeze(2).unsqueeze(3).unsqueeze(4).transpose(0, 4)
+            self.P_Y = P_Y.unsqueeze(2).unsqueeze(3).unsqueeze(4).transpose(0, 4)
+            self.P_X = self.P_X
+            self.P_X_base = self.P_X_base
+            self.P_Y = self.P_Y
+            self.P_Y_base = self.P_Y_base
+
+    def compute_L_inverse(self, X, Y):
+        N = X.size()[0]
+        Xmat = X.expand(N, N)
+        Ymat = Y.expand(N, N)
+        P_dist_squared = torch.pow(Xmat - Xmat.transpose(0, 1), 2) + torch.pow(Ymat - Ymat.transpose(0, 1), 2)
+        P_dist_squared[P_dist_squared == 0] = 1
+        K = torch.mul(P_dist_squared, torch.log(P_dist_squared))
+        one = torch.FloatTensor(N, 1).fill_(1)
+        Z = torch.FloatTensor(3, 3).fill_(0)
+        P = torch.cat((one, X, Y), 1)
+        L = torch.cat((torch.cat((K, P), 1), torch.cat((P.transpose(0, 1), Z), 1)), 0)
+        Li = torch.inverse(L)
+        Li = Li
+        return Li
+
+    def apply_transformation(self, theta, points):
+        if theta.dim() == 2:
+            theta = theta.unsqueeze(2).unsqueeze(3)
+        batch_size = theta.size(0)
+        Q_X = theta[:, :self.N, :, :].squeeze(3)
+        Q_Y = theta[:, self.N:, :, :].squeeze(3)
+        Q_X = Q_X + self.P_X_base.expand_as(Q_X)
+        Q_Y = Q_Y + self.P_Y_base.expand_as(Q_Y)
+        points_b = points.size(0)
+        points_h = points.size(1)
+        points_w = points.size(2)
+        P_X = self.P_X.expand((1, points_h, points_w, 1, self.N))
+        P_Y = self.P_Y.expand((1, points_h, points_w, 1, self.N))
+        W_X = torch.bmm(self.Li[:, :self.N, :self.N].expand((batch_size, self.N, self.N)), Q_X)
+        W_Y = torch.bmm(self.Li[:, :self.N, :self.N].expand((batch_size, self.N, self.N)), Q_Y)
+        W_X = W_X.unsqueeze(3).unsqueeze(4).transpose(1, 4).repeat(1, points_h, points_w, 1, 1)
+        W_Y = W_Y.unsqueeze(3).unsqueeze(4).transpose(1, 4).repeat(1, points_h, points_w, 1, 1)
+        A_X = torch.bmm(self.Li[:, self.N:, :self.N].expand((batch_size, 3, self.N)), Q_X)
+        A_Y = torch.bmm(self.Li[:, self.N:, :self.N].expand((batch_size, 3, self.N)), Q_Y)
+        A_X = A_X.unsqueeze(3).unsqueeze(4).transpose(1, 4).repeat(1, points_h, points_w, 1, 1)
+        A_Y = A_Y.unsqueeze(3).unsqueeze(4).transpose(1, 4).repeat(1, points_h, points_w, 1, 1)
+        points_X_for_summation = points[:, :, :, 0].unsqueeze(3).unsqueeze(4).expand(points[:, :, :, 0].size() + (1, self.N))
+        points_Y_for_summation = points[:, :, :, 1].unsqueeze(3).unsqueeze(4).expand(points[:, :, :, 1].size() + (1, self.N))
+        if points_b == 1:
+            delta_X = points_X_for_summation - P_X
+            delta_Y = points_Y_for_summation - P_Y
+        else:
+            delta_X = points_X_for_summation - P_X.expand_as(points_X_for_summation)
+            delta_Y = points_Y_for_summation - P_Y.expand_as(points_Y_for_summation)
+        dist_squared = torch.pow(delta_X, 2) + torch.pow(delta_Y, 2)
+        dist_squared[dist_squared == 0] = 1
+        U = torch.mul(dist_squared, torch.log(dist_squared))
+        points_X_batch = points[:, :, :, 0].unsqueeze(3)
+        points_Y_batch = points[:, :, :, 1].unsqueeze(3)
+        if points_b == 1:
+            points_X_batch = points_X_batch.expand((batch_size,) + points_X_batch.size()[1:])
+            points_Y_batch = points_Y_batch.expand((batch_size,) + points_Y_batch.size()[1:])
+        points_X_prime = A_X[:, :, :, :, 0] + torch.mul(A_X[:, :, :, :, 1], points_X_batch) + torch.mul(A_X[:, :, :, :, 2], points_Y_batch) + torch.sum(torch.mul(W_X, U.expand_as(W_X)), 4)
+        points_Y_prime = A_Y[:, :, :, :, 0] + torch.mul(A_Y[:, :, :, :, 1], points_X_batch) + torch.mul(A_Y[:, :, :, :, 2], points_Y_batch) + torch.sum(torch.mul(W_Y, U.expand_as(W_Y)), 4)
+        return torch.cat((points_X_prime, points_Y_prime), 3)
+
+    def forward(self, theta):
+        points = torch.cat((self.gridX, self.gridY), 3)
+        warped_grid = self.apply_transformation(theta, points)
+        return warped_grid
+
+
 EMBEDEXTRACTOR = Registry('embed_extractor')
 
 
@@ -693,6 +849,163 @@ class BaseFashionRecommender(nn.Module):
         if pretrained is not None:
             logger = logging.getLogger()
             logger.info('load model from: {}'.format(pretrained))
+
+
+FEATURECORRELATION = Registry('feature_correlation')
+
+
+class FeatureCorrelation(nn.Module):
+
+    def __init__(self):
+        super(FeatureCorrelation, self).__init__()
+
+    def forward(self, feat_a, feat_b):
+        bs, c, h, w = feat_a.size()
+        feat_a = feat_a.transpose(2, 3).contiguous().view(bs, c, h * w)
+        feat_b = feat_b.view(bs, c, h * w).transpose(1, 2)
+        feat_mul = torch.bmm(feat_b, feat_a)
+        correlate_tensor = feat_mul.view(bs, h, w, h * w).transpose(2, 3).transpose(1, 2)
+        return correlate_tensor
+
+
+FEATUREEXTRACTOR = Registry('feature_extractor')
+
+
+class FeatureExtractor(nn.Module):
+
+    def __init__(self, in_channels, ngf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        super(FeatureExtractor, self).__init__()
+        downconv = nn.Conv2d(in_channels, ngf, kernel_size=4, stride=2, padding=1)
+        layers = [downconv, nn.ReLU(True), norm_layer(ngf)]
+        for i in range(n_layers):
+            if 2 ** i * ngf < 512:
+                in_ngf = 2 ** i * ngf
+                out_ngf = 2 ** (i + 1) * ngf
+            else:
+                in_ngf = 512
+                out_ngf = 512
+            downconv = nn.Conv2d(in_ngf, out_ngf, kernel_size=4, stride=2, padding=1)
+            layers += [downconv, nn.ReLU(True), norm_layer(out_ngf)]
+        downconv = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        layers += [downconv, nn.ReLU(True), norm_layer(512)]
+        layers += [downconv, nn.ReLU(True)]
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
+
+    def init_weights(self, pretrained=None):
+        if pretrained is not None:
+            load_checkpoint(self, pretrained)
+        else:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.normal_(m.weight.data, 0.0, 0.02)
+                elif isinstance(m, nn.Linear):
+                    nn.init.normal(m.weight.data, 0.0, 0.02)
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.normal_(m.weight.data, 1.0, 0.02)
+                    nn.init.constant_(m.bias.data, 0.0)
+
+
+FEATURENORM = Registry('feature_norm')
+
+
+class FeatureNorm(nn.Module):
+
+    def __init__(self, eps=1e-06):
+        super(FeatureNorm, self).__init__()
+        self.eps = eps
+
+    def forward(self, feature):
+        norm_feat = torch.sum(torch.pow(feature, 2), 1) + self.eps
+        norm_feat = torch.pow(norm_feat, 0.5).unsqueeze(1)
+        norm_feat = norm_feat.expand_as(feature)
+        norm_feat = torch.div(feature, norm_feat)
+        return norm_feat
+
+
+FEATUREREGRESSION = Registry('feature_regression')
+
+
+class FeatureRegression(nn.Module):
+
+    def __init__(self, in_channels=512, out_channels=6, inter_channels=(512, 256, 128, 64)):
+        super(FeatureRegression, self).__init__()
+        self.conv_layers = nn.Sequential(nn.Conv2d(in_channels, inter_channels[0], kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(inter_channels[0]), nn.ReLU(inplace=True), nn.Conv2d(inter_channels[0], inter_channels[1], kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(inter_channels[1]), nn.ReLU(inplace=True), nn.Conv2d(inter_channels[1], inter_channels[2], kernel_size=3, padding=1), nn.BatchNorm2d(inter_channels[2]), nn.ReLU(inplace=True), nn.Conv2d(inter_channels[2], inter_channels[3], kernel_size=3, padding=1), nn.BatchNorm2d(inter_channels[3]), nn.ReLU(inplace=True))
+        self.linear = nn.Linear(inter_channels[3] * 4 * 3, out_channels)
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        x = self.tanh(x)
+        return x
+
+    def init_weights(self, pretrained):
+        if pretrained is not None:
+            load_checkpoint(self, pretrained)
+        else:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.normal_(m.weight.data, 0.0, 0.02)
+                elif isinstance(m, nn.Linear):
+                    nn.init.normal(m.weight.data, 0.0, 0.02)
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.normal_(m.weight.data, 1.0, 0.02)
+                    nn.init.constant_(m.bias.data, 0.0)
+
+
+GEOMETRICMATCHING = Registry('geometric_matching')
+
+
+class GeometricMatching(nn.Module):
+
+    def __init__(self, feature_extractor_a, feature_extractor_b, feature_norm, feature_correlation, feature_regression, tps_warp, loss=dict(type='L1Loss'), pretrained=None):
+        super(GeometricMatching, self).__init__()
+        self.feature_extractora_a = builder.build_feature_extractor(feature_extractor_a)
+        self.feature_extractora_b = builder.build_feature_extractor(feature_extractor_b)
+        self.feature_norm = builder.build_feature_norm(feature_norm)
+        self.feature_correlation = builder.build_feature_correlation(feature_correlation)
+        self.feature_regression = builder.build_feature_regression(feature_regression)
+        self.tps_warp = builder.build_tps_warp(tps_warp)
+        self.loss = builder.build_loss(loss)
+        self.init_weights(pretrained=pretrained)
+
+    def forward_feature(self, a, b):
+        feat_a = self.feature_extractora_a(a)
+        feat_b = self.feature_extractora_b(b)
+        feat_a = self.feature_norm(feat_a)
+        feat_b = self.feature_norm(feat_b)
+        correlation = self.feature_correlation(feat_a, feat_b)
+        theta = self.feature_regression(correlation)
+        grid = self.tps_warp(theta)
+        return grid, theta
+
+    def forward_train(self, agnostic, cloth, parse_cloth):
+        grid, theta = self.forward_feature(agnostic, cloth)
+        warped_cloth = F.grid_sample(cloth, grid, padding_mode='border')
+        losses = dict()
+        losses['gmm_loss'] = self.loss(warped_cloth, parse_cloth)
+        return losses
+
+    def forward_test(self, agnostic, cloth, cloth_mask):
+        grid, theta = self.forward_feature(agnostic, cloth)
+        warped_cloth = F.grid_sample(cloth, grid, padding_mode='border')
+        warped_mask = F.grid_sample(cloth_mask, grid, padding_mode='zeros')
+        return warped_cloth, warped_mask
+
+    def forward(self, cloth, cloth_mask, agnostic, parse_cloth, c_name=None, img=None, return_loss=True):
+        if return_loss:
+            return self.forward_train(agnostic, cloth, parse_cloth)
+        else:
+            return self.forward_test(agnostic, cloth, cloth_mask)
+
+    def init_weights(self, pretrained=None):
+        self.feature_extractora_a.init_weights(pretrained)
+        self.feature_extractora_b.init_weights(pretrained)
+        self.feature_regression.init_weights(pretrained)
 
 
 GLOBALPOOLING = Registry('global_pool')
@@ -846,6 +1159,15 @@ class CELoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, input, target):
+        """
+        Calculate the cross-entropy loss
+        :param input(torch.Tensor): The prediction with shape (N, C),
+                                    C is the number of classes.
+        :param target(torch.Tensor): The learning label(N, 1) of
+                                     the prediction.
+        :return: (torch.Tensor): The calculated loss
+        """
+        target = target.squeeze_()
         return self.ratio * F.cross_entropy(input, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
@@ -858,6 +1180,18 @@ class CosineEmbeddingLoss(nn.Module):
 
     def forward(self, input1, input2, target):
         return F.cosine_embedding_loss(input1, input2, target, margin=self.margin, reduction=self.reduction)
+
+
+class L1Loss(nn.Module):
+
+    def __init__(self, size_average=None, reduce=None, reduction='mean'):
+        super(L1Loss, self).__init__()
+        self.size_average = size_average
+        self.reduce = reduce
+        self.reduction = reduction
+
+    def forward(self, input, target):
+        return F.l1_loss(input, target, reduction=self.reduction)
 
 
 class L2NormLoss(nn.Module):
@@ -953,6 +1287,61 @@ class TripletLoss(nn.Module):
         return losses
 
 
+class Vgg19(nn.Module):
+
+    def __init__(self, requires_grad=False):
+        super(Vgg19, self).__init__()
+        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True).features
+        self.slice1 = nn.Sequential()
+        self.slice2 = nn.Sequential()
+        self.slice3 = nn.Sequential()
+        self.slice4 = nn.Sequential()
+        self.slice5 = nn.Sequential()
+        for x in range(2):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(2, 7):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(7, 12):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(12, 21):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(21, 30):
+            self.slice5.add_module(str(x), vgg_pretrained_features[x])
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
+
+    def forward(self, X):
+        h_relu1 = self.slice1(X)
+        h_relu2 = self.slice2(h_relu1)
+        h_relu3 = self.slice3(h_relu2)
+        h_relu4 = self.slice4(h_relu3)
+        h_relu5 = self.slice5(h_relu4)
+        out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
+        return out
+
+
+class VGGLoss(nn.Module):
+
+    def __init__(self, layerids=None):
+        super(VGGLoss, self).__init__()
+        self.vgg = Vgg19()
+        self.vgg
+        self.criterion = nn.L1Loss()
+        self.weights = [1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0]
+        self.layerids = layerids
+
+    def forward(self, input, target):
+        input_vgg = self.vgg(input)
+        target_vgg = self.vgg(target)
+        if self.layerids is None:
+            self.layerids = list(range(len(input_vgg)))
+        loss = 0.0
+        for i in self.layerids:
+            loss += self.weights[i] * self.criterion(input_vgg[i], target_vgg[i].detach())
+        return loss
+
+
 class BasePredictor(nn.Module):
     """ Base class for attribute predictors"""
     __metaclass__ = ABCMeta
@@ -980,12 +1369,12 @@ class BasePredictor(nn.Module):
             return self.aug_test(img, landmark)
 
     @abstractmethod
-    def forward_train(self, img, landmark, attr):
+    def forward_train(self, img, landmark, attr, cate):
         pass
 
-    def forward(self, img, attr, cate=None, landmark=None, return_loss=True):
+    def forward(self, img, attr=None, cate=None, landmark=None, return_loss=True):
         if return_loss:
-            return self.forward_train(img, landmark, attr)
+            return self.forward_train(img, landmark, attr, cate)
         else:
             return self.forward_test(img, landmark)
 
@@ -1073,8 +1462,8 @@ class RoIPooling(nn.Module):
         size = torch.Size((batch_size, features.size(1), self.roi_size, self.roi_size))
         pooled = []
         for i in range(self.num_lms):
-            tx = -1 + 2 * landmarks[:, (i), (0)] / float(self.crop_size)
-            ty = -1 + 2 * landmarks[:, (i), (1)] / float(self.crop_size)
+            tx = -1 + 2 * landmarks[:, i, 0] / float(self.crop_size)
+            ty = -1 + 2 * landmarks[:, i, 1] / float(self.crop_size)
             t_xy = torch.stack((tx, ty)).view(batch_size, 2, 1)
             theta = torch.cat((ab, t_xy), 2)
             flowfield = nn.functional.affine_grid(theta, size)
@@ -1276,7 +1665,7 @@ class TypeSpecificNet(nn.Module):
                 mask_array.fill(0.1)
                 mask_len = int(dim_embed / n_conditions)
                 for i in range(n_conditions):
-                    mask_array[(i), i * mask_len:(i + 1) * mask_len] = 1
+                    mask_array[i, i * mask_len:(i + 1) * mask_len] = 1
                 self.masks.weight = nn.Parameter(torch.Tensor(mask_array), requires_grad=True)
             else:
                 self.masks = nn.Embedding(n_conditions, dim_embed)
@@ -1286,7 +1675,7 @@ class TypeSpecificNet(nn.Module):
             mask_array = np.zeros([n_conditions, dim_embed])
             mask_len = int(dim_embed / n_conditions)
             for i in range(n_conditions):
-                mask_array[(i), i * mask_len:(i + 1) * mask_len] = 1
+                mask_array[i, i * mask_len:(i + 1) * mask_len] = 1
             self.masks.weight = nn.Parameter(torch.Tensor(mask_array), requires_grad=False)
 
     def forward_test(self, embed_x):
@@ -1358,6 +1747,104 @@ class TypeSpecificNet(nn.Module):
                         m.bias.data.fill_(0.01)
 
 
+UNETSKIPCONNECTIONBLOCK = Registry('unet_skip_connection_block')
+
+
+class UnetSkipConnectionBlock(nn.Module):
+
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        super(UnetSkipConnectionBlock, self).__init__()
+        self.outermost = outermost
+        use_bias = norm_layer == nn.InstanceNorm2d
+        if input_nc is None:
+            input_nc = outer_nc
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
+        downrelu = nn.LeakyReLU(0.2, True)
+        downnorm = norm_layer(inner_nc)
+        uprelu = nn.ReLU(True)
+        upnorm = norm_layer(outer_nc)
+        if outermost:
+            upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+            upconv = nn.Conv2d(inner_nc * 2, outer_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
+            down = [downconv]
+            up = [uprelu, upsample, upconv, upnorm]
+            unet = down + [submodule] + up
+        elif innermost:
+            upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+            upconv = nn.Conv2d(inner_nc, outer_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
+            down = [downrelu, downconv]
+            up = [uprelu, upsample, upconv, upnorm]
+            unet = down + up
+        else:
+            upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+            upconv = nn.Conv2d(inner_nc * 2, outer_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
+            down = [downrelu, downconv, downnorm]
+            up = [uprelu, upsample, upconv, upnorm]
+            if use_dropout:
+                unet = down + [submodule] + up + [nn.Dropout(0.5)]
+            else:
+                unet = down + [submodule] + up
+        self.unet = nn.Sequential(*unet)
+
+    def forward(self, x):
+        if self.outermost:
+            return self.unet(x)
+        else:
+            return torch.cat([x, self.unet(x)], 1)
+
+
+TRYON = Registry('tryon')
+
+
+class Tryon(nn.Module):
+
+    def __init__(self, ngf, num_downs, in_channels, out_channels, down_channels=(8, 8), inter_channels=(8, 8), up_channels=[[4, 8], [2, 4], [1, 2]], norm_layer=nn.InstanceNorm2d, use_dropout=False, loss_l1=dict(type='L1Loss'), loss_vgg=dict(type='VGGLoss'), loss_mask=dict(type='L1Loss'), pretrained=None):
+        super(Tryon, self).__init__()
+        unet_block = builder.build_unet_skip_connection_block(dict(type='UnetSkipConnectionBlock', outer_nc=ngf * down_channels[0], inner_nc=ngf * down_channels[1], input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True))
+        for i in range(num_downs - 5):
+            unet_block = builder.build_unet_skip_connection_block(dict(type='UnetSkipConnectionBlock', outer_nc=ngf * inter_channels[0], inner_nc=ngf * inter_channels[1], input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout))
+        for ratio in up_channels:
+            unet_block = builder.build_unet_skip_connection_block(dict(type='UnetSkipConnectionBlock', outer_nc=ngf * ratio[0], inner_nc=ngf * ratio[1], input_nc=None, submodule=unet_block, norm_layer=norm_layer))
+        unet_block = builder.build_unet_skip_connection_block(dict(type='UnetSkipConnectionBlock', outer_nc=out_channels, inner_nc=ngf, input_nc=in_channels, submodule=unet_block, outermost=True, norm_layer=norm_layer))
+        self.generator = unet_block
+        self.loss_l1 = builder.build_loss(loss_l1)
+        self.loss_vgg = builder.build_loss(loss_vgg)
+        self.loss_mask = builder.build_loss(loss_mask)
+        self.init_weights(pretrained=pretrained)
+
+    def forward_train(self, img, agnostic, cloth, cloth_mask):
+        input = torch.cat([agnostic, cloth], 1)
+        output = self.generator(input)
+        p_rendered, m_composite = torch.split(output, 3, 1)
+        p_rendered = torch.tanh(p_rendered)
+        m_composite = torch.sigmoid(m_composite)
+        p_tryon = cloth * m_composite + p_rendered * (1 - m_composite)
+        losses = dict()
+        losses['loss_l1'] = self.loss_l1(p_tryon, img)
+        losses['loss_vgg'] = self.loss_vgg(p_tryon, img)
+        losses['loss_mask'] = self.loss_mask(m_composite, cloth_mask)
+        return losses
+
+    def forward_test(self, agnostic, cloth):
+        input = torch.cat([agnostic, cloth], 1)
+        output = self.generator(input)
+        p_rendered, m_composite = torch.split(output, 3, 1)
+        p_rendered = torch.tanh(p_rendered)
+        m_composite = torch.sigmoid(m_composite)
+        p_tryon = cloth * m_composite + p_rendered * (1 - m_composite)
+        return p_tryon
+
+    def forward(self, img, cloth, cloth_mask, agnostic, parse_cloth=None, im_name=None, c_name=None, return_loss=True):
+        if return_loss:
+            return self.forward_train(img, agnostic, cloth, cloth_mask)
+        else:
+            return self.forward_test(agnostic, cloth)
+
+    def init_weights(self, pretrained=None):
+        if pretrained is not None:
+            self.unet.load_state_dict(torch.load(pretrained))
+
+
 VISIBILITYCLASSIFIER = Registry('visibility_classifier')
 
 
@@ -1373,14 +1860,14 @@ class VisibilityClassifier(nn.Module):
         losses_vis = []
         vis_pred_list = []
         for i in range(self.landmark_num):
-            lm_feat = x[:, (i), :]
+            lm_feat = x[:, i, :]
             vis_pred = F.sigmoid(self.linear(lm_feat))
-            lm_vis = vis[:, (i)].unsqueeze(1)
+            lm_vis = vis[:, i].unsqueeze(1)
             vis_pred_list.append(lm_vis)
             loss_vis = self.loss_vis(vis_pred, lm_vis)
             losses_vis.append(loss_vis)
-        losses_vis_tensor = torch.stack(losses_vis).transpose(1, 0)[:, :, (0)]
-        vis_pred_list = torch.stack(vis_pred_list).transpose(1, 0)[:, :, (0)]
+        losses_vis_tensor = torch.stack(losses_vis).transpose(1, 0)[:, :, 0]
+        vis_pred_list = torch.stack(vis_pred_list).transpose(1, 0)[:, :, 0]
         losses_vis_tensor_mean_per_lm = torch.mean(losses_vis_tensor, dim=1, keepdim=True)
         losses_vis_tensor_mean_per_batch = torch.mean(losses_vis_tensor_mean_per_lm)
         return losses_vis_tensor_mean_per_batch, vis_pred_list
@@ -1388,10 +1875,10 @@ class VisibilityClassifier(nn.Module):
     def forward_test(self, x):
         vis_pred_list = []
         for i in range(self.landmark_num):
-            lm_feat = x[:, (i), :]
+            lm_feat = x[:, i, :]
             vis_pred = F.sigmoid(self.linear(lm_feat))
             vis_pred_list.append(vis_pred)
-        vis_pred_list = torch.stack(vis_pred_list).transpose(1, 0)[:, :, (0)]
+        vis_pred_list = torch.stack(vis_pred_list).transpose(1, 0)[:, :, 0]
         return vis_pred_list
 
     def forward(self, x, vis=None, return_loss=True):
@@ -1423,7 +1910,7 @@ TESTCASES = [
      False),
     (BasePredictor,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (BaseRetriever,
      lambda: ([], {}),
@@ -1433,21 +1920,37 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Concat,
      lambda: ([], {'inchannels': 4, 'outchannels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (CosineEmbeddingLoss,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (EmbedBranch,
      lambda: ([], {'feat_dim': 4, 'embedding_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (FeatureCorrelation,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureExtractor,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (FeatureNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GlobalPooling,
      lambda: ([], {'inplanes': [4, 4], 'pool_plane': 4, 'inter_channels': [4, 4], 'outchannels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (L1NormLoss,
      lambda: ([], {}),
@@ -1464,7 +1967,7 @@ TESTCASES = [
     (MSELoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (MarginRankingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1477,11 +1980,15 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (TripletLoss,
+    (VGGLoss,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
      True),
     (Vgg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Vgg19,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
@@ -1541,4 +2048,19 @@ class Test_open_mmlab_mmfashion(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
 

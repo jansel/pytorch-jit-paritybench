@@ -8,14 +8,23 @@ loader = _module
 ade20k_loader = _module
 default_loader = _module
 lip_loader = _module
+multi_dataset_loader = _module
+offset_loader = _module
 preprocess = _module
 ade20k = _module
 ade20k_generator = _module
+dt_offset_generator = _module
 cityscapes = _module
 cityscapes_generator = _module
 cityscapes_instance_generator = _module
+dt_offset_generator = _module
 edge_generator = _module
+instance_dt_offset_generator = _module
 instance_edge_generator = _module
+coco_stuff_generator = _module
+celebmask_color = _module
+celebmask_label_generator = _module
+celebmask_partition = _module
 lip = _module
 lip = _module
 mapillary_generator = _module
@@ -121,6 +130,7 @@ ideal_ocrnet = _module
 isanet = _module
 ocnet = _module
 ocrnet = _module
+segfix = _module
 module_helper = _module
 utils = _module
 distributed = _module
@@ -129,6 +139,7 @@ file_helper = _module
 image_helper = _module
 json_helper = _module
 mask_helper = _module
+offset_helper = _module
 video_helper = _module
 average_meter = _module
 configer = _module
@@ -143,9 +154,11 @@ seg_visualizer = _module
 tensor_visualizer = _module
 main = _module
 segfix = _module
+segfix_ade20k = _module
 segfix_instance = _module
 segmentor = _module
 tester = _module
+tester_offset = _module
 blob_helper = _module
 cost_helper = _module
 data_helper = _module
@@ -187,6 +200,21 @@ import random
 
 
 import numpy as np
+
+
+import scipy.io as io
+
+
+import numpy.linalg as linalg
+
+
+import matplotlib.pyplot as plt
+
+
+from scipy.ndimage.morphology import distance_transform_edt
+
+
+from scipy.ndimage.morphology import distance_transform_cdt
 
 
 import collections
@@ -342,9 +370,6 @@ from torch.nn import functional as F
 import matplotlib
 
 
-import matplotlib.pyplot as plt
-
-
 from sklearn import svm
 
 
@@ -358,9 +383,6 @@ from sklearn.metrics import confusion_matrix
 
 
 import torch.backends.cudnn as cudnn
-
-
-import scipy.io as io
 
 
 import scipy
@@ -1185,7 +1207,7 @@ class _PacConvNd(nn.Module):
                         w = w * np.array(tuple((k - j - 1) // s + j // s + 1.0 for j in range(k))).reshape((-1,) + (1,) * d)
                 self.weight.data.fill_(0.0)
                 for c in range(1 if self.shared_filters else self.in_channels):
-                    self.weight.data[(c), (c), :] = torch.tensor(w)
+                    self.weight.data[c, c, :] = torch.tensor(w)
                 if self.bias is not None:
                     self.bias.data.fill_(0.0)
             elif self.filler in {'crf', 'crf_perturbed'}:
@@ -1195,7 +1217,7 @@ class _PacConvNd(nn.Module):
                 gauss = np_gaussian_2d(self.kernel_size[0]) * self.kernel_size[0] * self.kernel_size[0]
                 gauss[self.kernel_size[0] // 2, self.kernel_size[1] // 2] = 0
                 if self.shared_filters:
-                    self.weight.data[(0), (0), :] = torch.tensor(gauss)
+                    self.weight.data[0, 0, :] = torch.tensor(gauss)
                 else:
                     compat = 1.0 - np.eye(n_classes, dtype=np.float32)
                     self.weight.data[:] = torch.tensor(compat.reshape(n_classes, n_classes, 1, 1) * gauss)
@@ -1769,7 +1791,7 @@ class PacCRF(nn.Module):
             if isinstance(self.messengers[i], nn.Conv2d):
                 pass
             if self.compat[i] is not None:
-                self.compat[i].weight.data[:, :, (0), (0)] = 1.0 - th.eye(self.channels, dtype=th.float32)
+                self.compat[i].weight.data[:, :, 0, 0] = 1.0 - th.eye(self.channels, dtype=th.float32)
                 if self.perturbed_init:
                     perturb_range = 0.001
                     self.compat[i].weight.data.add_((th.rand_like(self.compat[i].weight.data) - 0.5) * perturb_range)
@@ -2929,6 +2951,7 @@ class FSOhemCELoss(nn.Module):
         tmp_target[tmp_target == self.ignore_label] = 0
         prob = prob_out.gather(1, tmp_target.unsqueeze(1))
         mask = target.contiguous().view(-1) != self.ignore_label
+        mask[0] = 1
         sort_prob, sort_indices = prob.contiguous().view(-1)[mask].contiguous().sort()
         min_threshold = sort_prob[min(self.min_kept, sort_prob.numel() - 1)]
         threshold = max(min_threshold, self.thresh)
@@ -2980,6 +3003,48 @@ class FSAuxCELoss(nn.Module):
         return loss
 
 
+class SegFixLoss(nn.Module):
+    """
+    We predict a binary mask to categorize the boundary pixels as class 1 and otherwise as class 0
+    Based on the pixels predicted as 1 within the binary mask, we further predict the direction for these
+    pixels.
+    """
+
+    def __init__(self, configer=None):
+        super().__init__()
+        self.configer = configer
+        self.ce_loss = FSCELoss(self.configer)
+
+    def calc_weights(self, label_map, num_classes):
+        weights = []
+        for i in range(num_classes):
+            weights.append((label_map == i).sum().data)
+        weights = torch.FloatTensor(weights)
+        weights_sum = weights.sum()
+        return 1 - weights / weights_sum
+
+    def forward(self, inputs, targets, **kwargs):
+        pred_mask, pred_direction = inputs
+        seg_label_map, distance_map, angle_map = targets[0], targets[1], targets[2]
+        gt_mask = DTOffsetHelper.distance_to_mask_label(distance_map, seg_label_map, return_tensor=True)
+        gt_size = gt_mask.shape[1:]
+        mask_weights = self.calc_weights(gt_mask, 2)
+        pred_direction = F.interpolate(pred_direction, size=gt_size, mode='bilinear', align_corners=True)
+        pred_mask = F.interpolate(pred_mask, size=gt_size, mode='bilinear', align_corners=True)
+        mask_loss = F.cross_entropy(pred_mask, gt_mask, weight=mask_weights, ignore_index=-1)
+        mask_threshold = float(os.environ.get('mask_threshold', 0.5))
+        binary_pred_mask = torch.softmax(pred_mask, dim=1)[:, 1, :, :] > mask_threshold
+        gt_direction = DTOffsetHelper.angle_to_direction_label(angle_map, seg_label_map=seg_label_map, extra_ignore_mask=binary_pred_mask == 0, return_tensor=True)
+        direction_loss_mask = gt_direction != -1
+        direction_weights = self.calc_weights(gt_direction[direction_loss_mask], pred_direction.size(1))
+        direction_loss = F.cross_entropy(pred_direction, gt_direction, weight=direction_weights, ignore_index=-1)
+        if self.training and self.configer.get('iters') % self.configer.get('solver', 'display_iter') == 0 and torch.cuda.current_device() == 0:
+            Log.info('mask loss: {} direction loss: {}.'.format(mask_loss, direction_loss))
+        mask_weight = float(os.environ.get('mask_weight', 1))
+        direction_weight = float(os.environ.get('direction_weight', 1))
+        return mask_weight * mask_loss + direction_weight * direction_loss
+
+
 class ModuleHelper(object):
 
     @staticmethod
@@ -3001,7 +3066,7 @@ class ModuleHelper(object):
             torch_ver = torch.__version__[:3]
             if torch_ver == '0.4':
                 return InPlaceABNSync(num_features, **kwargs)
-            elif torch_ver == '1.0':
+            elif torch_ver in ('1.0', '1.1'):
                 return InPlaceABNSync(num_features, **kwargs)
             elif torch_ver == '1.2':
                 return InPlaceABNSync(num_features, **kwargs)
@@ -3027,7 +3092,7 @@ class ModuleHelper(object):
                 if ret_cls:
                     return InPlaceABNSync
                 return functools.partial(InPlaceABNSync, activation='none')
-            elif torch_ver == '1.0':
+            elif torch_ver in ('1.0', '1.1'):
                 if ret_cls:
                     return InPlaceABNSync
                 return functools.partial(InPlaceABNSync, activation='none')
@@ -3078,7 +3143,10 @@ class ModuleHelper(object):
                 load_dict = {'.'.join(k.split('.')[1:]): v for k, v in pretrained_dict.items() if '.'.join(k.split('.')[1:]) in model_dict}
             else:
                 load_dict = {'.'.join(k.split('.')[1:]): v for k, v in pretrained_dict.items() if '.'.join(k.split('.')[1:]) in model_dict}
-            Log.info('Matched Keys: {}'.format(load_dict.keys()))
+            if int(os.environ.get('debug_load_model', 0)):
+                Log.info('Matched Keys List:')
+                for key in load_dict.keys():
+                    Log.info('{}'.format(key))
             model_dict.update(load_dict)
             model.load_state_dict(model_dict)
         return model
@@ -3464,6 +3532,112 @@ class HighResolutionNet(nn.Module):
             x_list.append(y)
             return x_list
         return y_list
+
+
+class HighResolutionNext(nn.Module):
+
+    def __init__(self, cfg, bn_type, **kwargs):
+        super(HighResolutionNext, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(64)
+        self.relu = nn.ReLU(relu_inplace)
+        self.stage1_cfg = cfg['STAGE1']
+        num_channels = self.stage1_cfg['NUM_CHANNELS']
+        block = blocks_dict[self.stage1_cfg['BLOCK']]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition0 = self._make_transition_layer([64], num_channels, bn_type=bn_type)
+        self.stage1, pre_stage_channels = self._make_stage(self.stage1_cfg, num_channels, bn_type=bn_type)
+        self.stage2_cfg = cfg['STAGE2']
+        num_channels = self.stage2_cfg['NUM_CHANNELS']
+        block = blocks_dict[self.stage2_cfg['BLOCK']]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition1 = self._make_transition_layer(pre_stage_channels, num_channels, bn_type=bn_type)
+        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels, bn_type=bn_type)
+        self.stage3_cfg = cfg['STAGE3']
+        num_channels = self.stage3_cfg['NUM_CHANNELS']
+        block = blocks_dict[self.stage3_cfg['BLOCK']]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels, bn_type=bn_type)
+        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels, bn_type=bn_type)
+        self.stage4_cfg = cfg['STAGE4']
+        num_channels = self.stage4_cfg['NUM_CHANNELS']
+        block = blocks_dict[self.stage4_cfg['BLOCK']]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels, bn_type=bn_type)
+        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg, num_channels, multi_scale_output=True, bn_type=bn_type)
+
+    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer, bn_type):
+        num_branches_cur = len(num_channels_cur_layer)
+        num_branches_pre = len(num_channels_pre_layer)
+        transition_layers = []
+        for i in range(num_branches_cur):
+            if i < num_branches_pre:
+                if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
+                    transition_layers.append(nn.Sequential(nn.Conv2d(num_channels_pre_layer[i], num_channels_cur_layer[i], 3, 1, 1, bias=False), ModuleHelper.BatchNorm2d(bn_type=bn_type)(num_channels_cur_layer[i]), nn.ReLU(relu_inplace)))
+                else:
+                    transition_layers.append(None)
+            else:
+                conv3x3s = []
+                for j in range(i + 1 - num_branches_pre):
+                    inchannels = num_channels_pre_layer[-1]
+                    outchannels = num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
+                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels, outchannels, 3, 2, 1, bias=False), ModuleHelper.BatchNorm2d(bn_type=bn_type)(outchannels), nn.ReLU(relu_inplace)))
+                transition_layers.append(nn.Sequential(*conv3x3s))
+        return nn.ModuleList(transition_layers)
+
+    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True, bn_type=None):
+        num_modules = layer_config['NUM_MODULES']
+        num_branches = layer_config['NUM_BRANCHES']
+        num_blocks = layer_config['NUM_BLOCKS']
+        num_channels = layer_config['NUM_CHANNELS']
+        block = blocks_dict[layer_config['BLOCK']]
+        fuse_method = layer_config['FUSE_METHOD']
+        modules = []
+        for i in range(num_modules):
+            if not multi_scale_output and i == num_modules - 1:
+                reset_multi_scale_output = False
+            else:
+                reset_multi_scale_output = True
+            modules.append(HighResolutionModule(num_branches, block, num_blocks, num_inchannels, num_channels, fuse_method, reset_multi_scale_output, bn_type))
+            num_inchannels = modules[-1].get_num_inchannels()
+        return nn.Sequential(*modules), num_inchannels
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x_list = []
+        for i in range(self.stage1_cfg['NUM_BRANCHES']):
+            if self.transition0[i] is not None:
+                x_list.append(self.transition0[i](x))
+            else:
+                x_list.append(x)
+        y_list = self.stage1(x_list)
+        x_list = []
+        for i in range(self.stage2_cfg['NUM_BRANCHES']):
+            if self.transition1[i] is not None:
+                if i == 0:
+                    x_list.append(self.transition1[i](y_list[0]))
+                else:
+                    x_list.append(self.transition1[i](y_list[-1]))
+            else:
+                x_list.append(y_list[i])
+        y_list = self.stage2(x_list)
+        x_list = []
+        for i in range(self.stage3_cfg['NUM_BRANCHES']):
+            if self.transition2[i] is not None:
+                x_list.append(self.transition2[i](y_list[-1]))
+            else:
+                x_list.append(y_list[i])
+        y_list = self.stage3(x_list)
+        x_list = []
+        for i in range(self.stage4_cfg['NUM_BRANCHES']):
+            if self.transition3[i] is not None:
+                x_list.append(self.transition3[i](y_list[-1]))
+            else:
+                x_list.append(y_list[i])
+        x = self.stage4(x_list)
+        return x
 
 
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, style='pytorch', with_cp=False, with_dcn=False, dcn_offset_lr_mult=0.1, use_regular_conv_on_stride=False, use_modulated_dcn=False, bn_type=None):
@@ -4312,8 +4486,8 @@ class OffsetBlock(nn.Module):
         if self.coord_map is None or self.coord_map[0].size() != offset_map.size()[2:]:
             self.coord_map = self._gen_coord_map(h, w)
             self.norm_factor = torch.FloatTensor([(w - 1) / 2, (h - 1) / 2])
-        grid_h = offset_map[:, (0)] + self.coord_map[0]
-        grid_w = offset_map[:, (1)] + self.coord_map[1]
+        grid_h = offset_map[:, 0] + self.coord_map[0]
+        grid_w = offset_map[:, 1] + self.coord_map[1]
         grid = torch.stack([grid_w, grid_h], dim=-1) / self.norm_factor - 1.0
         feats = F.grid_sample(x, grid, padding_mode='border')
         return feats
@@ -4617,6 +4791,9 @@ class HRNetBackbone(object):
             arch_net = ModuleHelper.load_model(arch_net, pretrained=self.configer.get('network', 'pretrained'), all_match=False, network='hrnet')
         elif arch == 'hrnet64':
             arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet64'], bn_type='inplace_abn', bn_momentum=0.1)
+            arch_net = ModuleHelper.load_model(arch_net, pretrained=self.configer.get('network', 'pretrained'), all_match=False, network='hrnet')
+        elif arch == 'hrnet2x20':
+            arch_net = HighResolutionNext(MODEL_CONFIGS['hrnet2x20'], bn_type=self.configer.get('network', 'bn_type'))
             arch_net = ModuleHelper.load_model(arch_net, pretrained=self.configer.get('network', 'pretrained'), all_match=False, network='hrnet')
         else:
             raise Exception('Architecture undefined!')
@@ -4975,7 +5152,7 @@ class BackboneSelector(object):
         model = None
         if ('resnet' in backbone or 'resnext' in backbone or 'resnest' in backbone) and 'senet' not in backbone:
             model = ResNetBackbone(self.configer)(**params)
-        elif 'hrnet' in backbone:
+        elif 'hrne' in backbone:
             model = HRNetBackbone(self.configer)(**params)
         else:
             Log.error('Backbone {} is invalid.'.format(backbone))
@@ -5582,6 +5759,39 @@ class ASPOCRNet(nn.Module):
         return x_dsn, x
 
 
+ori_scales = {(4): 1, (8): 1, (16): 2, (32): 4}
+
+
+class SegFix_HRNet(nn.Module):
+
+    def __init__(self, configer):
+        super(SegFix_HRNet, self).__init__()
+        self.configer = configer
+        self.backbone = BackboneSelector(configer).get_backbone()
+        backbone_name = self.configer.get('network', 'backbone')
+        width = int(backbone_name[-2:])
+        if 'hrnet2x' in backbone_name:
+            in_channels = width * 31
+        else:
+            in_channels = width * 15
+        num_masks = 2
+        num_directions = DTOffsetConfig.num_classes
+        mid_channels = 256
+        self.dir_head = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0, bias=False), ModuleHelper.BNReLU(mid_channels, bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(mid_channels, num_directions, kernel_size=1, stride=1, padding=0, bias=False))
+        self.mask_head = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0, bias=False), ModuleHelper.BNReLU(mid_channels, bn_type=self.configer.get('network', 'bn_type')), nn.Conv2d(mid_channels, num_masks, kernel_size=1, stride=1, padding=0, bias=False))
+
+    def forward(self, x_):
+        x = self.backbone(x_)
+        _, _, h, w = x[0].size()
+        feat1 = x[0]
+        for i in range(1, len(x)):
+            x[i] = F.interpolate(x[i], size=(h, w), mode='bilinear', align_corners=True)
+        feats = torch.cat(x, 1)
+        mask_map = self.mask_head(feats)
+        dir_map = self.dir_head(feats)
+        return mask_map, dir_map
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -5605,10 +5815,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (GlobalAvgPool2d,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5621,10 +5827,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (PAM_Module,
-     lambda: ([], {'in_dim': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (PacCRF,
      lambda: ([], {'channels': 4, 'num_steps': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -5718,10 +5920,4 @@ class Test_openseg_group_openseg_pytorch(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
 

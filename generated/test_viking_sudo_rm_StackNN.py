@@ -395,9 +395,9 @@ class SimpleStructController(Controller):
         y_end = self._input_size + self._output_size
         i_start = self._input_size + self._output_size
         v_start = self._input_size + self._output_size + self._n_args
-        self.log_data[x_start:x_end, (t)] = x.data.numpy()
-        self.log_data[y_start:y_end, (t)] = y.data.numpy()
-        self.log_data[v_start:, (t)] = v.data.numpy()
+        self.log_data[x_start:x_end, t] = x.data.numpy()
+        self.log_data[y_start:y_end, t] = y.data.numpy()
+        self.log_data[v_start:, t] = v.data.numpy()
         for j in xrange(self._n_args):
             instruction = instructions[j].data.numpy()
             self.log_data[i_start + j, self._curr_log_entry] = instruction
@@ -518,7 +518,7 @@ class DeepSimpleStructController(SimpleStructController):
         output = nn_output[:, self._n_args + self._read_size:].contiguous()
         read_params = torch.sigmoid(nn_output[:, :self._n_args + self._read_size])
         v = read_params[:, self._n_args:].contiguous()
-        instructions = tuple(read_params[:, (j)].contiguous() for j in xrange(self._n_args))
+        instructions = tuple(read_params[:, j].contiguous() for j in xrange(self._n_args))
         self._log(x, torch.sigmoid(output), v, *instructions)
         return output, (v,) + instructions
 
@@ -590,7 +590,7 @@ class LinearSimpleStructController(SimpleStructController):
         output = nn_output[:, self._n_args + self._read_size:].contiguous()
         read_params = torch.sigmoid(nn_output[:, :self._n_args + self._read_size])
         v = read_params[:, self._n_args:].contiguous()
-        instructions = tuple(read_params[:, (j)].contiguous() for j in xrange(self._n_args))
+        instructions = tuple(read_params[:, j].contiguous() for j in xrange(self._n_args))
         self._log(x, torch.sigmoid(output), v, *instructions)
         return output, (v,) + instructions
 
@@ -688,7 +688,7 @@ class RNNSimpleStructController(SimpleStructController):
         output = nn_output[:, self._n_args + self._read_size:].contiguous()
         read_params = torch.sigmoid(nn_output[:, :self._n_args + self._read_size])
         v = read_params[:, self._n_args:].contiguous()
-        instructions = tuple(read_params[:, (j)].contiguous() for j in xrange(self._n_args))
+        instructions = tuple(read_params[:, j].contiguous() for j in xrange(self._n_args))
         self._log(x, torch.sigmoid(output), v, *instructions)
         return output, (v,) + instructions
 
@@ -790,7 +790,7 @@ class LSTMSimpleStructController(SimpleStructController):
         output = nn_output[:, self._n_args + self._read_size:].contiguous()
         read_params = torch.sigmoid(nn_output[:, :self._n_args + self._read_size])
         v = read_params[:, self._n_args:].contiguous()
-        instructions = tuple(read_params[:, (j)].contiguous() for j in xrange(self._n_args))
+        instructions = tuple(read_params[:, j].contiguous() for j in xrange(self._n_args))
         self._log(x, torch.sigmoid(output), v, *instructions)
         return output, (v,) + instructions
 
@@ -888,7 +888,7 @@ class GRUSimpleStructController(SimpleStructController):
         output = nn_output[:, self._n_args + self._read_size:].contiguous()
         read_params = torch.sigmoid(nn_output[:, :self._n_args + self._read_size])
         v = read_params[:, self._n_args:].contiguous()
-        instructions = tuple(read_params[:, (j)].contiguous() for j in xrange(self._n_args))
+        instructions = tuple(read_params[:, j].contiguous() for j in xrange(self._n_args))
         self._log(x, torch.sigmoid(output), v, *instructions)
         return output, (v,) + instructions
 
@@ -1282,7 +1282,7 @@ class SimpleStruct(Struct):
         None
         None
         for t in reversed(range(len(self))):
-            v_str = to_string(self._values[t][(batch), :])
+            v_str = to_string(self._values[t][batch, :])
             s = self._strengths[t][batch].data.item()
             None
 

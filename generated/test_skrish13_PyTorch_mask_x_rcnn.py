@@ -195,10 +195,10 @@ def ROIAlign(feature_maps, rois, config, pool_size, mode='bilinear'):
     roi_number = rois.size()[1]
     pooled = rois.data.new(config.IMAGES_PER_GPU * rois.size(1), 256, pool_size, pool_size).zero_()
     rois = rois.view(config.IMAGES_PER_GPU * rois.size(1), 4)
-    x_1 = rois[:, (0)]
-    y_1 = rois[:, (1)]
-    x_2 = rois[:, (2)]
-    y_2 = rois[:, (3)]
+    x_1 = rois[:, 0]
+    y_1 = rois[:, 1]
+    x_2 = rois[:, 2]
+    y_2 = rois[:, 3]
     roi_level = log2_graph(torch.div(torch.sqrt((y_2 - y_1) * (x_2 - x_1)), 224.0))
     roi_level = torch.clamp(torch.clamp(torch.add(torch.round(roi_level), 4), min=2), max=5)
     for i, level in enumerate(range(2, 6)):
@@ -215,9 +215,9 @@ def ROIAlign(feature_maps, rois, config, pool_size, mode='bilinear'):
         except:
             continue
         level_boxes = level_boxes.view(-1, 4)
-        crops = crop_resize(feature_maps[i], torch.div(level_boxes, float(config.IMAGE_MAX_DIM))[:, ([1, 0, 3, 2])], box_indices)
-        indices_pooled = ixx.nonzero()[:, (0)]
-        pooled[(indices_pooled.data), :, :, :] = crops.data
+        crops = crop_resize(feature_maps[i], torch.div(level_boxes, float(config.IMAGE_MAX_DIM))[:, [1, 0, 3, 2]], box_indices)
+        indices_pooled = ixx.nonzero()[:, 0]
+        pooled[indices_pooled.data, :, :, :] = crops.data
     pooled = pooled.view(config.IMAGES_PER_GPU, roi_number, 256, pool_size, pool_size)
     pooled = Variable(pooled)
     return pooled
@@ -373,14 +373,14 @@ def apply_box_deltas_graph(boxes, deltas):
     boxes: [N, 4] where each row is y1, x1, y2, x2
     deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
     """
-    height = boxes[:, :, (2)] - boxes[:, :, (0)]
-    width = boxes[:, :, (3)] - boxes[:, :, (1)]
-    center_y = boxes[:, :, (0)] + 0.5 * height
-    center_x = boxes[:, :, (1)] + 0.5 * width
-    center_y += deltas[:, :, (0)] * height
-    center_x += deltas[:, :, (1)] * width
-    height *= torch.exp(deltas[:, :, (2)])
-    width *= torch.exp(deltas[:, :, (3)])
+    height = boxes[:, :, 2] - boxes[:, :, 0]
+    width = boxes[:, :, 3] - boxes[:, :, 1]
+    center_y = boxes[:, :, 0] + 0.5 * height
+    center_x = boxes[:, :, 1] + 0.5 * width
+    center_y += deltas[:, :, 0] * height
+    center_x += deltas[:, :, 1] * width
+    height *= torch.exp(deltas[:, :, 2])
+    width *= torch.exp(deltas[:, :, 3])
     y1 = center_y - 0.5 * height
     x1 = center_x - 0.5 * width
     y2 = y1 + height
@@ -588,7 +588,7 @@ class MaskRCNN(nn.Module):
             return [rpn_class_logits, rpn_class, rpn_bbox, rpn_rois, mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_masks_logits]
 
     def proposal_layer(self, rpn_class, rpn_bbox):
-        scores = rpn_class[:, :, (1)]
+        scores = rpn_class[:, :, 1]
         deltas_mul = Variable(torch.from_numpy(np.reshape(self.config.RPN_BBOX_STD_DEV, [1, 1, 4]).astype(np.float32)))
         deltas = rpn_bbox * deltas_mul
         pre_nms_limit = min(6000, self.anchors.shape[0])
@@ -631,7 +631,7 @@ class MaskRCNN(nn.Module):
         predict_rpn_class_logits, predict_rpn_class, predict_rpn_bbox, predict_rpn_rois, predict_mrcnn_class_logits, predict_mrcnn_class, predict_mrcnn_bbox, predict_mrcnn_masks_logits = saved_for_loss
         batch_rpn_match, batch_rpn_bbox, batch_gt_class_ids, batch_gt_boxes, batch_gt_masks, active_class_ids = ground_truths
         rpn_rois = predict_rpn_rois.cpu().data.numpy()
-        rpn_rois = rpn_rois[:, :, ([1, 0, 3, 2])]
+        rpn_rois = rpn_rois[:, :, [1, 0, 3, 2]]
         batch_rois, batch_mrcnn_class_ids, batch_mrcnn_bbox, batch_mrcnn_mask = stage2_target(rpn_rois, batch_gt_class_ids, batch_gt_boxes, batch_gt_masks, config)
         batch_mrcnn_mask = batch_mrcnn_mask.transpose(0, 1, 4, 2, 3)
         batch_mrcnn_class_ids = to_variable(batch_mrcnn_class_ids)

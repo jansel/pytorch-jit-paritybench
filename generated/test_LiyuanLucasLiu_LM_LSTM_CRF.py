@@ -218,13 +218,13 @@ class CRFLoss_vb(nn.Module):
         tg_energy = tg_energy.masked_select(mask).sum()
         seq_iter = enumerate(scores)
         _, inivalues = seq_iter.__next__()
-        partition = inivalues[:, (self.start_tag), :].clone()
+        partition = inivalues[:, self.start_tag, :].clone()
         for idx, cur_values in seq_iter:
             cur_values = cur_values + partition.contiguous().view(bat_size, self.tagset_size, 1).expand(bat_size, self.tagset_size, self.tagset_size)
             cur_partition = utils.log_sum_exp(cur_values, self.tagset_size)
-            mask_idx = mask[(idx), :].view(bat_size, 1).expand(bat_size, self.tagset_size)
+            mask_idx = mask[idx, :].view(bat_size, 1).expand(bat_size, self.tagset_size)
             partition.masked_scatter_(mask_idx, cur_partition.masked_select(mask_idx))
-        partition = partition[:, (self.end_tag)].sum()
+        partition = partition[:, self.end_tag].sum()
         if self.average_batch:
             loss = (partition - tg_energy) / bat_size
         else:
@@ -594,10 +594,6 @@ TESTCASES = [
      lambda: ([], {'hidden_dim': 4, 'tagset_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LSTM_CRF,
-     lambda: ([], {'vocab_size': 4, 'tagset_size': 4, 'embedding_dim': 4, 'hidden_dim': 4, 'rnn_layers': 1, 'dropout_ratio': 0.5}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
     (hw,
      lambda: ([], {'size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -613,7 +609,4 @@ class Test_LiyuanLucasLiu_LM_LSTM_CRF(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

@@ -498,16 +498,9 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SelfAttention,
-     lambda: ([], {'in_dim': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
 ]
 
 class Test_sxhxliang_BigGAN_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

@@ -141,6 +141,25 @@ highway = _module
 model = _module
 optim = _module
 train = _module
+embedding = _module
+encode = _module
+data_loader = _module
+model = _module
+radam = _module
+writer = _module
+preprocess_training = _module
+speaker_embedding = _module
+hparams = _module
+voice_encoder = _module
+train = _module
+models = _module
+causal_conv = _module
+upsample = _module
+melgan = _module
+parallel_wavegan = _module
+pqmf = _module
+preprocess = _module
+utils = _module
 darknet = _module
 detect = _module
 img_loader = _module
@@ -288,6 +307,27 @@ import pandas as pd
 from torchvision.models import vgg19
 
 
+from itertools import groupby
+
+
+from torch.utils import data
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from typing import Union
+
+
+from typing import List
+
+
+from torch import nn
+
+
+from scipy.signal import kaiser
+
+
 class LayerNorm(nn.Module):
 
     def __init__(self, hidden_size, eps=1e-06):
@@ -405,7 +445,7 @@ class Pooler(nn.Module):
         self.linear.bias.data.zero_()
 
     def forward(self, x):
-        x = self.linear(x[:, (0)])
+        x = self.linear(x[:, 0])
         return F.tanh(x)
 
 
@@ -611,55 +651,90 @@ class C_LSTMCell(nn.Module):
         return hy, cy
 
 
+class ConvNorm(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=None, dilation=1, bias=True, w_init_gain='linear'):
+        super(ConvNorm, self).__init__()
+        if padding is None:
+            assert kernel_size % 2 == 1
+            padding = int(dilation * (kernel_size - 1) / 2)
+        self.conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias)
+        torch.nn.init.xavier_uniform_(self.conv.weight, gain=torch.nn.init.calculate_gain(w_init_gain))
+
+    def forward(self, signal):
+        conv_signal = self.conv(signal)
+        return conv_signal
+
+
+class LinearNorm(torch.nn.Module):
+
+    def __init__(self, in_dim, out_dim, bias=True, w_init_gain='linear'):
+        super(LinearNorm, self).__init__()
+        self.linear_layer = torch.nn.Linear(in_dim, out_dim, bias=bias)
+        torch.nn.init.xavier_uniform_(self.linear_layer.weight, gain=torch.nn.init.calculate_gain(w_init_gain))
+
+    def forward(self, x):
+        return self.linear_layer(x)
+
+
 class Decoder(nn.Module):
+    """Decoder module:
+    """
 
-    def __init__(self, embed_dim, latent_dim, hidden_size, num_layers, dropout, vocab_size):
+    def __init__(self, hparams):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.num_layers = num_layers
-        self.latent_dim = latent_dim
-        self.rnn = nn.LSTM(embed_dim + latent_dim, hidden_size, num_layers, dropout=dropout, batch_first=True)
-        self.lr = nn.Linear(hidden_size, vocab_size)
-        self._init_weight()
+        inp = hparams.dim_neck * 2 + hparams.dim_emb + hparams.f0_dim
+        self.lstm1 = nn.LSTM(inp, hparams.dim_pre, 1, batch_first=True)
+        convolutions = []
+        for _ in range(3):
+            conv_layer = nn.Sequential(ConvNorm(hparams.dim_pre, hparams.dim_pre, kernel_size=5, stride=1, padding=2, dilation=1, w_init_gain='relu'), nn.BatchNorm1d(hparams.dim_pre))
+            convolutions.append(conv_layer)
+        self.convolutions = nn.ModuleList(convolutions)
+        self.lstm2 = nn.LSTM(hparams.dim_pre, 1024, 2, batch_first=True)
+        self.linear_projection = LinearNorm(1024, 80)
 
-    def forward(self, input, z, hidden):
-        bsz, _len, _ = input.size()
-        z = z.unsqueeze(1).expand(bsz, _len, self.latent_dim)
-        input = torch.cat((input, z), -1)
-        rnn_out, hidden = self.rnn(input, hidden)
-        rnn_out = F.dropout(rnn_out, p=self.dropout)
-        out = self.lr(rnn_out.contiguous().view(-1, self.hidden_size))
-        return F.log_softmax(out, dim=-1), hidden
-
-    def init_hidden(self, bsz):
-        size = self.num_layers, bsz, self.hidden_size
-        weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
-
-    def _init_weight(self, scope=0.1):
-        self.lr.weight.data.uniform_(-scope, scope)
-        self.lr.bias.data.fill_(0)
+    def forward(self, x):
+        x, _ = self.lstm1(x)
+        x = x.transpose(1, 2)
+        for conv in self.convolutions:
+            x = F.relu(conv(x))
+        x = x.transpose(1, 2)
+        outputs, _ = self.lstm2(x)
+        decoder_output = self.linear_projection(outputs)
+        return decoder_output
 
 
 class Encoder(nn.Module):
+    """Encoder module:
+    """
 
-    def __init__(self, embed_dim, hidden_size, num_layers, dropout):
+    def __init__(self, hparams):
         super().__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.rnn = nn.LSTM(embed_dim, hidden_size, num_layers, dropout, bidirectional=True)
+        self.dim_neck = hparams.dim_neck
+        self.freq = hparams.freq
+        convolutions = []
+        for i in range(3):
+            conv_layer = nn.Sequential(ConvNorm(80 + hparams.dim_emb if i == 0 else 512, 512, kernel_size=5, stride=1, padding=2, dilation=1, w_init_gain='relu'), nn.BatchNorm1d(512))
+            convolutions.append(conv_layer)
+        self.convolutions = nn.ModuleList(convolutions)
+        self.lstm = nn.LSTM(512, hparams.dim_neck, 2, batch_first=True, bidirectional=True)
 
-    def forward(self, input, hidden):
-        _, hidden = self.rnn(input.transpose(0, 1), hidden)
-        out = F.dropout(torch.cat((hidden[0][-2], hidden[0][-1]), -1), p=self.dropout)
-        return out, hidden
-
-    def init_hidden(self, bsz):
-        size = self.num_layers * 2, bsz, self.hidden_size
-        weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
+    def forward(self, x, c_org):
+        x = x.squeeze(1).transpose(2, 1)
+        c_org = c_org.unsqueeze(-1).expand(-1, -1, x.size(-1))
+        x = torch.cat((x, c_org), dim=1)
+        for conv in self.convolutions:
+            x = F.relu(conv(x))
+        x = x.transpose(1, 2)
+        self.lstm.flatten_parameters()
+        outputs, _ = self.lstm(x)
+        out_forward = outputs[:, :, :self.dim_neck]
+        out_backward = outputs[:, :, self.dim_neck:]
+        None
+        codes = []
+        for i in range(0, outputs.size(1), self.freq):
+            codes.append(torch.cat((out_forward[:, i + self.freq - 1, :], out_backward[:, i, :]), dim=-1))
+        return codes
 
 
 class Transformer(nn.Module):
@@ -816,7 +891,7 @@ class Actor(nn.Module):
             props = F.log_softmax(self.out(h_state[-1]), dim=-1)
             attn = self.attn(hiddens, h_state[-1])
             if labels is not None:
-                emb_enc = self.lookup_table(labels[:, (i)]).unsqueeze(1)
+                emb_enc = self.lookup_table(labels[:, i]).unsqueeze(1)
             else:
                 _props = props.data.clone().exp()
                 word = Variable(_props.multinomial(1), requires_grad=False)
@@ -922,8 +997,8 @@ class CRF(nn.Module):
 
     def _init_weight(self):
         init.xavier_uniform_(self.transitions)
-        self.transitions.data[(START), :].fill_(-10000.0)
-        self.transitions.data[:, (STOP)].fill_(-10000.0)
+        self.transitions.data[START, :].fill_(-10000.0)
+        self.transitions.data[:, STOP].fill_(-10000.0)
 
     def _score_sentence(self, input, tags):
         bsz, sent_len, l_size = input.size()
@@ -932,24 +1007,24 @@ class CRF(nn.Module):
         tags = torch.cat([s_score, tags], dim=-1)
         input_t = input.transpose(0, 1)
         for i, words in enumerate(input_t):
-            temp = self.transitions.index_select(1, tags[:, (i)])
-            bsz_t = gather_index(temp.transpose(0, 1), tags[:, (i + 1)])
-            w_step_score = gather_index(words, tags[:, (i + 1)])
+            temp = self.transitions.index_select(1, tags[:, i])
+            bsz_t = gather_index(temp.transpose(0, 1), tags[:, i + 1])
+            w_step_score = gather_index(words, tags[:, i + 1])
             score = score + bsz_t + w_step_score
-        temp = self.transitions.index_select(1, tags[:, (-1)])
+        temp = self.transitions.index_select(1, tags[:, -1])
         bsz_t = gather_index(temp.transpose(0, 1), Variable(self.torch.LongTensor([STOP] * bsz)))
         return score + bsz_t
 
     def forward(self, input):
         bsz, sent_len, l_size = input.size()
         init_alphas = self.torch.FloatTensor(bsz, self.label_size).fill_(-10000.0)
-        init_alphas[:, (START)].fill_(0.0)
+        init_alphas[:, START].fill_(0.0)
         forward_var = Variable(init_alphas)
         input_t = input.transpose(0, 1)
         for words in input_t:
             alphas_t = []
             for next_tag in range(self.label_size):
-                emit_score = words[:, (next_tag)].view(-1, 1)
+                emit_score = words[:, next_tag].view(-1, 1)
                 trans_score = self.transitions[next_tag].view(1, -1)
                 next_tag_var = forward_var + trans_score + emit_score
                 alphas_t.append(log_sum_exp(next_tag_var, True))
@@ -961,7 +1036,7 @@ class CRF(nn.Module):
         backpointers = []
         bsz, sent_len, l_size = input.size()
         init_vvars = self.torch.FloatTensor(bsz, self.label_size).fill_(-10000.0)
-        init_vvars[:, (START)].fill_(0.0)
+        init_vvars[:, START].fill_(0.0)
         forward_var = Variable(init_vvars)
         input_t = input.transpose(0, 1)
         for words in input_t:
@@ -1037,57 +1112,60 @@ class CNN(nn.Module):
         return encode.view(bsz, word_len, -1)
 
 
-class Model(nn.Module):
+class Postnet(nn.Module):
+    """Postnet
+        - Five 1-d convolution with 512 channels and kernel size 5
+    """
 
-    def __init__(self, args):
+    def __init__(self):
         super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.emb = nn.Embedding(self.dict_size, self.emb_dim)
-        self.first_gru = nn.GRU(input_size=self.emb_dim, hidden_size=self.first_rnn_hsz, num_layers=1, batch_first=True)
-        self.transform_A = nn.Linear(self.first_rnn_hsz, self.first_rnn_hsz, bias=False)
-        self.cnn = nn.Conv2d(in_channels=2, out_channels=self.fillters, kernel_size=self.kernel_size)
-        self.match_vec = nn.Linear(16 * 16 * 8, self.match_vec_dim)
-        self.second_gru = nn.GRU(input_size=self.match_vec_dim, hidden_size=self.second_rnn_hsz, num_layers=1)
-        self.pred = nn.Linear(self.match_vec_dim, 2)
-        self._reset_parameters()
+        self.convolutions = nn.ModuleList()
+        self.convolutions.append(nn.Sequential(ConvNorm(80, 512, kernel_size=5, stride=1, padding=2, dilation=1, w_init_gain='tanh'), nn.BatchNorm1d(512)))
+        for i in range(1, 5 - 1):
+            self.convolutions.append(nn.Sequential(ConvNorm(512, 512, kernel_size=5, stride=1, padding=2, dilation=1, w_init_gain='tanh'), nn.BatchNorm1d(512)))
+        self.convolutions.append(nn.Sequential(ConvNorm(512, 80, kernel_size=5, stride=1, padding=2, dilation=1, w_init_gain='linear'), nn.BatchNorm1d(80)))
 
-    def _reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.emb_dim)
-        self.emb.weight.data.uniform_(-stdv, stdv)
-        self.transform_A.weight.data.uniform_(-stdv, stdv)
-        self.match_vec.weight.data.uniform_(-stdv, stdv)
-        self.match_vec.bias.data.fill_(0)
-        self.pred.weight.data.uniform_(-stdv, stdv)
-        self.pred.bias.data.fill_(0)
+    def forward(self, x):
+        for i in range(len(self.convolutions) - 1):
+            x = torch.tanh(self.convolutions[i](x))
+        x = self.convolutions[-1](x)
+        return x
 
-    def forward(self, utterances, responses):
-        bsz = utterances.size(0)
-        resps_emb = self.emb(responses)
-        resps_gru, _ = self.first_gru(resps_emb)
-        resps_gru = F.dropout(resps_gru, p=self.dropout)
-        resps_emb_t = resps_emb.transpose(1, 2)
-        resps_gru_t = resps_gru.transpose(1, 2)
-        uttes_t = utterances.transpose(0, 1)
-        match_vecs = []
-        for utte in uttes_t:
-            utte_emb = self.emb(utte)
-            mat_1 = torch.matmul(utte_emb, resps_emb_t)
-            utte_gru, _ = self.first_gru(utte_emb)
-            utte_gru = F.dropout(utte_gru, p=self.dropout)
-            mat_2 = torch.matmul(self.transform_A(utte_gru), resps_gru_t)
-            M = torch.stack([mat_1, mat_2], 1)
-            cnn_layer = F.relu(self.cnn(M))
-            pool_layer = F.max_pool2d(cnn_layer, self.kernel_size, stride=self.kernel_size)
-            pool_layer = pool_layer.view(bsz, -1)
-            match_vec = F.relu(self.match_vec(pool_layer))
-            match_vecs.append(match_vec)
-        match_vecs = torch.stack(match_vecs, 0)
-        match_vecs = F.dropout(match_vecs, p=self.dropout)
-        _, hidden = self.second_gru(match_vecs)
-        hidden = F.dropout(hidden[-1], p=self.dropout)
-        props = F.log_softmax(self.pred(hidden), dim=-1)
-        return props
+
+class Quantinizer(nn.Module):
+
+    def __init__(self, hparams):
+        super().__init__()
+        self.size = hparams.f0_dim
+
+    def forward(self, x):
+        x = (x * self.size * 0.999).long()
+        return F.one_hot(x, num_classes=self.size).float()
+
+
+class Model(nn.Module):
+    """Generator network."""
+
+    def __init__(self, hparams):
+        super().__init__()
+        self.encoder = Encoder(hparams)
+        self.decoder = Decoder(hparams)
+        self.postnet = Postnet()
+        self.quant = Quantinizer(hparams)
+
+    def forward(self, x, c_org, c_trg, f0):
+        codes = self.encoder(x, c_org)
+        if c_trg is None:
+            return torch.cat(codes, dim=-1)
+        tmp = []
+        for code in codes:
+            tmp.append(code.unsqueeze(1).expand(-1, int(x.size(1) / len(codes)), -1))
+        code_exp = torch.cat(tmp, dim=1)
+        encoder_outputs = torch.cat((code_exp, c_trg.unsqueeze(1).expand(-1, x.size(1), -1), self.quant(f0)), dim=-1)
+        mel_outputs = self.decoder(encoder_outputs)
+        mel_outputs_postnet = self.postnet(mel_outputs.transpose(2, 1))
+        mel_outputs_postnet = mel_outputs + mel_outputs_postnet.transpose(2, 1)
+        return mel_outputs, mel_outputs_postnet, torch.cat(codes, dim=-1)
 
 
 RES_BLOCK_FILLTERS = 128
@@ -1590,8 +1668,8 @@ class biMPModule(nn.Module):
         b_relevancy = F.cosine_similarity(other_repr_context_b.unsqueeze(1), repr_context_b.unsqueeze(2), dim=this_cont_dim)
         b_relevancy = torch.mul(b_relevancy, mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
         b_relevancy = torch.mul(b_relevancy, other_mask.unsqueeze(this_cont_dim - 2).float()).clamp(min=eps)
-        other_context_f_first = other_repr_context_f[:, (-1), :]
-        other_context_b_first = other_repr_context_b[:, (0), :]
+        other_context_f_first = other_repr_context_f[:, -1, :]
+        other_context_b_first = other_repr_context_b[:, 0, :]
         f_full_match = self.f_full_layer(repr_context_f, other_context_f_first)
         b_full_match = self.b_full_layer(repr_context_b, other_context_b_first)
         all_aware_repres.append(f_full_match)
@@ -1886,7 +1964,7 @@ class RnnEncoder(nn.Module):
     def forward(self, x):
         encode, _ = self.rnn(x)
         encode = self.ln(encode)
-        return self.dropout(encode)[:, (-1), :]
+        return self.dropout(encode)[:, -1, :]
 
 
 class MentionPairScore(nn.Module):
@@ -2076,11 +2154,11 @@ class HwLSTMCell(nn.Module):
             hidden = hidden, hidden
         hx, cx = hidden
         input = F.linear(input, self.w_ih, self.b_ih)
-        gates = F.linear(hx, self.w_hh) + input[(...), :-self.hsz]
+        gates = F.linear(hx, self.w_hh) + input[..., :-self.hsz]
         in_gate, forget_gate, cell_gate, out_gate, r_gate = gates.chunk(5, 1)
         in_gate, forget_gate, out_gate, r_gate = map(torch.sigmoid, [in_gate, forget_gate, out_gate, r_gate])
         cell_gate = torch.tanh(cell_gate)
-        k = input[(...), -self.hsz:]
+        k = input[..., -self.hsz:]
         cy = forget_gate * cx + in_gate * cell_gate
         hy = r_gate * out_gate * F.tanh(cy) + (1.0 - r_gate) * k
         if self.training:
@@ -2320,7 +2398,7 @@ class ObjectRnn(nn.Module):
     def forward(self, x, sub_slidx, sub_elidx, pos_ebd):
         idx = gather_index(x, sub_slidx, sub_elidx)
         encode, _ = self.rnn(idx)
-        encode = self.ln(encode)[:, (-1), :].unsqueeze(1)
+        encode = self.ln(encode)[:, -1, :].unsqueeze(1)
         pos_ebd = self.position(x, sub_slidx, sub_elidx, pos_ebd)
         return encode + pos_ebd
 
@@ -2641,19 +2719,19 @@ class RelationNet(nn.Module):
         s_emb = self.emb(story)
         s_emb = s_emb.view(-1, self.max_s_len, self.emb_dim)
         _, (s_state, _) = self.story_rnn(s_emb)
-        s_state = s_state[(-1), :, :]
+        s_state = s_state[-1, :, :]
         s_state = s_state.view(-1, self.story_len, self.story_hsz)
         s_tags = tags.unsqueeze(0)
         s_tags = s_tags.repeat((bsz, 1, 1))
         story_objects = torch.cat((s_state, s_tags), dim=2)
         q_emb = self.emb(question)
         _, (q_state, _) = self.question_rnn(q_emb)
-        q_state = q_state[(-1), :, :]
+        q_state = q_state[-1, :, :]
         sum_g_theta = 0
         for i in range(self.story_len):
-            this_tensor = story_objects[:, (i), :]
+            this_tensor = story_objects[:, i, :]
             for j in range(self.story_len):
-                u = torch.cat((this_tensor, story_objects[:, (j), :], q_state), dim=1)
+                u = torch.cat((this_tensor, story_objects[:, j, :], q_state), dim=1)
                 g = self.g_theta(u)
                 sum_g_theta = torch.add(sum_g_theta, g)
         out = F.relu(self.f1(sum_g_theta))
@@ -2729,6 +2807,759 @@ class VAE(nn.Module):
         return portry[:-1] + '。'
 
 
+mel_n_channels = 40
+
+
+mel_window_step = 10
+
+
+model_embedding_size = 256
+
+
+model_hidden_size = 256
+
+
+model_num_layers = 3
+
+
+partials_n_frames = 160
+
+
+sampling_rate = 16000
+
+
+class VoiceEncoder(nn.Module):
+
+    def __init__(self, model='../model/speaker.pt', device='cpu'):
+        """
+        :param device: either a torch device or the name of a torch device (e.g. "cpu", "cuda"). 
+        If None, defaults to cuda if it is available on your machine, otherwise the model will 
+        run on cpu. Outputs are always returned on the cpu, as numpy arrays.
+        """
+        super().__init__()
+        self.lstm = nn.LSTM(mel_n_channels, model_hidden_size, model_num_layers, batch_first=True)
+        self.linear = nn.Linear(model_hidden_size, model_embedding_size)
+        self.relu = nn.ReLU()
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        elif isinstance(device, str):
+            device = torch.device(device)
+        self.device = device
+        checkpoint = torch.load(model, map_location='cpu')
+        self.load_state_dict(checkpoint['model_state'], strict=False)
+        self
+
+    def forward(self, mels: torch.FloatTensor):
+        """
+        Computes the embeddings of a batch of utterance spectrograms.
+        :param mels: a batch of mel spectrograms of same duration as a float32 tensor of shape 
+        (batch_size, n_frames, n_channels) 
+        :return: the embeddings as a float 32 tensor of shape (batch_size, embedding_size). 
+        Embeddings are positive and L2-normed, thus they lay in the range [0, 1].
+        """
+        _, (hidden, _) = self.lstm(mels)
+        embeds_raw = self.relu(self.linear(hidden[-1]))
+        return embeds_raw / torch.norm(embeds_raw, dim=1, keepdim=True)
+
+    @staticmethod
+    def compute_partial_slices(n_samples: int, rate, min_coverage):
+        """
+        Computes where to split an utterance waveform and its corresponding mel spectrogram to 
+        obtain partial utterances of <partials_n_frames> each. Both the waveform and the 
+        mel spectrogram slices are returned, so as to make each partial utterance waveform 
+        correspond to its spectrogram.
+    
+        The returned ranges may be indexing further than the length of the waveform. It is 
+        recommended that you pad the waveform with zeros up to wav_slices[-1].stop.
+    
+        :param n_samples: the number of samples in the waveform
+        :param rate: how many partial utterances should occur per second. Partial utterances must 
+        cover the span of the entire utterance, thus the rate should not be lower than the inverse 
+        of the duration of a partial utterance. By default, partial utterances are 1.6s long and 
+        the minimum rate is thus 0.625.
+        :param min_coverage: when reaching the last partial utterance, it may or may not have 
+        enough frames. If at least <min_pad_coverage> of <partials_n_frames> are present, 
+        then the last partial utterance will be considered by zero-padding the audio. Otherwise, 
+        it will be discarded. If there aren't enough frames for one partial utterance, 
+        this parameter is ignored so that the function always returns at least one slice.
+        :return: the waveform slices and mel spectrogram slices as lists of array slices. Index 
+        respectively the waveform and the mel spectrogram with these slices to obtain the partial 
+        utterances.
+        """
+        assert 0 < min_coverage <= 1
+        samples_per_frame = int(sampling_rate * mel_window_step / 1000)
+        n_frames = int(np.ceil((n_samples + 1) / samples_per_frame))
+        frame_step = int(np.round(sampling_rate / rate / samples_per_frame))
+        assert 0 < frame_step, 'The rate is too high'
+        assert frame_step <= partials_n_frames, 'The rate is too low, it should be %f at least' % (sampling_rate / (samples_per_frame * partials_n_frames))
+        wav_slices, mel_slices = [], []
+        steps = max(1, n_frames - partials_n_frames + frame_step + 1)
+        for i in range(0, steps, frame_step):
+            mel_range = np.array([i, i + partials_n_frames])
+            wav_range = mel_range * samples_per_frame
+            mel_slices.append(slice(*mel_range))
+            wav_slices.append(slice(*wav_range))
+        last_wav_range = wav_slices[-1]
+        coverage = (n_samples - last_wav_range.start) / (last_wav_range.stop - last_wav_range.start)
+        if coverage < min_coverage and len(mel_slices) > 1:
+            mel_slices = mel_slices[:-1]
+            wav_slices = wav_slices[:-1]
+        return wav_slices, mel_slices
+
+    def embed_utterance(self, wav: np.ndarray, return_partials=False, rate=1.3, min_coverage=0.75):
+        """
+        Computes an embedding for a single utterance. The utterance is divided in partial 
+        utterances and an embedding is computed for each. The complete utterance embedding is the 
+        L2-normed average embedding of the partial utterances.
+        
+        TODO: independent batched version of this function
+    
+        :param wav: a preprocessed utterance waveform as a numpy array of float32
+        :param return_partials: if True, the partial embeddings will also be returned along with 
+        the wav slices corresponding to each partial utterance.
+        :param rate: how many partial utterances should occur per second. Partial utterances must 
+        cover the span of the entire utterance, thus the rate should not be lower than the inverse 
+        of the duration of a partial utterance. By default, partial utterances are 1.6s long and 
+        the minimum rate is thus 0.625.
+        :param min_coverage: when reaching the last partial utterance, it may or may not have 
+        enough frames. If at least <min_pad_coverage> of <partials_n_frames> are present, 
+        then the last partial utterance will be considered by zero-padding the audio. Otherwise, 
+        it will be discarded. If there aren't enough frames for one partial utterance, 
+        this parameter is ignored so that the function always returns at least one slice.
+        :return: the embedding as a numpy array of float32 of shape (model_embedding_size,). If 
+        <return_partials> is True, the partial utterances as a numpy array of float32 of shape 
+        (n_partials, model_embedding_size) and the wav partials as a list of slices will also be 
+        returned.
+        """
+        wav_slices, mel_slices = self.compute_partial_slices(len(wav), rate, min_coverage)
+        max_wave_length = wav_slices[-1].stop
+        if max_wave_length >= len(wav):
+            wav = np.pad(wav, (0, max_wave_length - len(wav)), 'constant')
+        mel = utils.wav_to_mel_spectrogram(wav)
+        mels = np.array([mel[s] for s in mel_slices])
+        with torch.no_grad():
+            mels = torch.from_numpy(mels)
+            partial_embeds = self(mels).cpu().numpy()
+        raw_embed = np.mean(partial_embeds, axis=0)
+        embed = raw_embed / np.linalg.norm(raw_embed, 2)
+        if return_partials:
+            return embed, partial_embeds, wav_slices
+        return embed
+
+    def embed_speaker(self, wavs: List[np.ndarray], **kwargs):
+        """
+        Compute the embedding of a collection of wavs (presumably from the same speaker) by 
+        averaging their embedding and L2-normalizing it.
+        
+        :param wavs: list of wavs a numpy arrays of float32.
+        :param kwargs: extra arguments to embed_utterance()
+        :return: the embedding as a numpy array of float32 of shape (model_embedding_size,).
+        """
+        raw_embed = np.mean([self.embed_utterance(wav, return_partials=False, **kwargs) for wav in wavs], axis=0)
+        return raw_embed / np.linalg.norm(raw_embed, 2)
+
+
+class CausalConv1d(torch.nn.Module):
+    """CausalConv1d module with customized initialization."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, bias=True, pad='ConstantPad1d', pad_params={'value': 0.0}):
+        """Initialize CausalConv1d module."""
+        super(CausalConv1d, self).__init__()
+        self.pad = getattr(torch.nn, pad)((kernel_size - 1) * dilation, **pad_params)
+        self.conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, bias=bias)
+
+    def forward(self, x):
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Input tensor (B, in_channels, T).
+        Returns:
+            Tensor: Output tensor (B, out_channels, T).
+        """
+        return self.conv(self.pad(x))[:, :, :x.size(2)]
+
+
+class CausalConvTranspose1d(torch.nn.Module):
+    """CausalConvTranspose1d module with customized initialization."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, bias=True):
+        """Initialize CausalConvTranspose1d module."""
+        super(CausalConvTranspose1d, self).__init__()
+        self.deconv = torch.nn.ConvTranspose1d(in_channels, out_channels, kernel_size, stride, bias=bias)
+        self.stride = stride
+
+    def forward(self, x):
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Input tensor (B, in_channels, T_in).
+        Returns:
+            Tensor: Output tensor (B, out_channels, T_out).
+        """
+        return self.deconv(x)[:, :, :-self.stride]
+
+
+class ResidualStack(torch.nn.Module):
+    """Residual stack module introduced in MelGAN."""
+
+    def __init__(self, kernel_size=3, channels=32, dilation=1, bias=True, nonlinear_activation='LeakyReLU', nonlinear_activation_params={'negative_slope': 0.2}, pad='ReflectionPad1d', pad_params={}, use_causal_conv=False):
+        """Initialize ResidualStack module.
+        Args:
+            kernel_size (int): Kernel size of dilation convolution layer.
+            channels (int): Number of channels of convolution layers.
+            dilation (int): Dilation factor.
+            bias (bool): Whether to add bias parameter in convolution layers.
+            nonlinear_activation (str): Activation function module name.
+            nonlinear_activation_params (dict): Hyperparameters for activation function.
+            pad (str): Padding function module name before dilated convolution layer.
+            pad_params (dict): Hyperparameters for padding function.
+            use_causal_conv (bool): Whether to use causal convolution.
+        """
+        super(ResidualStack, self).__init__()
+        if not use_causal_conv:
+            assert (kernel_size - 1) % 2 == 0, 'Not support even number kernel size.'
+            self.stack = torch.nn.Sequential(getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params), getattr(torch.nn, pad)((kernel_size - 1) // 2 * dilation, **pad_params), torch.nn.Conv1d(channels, channels, kernel_size, dilation=dilation, bias=bias), getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params), torch.nn.Conv1d(channels, channels, 1, bias=bias))
+        else:
+            self.stack = torch.nn.Sequential(getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params), CausalConv1d(channels, channels, kernel_size, dilation=dilation, bias=bias, pad=pad, pad_params=pad_params), getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params), torch.nn.Conv1d(channels, channels, 1, bias=bias))
+        self.skip_layer = torch.nn.Conv1d(channels, channels, 1, bias=bias)
+
+    def forward(self, c):
+        """Calculate forward propagation.
+        Args:
+            c (Tensor): Input tensor (B, channels, T).
+        Returns:
+            Tensor: Output tensor (B, chennels, T).
+        """
+        return self.stack(c) + self.skip_layer(c)
+
+
+class Conv1d(torch.nn.Conv1d):
+    """Conv1d module with customized initialization."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize Conv1d module."""
+        super(Conv1d, self).__init__(*args, **kwargs)
+
+    def reset_parameters(self):
+        """Reset parameters."""
+        torch.nn.init.kaiming_normal_(self.weight, nonlinearity='relu')
+        if self.bias is not None:
+            torch.nn.init.constant_(self.bias, 0.0)
+
+
+class Conv1d1x1(Conv1d):
+    """1x1 Conv1d with customized initialization."""
+
+    def __init__(self, in_channels, out_channels, bias):
+        """Initialize 1x1 Conv1d module."""
+        super(Conv1d1x1, self).__init__(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias)
+
+
+class ResidualBlock(torch.nn.Module):
+    """Residual block module in WaveNet."""
+
+    def __init__(self, kernel_size=3, residual_channels=64, gate_channels=128, skip_channels=64, aux_channels=80, dropout=0.0, dilation=1, bias=True, use_causal_conv=False):
+        """Initialize ResidualBlock module.
+        Args:
+            kernel_size (int): Kernel size of dilation convolution layer.
+            residual_channels (int): Number of channels for residual connection.
+            skip_channels (int): Number of channels for skip connection.
+            aux_channels (int): Local conditioning channels i.e. auxiliary input dimension.
+            dropout (float): Dropout probability.
+            dilation (int): Dilation factor.
+            bias (bool): Whether to add bias parameter in convolution layers.
+            use_causal_conv (bool): Whether to use use_causal_conv or non-use_causal_conv convolution.
+        """
+        super(ResidualBlock, self).__init__()
+        self.dropout = dropout
+        if use_causal_conv:
+            padding = (kernel_size - 1) * dilation
+        else:
+            assert (kernel_size - 1) % 2 == 0, 'Not support even number kernel size.'
+            padding = (kernel_size - 1) // 2 * dilation
+        self.use_causal_conv = use_causal_conv
+        self.conv = Conv1d(residual_channels, gate_channels, kernel_size, padding=padding, dilation=dilation, bias=bias)
+        if aux_channels > 0:
+            self.conv1x1_aux = Conv1d1x1(aux_channels, gate_channels, bias=False)
+        else:
+            self.conv1x1_aux = None
+        gate_out_channels = gate_channels // 2
+        self.conv1x1_out = Conv1d1x1(gate_out_channels, residual_channels, bias=bias)
+        self.conv1x1_skip = Conv1d1x1(gate_out_channels, skip_channels, bias=bias)
+
+    def forward(self, x, c):
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Input tensor (B, residual_channels, T).
+            c (Tensor): Local conditioning auxiliary tensor (B, aux_channels, T).
+        Returns:
+            Tensor: Output tensor for residual connection (B, residual_channels, T).
+            Tensor: Output tensor for skip connection (B, skip_channels, T).
+        """
+        residual = x
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv(x)
+        x = x[:, :, :residual.size(-1)] if self.use_causal_conv else x
+        splitdim = 1
+        xa, xb = x.split(x.size(splitdim) // 2, dim=splitdim)
+        if c is not None:
+            assert self.conv1x1_aux is not None
+            c = self.conv1x1_aux(c)
+            ca, cb = c.split(c.size(splitdim) // 2, dim=splitdim)
+            xa, xb = xa + ca, xb + cb
+        x = torch.tanh(xa) * torch.sigmoid(xb)
+        s = self.conv1x1_skip(x)
+        x = (self.conv1x1_out(x) + residual) * math.sqrt(0.5)
+        return x, s
+
+
+class Stretch2d(torch.nn.Module):
+    """Stretch2d module."""
+
+    def __init__(self, x_scale, y_scale, mode='nearest'):
+        """Initialize Stretch2d module.
+        Args:
+            x_scale (int): X scaling factor (Time axis in spectrogram).
+            y_scale (int): Y scaling factor (Frequency axis in spectrogram).
+            mode (str): Interpolation mode.
+        """
+        super(Stretch2d, self).__init__()
+        self.x_scale = x_scale
+        self.y_scale = y_scale
+        self.mode = mode
+
+    def forward(self, x):
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Input tensor (B, C, F, T).
+        Returns:
+            Tensor: Interpolated tensor (B, C, F * y_scale, T * x_scale),
+        """
+        return F.interpolate(x, scale_factor=(self.y_scale, self.x_scale), mode=self.mode)
+
+
+class Conv2d(torch.nn.Conv2d):
+    """Conv2d module with customized initialization."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize Conv2d module."""
+        super(Conv2d, self).__init__(*args, **kwargs)
+
+    def reset_parameters(self):
+        """Reset parameters."""
+        self.weight.data.fill_(1.0 / np.prod(self.kernel_size))
+        if self.bias is not None:
+            torch.nn.init.constant_(self.bias, 0.0)
+
+
+class UpsampleNetwork(torch.nn.Module):
+    """Upsampling network module."""
+
+    def __init__(self, upsample_scales, nonlinear_activation=None, nonlinear_activation_params={}, interpolate_mode='nearest', freq_axis_kernel_size=1, use_causal_conv=False):
+        """Initialize upsampling network module.
+        Args:
+            upsample_scales (list): List of upsampling scales.
+            nonlinear_activation (str): Activation function name.
+            nonlinear_activation_params (dict): Arguments for specified activation function.
+            interpolate_mode (str): Interpolation mode.
+            freq_axis_kernel_size (int): Kernel size in the direction of frequency axis.
+        """
+        super(UpsampleNetwork, self).__init__()
+        self.use_causal_conv = use_causal_conv
+        self.up_layers = torch.nn.ModuleList()
+        for scale in upsample_scales:
+            stretch = Stretch2d(scale, 1, interpolate_mode)
+            self.up_layers += [stretch]
+            assert (freq_axis_kernel_size - 1) % 2 == 0, 'Not support even number freq axis kernel size.'
+            freq_axis_padding = (freq_axis_kernel_size - 1) // 2
+            kernel_size = freq_axis_kernel_size, scale * 2 + 1
+            if use_causal_conv:
+                padding = freq_axis_padding, scale * 2
+            else:
+                padding = freq_axis_padding, scale
+            conv = Conv2d(1, 1, kernel_size=kernel_size, padding=padding, bias=False)
+            self.up_layers += [conv]
+            if nonlinear_activation is not None:
+                nonlinear = getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params)
+                self.up_layers += [nonlinear]
+
+    def forward(self, c):
+        """Calculate forward propagation.
+        Args:
+            c : Input tensor (B, C, T).
+        Returns:
+            Tensor: Upsampled tensor (B, C, T'), where T' = T * prod(upsample_scales).
+        """
+        c = c.unsqueeze(1)
+        for f in self.up_layers:
+            if self.use_causal_conv and isinstance(f, Conv2d):
+                c = f(c)[..., :c.size(-1)]
+            else:
+                c = f(c)
+        return c.squeeze(1)
+
+
+class ConvInUpsampleNetwork(torch.nn.Module):
+    """Convolution + upsampling network module."""
+
+    def __init__(self, upsample_scales, nonlinear_activation=None, nonlinear_activation_params={}, interpolate_mode='nearest', freq_axis_kernel_size=1, aux_channels=80, aux_context_window=0, use_causal_conv=False):
+        """Initialize convolution + upsampling network module.
+        Args:
+            upsample_scales (list): List of upsampling scales.
+            nonlinear_activation (str): Activation function name.
+            nonlinear_activation_params (dict): Arguments for specified activation function.
+            mode (str): Interpolation mode.
+            freq_axis_kernel_size (int): Kernel size in the direction of frequency axis.
+            aux_channels (int): Number of channels of pre-convolutional layer.
+            aux_context_window (int): Context window size of the pre-convolutional layer.
+            use_causal_conv (bool): Whether to use causal structure.
+        """
+        super(ConvInUpsampleNetwork, self).__init__()
+        self.aux_context_window = aux_context_window
+        self.use_causal_conv = use_causal_conv and aux_context_window > 0
+        kernel_size = aux_context_window + 1 if use_causal_conv else 2 * aux_context_window + 1
+        self.conv_in = Conv1d(aux_channels, aux_channels, kernel_size=kernel_size, bias=False)
+        self.upsample = UpsampleNetwork(upsample_scales=upsample_scales, nonlinear_activation=nonlinear_activation, nonlinear_activation_params=nonlinear_activation_params, interpolate_mode=interpolate_mode, freq_axis_kernel_size=freq_axis_kernel_size, use_causal_conv=use_causal_conv)
+
+    def forward(self, c):
+        """Calculate forward propagation.
+        Args:
+            c : Input tensor (B, C, T').
+        Returns:
+            Tensor: Upsampled tensor (B, C, T),
+                where T = (T' - aux_context_window * 2) * prod(upsample_scales).
+        Note:
+            The length of inputs considers the context window size.
+        """
+        c_ = self.conv_in(c)
+        c = c_[:, :, :-self.aux_context_window] if self.use_causal_conv else c_
+        return self.upsample(c)
+
+
+class MelGANGenerator(torch.nn.Module):
+    """MelGAN generator module."""
+
+    def __init__(self, in_channels=80, out_channels=1, kernel_size=7, channels=512, bias=True, upsample_scales=[8, 8, 2, 2], stack_kernel_size=3, stacks=3, nonlinear_activation='LeakyReLU', nonlinear_activation_params={'negative_slope': 0.2}, pad='ReflectionPad1d', pad_params={}, use_final_nonlinear_activation=True, use_weight_norm=True, use_causal_conv=False):
+        """Initialize MelGANGenerator module.
+        Args:
+            in_channels (int): Number of input channels.
+            out_channels (int): Number of output channels.
+            kernel_size (int): Kernel size of initial and final conv layer.
+            channels (int): Initial number of channels for conv layer.
+            bias (bool): Whether to add bias parameter in convolution layers.
+            upsample_scales (list): List of upsampling scales.
+            stack_kernel_size (int): Kernel size of dilated conv layers in residual stack.
+            stacks (int): Number of stacks in a single residual stack.
+            nonlinear_activation (str): Activation function module name.
+            nonlinear_activation_params (dict): Hyperparameters for activation function.
+            pad (str): Padding function module name before dilated convolution layer.
+            pad_params (dict): Hyperparameters for padding function.
+            use_final_nonlinear_activation (torch.nn.Module): Activation function for the final layer.
+            use_weight_norm (bool): Whether to use weight norm.
+                If set to true, it will be applied to all of the conv layers.
+            use_causal_conv (bool): Whether to use causal convolution.
+        """
+        super(MelGANGenerator, self).__init__()
+        assert channels >= np.prod(upsample_scales)
+        assert channels % 2 ** len(upsample_scales) == 0
+        if not use_causal_conv:
+            assert (kernel_size - 1) % 2 == 0, 'Not support even number kernel size.'
+        layers = []
+        if not use_causal_conv:
+            layers += [getattr(torch.nn, pad)((kernel_size - 1) // 2, **pad_params), torch.nn.Conv1d(in_channels, channels, kernel_size, bias=bias)]
+        else:
+            layers += [CausalConv1d(in_channels, channels, kernel_size, bias=bias, pad=pad, pad_params=pad_params)]
+        for i, upsample_scale in enumerate(upsample_scales):
+            layers += [getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params)]
+            if not use_causal_conv:
+                layers += [torch.nn.ConvTranspose1d(channels // 2 ** i, channels // 2 ** (i + 1), upsample_scale * 2, stride=upsample_scale, padding=upsample_scale // 2 + upsample_scale % 2, output_padding=upsample_scale % 2, bias=bias)]
+            else:
+                layers += [CausalConvTranspose1d(channels // 2 ** i, channels // 2 ** (i + 1), upsample_scale * 2, stride=upsample_scale, bias=bias)]
+            for j in range(stacks):
+                layers += [ResidualStack(kernel_size=stack_kernel_size, channels=channels // 2 ** (i + 1), dilation=stack_kernel_size ** j, bias=bias, nonlinear_activation=nonlinear_activation, nonlinear_activation_params=nonlinear_activation_params, pad=pad, pad_params=pad_params, use_causal_conv=use_causal_conv)]
+        layers += [getattr(torch.nn, nonlinear_activation)(**nonlinear_activation_params)]
+        if not use_causal_conv:
+            layers += [getattr(torch.nn, pad)((kernel_size - 1) // 2, **pad_params), torch.nn.Conv1d(channels // 2 ** (i + 1), out_channels, kernel_size, bias=bias)]
+        else:
+            layers += [CausalConv1d(channels // 2 ** (i + 1), out_channels, kernel_size, bias=bias, pad=pad, pad_params=pad_params)]
+        if use_final_nonlinear_activation:
+            layers += [torch.nn.Tanh()]
+        self.melgan = torch.nn.Sequential(*layers)
+        if use_weight_norm:
+            self.apply_weight_norm()
+        self.reset_parameters()
+        self.pqmf = None
+
+    def forward(self, c):
+        """Calculate forward propagation.
+        Args:
+            c (Tensor): Input tensor (B, channels, T).
+        Returns:
+            Tensor: Output tensor (B, 1, T ** prod(upsample_scales)).
+        """
+        return self.melgan(c)
+
+    def remove_weight_norm(self):
+        """Remove weight normalization module from all of the layers."""
+
+        def _remove_weight_norm(m):
+            try:
+                logging.debug(f'Weight norm is removed from {m}.')
+                torch.nn.utils.remove_weight_norm(m)
+            except ValueError:
+                return
+        self.apply(_remove_weight_norm)
+
+    def apply_weight_norm(self):
+        """Apply weight normalization module from all of the layers."""
+
+        def _apply_weight_norm(m):
+            if isinstance(m, torch.nn.Conv1d) or isinstance(m, torch.nn.ConvTranspose1d):
+                torch.nn.utils.weight_norm(m)
+                logging.debug(f'Weight norm is applied to {m}.')
+        self.apply(_apply_weight_norm)
+
+    def reset_parameters(self):
+        """Reset parameters.
+        This initialization follows official implementation manner.
+        https://github.com/descriptinc/melgan-neurips/blob/master/mel2wav/modules.py
+        """
+
+        def _reset_parameters(m):
+            if isinstance(m, torch.nn.Conv1d) or isinstance(m, torch.nn.ConvTranspose1d):
+                m.weight.data.normal_(0.0, 0.02)
+                logging.debug(f'Reset parameters in {m}.')
+        self.apply(_reset_parameters)
+
+    def inference(self, c):
+        """Perform inference.
+        Args:
+            c (Union[Tensor, ndarray]): Input tensor (T, in_channels).
+        Returns:
+            Tensor: Output tensor (T ** prod(upsample_scales), out_channels).
+        """
+        if not isinstance(c, torch.Tensor):
+            c = torch.tensor(c, dtype=torch.float)
+        c = self.melgan(c.transpose(1, 0).unsqueeze(0))
+        if self.pqmf is not None:
+            c = self.pqmf.synthesis(c)
+        return c.squeeze(0).transpose(1, 0)
+
+
+class ParallelWaveGANGenerator(torch.nn.Module):
+    """Parallel WaveGAN Generator module."""
+
+    def __init__(self, in_channels=1, out_channels=1, kernel_size=3, layers=30, stacks=3, residual_channels=64, gate_channels=128, skip_channels=64, aux_channels=80, aux_context_window=2, dropout=0.0, bias=True, use_weight_norm=True, use_causal_conv=False, upsample_conditional_features=True, upsample_net='ConvInUpsampleNetwork', upsample_params={'upsample_scales': [4, 4, 4, 4]}):
+        """Initialize Parallel WaveGAN Generator module.
+        Args:
+            in_channels (int): Number of input channels.
+            out_channels (int): Number of output channels.
+            kernel_size (int): Kernel size of dilated convolution.
+            layers (int): Number of residual block layers.
+            stacks (int): Number of stacks i.e., dilation cycles.
+            residual_channels (int): Number of channels in residual conv.
+            gate_channels (int):  Number of channels in gated conv.
+            skip_channels (int): Number of channels in skip conv.
+            aux_channels (int): Number of channels for auxiliary feature conv.
+            aux_context_window (int): Context window size for auxiliary feature.
+            dropout (float): Dropout rate. 0.0 means no dropout applied.
+            bias (bool): Whether to use bias parameter in conv layer.
+            use_weight_norm (bool): Whether to use weight norm.
+                If set to true, it will be applied to all of the conv layers.
+            use_causal_conv (bool): Whether to use causal structure.
+            upsample_conditional_features (bool): Whether to use upsampling network.
+            upsample_net (str): Upsampling network architecture.
+            upsample_params (dict): Upsampling network parameters.
+        """
+        super(ParallelWaveGANGenerator, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.aux_channels = aux_channels
+        self.aux_context_window = aux_context_window
+        self.layers = layers
+        self.stacks = stacks
+        self.kernel_size = kernel_size
+        assert layers % stacks == 0
+        layers_per_stack = layers // stacks
+        self.first_conv = Conv1d1x1(in_channels, residual_channels, bias=True)
+        if upsample_conditional_features:
+            upsample_params.update({'use_causal_conv': use_causal_conv})
+            if upsample_net == 'MelGANGenerator':
+                assert aux_context_window == 0
+                upsample_params.update({'use_weight_norm': False, 'use_final_nonlinear_activation': False})
+                self.upsample_net = getattr(models, upsample_net)(**upsample_params)
+            else:
+                if upsample_net == 'ConvInUpsampleNetwork':
+                    upsample_params.update({'aux_channels': aux_channels, 'aux_context_window': aux_context_window})
+                self.upsample_net = getattr(upsample, upsample_net)(**upsample_params)
+            self.upsample_factor = np.prod(upsample_params['upsample_scales'])
+        else:
+            self.upsample_net = None
+            self.upsample_factor = 1
+        self.conv_layers = torch.nn.ModuleList()
+        for layer in range(layers):
+            dilation = 2 ** (layer % layers_per_stack)
+            conv = ResidualBlock(kernel_size=kernel_size, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, aux_channels=aux_channels, dilation=dilation, dropout=dropout, bias=bias, use_causal_conv=use_causal_conv)
+            self.conv_layers += [conv]
+        self.last_conv_layers = torch.nn.ModuleList([torch.nn.ReLU(inplace=True), Conv1d1x1(skip_channels, skip_channels, bias=True), torch.nn.ReLU(inplace=True), Conv1d1x1(skip_channels, out_channels, bias=True)])
+        if use_weight_norm:
+            self.apply_weight_norm()
+
+    def forward(self, x, c):
+        """Calculate forward propagation.
+        Args:
+            x (Tensor): Input noise signal (B, 1, T).
+            c (Tensor): Local conditioning auxiliary features (B, C ,T').
+        Returns:
+            Tensor: Output tensor (B, out_channels, T)
+        """
+        if c is not None and self.upsample_net is not None:
+            c = self.upsample_net(c)
+            assert c.size(-1) == x.size(-1)
+        x = self.first_conv(x)
+        skips = 0
+        for f in self.conv_layers:
+            x, h = f(x, c)
+            skips += h
+        skips *= math.sqrt(1.0 / len(self.conv_layers))
+        x = skips
+        for f in self.last_conv_layers:
+            x = f(x)
+        return x
+
+    def remove_weight_norm(self):
+        """Remove weight normalization module from all of the layers."""
+
+        def _remove_weight_norm(m):
+            try:
+                logging.debug(f'Weight norm is removed from {m}.')
+                torch.nn.utils.remove_weight_norm(m)
+            except ValueError:
+                return
+        self.apply(_remove_weight_norm)
+
+    def apply_weight_norm(self):
+        """Apply weight normalization module from all of the layers."""
+
+        def _apply_weight_norm(m):
+            if isinstance(m, torch.nn.Conv1d) or isinstance(m, torch.nn.Conv2d):
+                torch.nn.utils.weight_norm(m)
+                logging.debug(f'Weight norm is applied to {m}.')
+        self.apply(_apply_weight_norm)
+
+    @staticmethod
+    def _get_receptive_field_size(layers, stacks, kernel_size, dilation=lambda x: 2 ** x):
+        assert layers % stacks == 0
+        layers_per_cycle = layers // stacks
+        dilations = [dilation(i % layers_per_cycle) for i in range(layers)]
+        return (kernel_size - 1) * sum(dilations) + 1
+
+    @property
+    def receptive_field_size(self):
+        """Return receptive field size."""
+        return self._get_receptive_field_size(self.layers, self.stacks, self.kernel_size)
+
+    def inference(self, c=None, x=None):
+        """Perform inference.
+        Args:
+            c (Union[Tensor, ndarray]): Local conditioning auxiliary features (T' ,C).
+            x (Union[Tensor, ndarray]): Input noise signal (T, 1).
+        Returns:
+            Tensor: Output tensor (T, out_channels)
+        """
+        if x is not None:
+            if not isinstance(x, torch.Tensor):
+                x = torch.tensor(x, dtype=torch.float)
+            x = x.transpose(1, 0).unsqueeze(0)
+        else:
+            assert c is not None
+            x = torch.randn(1, 1, len(c) * self.upsample_factor)
+        if c is not None:
+            if not isinstance(c, torch.Tensor):
+                c = torch.tensor(c, dtype=torch.float)
+            c = c.transpose(1, 0).unsqueeze(0)
+            c = torch.nn.ReplicationPad1d(self.aux_context_window)(c)
+        return self.forward(x, c).squeeze(0).transpose(1, 0)
+
+
+def design_prototype_filter(taps=62, cutoff_ratio=0.142, beta=9.0):
+    """Design prototype filter for PQMF.
+    This method is based on `A Kaiser window approach for the design of prototype
+    filters of cosine modulated filterbanks`_.
+    Args:
+        taps (int): The number of filter taps.
+        cutoff_ratio (float): Cut-off frequency ratio.
+        beta (float): Beta coefficient for kaiser window.
+    Returns:
+        ndarray: Impluse response of prototype filter (taps + 1,).
+    .. _`A Kaiser window approach for the design of prototype filters of cosine modulated filterbanks`:
+        https://ieeexplore.ieee.org/abstract/document/681427
+    """
+    assert taps % 2 == 0, 'The number of taps mush be even number.'
+    assert 0.0 < cutoff_ratio < 1.0, 'Cutoff ratio must be > 0.0 and < 1.0.'
+    omega_c = np.pi * cutoff_ratio
+    with np.errstate(invalid='ignore'):
+        h_i = np.sin(omega_c * (np.arange(taps + 1) - 0.5 * taps)) / (np.pi * (np.arange(taps + 1) - 0.5 * taps))
+    h_i[taps // 2] = np.cos(0) * cutoff_ratio
+    w = kaiser(taps + 1, beta)
+    h = h_i * w
+    return h
+
+
+class PQMF(torch.nn.Module):
+    """PQMF module.
+    This module is based on `Near-perfect-reconstruction pseudo-QMF banks`_.
+    .. _`Near-perfect-reconstruction pseudo-QMF banks`:
+        https://ieeexplore.ieee.org/document/258122
+    """
+
+    def __init__(self, subbands=4, taps=62, cutoff_ratio=0.142, beta=9.0):
+        """Initilize PQMF module.
+        The cutoff_ratio and beta parameters are optimized for #subbands = 4.
+        See dicussion in https://github.com/kan-bayashi/ParallelWaveGAN/issues/195.
+        Args:
+            subbands (int): The number of subbands.
+            taps (int): The number of filter taps.
+            cutoff_ratio (float): Cut-off frequency ratio.
+            beta (float): Beta coefficient for kaiser window.
+        """
+        super(PQMF, self).__init__()
+        h_proto = design_prototype_filter(taps, cutoff_ratio, beta)
+        h_analysis = np.zeros((subbands, len(h_proto)))
+        h_synthesis = np.zeros((subbands, len(h_proto)))
+        for k in range(subbands):
+            h_analysis[k] = 2 * h_proto * np.cos((2 * k + 1) * (np.pi / (2 * subbands)) * (np.arange(taps + 1) - taps / 2) + (-1) ** k * np.pi / 4)
+            h_synthesis[k] = 2 * h_proto * np.cos((2 * k + 1) * (np.pi / (2 * subbands)) * (np.arange(taps + 1) - taps / 2) - (-1) ** k * np.pi / 4)
+        analysis_filter = torch.from_numpy(h_analysis).float().unsqueeze(1)
+        synthesis_filter = torch.from_numpy(h_synthesis).float().unsqueeze(0)
+        self.register_buffer('analysis_filter', analysis_filter)
+        self.register_buffer('synthesis_filter', synthesis_filter)
+        updown_filter = torch.zeros((subbands, subbands, subbands)).float()
+        for k in range(subbands):
+            updown_filter[k, k, 0] = 1.0
+        self.register_buffer('updown_filter', updown_filter)
+        self.subbands = subbands
+        self.pad_fn = torch.nn.ConstantPad1d(taps // 2, 0.0)
+
+    def analysis(self, x):
+        """Analysis with PQMF.
+        Args:
+            x (Tensor): Input tensor (B, 1, T).
+        Returns:
+            Tensor: Output tensor (B, subbands, T // subbands).
+        """
+        x = F.conv1d(self.pad_fn(x), self.analysis_filter)
+        return F.conv1d(x, self.updown_filter, stride=self.subbands)
+
+    def synthesis(self, x):
+        """Synthesis with PQMF.
+        Args:
+            x (Tensor): Input tensor (B, subbands, T // subbands).
+        Returns:
+            Tensor: Output tensor (B, 1, T).
+        """
+        x = F.conv_transpose1d(x, self.updown_filter * self.subbands, stride=self.subbands)
+        return F.conv1d(self.pad_fn(x), self.synthesis_filter)
+
+
 class BasicConv(nn.Module):
 
     def __init__(self, ind, outd, kr_size, stride, padding, lr=0.1, bias=False):
@@ -2751,13 +3582,13 @@ DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), 
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
     if not x1y1x2y2:
-        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:, (2)] / 2
-        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:, (3)] / 2
-        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:, (2)] / 2
-        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:, (3)] / 2
+        b1_x1, b1_x2 = box1[:, 0] - box1[:, 2] / 2, box1[:, 0] + box1[:, 2] / 2
+        b1_y1, b1_y2 = box1[:, 1] - box1[:, 3] / 2, box1[:, 1] + box1[:, 3] / 2
+        b2_x1, b2_x2 = box2[:, 0] - box2[:, 2] / 2, box2[:, 0] + box2[:, 2] / 2
+        b2_y1, b2_y2 = box2[:, 1] - box2[:, 3] / 2, box2[:, 1] + box2[:, 3] / 2
     else:
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)], box1[:, (3)]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)], box2[:, (3)]
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
     inter_rect_x1 = torch.max(b1_x1, b2_x1)
     inter_rect_y1 = torch.max(b1_y1, b2_y1)
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
@@ -2872,12 +3703,12 @@ class BasicPred(nn.Module):
         w = prediction[..., 2]
         h = prediction[..., 3]
         pred_conf = torch.sigmoid(prediction[..., 4])
-        pred_cls = torch.sigmoid(prediction[(...), 5:])
+        pred_cls = torch.sigmoid(prediction[..., 5:])
         grid_x = torch.arange(grid_size).repeat(grid_size, 1).view([1, 1, grid_size, grid_size]).type(self.torch.FloatTensor)
         grid_y = torch.arange(grid_size).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size]).type(self.torch.FloatTensor)
-        anchor_w = anchors[:, (0)].view((1, num_anchors, 1, 1))
-        anchor_h = anchors[:, (1)].view((1, num_anchors, 1, 1))
-        pred_boxes = self.torch.FloatTensor(prediction[(...), :4].shape)
+        anchor_w = anchors[:, 0].view((1, num_anchors, 1, 1))
+        anchor_h = anchors[:, 1].view((1, num_anchors, 1, 1))
+        pred_boxes = self.torch.FloatTensor(prediction[..., :4].shape)
         pred_boxes[..., 0] = x.data + grid_x
         pred_boxes[..., 1] = y.data + grid_y
         pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
@@ -3039,372 +3870,4 @@ class DarkNet(nn.Module):
         else:
             det_3 = self.pred_3(x)
             return torch.cat((det_1, det_2, det_3), 1)
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (ActorCritic,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (AlphaEntropy,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (AtteMatchLay,
-     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
-     lambda: ([torch.rand([16, 4, 4]), torch.rand([64, 4])], {}),
-     True),
-    (BasicConv,
-     lambda: ([], {'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Beauty,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (BiLSTM,
-     lambda: ([], {'word_size': 4, 'word_ebd_dim': 4, 'kernel_num': 4, 'lstm_hsz': 4, 'lstm_layers': 1, 'dropout': 0.5, 'batch_size': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
-     False),
-    (BiRNN,
-     lambda: ([], {'vsz': 4, 'embed_dim': 4, 'dropout': 0.5, 'hsz': 4, 'layers': 1}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (CNN,
-     lambda: ([], {'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}),
-     lambda: ([torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     True),
-    (CRF,
-     lambda: ([], {'label_size': 4, 'is_cuda': False}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
-    (ConvUnit,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 256, 64, 64])], {}),
-     True),
-    (CrossEntropy,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4, 4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (DQN,
-     lambda: ([], {'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (DeepBiLSTMModel,
-     lambda: ([], {'vsz': 4, 'lsz': 4, 'ebd_dim': 4, 'lstm_hsz': 4, 'lstm_layers': 1, 'dropout_prob': 0.5, 'is_cuda': False}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (DgCNN,
-     lambda: ([], {'dim': 4, 'dilation_rates': [4, 4]}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     True),
-    (DigitCap,
-     lambda: ([], {'use_cuda': False, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
-    (DilatedGatedConv1D,
-     lambda: ([], {'dilation_rate': 1, 'dim': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
-    (Discriminator,
-     lambda: ([], {'out_h': 256, 'out_w': 16, 'channel_dims': [4, 4, 4, 4], 'relu_leak': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (Distance,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     True),
-    (Feature,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 8, 64, 64])], {}),
-     True),
-    (FullMatchLay,
-     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (GELU,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (GramMatrix,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (HwLSTMCell,
-     lambda: ([], {'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}),
-     lambda: ([torch.rand([4, 4])], {}),
-     False),
-    (HwLSTMlayer,
-     lambda: ([], {'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}),
-     lambda: ([torch.rand([4, 4])], {}),
-     False),
-    (LayerFive,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
-     True),
-    (LayerFour,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 512, 64, 64])], {}),
-     True),
-    (LayerNorm,
-     lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (LayerOne,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
-    (LayerThree,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 256, 64, 64])], {}),
-     True),
-    (LayerTwo,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     True),
-    (MaxpoolMatchLay,
-     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     True),
-    (Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 8, 64, 64])], {}),
-     True),
-    (NlpCrossEntropy,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4, 4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (ObjModel,
-     lambda: ([], {'dim': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {}),
-     True),
-    (Policy,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     True),
-    (Pooler,
-     lambda: ([], {'d_model': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (PositionWise,
-     lambda: ([], {'d_model': 4, 'd_ff': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
-    (PrimaryCap,
-     lambda: ([], {'num_primary_units': 4}),
-     lambda: ([torch.rand([4, 256, 64, 64])], {}),
-     True),
-    (ResBlockNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     True),
-    (RnnDropout,
-     lambda: ([], {'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': False}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (RnnEncoder,
-     lambda: ([], {'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     True),
-    (Score,
-     lambda: ([], {'in_dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SelfCriticCriterion,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4, 4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64), torch.rand([4, 4, 4, 4]), torch.rand([4])], {}),
-     True),
-    (SubModel,
-     lambda: ([], {'dim': 4}),
-     lambda: ([torch.rand([4, 8, 8])], {}),
-     True),
-    (SubjectLinear,
-     lambda: ([], {'dim': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Value,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     True),
-    (WordCrossEntropy,
-     lambda: ([], {}),
-     lambda: ([torch.ones([4, 4, 4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (_DenseBLayer,
-     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (_DenseBlock,
-     lambda: ([], {'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (_Transition,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (highway_layer,
-     lambda: ([], {'hsz': 4, 'active': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-]
-
-class Test_ne7ermore_torch_light(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
-
-    def test_025(self):
-        self._check(*TESTCASES[25])
-
-    def test_026(self):
-        self._check(*TESTCASES[26])
-
-    def test_027(self):
-        self._check(*TESTCASES[27])
-
-    def test_028(self):
-        self._check(*TESTCASES[28])
-
-    def test_029(self):
-        self._check(*TESTCASES[29])
-
-    def test_030(self):
-        self._check(*TESTCASES[30])
-
-    def test_031(self):
-        self._check(*TESTCASES[31])
-
-    def test_032(self):
-        self._check(*TESTCASES[32])
-
-    def test_033(self):
-        self._check(*TESTCASES[33])
-
-    def test_034(self):
-        self._check(*TESTCASES[34])
-
-    def test_035(self):
-        self._check(*TESTCASES[35])
-
-    def test_036(self):
-        self._check(*TESTCASES[36])
-
-    def test_037(self):
-        self._check(*TESTCASES[37])
-
-    def test_038(self):
-        self._check(*TESTCASES[38])
-
-    def test_039(self):
-        self._check(*TESTCASES[39])
-
-    def test_040(self):
-        self._check(*TESTCASES[40])
-
-    def test_041(self):
-        self._check(*TESTCASES[41])
-
-    def test_042(self):
-        self._check(*TESTCASES[42])
-
-    def test_043(self):
-        self._check(*TESTCASES[43])
-
-    def test_044(self):
-        self._check(*TESTCASES[44])
-
-    def test_045(self):
-        self._check(*TESTCASES[45])
-
-    def test_046(self):
-        self._check(*TESTCASES[46])
-
-    def test_047(self):
-        self._check(*TESTCASES[47])
-
-    def test_048(self):
-        self._check(*TESTCASES[48])
-
-    def test_049(self):
-        self._check(*TESTCASES[49])
-
-    def test_050(self):
-        self._check(*TESTCASES[50])
 

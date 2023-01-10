@@ -337,17 +337,17 @@ class DiscretizedMixLogisticLoss(nn.Module):
         Kp = l.shape[1]
         K = non_shared_get_K(Kp, C, self._num_params)
         l = l.reshape(N, self._num_params, C, K, H, W)
-        logit_probs = l[:, (0), (...)]
-        means = l[:, (1), (...)]
-        log_scales = torch.clamp(l[:, (2), (...)], min=_LOG_SCALES_MIN)
+        logit_probs = l[:, 0, ...]
+        means = l[:, 1, ...]
+        log_scales = torch.clamp(l[:, 2, ...], min=_LOG_SCALES_MIN)
         x = x.reshape(N, C, 1, H, W)
         if self.use_coeffs:
             assert C == 3, C
-            coeffs = self._nonshared_coeffs_act(l[:, (3), (...)])
-            coeffs_g_r = coeffs[:, (0), (...)]
-            coeffs_b_r = coeffs[:, (1), (...)]
-            coeffs_b_g = coeffs[:, (2), (...)]
-            means = torch.stack((means[:, (0), (...)], means[:, (1), (...)] + coeffs_g_r * x[:, (0), (...)], means[:, (2), (...)] + coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:, (1), (...)]), dim=1)
+            coeffs = self._nonshared_coeffs_act(l[:, 3, ...])
+            coeffs_g_r = coeffs[:, 0, ...]
+            coeffs_b_r = coeffs[:, 1, ...]
+            coeffs_b_g = coeffs[:, 2, ...]
+            means = torch.stack((means[:, 0, ...], means[:, 1, ...] + coeffs_g_r * x[:, 0, ...], means[:, 2, ...] + coeffs_b_r * x[:, 0, ...] + coeffs_b_g * x[:, 1, ...]), dim=1)
         means = torch.clamp(means, min=self.x_min, max=self.x_max)
         assert means.shape == (N, C, K, H, W), (means.shape, (N, C, K, H, W))
         return x, logit_probs, means, log_scales, K
@@ -360,20 +360,20 @@ class DiscretizedMixLogisticLoss(nn.Module):
         N, Kp, H, W = l.shape
         K = non_shared_get_K(Kp, C, self._num_params)
         l = l.reshape(N, self._num_params, C, K, H, W)
-        logit_probs_c = l[:, (0), (c), (...)]
-        means_c = l[:, (1), (c), (...)]
-        log_scales_c = torch.clamp(l[:, (2), (c), (...)], min=_LOG_SCALES_MIN)
+        logit_probs_c = l[:, 0, c, ...]
+        means_c = l[:, 1, c, ...]
+        log_scales_c = torch.clamp(l[:, 2, c, ...], min=_LOG_SCALES_MIN)
         if self.use_coeffs and c != 0:
-            unscaled_coeffs = l[:, (3), (...)]
+            unscaled_coeffs = l[:, 3, ...]
             if c == 1:
                 assert x is not None
-                coeffs_g_r = self._nonshared_coeffs_act(unscaled_coeffs[:, (0), (...)])
-                means_c += coeffs_g_r * x[:, (0), (...)]
+                coeffs_g_r = self._nonshared_coeffs_act(unscaled_coeffs[:, 0, ...])
+                means_c += coeffs_g_r * x[:, 0, ...]
             elif c == 2:
                 assert x is not None
-                coeffs_b_r = self._nonshared_coeffs_act(unscaled_coeffs[:, (1), (...)])
-                coeffs_b_g = self._nonshared_coeffs_act(unscaled_coeffs[:, (2), (...)])
-                means_c += coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:, (1), (...)]
+                coeffs_b_r = self._nonshared_coeffs_act(unscaled_coeffs[:, 1, ...])
+                coeffs_b_g = self._nonshared_coeffs_act(unscaled_coeffs[:, 2, ...])
+                means_c += coeffs_b_r * x[:, 0, ...] + coeffs_b_g * x[:, 1, ...]
         return logit_probs_c, means_c, log_scales_c, K
 
     def _non_shared_sample(self, l, C):
@@ -381,13 +381,13 @@ class DiscretizedMixLogisticLoss(nn.Module):
         N, Kp, H, W = l.shape
         K = non_shared_get_K(Kp, C, self._num_params)
         l = l.reshape(N, self._num_params, C, K, H, W)
-        logit_probs = l[:, (0), (...)]
+        logit_probs = l[:, 0, ...]
         u = torch.zeros_like(logit_probs).uniform_(1e-05, 1.0 - 1e-05)
         sel = torch.argmax(logit_probs - torch.log(-torch.log(u)), dim=2)
         assert sel.shape == (N, C, H, W), (sel.shape, (N, C, H, W))
         sel = sel.unsqueeze(2)
-        means = torch.gather(l[:, (1), (...)], 2, sel).squeeze(2)
-        log_scales = torch.clamp(torch.gather(l[:, (2), (...)], 2, sel).squeeze(2), min=_LOG_SCALES_MIN)
+        means = torch.gather(l[:, 1, ...], 2, sel).squeeze(2)
+        log_scales = torch.clamp(torch.gather(l[:, 2, ...], 2, sel).squeeze(2), min=_LOG_SCALES_MIN)
         u = torch.zeros_like(means).uniform_(1e-05, 1.0 - 1e-05)
         x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
         if self.use_coeffs:
@@ -395,14 +395,14 @@ class DiscretizedMixLogisticLoss(nn.Module):
 
             def clamp(x_):
                 return torch.clamp(x_, 0, 255.0)
-            coeffs = torch.sigmoid(l[:, (3), (...)])
-            sel_g, sel_b = sel[:, (1), (...)], sel[:, (2), (...)]
-            coeffs_g_r = torch.gather(coeffs[:, (0), (...)], 1, sel_g).squeeze(1)
-            coeffs_b_r = torch.gather(coeffs[:, (1), (...)], 1, sel_b).squeeze(1)
-            coeffs_b_g = torch.gather(coeffs[:, (2), (...)], 1, sel_b).squeeze(1)
-            x0 = clamp(x[:, (0), (...)])
-            x1 = clamp(x[:, (1), (...)] + coeffs_g_r * x0)
-            x2 = clamp(x[:, (2), (...)] + coeffs_b_r * x0 + coeffs_b_g * x1)
+            coeffs = torch.sigmoid(l[:, 3, ...])
+            sel_g, sel_b = sel[:, 1, ...], sel[:, 2, ...]
+            coeffs_g_r = torch.gather(coeffs[:, 0, ...], 1, sel_g).squeeze(1)
+            coeffs_b_r = torch.gather(coeffs[:, 1, ...], 1, sel_b).squeeze(1)
+            coeffs_b_g = torch.gather(coeffs[:, 2, ...], 1, sel_b).squeeze(1)
+            x0 = clamp(x[:, 0, ...])
+            x1 = clamp(x[:, 1, ...] + coeffs_g_r * x0)
+            x2 = clamp(x[:, 2, ...] + coeffs_b_r * x0 + coeffs_b_g * x1)
             x = torch.stack((x0, x1, x2), dim=1)
         return x
 

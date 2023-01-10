@@ -14,6 +14,7 @@ create_wit_samples = _module
 demo = _module
 demo_beholder = _module
 demo_caffe2 = _module
+demo_comet = _module
 demo_custom_scalars = _module
 demo_embedding = _module
 demo_global_writer = _module
@@ -21,6 +22,7 @@ demo_graph = _module
 demo_hogwild = _module
 demo_hparams = _module
 demo_matplotlib = _module
+demo_mesh = _module
 demo_multiple_embedding = _module
 demo_multiprocessing = _module
 demo_nvidia_smi = _module
@@ -36,6 +38,7 @@ file_system_tools = _module
 shared_config = _module
 video_writing = _module
 caffe2_graph = _module
+comet_utils = _module
 crc32c = _module
 embedding = _module
 event_file_writer = _module
@@ -74,13 +77,13 @@ event_file_writer_test = _module
 expect_reader = _module
 record_writer_test = _module
 test_beholder = _module
-test_caffe2 = _module
 test_chainer_np = _module
 test_crc32c = _module
 test_embedding = _module
 test_figure = _module
 test_hparams = _module
 test_lint = _module
+test_multiprocess_write = _module
 test_numpy = _module
 test_onnx_graph = _module
 test_openvino_graph = _module
@@ -93,7 +96,6 @@ test_summary_writer = _module
 test_utils = _module
 test_visdom = _module
 test_writer = _module
-tset_multiprocess_write = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -170,6 +172,21 @@ from collections import OrderedDict
 
 
 import math
+
+
+import numpy
+
+
+from typing import Union
+
+
+from typing import Optional
+
+
+from typing import Dict
+
+
+from typing import List
 
 
 class M(nn.Module):

@@ -269,7 +269,7 @@ def mean_image_subtraction(images, means=[123.68, 116.78, 103.94]):
     if len(means) != num_channels:
         raise ValueError('len(means) must match the number of channels')
     for i in range(num_channels):
-        images.data[:, (i), :, :] -= means[i]
+        images.data[:, i, :, :] -= means[i]
     return images
 
 

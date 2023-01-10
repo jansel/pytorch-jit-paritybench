@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 setup = _module
+__about__ = _module
 torchsampler = _module
 imbalanced = _module
 
@@ -23,6 +24,12 @@ sys.argv = _global_config
 __version__ = '1.0.0'
 xrange = range
 wraps = functools.wraps
+
+
+from typing import Callable
+
+
+import pandas as pd
 
 
 import torch

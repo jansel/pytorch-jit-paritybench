@@ -822,9 +822,9 @@ class reg_Euler2D_flat_Net(_naiReg_Net):
         x_a = self.maskout(self.head_a(x).view(batchsize, self.nr_cate, self.reg_n_D), label)
         x_e = self.maskout(self.head_e(x).view(batchsize, self.nr_cate, self.reg_n_D), label)
         x_t = self.maskout(self.head_t(x).view(batchsize, self.nr_cate, self.reg_n_D), label)
-        x_cos_a, x_sin_a = x_a[:, (0)], x_a[:, (1)]
-        x_cos_e, x_sin_e = x_e[:, (0)], x_e[:, (1)]
-        x_cos_t, x_sin_t = x_t[:, (0)], x_t[:, (1)]
+        x_cos_a, x_sin_a = x_a[:, 0], x_a[:, 1]
+        x_cos_e, x_sin_e = x_e[:, 0], x_e[:, 1]
+        x_cos_t, x_sin_t = x_t[:, 0], x_t[:, 1]
         Prob = edict(cos_a=x_cos_a, sin_a=x_sin_a, cos_e=x_cos_e, sin_e=x_sin_e, cos_t=x_cos_t, sin_t=x_sin_t)
         return Prob
 
@@ -940,7 +940,7 @@ class reg_Euler2D_Sexp_Net(_naiReg_Net):
             item_inds = torch.from_numpy(np.arange(batchsize))
             sign_cos_sin = label2signs.expand(batchsize, 4, 2)[item_inds, sign_ind]
             cos_sin = abs_cos_sin * sign_cos_sin
-            Pred[tgt] = torch.atan2(cos_sin[:, (1)], cos_sin[:, (0)])
+            Pred[tgt] = torch.atan2(cos_sin[:, 1], cos_sin[:, 0])
         return Pred
 
 
@@ -1497,9 +1497,9 @@ class _Inception3_Trunk(nn.Module):
 
     def forward(self, x):
         if self.transform_input:
-            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+            x_ch0 = torch.unsqueeze(x[:, 0], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x_ch1 = torch.unsqueeze(x[:, 1], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x_ch2 = torch.unsqueeze(x[:, 2], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
             x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
         x = self.Conv2d_1a_3x3(x)
         x = self.Conv2d_2a_3x3(x)

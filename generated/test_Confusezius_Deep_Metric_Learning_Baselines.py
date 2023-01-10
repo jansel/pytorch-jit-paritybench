@@ -473,7 +473,7 @@ class TripletLoss(torch.nn.Module):
             triplet loss (torch.Tensor(), batch-averaged)
         """
         sampled_triplets = self.sampler.give(batch, labels)
-        loss = torch.stack([self.triplet_distance(batch[(triplet[0]), :], batch[(triplet[1]), :], batch[(triplet[2]), :]) for triplet in sampled_triplets])
+        loss = torch.stack([self.triplet_distance(batch[triplet[0], :], batch[triplet[1], :], batch[triplet[2], :]) for triplet in sampled_triplets])
         return torch.mean(loss)
 
 
@@ -524,8 +524,8 @@ class NPairLoss(torch.nn.Module):
             n-pair loss (torch.Tensor(), batch-averaged)
         """
         sampled_npairs = self.sampler.give(batch, labels)
-        loss = torch.stack([self.npair_distance(batch[npair[0]:npair[0] + 1, :], batch[npair[1]:npair[1] + 1, :], batch[(npair[2:]), :]) for npair in sampled_npairs])
-        loss = loss + self.l2 * torch.mean(torch.stack([self.weightsum(batch[(npair[0]), :], batch[(npair[1]), :]) for npair in sampled_npairs]))
+        loss = torch.stack([self.npair_distance(batch[npair[0]:npair[0] + 1, :], batch[npair[1]:npair[1] + 1, :], batch[npair[2:], :]) for npair in sampled_npairs])
+        loss = loss + self.l2 * torch.mean(torch.stack([self.weightsum(batch[npair[0], :], batch[npair[1], :]) for npair in sampled_npairs]))
         return torch.mean(loss)
 
 
@@ -568,7 +568,7 @@ class MarginLoss(torch.nn.Module):
         sampled_triplets = self.sampler.give(batch, labels)
         d_ap, d_an = [], []
         for triplet in sampled_triplets:
-            train_triplet = {'Anchor': batch[(triplet[0]), :], 'Positive': batch[(triplet[1]), :], 'Negative': batch[triplet[2]]}
+            train_triplet = {'Anchor': batch[triplet[0], :], 'Positive': batch[triplet[1], :], 'Negative': batch[triplet[2]]}
             pos_dist = ((train_triplet['Anchor'] - train_triplet['Positive']).pow(2).sum() + 1e-08).pow(1 / 2)
             neg_dist = ((train_triplet['Anchor'] - train_triplet['Negative']).pow(2).sum() + 1e-08).pow(1 / 2)
             d_ap.append(pos_dist)
@@ -617,10 +617,10 @@ class ProxyNCALoss(torch.nn.Module):
         PROXIES = 3 * torch.nn.functional.normalize(self.PROXIES, dim=1)
         pos_proxies = torch.stack([PROXIES[pos_label:pos_label + 1, :] for pos_label in labels])
         neg_proxies = torch.stack([torch.cat([self.all_classes[:class_label], self.all_classes[class_label + 1:]]) for class_label in labels])
-        neg_proxies = torch.stack([PROXIES[(neg_labels), :] for neg_labels in neg_proxies])
-        dist_to_neg_proxies = torch.sum((batch[:, (None), :] - neg_proxies).pow(2), dim=-1)
-        dist_to_pos_proxies = torch.sum((batch[:, (None), :] - pos_proxies).pow(2), dim=-1)
-        negative_log_proxy_nca_loss = torch.mean(dist_to_pos_proxies[:, (0)] + torch.logsumexp(-dist_to_neg_proxies, dim=1))
+        neg_proxies = torch.stack([PROXIES[neg_labels, :] for neg_labels in neg_proxies])
+        dist_to_neg_proxies = torch.sum((batch[:, None, :] - neg_proxies).pow(2), dim=-1)
+        dist_to_pos_proxies = torch.sum((batch[:, None, :] - pos_proxies).pow(2), dim=-1)
+        negative_log_proxy_nca_loss = torch.mean(dist_to_pos_proxies[:, 0] + torch.logsumexp(-dist_to_neg_proxies, dim=1))
         return negative_log_proxy_nca_loss
 
 

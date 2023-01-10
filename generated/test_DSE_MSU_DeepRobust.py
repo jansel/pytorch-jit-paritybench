@@ -1,48 +1,56 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+conf = _module
 deeprobust = _module
 graph = _module
 black_box = _module
 data = _module
 attacked_data = _module
 dataset = _module
+pyg_dataset = _module
+utils = _module
 defense = _module
 adv_training = _module
+chebnet = _module
+gat = _module
 gcn = _module
 gcn_preprocess = _module
+median_gcn = _module
+node_embedding = _module
 pgd = _module
 prognn = _module
 r_gcn = _module
+sgc = _module
+simpgcn = _module
 global_attack = _module
 base_attack = _module
 dice = _module
-ig_attack = _module
 mettack = _module
 nipa = _module
-random = _module
+node_embedding_attack = _module
+random_attack = _module
 topology_attack = _module
 rl = _module
 env = _module
-nipa = _module
 nipa_config = _module
 nipa_env = _module
 nipa_nstep_replay_mem = _module
 nipa_q_net_node = _module
 nstep_replay_mem = _module
 q_net_node = _module
-rl_s2v = _module
 rl_s2v_config = _module
 rl_s2v_env = _module
 targeted_attack = _module
 base_attack = _module
-evaluation = _module
 fga = _module
 ig_attack = _module
 nettack = _module
 rl_s2v = _module
 rnd = _module
+sga = _module
 utils = _module
+visualization = _module
 image = _module
 BPDA = _module
 Nattack = _module
@@ -58,6 +66,7 @@ lbfgs = _module
 onepixel = _module
 pgd = _module
 config = _module
+AWP = _module
 LIDclassifier = _module
 TherEncoding = _module
 YOPO = _module
@@ -65,8 +74,6 @@ base_defense = _module
 fast = _module
 fgsmtraining = _module
 pgdtraining = _module
-test_PGD_defense = _module
-trade = _module
 trades = _module
 evaluation_attack = _module
 CNN = _module
@@ -80,27 +87,39 @@ train_model = _module
 train_resnet = _module
 vgg = _module
 optimizer = _module
+prepare_advdata = _module
 utils = _module
+conf = _module
 test_adv_train_evasion = _module
 test_adv_train_poisoning = _module
 test_all = _module
+test_chebnet = _module
+test_deepwalk = _module
 test_dice = _module
 test_fga = _module
+test_gat = _module
 test_gcn = _module
 test_gcn_jaccard = _module
 test_gcn_svd = _module
 test_ig = _module
+test_median_gcn = _module
 test_mettack = _module
 test_min_max = _module
 test_nettack = _module
 test_nipa = _module
+test_node_embedding_attack = _module
 test_pgd = _module
 test_prognn = _module
 test_random = _module
 test_rgcn = _module
 test_rl_s2v = _module
 test_rnd = _module
+test_sga = _module
+test_sgc = _module
+test_simpgcn = _module
+test_visualization = _module
 test1 = _module
+test_ImageNet = _module
 test_PGD = _module
 test_cw = _module
 test_deepfool = _module
@@ -113,6 +132,7 @@ test_trade = _module
 test_train = _module
 testprint_mnist = _module
 setup = _module
+setup_empty = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -137,6 +157,18 @@ wraps = functools.wraps
 import torch
 
 
+import numpy as np
+
+
+import scipy.sparse as sp
+
+
+from itertools import repeat
+
+
+import warnings
+
+
 import torch.nn as nn
 
 
@@ -144,12 +176,6 @@ import torch.nn.functional as F
 
 
 from torch.nn.modules.module import Module
-
-
-import scipy.sparse as sp
-
-
-import numpy as np
 
 
 import math
@@ -165,6 +191,15 @@ from copy import deepcopy
 
 
 from sklearn.metrics import f1_score
+
+
+from torch import Tensor
+
+
+from torch import optim
+
+
+from torch.nn import Linear
 
 
 from torch.optim.sgd import SGD
@@ -185,25 +220,40 @@ import time
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
-import random
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-import torch.multiprocessing as mp
-
-
-from torch import optim
+from itertools import product
 
 
 from torch.nn import functional as F
 
 
+import random
+
+
 from itertools import count
+
+
+import scipy.linalg as spl
+
+
+from scipy.sparse.linalg import eigsh
 
 
 from scipy.sparse.linalg.eigen.arpack import eigsh
 
 
+import torch.multiprocessing as mp
+
+
 from torch import spmm
+
+
+from collections import namedtuple
+
+
+from functools import lru_cache
 
 
 from sklearn.model_selection import train_test_split
@@ -225,9 +275,6 @@ import torchvision.transforms as transforms
 
 
 import torch.utils.data as data_utils
-
-
-from torch.autograd.gradcheck import zero_gradients
 
 
 from torch.autograd import Variable
@@ -284,12 +331,329 @@ from torchvision import models
 import matplotlib.pyplot as plt
 
 
+import torch.nn
+
+
+from torch.utils.data import TensorDataset
+
+
 import numpy as py
 
 
-class GraphConvolution(Module):
+class ChebNet(nn.Module):
+    """ 2 Layer ChebNet based on pytorch geometric.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    num_hops: int
+        number of hops in ChebConv
+    dropout : float
+        dropout rate for ChebNet
+    lr : float
+        learning rate for ChebNet
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN.
+        When `with_relu` is True, `weight_decay` will be set to 0.
+    with_bias: bool
+        whether to include bias term in ChebNet weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train ChebNet.
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import ChebNet
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> cheby = ChebNet(nfeat=features.shape[1],
+              nhid=16, num_hops=3,
+              nclass=labels.max().item() + 1,
+              dropout=0.5, device='cpu')
+    >>> cheby = cheby.to('cpu')
+    >>> pyg_data = Dpr2Pyg(data) # convert deeprobust dataset to pyg dataset
+    >>> cheby.fit(pyg_data, patience=10, verbose=True) # train with earlystopping
     """
-    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+
+    def __init__(self, nfeat, nhid, nclass, num_hops=3, dropout=0.5, lr=0.01, weight_decay=0.0005, with_bias=True, device=None):
+        super(ChebNet, self).__init__()
+        assert device is not None, "Please specify 'device'!"
+        self.device = device
+        self.conv1 = ChebConv(nfeat, nhid, K=num_hops, bias=with_bias)
+        self.conv2 = ChebConv(nhid, nclass, K=num_hops, bias=with_bias)
+        self.dropout = dropout
+        self.weight_decay = weight_decay
+        self.lr = lr
+        self.output = None
+        self.best_model = None
+        self.best_output = None
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def initialize(self):
+        """Initialize parameters of ChebNet.
+        """
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def fit(self, pyg_data, train_iters=200, initialize=True, verbose=False, patience=500, **kwargs):
+        """Train the ChebNet model, when idx_val is not None, pick the best model
+        according to the validation loss.
+
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        patience : int
+            patience for early stopping, only valid when `idx_val` is given
+        """
+        self.device = self.conv1.weight.device
+        if initialize:
+            self.initialize()
+        self.data = pyg_data[0]
+        self.train_with_early_stopping(train_iters, patience, verbose)
+
+    def train_with_early_stopping(self, train_iters, patience, verbose):
+        """early stopping based on the validation loss
+        """
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        labels = self.data.y
+        train_mask, val_mask = self.data.train_mask, self.data.val_mask
+        early_stopping = patience
+        best_loss_val = 100
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output = self.forward(self.data)
+            loss_train = F.nll_loss(output[train_mask], labels[train_mask])
+            loss_train.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.data)
+            loss_val = F.nll_loss(output[val_mask], labels[val_mask])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+                patience = early_stopping
+            else:
+                patience -= 1
+            if i > early_stopping and patience <= 0:
+                break
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    def test(self):
+        """Evaluate ChebNet performance on test set.
+
+        Parameters
+        ----------
+        idx_test :
+            node testing indices
+        """
+        self.eval()
+        test_mask = self.data.test_mask
+        labels = self.data.y
+        output = self.forward(self.data)
+        loss_test = F.nll_loss(output[test_mask], labels[test_mask])
+        acc_test = utils.accuracy(output[test_mask], labels[test_mask])
+        None
+        return acc_test.item()
+
+    def predict(self):
+        """
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of ChebNet
+        """
+        self.eval()
+        return self.forward(self.data)
+
+
+class GAT(nn.Module):
+    """ 2 Layer Graph Attention Network based on pytorch geometric.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    heads: int
+        number of attention heads
+    output_heads: int
+        number of attention output heads
+    dropout : float
+        dropout rate for GAT
+    lr : float
+        learning rate for GAT
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN.
+        When `with_relu` is True, `weight_decay` will be set to 0.
+    with_bias: bool
+        whether to include bias term in GAT weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train GAT.
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GAT
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> gat = GAT(nfeat=features.shape[1],
+              nhid=8, heads=8,
+              nclass=labels.max().item() + 1,
+              dropout=0.5, device='cpu')
+    >>> gat = gat.to('cpu')
+    >>> pyg_data = Dpr2Pyg(data) # convert deeprobust dataset to pyg dataset
+    >>> gat.fit(pyg_data, patience=100, verbose=True) # train with earlystopping
+    """
+
+    def __init__(self, nfeat, nhid, nclass, heads=8, output_heads=1, dropout=0.5, lr=0.01, weight_decay=0.0005, with_bias=True, device=None):
+        super(GAT, self).__init__()
+        assert device is not None, "Please specify 'device'!"
+        self.device = device
+        self.conv1 = GATConv(nfeat, nhid, heads=heads, dropout=dropout, bias=with_bias)
+        self.conv2 = GATConv(nhid * heads, nclass, heads=output_heads, concat=False, dropout=dropout, bias=with_bias)
+        self.dropout = dropout
+        self.weight_decay = weight_decay
+        self.lr = lr
+        self.output = None
+        self.best_model = None
+        self.best_output = None
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.elu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def initialize(self):
+        """Initialize parameters of GAT.
+        """
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def fit(self, pyg_data, train_iters=1000, initialize=True, verbose=False, patience=100, **kwargs):
+        """Train the GAT model, when idx_val is not None, pick the best model
+        according to the validation loss.
+
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        patience : int
+            patience for early stopping, only valid when `idx_val` is given
+        """
+        if initialize:
+            self.initialize()
+        self.data = pyg_data[0]
+        self.train_with_early_stopping(train_iters, patience, verbose)
+
+    def train_with_early_stopping(self, train_iters, patience, verbose):
+        """early stopping based on the validation loss
+        """
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        labels = self.data.y
+        train_mask, val_mask = self.data.train_mask, self.data.val_mask
+        early_stopping = patience
+        best_loss_val = 100
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output = self.forward(self.data)
+            loss_train = F.nll_loss(output[train_mask], labels[train_mask])
+            loss_train.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.data)
+            loss_val = F.nll_loss(output[val_mask], labels[val_mask])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+                patience = early_stopping
+            else:
+                patience -= 1
+            if i > early_stopping and patience <= 0:
+                break
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    def test(self):
+        """Evaluate GAT performance on test set.
+
+        Parameters
+        ----------
+        idx_test :
+            node testing indices
+        """
+        self.eval()
+        test_mask = self.data.test_mask
+        labels = self.data.y
+        output = self.forward(self.data)
+        loss_test = F.nll_loss(output[test_mask], labels[test_mask])
+        acc_test = utils.accuracy(output[test_mask], labels[test_mask])
+        None
+        return acc_test.item()
+
+    def predict(self):
+        """
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of GAT
+        """
+        self.eval()
+        return self.forward(self.data)
+
+
+class GraphConvolution(Module):
+    """Simple GCN layer, similar to https://github.com/tkipf/pygcn
     """
 
     def __init__(self, in_features, out_features, with_bias=True):
@@ -310,6 +674,8 @@ class GraphConvolution(Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, input, adj):
+        """ Graph Convolutional Layer forward function
+        """
         if input.data.is_sparse:
             support = torch.spmm(input, self.weight)
         else:
@@ -325,6 +691,48 @@ class GraphConvolution(Module):
 
 
 class GCN(nn.Module):
+    """ 2 Layer Graph Convolutional Network.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    dropout : float
+        dropout rate for GCN
+    lr : float
+        learning rate for GCN
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN.
+        When `with_relu` is True, `weight_decay` will be set to 0.
+    with_relu : bool
+        whether to use relu activation function. If False, GCN will be linearized.
+    with_bias: bool
+        whether to include bias term in GCN weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train GCN.
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> gcn = GCN(nfeat=features.shape[1],
+              nhid=16,
+              nclass=labels.max().item() + 1,
+              dropout=0.5, device='cpu')
+    >>> gcn = gcn.to('cpu')
+    >>> gcn.fit(features, adj, labels, idx_train) # train without earlystopping
+    >>> gcn.fit(features, adj, labels, idx_train, idx_val, patience=30) # train with earlystopping
+    >>> gcn.test(idx_test)
+    """
 
     def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=0.0005, with_relu=True, with_bias=True, device=None):
         super(GCN, self).__init__()
@@ -350,9 +758,6 @@ class GCN(nn.Module):
         self.features = None
 
     def forward(self, x, adj):
-        """
-            adj: normalized adjacency matrix
-        """
         if self.with_relu:
             x = F.relu(self.gc1(x, adj))
         else:
@@ -362,13 +767,36 @@ class GCN(nn.Module):
         return F.log_softmax(x, dim=1)
 
     def initialize(self):
+        """Initialize parameters of GCN.
+        """
         self.gc1.reset_parameters()
         self.gc2.reset_parameters()
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, initialize=True, verbose=False, normalize=True, patience=500):
-        """
-            train the gcn model, when idx_val is not None, pick the best model
-            according to the validation loss
+    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, initialize=True, verbose=False, normalize=True, patience=500, **kwargs):
+        """Train the gcn model, when idx_val is not None, pick the best model according to the validation loss.
+
+        Parameters
+        ----------
+        features :
+            node features
+        adj :
+            the adjacency matrix. The format could be torch.tensor or scipy matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_val :
+            node validation indices. If not given (None), GCN training process will not adpot early stopping
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        normalize : bool
+            whether to normalize the input adjacency matrix.
+        patience : int
+            patience for early stopping, only valid when `idx_val` is given
         """
         self.device = self.gc1.weight.device
         if initialize:
@@ -474,18 +902,36 @@ class GCN(nn.Module):
         self.load_state_dict(weights)
 
     def test(self, idx_test):
+        """Evaluate GCN performance on test set.
+
+        Parameters
+        ----------
+        idx_test :
+            node testing indices
+        """
         self.eval()
         output = self.predict()
         loss_test = F.nll_loss(output[idx_test], self.labels[idx_test])
         acc_test = utils.accuracy(output[idx_test], self.labels[idx_test])
         None
-        return acc_test
-
-    def _set_parameters():
-        pass
+        return acc_test.item()
 
     def predict(self, features=None, adj=None):
-        """By default, inputs are unnormalized data"""
+        """By default, the inputs should be unnormalized adjacency
+
+        Parameters
+        ----------
+        features :
+            node features. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+        adj :
+            adjcency matrix. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+
+
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of GCN
+        """
         self.eval()
         if features is None and adj is None:
             return self.forward(self.features, self.adj_norm)
@@ -501,13 +947,88 @@ class GCN(nn.Module):
 
 
 class GCNSVD(GCN):
+    """GCNSVD is a 2 Layer Graph Convolutional Network with Truncated SVD as
+    preprocessing. See more details in All You Need Is Low (Rank): Defending
+    Against Adversarial Attacks on Graphs,
+    https://dl.acm.org/doi/abs/10.1145/3336191.3371789.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    dropout : float
+        dropout rate for GCN
+    lr : float
+        learning rate for GCN
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN. When `with_relu` is True, `weight_decay` will be set to 0.
+    with_relu : bool
+        whether to use relu activation function. If False, GCN will be linearized.
+    with_bias: bool
+        whether to include bias term in GCN weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train GCNSVD.
+
+    >>> from deeprobust.graph.data import PrePtbDataset, Dataset
+    >>> from deeprobust.graph.defense import GCNSVD
+    >>> # load clean graph data
+    >>> data = Dataset(root='/tmp/', name='cora', seed=15)
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # load perturbed graph data
+    >>> perturbed_data = PrePtbDataset(root='/tmp/', name='cora')
+    >>> perturbed_adj = perturbed_data.adj
+    >>> # train defense model
+    >>> model = GCNSVD(nfeat=features.shape[1],
+              nhid=16,
+              nclass=labels.max().item() + 1,
+              dropout=0.5, device='cpu').to('cpu')
+    >>> model.fit(features, perturbed_adj, labels, idx_train, idx_val, k=20)
+
+    """
 
     def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=0.0005, with_relu=True, with_bias=True, device='cpu'):
         super(GCNSVD, self).__init__(nfeat, nhid, nclass, dropout, lr, weight_decay, with_relu, with_bias, device=device)
         self.device = device
+        self.k = None
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None, k=50, train_iters=200, initialize=True, verbose=True):
+    def fit(self, features, adj, labels, idx_train, idx_val=None, k=50, train_iters=200, initialize=True, verbose=True, **kwargs):
+        """First perform rank-k approximation of adjacency matrix via
+        truncated SVD, and then train the gcn model on the processed graph,
+        when idx_val is not None, pick the best model according to
+        the validation loss.
+
+        Parameters
+        ----------
+        features :
+            node features
+        adj :
+            the adjacency matrix. The format could be torch.tensor or scipy matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_val :
+            node validation indices. If not given (None), GCN training process will not adpot early stopping
+        k : int
+            number of singular values and vectors to compute.
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        """
         modified_adj = self.truncatedSVD(adj, k=k)
+        self.k = k
         features, modified_adj, labels = utils.to_tensor(features, modified_adj, labels, device=self.device)
         self.modified_adj = modified_adj
         self.features = features
@@ -515,6 +1036,20 @@ class GCNSVD(GCN):
         super().fit(features, modified_adj, labels, idx_train, idx_val, train_iters=train_iters, initialize=initialize, verbose=verbose)
 
     def truncatedSVD(self, data, k=50):
+        """Truncated SVD on input data.
+
+        Parameters
+        ----------
+        data :
+            input matrix to be decomposed
+        k : int
+            number of singular values and vectors to compute.
+
+        Returns
+        -------
+        numpy.array
+            reconstructed matrix.
+        """
         None
         if sp.issparse(data):
             data = data.asfptype()
@@ -531,15 +1066,118 @@ class GCNSVD(GCN):
             None
         return U @ diag_S @ V
 
+    def predict(self, features=None, adj=None):
+        """By default, the inputs should be unnormalized adjacency
+
+        Parameters
+        ----------
+        features :
+            node features. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+        adj :
+            adjcency matrix. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+
+
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of GCNSVD
+        """
+        self.eval()
+        if features is None and adj is None:
+            return self.forward(self.features, self.adj_norm)
+        else:
+            adj = self.truncatedSVD(adj, k=self.k)
+            if type(adj) is not torch.Tensor:
+                features, adj = utils.to_tensor(features, adj, device=self.device)
+            self.features = features
+            if utils.is_sparse_tensor(adj):
+                self.adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+            else:
+                self.adj_norm = utils.normalize_adj_tensor(adj)
+            return self.forward(self.features, self.adj_norm)
+
 
 class GCNJaccard(GCN):
+    """GCNJaccard first preprocesses input graph via droppining dissimilar
+    edges and train a GCN based on the processed graph. See more details in
+    Adversarial Examples on Graph Data: Deep Insights into Attack and Defense,
+    https://arxiv.org/pdf/1903.01610.pdf.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    dropout : float
+        dropout rate for GCN
+    lr : float
+        learning rate for GCN
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN. When `with_relu` is True, `weight_decay` will be set to 0.
+    with_relu : bool
+        whether to use relu activation function. If False, GCN will be linearized.
+    with_bias: bool
+        whether to include bias term in GCN weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train GCNJaccard.
+
+    >>> from deeprobust.graph.data import PrePtbDataset, Dataset
+    >>> from deeprobust.graph.defense import GCNJaccard
+    >>> # load clean graph data
+    >>> data = Dataset(root='/tmp/', name='cora', seed=15)
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # load perturbed graph data
+    >>> perturbed_data = PrePtbDataset(root='/tmp/', name='cora')
+    >>> perturbed_adj = perturbed_data.adj
+    >>> # train defense model
+    >>> model = GCNJaccard(nfeat=features.shape[1],
+              nhid=16,
+              nclass=labels.max().item() + 1,
+              dropout=0.5, device='cpu').to('cpu')
+    >>> model.fit(features, perturbed_adj, labels, idx_train, idx_val, threshold=0.03)
+
+    """
 
     def __init__(self, nfeat, nhid, nclass, binary_feature=True, dropout=0.5, lr=0.01, weight_decay=0.0005, with_relu=True, with_bias=True, device='cpu'):
         super(GCNJaccard, self).__init__(nfeat, nhid, nclass, dropout, lr, weight_decay, with_relu, with_bias, device=device)
         self.device = device
         self.binary_feature = binary_feature
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None, threshold=0.01, train_iters=200, initialize=True, verbose=True):
+    def fit(self, features, adj, labels, idx_train, idx_val=None, threshold=0.01, train_iters=200, initialize=True, verbose=True, **kwargs):
+        """First drop dissimilar edges with similarity smaller than given
+        threshold and then train the gcn model on the processed graph.
+        When idx_val is not None, pick the best model according to the
+        validation loss.
+
+        Parameters
+        ----------
+        features :
+            node features. The format can be numpy.array or scipy matrix
+        adj :
+            the adjacency matrix.
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_val :
+            node validation indices. If not given (None), GCN training process will not adpot early stopping
+        threshold : float
+            similarity threshold for dropping edges. If two connected nodes with similarity smaller than threshold, the edge between them will be removed.
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        """
         self.threshold = threshold
         modified_adj = self.drop_dissimilar_edges(features, adj)
         features, modified_adj, labels = utils.to_tensor(features, modified_adj, labels, device=self.device)
@@ -548,7 +1186,57 @@ class GCNJaccard(GCN):
         self.labels = labels
         super().fit(features, modified_adj, labels, idx_train, idx_val, train_iters=train_iters, initialize=initialize, verbose=verbose)
 
-    def drop_dissimilar_edges(self, features, adj):
+    def drop_dissimilar_edges(self, features, adj, metric='similarity'):
+        """Drop dissimilar edges.(Faster version using numba)
+        """
+        if not sp.issparse(adj):
+            adj = sp.csr_matrix(adj)
+        adj_triu = sp.triu(adj, format='csr')
+        if sp.issparse(features):
+            features = features.todense().A
+        if metric == 'distance':
+            removed_cnt = dropedge_dis(adj_triu.data, adj_triu.indptr, adj_triu.indices, features, threshold=self.threshold)
+        elif self.binary_feature:
+            removed_cnt = dropedge_jaccard(adj_triu.data, adj_triu.indptr, adj_triu.indices, features, threshold=self.threshold)
+        else:
+            removed_cnt = dropedge_cosine(adj_triu.data, adj_triu.indptr, adj_triu.indices, features, threshold=self.threshold)
+        None
+        modified_adj = adj_triu + adj_triu.transpose()
+        return modified_adj
+
+    def predict(self, features=None, adj=None):
+        """By default, the inputs should be unnormalized adjacency
+
+        Parameters
+        ----------
+        features :
+            node features. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+        adj :
+            adjcency matrix. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+
+
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of GCNJaccard
+        """
+        self.eval()
+        if features is None and adj is None:
+            return self.forward(self.features, self.adj_norm)
+        else:
+            adj = self.drop_dissimilar_edges(features, adj)
+            if type(adj) is not torch.Tensor:
+                features, adj = utils.to_tensor(features, adj, device=self.device)
+            self.features = features
+            if utils.is_sparse_tensor(adj):
+                self.adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+            else:
+                self.adj_norm = utils.normalize_adj_tensor(adj)
+            return self.forward(self.features, self.adj_norm)
+
+    def _drop_dissimilar_edges(self, features, adj):
+        """Drop dissimilar edges. (Slower version)
+        """
         if not sp.issparse(adj):
             adj = sp.csr_matrix(adj)
         modified_adj = adj.copy().tolil()
@@ -581,19 +1269,201 @@ class GCNJaccard(GCN):
         return J
 
     def _cosine_similarity(self, a, b):
-        inner_product = (features[n1] * features[n2]).sum()
-        C = inner_product / np.sqrt(np.square(a).sum() + np.square(b).sum())
+        inner_product = (a * b).sum()
+        C = inner_product / (np.sqrt(np.square(a).sum()) * np.sqrt(np.square(b).sum()) + 1e-10)
         return C
 
 
-class EstimateAdj(nn.Module):
+def add_self_loops(edge_index, edge_weight=None, fill_value=1, num_nodes=None):
+    loop_index = torch.arange(0, num_nodes, dtype=torch.long, device=edge_index.device)
+    loop_index = loop_index.unsqueeze(0).repeat(2, 1)
+    if edge_weight is not None:
+        assert edge_weight.numel() == edge_index.size(1)
+        loop_weight = edge_weight.new_full((num_nodes,), fill_value)
+        edge_weight = torch.cat([edge_weight, loop_weight], dim=0)
+    edge_index = torch.cat([edge_index, loop_index], dim=1)
+    return edge_index, edge_weight
 
-    def __init__(self, adj, symmetric=False):
+
+class MedianGCN(torch.nn.Module):
+    """Graph Convolutional Networks with Median aggregation (MedianGCN) 
+    based on pytorch geometric. 
+
+    `Understanding Structural Vulnerability in Graph Convolutional Networks 
+    <https://arxiv.org/abs/2108.06280>`
+
+    MedianGCN uses median aggregation function instead of 
+    `weighted mean` adopted in GCN, which improves the robustness 
+    of the model against adversarial structural attack.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units        
+    nclass : int
+        size of output dimension
+    lr : float
+        learning rate for MedianGCN
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for MedianGCN.
+    with_bias: bool
+        whether to include bias term in MedianGCN weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+        We can first load dataset and then train MedianGCN.
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import MedianGCN
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> MedianGCN = MedianGCN(nfeat=features.shape[1],
+                          nhid=16, nclass=labels.max().item() + 1, 
+                          device='cuda')
+    >>> MedianGCN = MedianGCN.to('cuda')
+    >>> pyg_data = Dpr2Pyg(data) # convert deeprobust dataset to pyg dataset
+    >>> MedianGCN.fit(pyg_data, verbose=True) # train with earlystopping
+    """
+
+    def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=0.0005, with_bias=True, device=None):
+        super(MedianGCN, self).__init__()
+        assert device is not None, "Please specify 'device'!"
+        self.device = device
+        self.conv1 = MedianConv(nfeat, nhid, bias=with_bias)
+        self.conv2 = MedianConv(nhid, nclass, bias=with_bias)
+        self.dropout = dropout
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.with_bias = with_bias
+        self.output = None
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.conv1(x, edge_index).relu()
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def initialize(self):
+        """Initialize parameters of MedianGCN.
+        """
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+
+    def fit(self, pyg_data, train_iters=200, initialize=True, verbose=False, patience=500, **kwargs):
+        """Train the MedianGCN model, when idx_val is not None, pick the best model
+        according to the validation loss.
+
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        patience : int
+            patience for early stopping, only valid when `idx_val` is given
+        """
+        if initialize:
+            self.initialize()
+        self.data = pyg_data[0]
+        self.train_with_early_stopping(train_iters, patience, verbose)
+
+    def train_with_early_stopping(self, train_iters, patience, verbose):
+        """early stopping based on the validation loss
+        """
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        labels = self.data.y
+        train_mask, val_mask = self.data.train_mask, self.data.val_mask
+        early_stopping = patience
+        best_loss_val = 100
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output = self.forward(self.data)
+            loss_train = F.nll_loss(output[train_mask], labels[train_mask])
+            loss_train.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.data)
+            loss_val = F.nll_loss(output[val_mask], labels[val_mask])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+                patience = early_stopping
+            else:
+                patience -= 1
+            if i > early_stopping and patience <= 0:
+                break
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    @torch.no_grad()
+    def test(self, pyg_data=None):
+        """Evaluate MedianGCN performance on test set.
+
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object        
+        idx_test :
+            node testing indices
+        """
+        self.eval()
+        data = pyg_data[0] if pyg_data is not None else self.data
+        test_mask = data.test_mask
+        labels = data.y
+        output = self.forward(data)
+        loss_test = F.nll_loss(output[test_mask], labels[test_mask])
+        acc_test = utils.accuracy(output[test_mask], labels[test_mask])
+        None
+        return acc_test.item()
+
+    @torch.no_grad()
+    def predict(self, pyg_data=None):
+        """
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object    
+
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of MedianGCN
+        """
+        self.eval()
+        data = pyg_data[0] if pyg_data is not None else self.data
+        return self.forward(data)
+
+
+class EstimateAdj(nn.Module):
+    """Provide a pytorch parameter matrix for estimated
+    adjacency matrix and corresponding operations.
+    """
+
+    def __init__(self, adj, symmetric=False, device='cpu'):
         super(EstimateAdj, self).__init__()
         n = len(adj)
         self.estimated_adj = nn.Parameter(torch.FloatTensor(n, n))
         self._init_estimation(adj)
         self.symmetric = symmetric
+        self.device = device
 
     def _init_estimation(self, adj):
         with torch.no_grad():
@@ -605,7 +1475,7 @@ class EstimateAdj(nn.Module):
 
     def normalize(self):
         if self.symmetric:
-            adj = self.estimated_adj + self.estimated_adj.t()
+            adj = (self.estimated_adj + self.estimated_adj.t()) / 2
         else:
             adj = self.estimated_adj
         normalized_adj = self._normalize(adj + torch.eye(adj.shape[0]))
@@ -622,7 +1492,7 @@ class EstimateAdj(nn.Module):
 
 
 class GGCL_F(Module):
-    """GGCL: the input is feature"""
+    """Graph Gaussian Convolution Layer (GGCL) when the input is feature"""
 
     def __init__(self, in_features, out_features, dropout=0.6):
         super(GGCL_F, self).__init__()
@@ -648,7 +1518,7 @@ class GGCL_F(Module):
 
 
 class GGCL_D(Module):
-    """GGCL_D: the input is distribution"""
+    """Graph Gaussian Convolution Layer (GGCL) when the input is distribution"""
 
     def __init__(self, in_features, out_features, dropout):
         super(GGCL_D, self).__init__()
@@ -671,10 +1541,12 @@ class GGCL_D(Module):
         Att = torch.exp(-gamma * sigma)
         mean_out = adj_norm1 @ (miu * Att)
         sigma_out = adj_norm2 @ (sigma * Att * Att)
-        return mean_out, sigma
+        return mean_out, sigma_out
 
 
 class GaussianConvolution(Module):
+    """[Deprecated] Alternative gaussion convolution layer.
+    """
 
     def __init__(self, in_features, out_features):
         super(GaussianConvolution, self).__init__()
@@ -701,6 +1573,32 @@ class GaussianConvolution(Module):
 
 
 class RGCN(Module):
+    """Robust Graph Convolutional Networks Against Adversarial Attacks. KDD 2019.
+
+    Parameters
+    ----------
+    nnodes : int
+        number of nodes in the input grpah
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    gamma : float
+        hyper-parameter for RGCN. See more details in the paper.
+    beta1 : float
+        hyper-parameter for RGCN. See more details in the paper.
+    beta2 : float
+        hyper-parameter for RGCN. See more details in the paper.
+    lr : float
+        learning rate for GCN
+    dropout : float
+        dropout rate for GCN
+    device: str
+        'cpu' or 'cuda'.
+
+    """
 
     def __init__(self, nnodes, nfeat, nhid, nclass, gamma=1.0, beta1=0.0005, beta2=0.0005, lr=0.01, dropout=0.6, device='cpu'):
         super(RGCN, self).__init__()
@@ -725,7 +1623,47 @@ class RGCN(Module):
         output = miu + self.gaussian.sample() * torch.sqrt(sigma + 1e-08)
         return F.log_softmax(output, dim=1)
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, verbose=True):
+    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, verbose=True, **kwargs):
+        """Train RGCN.
+
+        Parameters
+        ----------
+        features :
+            node features
+        adj :
+            the adjacency matrix. The format could be torch.tensor or scipy matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_val :
+            node validation indices. If not given (None), GCN training process will not adpot early stopping
+        train_iters : int
+            number of training epochs
+        verbose : bool
+            whether to show verbose logs
+
+        Examples
+        --------
+        We can first load dataset and then train RGCN.
+
+        >>> from deeprobust.graph.data import PrePtbDataset, Dataset
+        >>> from deeprobust.graph.defense import RGCN
+        >>> # load clean graph data
+        >>> data = Dataset(root='/tmp/', name='cora', seed=15)
+        >>> adj, features, labels = data.adj, data.features, data.labels
+        >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+        >>> # load perturbed graph data
+        >>> perturbed_data = PrePtbDataset(root='/tmp/', name='cora')
+        >>> perturbed_adj = perturbed_data.adj
+        >>> # train defense model
+        >>> model = RGCN(nnodes=perturbed_adj.shape[0], nfeat=features.shape[1],
+                         nclass=labels.max()+1, nhid=32, device='cpu')
+        >>> model.fit(features, perturbed_adj, labels, idx_train, idx_val,
+                      train_iters=200, verbose=True)
+        >>> model.test(idx_test)
+
+        """
         adj, features, labels = utils.to_tensor(adj.todense(), features.todense(), labels, device=self.device)
         self.features, self.labels = features, labels
         self.adj_norm1 = self._normalize_adj(adj, power=-1 / 2)
@@ -778,10 +1716,24 @@ class RGCN(Module):
         None
 
     def test(self, idx_test):
+        """Evaluate the peformance on test set
+        """
+        self.eval()
         output = self.output
         loss_test = F.nll_loss(output[idx_test], self.labels[idx_test])
         acc_test = utils.accuracy(output[idx_test], self.labels[idx_test])
         None
+        return acc_test.item()
+
+    def predict(self):
+        """
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of RGCN
+        """
+        self.eval()
+        return self.forward()
 
     def _loss(self, input, labels):
         loss = F.nll_loss(input, labels)
@@ -805,7 +1757,547 @@ class RGCN(Module):
         return D_power @ A @ D_power
 
 
+class SGC(torch.nn.Module):
+    """ SGC based on pytorch geometric. Simplifying Graph Convolutional Networks.
+
+    Parameters
+    ----------
+    nfeat : int
+        size of input feature dimension
+    nclass : int
+        size of output dimension
+    K: int
+        number of propagation in SGC
+    cached : bool
+        whether to set the cache flag in SGConv
+    lr : float
+        learning rate for SGC
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN.
+        When `with_relu` is True, `weight_decay` will be set to 0.
+    with_bias: bool
+        whether to include bias term in SGC weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train SGC.
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import SGC
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> sgc = SGC(nfeat=features.shape[1], K=3, lr=0.1,
+              nclass=labels.max().item() + 1, device='cuda')
+    >>> sgc = sgc.to('cuda')
+    >>> pyg_data = Dpr2Pyg(data) # convert deeprobust dataset to pyg dataset
+    >>> sgc.fit(pyg_data, train_iters=200, patience=200, verbose=True) # train with earlystopping
+    """
+
+    def __init__(self, nfeat, nclass, K=3, cached=True, lr=0.01, weight_decay=0.0005, with_bias=True, device=None):
+        super(SGC, self).__init__()
+        assert device is not None, "Please specify 'device'!"
+        self.device = device
+        self.conv1 = SGConv(nfeat, nclass, bias=with_bias, K=K, cached=cached)
+        self.weight_decay = weight_decay
+        self.lr = lr
+        self.output = None
+        self.best_model = None
+        self.best_output = None
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def initialize(self):
+        """Initialize parameters of SGC.
+        """
+        self.conv1.reset_parameters()
+
+    def fit(self, pyg_data, train_iters=200, initialize=True, verbose=False, patience=500, **kwargs):
+        """Train the SGC model, when idx_val is not None, pick the best model
+        according to the validation loss.
+
+        Parameters
+        ----------
+        pyg_data :
+            pytorch geometric dataset object
+        train_iters : int
+            number of training epochs
+        initialize : bool
+            whether to initialize parameters before training
+        verbose : bool
+            whether to show verbose logs
+        patience : int
+            patience for early stopping, only valid when `idx_val` is given
+        """
+        if initialize:
+            self.initialize()
+        self.data = pyg_data[0]
+        self.train_with_early_stopping(train_iters, patience, verbose)
+
+    def train_with_early_stopping(self, train_iters, patience, verbose):
+        """early stopping based on the validation loss
+        """
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        labels = self.data.y
+        train_mask, val_mask = self.data.train_mask, self.data.val_mask
+        early_stopping = patience
+        best_loss_val = 100
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output = self.forward(self.data)
+            loss_train = F.nll_loss(output[train_mask], labels[train_mask])
+            loss_train.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.data)
+            loss_val = F.nll_loss(output[val_mask], labels[val_mask])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+                patience = early_stopping
+            else:
+                patience -= 1
+            if i > early_stopping and patience <= 0:
+                break
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    def test(self):
+        """Evaluate SGC performance on test set.
+
+        Parameters
+        ----------
+        idx_test :
+            node testing indices
+        """
+        self.eval()
+        test_mask = self.data.test_mask
+        labels = self.data.y
+        output = self.forward(self.data)
+        loss_test = F.nll_loss(output[test_mask], labels[test_mask])
+        acc_test = utils.accuracy(output[test_mask], labels[test_mask])
+        None
+        return acc_test.item()
+
+    def predict(self):
+        """
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of SGC
+        """
+        self.eval()
+        return self.forward(self.data)
+
+
+class AttrSim:
+
+    def __init__(self, features):
+        self.features = features.cpu().numpy()
+        self.features[self.features != 0] = 1
+
+    def get_label(self, k=5):
+        features = self.features
+        if not os.path.exists('saved_knn/cosine_sims_{}.npy'.format(features.shape)):
+            sims = cosine_similarity(features)
+            np.save('saved_knn/cosine_sims_{}.npy'.format(features.shape), sims)
+        else:
+            None
+            sims = np.load('saved_knn/cosine_sims_{}.npy'.format(features.shape))
+        if not os.path.exists('saved_knn/attrsim_sampled_idx_{}.npy'.format(features.shape)):
+            try:
+                indices_sorted = sims.argsort(1)
+                idx = np.arange(k, sims.shape[0] - k)
+                selected = np.hstack((indices_sorted[:, :k], indices_sorted[:, -k - 1:]))
+                selected_set = set()
+                for i in range(len(sims)):
+                    for pair in product([i], selected[i]):
+                        if pair[0] > pair[1]:
+                            pair = pair[1], pair[0]
+                        if pair[0] == pair[1]:
+                            continue
+                        selected_set.add(pair)
+            except MemoryError:
+                selected_set = set()
+                for ii, row in tqdm(enumerate(sims)):
+                    row = row.argsort()
+                    idx = np.arange(k, sims.shape[0] - k)
+                    sampled = np.random.choice(idx, k, replace=False)
+                    for node in np.hstack((row[:k], row[-k - 1:], row[sampled])):
+                        if ii > node:
+                            pair = node, ii
+                        else:
+                            pair = ii, node
+                        selected_set.add(pair)
+            sampled = np.array(list(selected_set)).transpose()
+            np.save('saved_knn/attrsim_sampled_idx_{}.npy'.format(features.shape), sampled)
+        else:
+            None
+            sampled = np.load('saved_knn/attrsim_sampled_idx_{}.npy'.format(features.shape))
+        None
+        self.node_pairs = sampled[0], sampled[1]
+        self.sims = sims
+        return torch.FloatTensor(sims[self.node_pairs]).reshape(-1, 1)
+
+
+def noaug_normalized_adjacency(adj):
+    adj = sp.coo_matrix(adj)
+    row_sum = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(row_sum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.0
+    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+    return d_mat_inv_sqrt.dot(adj).dot(d_mat_inv_sqrt).tocoo()
+
+
+def preprocess_adj_noloop(adj, device):
+    adj_normalizer = noaug_normalized_adjacency
+    r_adj = adj_normalizer(adj)
+    r_adj = utils.sparse_mx_to_torch_sparse_tensor(r_adj).float()
+    r_adj = r_adj
+    return r_adj
+
+
+class SimPGCN(nn.Module):
+    """SimP-GCN: Node similarity preserving graph convolutional networks.
+       https://arxiv.org/abs/2011.09643
+
+    Parameters
+    ----------
+    nnodes : int
+        number of nodes in the input grpah
+    nfeat : int
+        size of input feature dimension
+    nhid : int
+        number of hidden units
+    nclass : int
+        size of output dimension
+    lambda_ : float
+        coefficients for SSL loss in SimP-GCN
+    gamma : float
+        coefficients for adaptive learnable self-loops
+    bias_init : float
+        bias init for the score
+    dropout : float
+        dropout rate for GCN
+    lr : float
+        learning rate for GCN
+    weight_decay : float
+        weight decay coefficient (l2 normalization) for GCN. When `with_relu` is True, `weight_decay` will be set to 0.
+    with_bias: bool
+        whether to include bias term in GCN weights.
+    device: str
+        'cpu' or 'cuda'.
+
+    Examples
+    --------
+	We can first load dataset and then train SimPGCN.
+    See the detailed hyper-parameter setting in https://github.com/ChandlerBang/SimP-GCN.
+
+    >>> from deeprobust.graph.data import PrePtbDataset, Dataset
+    >>> from deeprobust.graph.defense import SimPGCN
+    >>> # load clean graph data
+    >>> data = Dataset(root='/tmp/', name='cora', seed=15)
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # load perturbed graph data
+    >>> perturbed_data = PrePtbDataset(root='/tmp/', name='cora')
+    >>> perturbed_adj = perturbed_data.adj
+    >>> model = SimPGCN(nnodes=features.shape[0], nfeat=features.shape[1],
+        nhid=16, nclass=labels.max()+1, device='cuda')
+    >>> model = model.to('cuda')
+    >>> model.fit(features, perturbed_adj, labels, idx_train, idx_val, train_iters=200, verbose=True)
+    >>> model.test(idx_test)
+    """
+
+    def __init__(self, nnodes, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=0.0005, lambda_=5, gamma=0.1, bias_init=0, with_bias=True, device=None):
+        super(SimPGCN, self).__init__()
+        assert device is not None, "Please specify 'device'!"
+        self.device = device
+        self.nfeat = nfeat
+        self.hidden_sizes = [nhid]
+        self.nclass = nclass
+        self.dropout = dropout
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.bias_init = bias_init
+        self.gamma = gamma
+        self.lambda_ = lambda_
+        self.output = None
+        self.best_model = None
+        self.best_output = None
+        self.adj_norm = None
+        self.features = None
+        self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+        self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+        self.scores = nn.ParameterList()
+        self.scores.append(Parameter(torch.FloatTensor(nfeat, 1)))
+        for i in range(1):
+            self.scores.append(Parameter(torch.FloatTensor(nhid, 1)))
+        self.bias = nn.ParameterList()
+        self.bias.append(Parameter(torch.FloatTensor(1)))
+        for i in range(1):
+            self.bias.append(Parameter(torch.FloatTensor(1)))
+        self.D_k = nn.ParameterList()
+        self.D_k.append(Parameter(torch.FloatTensor(nfeat, 1)))
+        for i in range(1):
+            self.D_k.append(Parameter(torch.FloatTensor(nhid, 1)))
+        self.identity = utils.sparse_mx_to_torch_sparse_tensor(sp.eye(nnodes))
+        self.D_bias = nn.ParameterList()
+        self.D_bias.append(Parameter(torch.FloatTensor(1)))
+        for i in range(1):
+            self.D_bias.append(Parameter(torch.FloatTensor(1)))
+        self.linear = nn.Linear(nhid, 1)
+        self.adj_knn = None
+        self.pseudo_labels = None
+
+    def get_knn_graph(self, features, k=20):
+        if not os.path.exists('saved_knn/'):
+            os.mkdir('saved_knn')
+        if not os.path.exists('saved_knn/knn_graph_{}.npz'.format(features.shape)):
+            features[features != 0] = 1
+            sims = cosine_similarity(features)
+            np.save('saved_knn/cosine_sims_{}.npy'.format(features.shape), sims)
+            sims[np.arange(len(sims)), np.arange(len(sims))] = 0
+            for i in range(len(sims)):
+                indices_argsort = np.argsort(sims[i])
+                sims[i, indices_argsort[:-k]] = 0
+            adj_knn = sp.csr_matrix(sims)
+            sp.save_npz('saved_knn/knn_graph_{}.npz'.format(features.shape), adj_knn)
+        else:
+            None
+            adj_knn = sp.load_npz('saved_knn/knn_graph_{}.npz'.format(features.shape))
+        return preprocess_adj_noloop(adj_knn, self.device)
+
+    def initialize(self):
+        """Initialize parameters of SimPGCN.
+        """
+        self.gc1.reset_parameters()
+        self.gc2.reset_parameters()
+        for s in self.scores:
+            stdv = 1.0 / math.sqrt(s.size(1))
+            s.data.uniform_(-stdv, stdv)
+        for b in self.bias:
+            b.data.fill_(self.bias_init)
+        for Dk in self.D_k:
+            stdv = 1.0 / math.sqrt(Dk.size(1))
+            Dk.data.uniform_(-stdv, stdv)
+        for b in self.D_bias:
+            b.data.fill_(0)
+
+    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, initialize=True, verbose=False, normalize=True, patience=500, **kwargs):
+        if initialize:
+            self.initialize()
+        if type(adj) is not torch.Tensor:
+            features, adj, labels = utils.to_tensor(features, adj, labels, device=self.device)
+        else:
+            features = features
+            adj = adj
+            labels = labels
+        if normalize:
+            if utils.is_sparse_tensor(adj):
+                adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+            else:
+                adj_norm = utils.normalize_adj_tensor(adj)
+        else:
+            adj_norm = adj
+        self.adj_norm = adj_norm
+        self.features = features
+        self.labels = labels
+        if idx_val is None:
+            self._train_without_val(labels, idx_train, train_iters, verbose)
+        elif patience < train_iters:
+            self._train_with_early_stopping(labels, idx_train, idx_val, train_iters, patience, verbose)
+        else:
+            self._train_with_val(labels, idx_train, idx_val, train_iters, verbose)
+
+    def forward(self, fea, adj):
+        x, _ = self.myforward(fea, adj)
+        return x
+
+    def myforward(self, fea, adj):
+        """output embedding and log_softmax"""
+        if self.adj_knn is None:
+            self.adj_knn = self.get_knn_graph(fea.to_dense().cpu().numpy())
+        adj_knn = self.adj_knn
+        gamma = self.gamma
+        s_i = torch.sigmoid(fea @ self.scores[0] + self.bias[0])
+        Dk_i = fea @ self.D_k[0] + self.D_bias[0]
+        x = s_i * self.gc1(fea, adj) + (1 - s_i) * self.gc1(fea, adj_knn) + gamma * Dk_i * self.gc1(fea, self.identity)
+        x = F.dropout(x, self.dropout, training=self.training)
+        embedding = x.clone()
+        s_o = torch.sigmoid(x @ self.scores[-1] + self.bias[-1])
+        Dk_o = x @ self.D_k[-1] + self.D_bias[-1]
+        x = s_o * self.gc2(x, adj) + (1 - s_o) * self.gc2(x, adj_knn) + gamma * Dk_o * self.gc2(x, self.identity)
+        x = F.log_softmax(x, dim=1)
+        self.ss = torch.cat((s_i.view(1, -1), s_o.view(1, -1), gamma * Dk_i.view(1, -1), gamma * Dk_o.view(1, -1)), dim=0)
+        return x, embedding
+
+    def regression_loss(self, embeddings):
+        if self.pseudo_labels is None:
+            agent = AttrSim(self.features.to_dense())
+            self.pseudo_labels = agent.get_label()
+            node_pairs = agent.node_pairs
+            self.node_pairs = node_pairs
+        k = 10000
+        node_pairs = self.node_pairs
+        if len(self.node_pairs[0]) > k:
+            sampled = np.random.choice(len(self.node_pairs[0]), k, replace=False)
+            embeddings0 = embeddings[node_pairs[0][sampled]]
+            embeddings1 = embeddings[node_pairs[1][sampled]]
+            embeddings = self.linear(torch.abs(embeddings0 - embeddings1))
+            loss = F.mse_loss(embeddings, self.pseudo_labels[sampled], reduction='mean')
+        else:
+            embeddings0 = embeddings[node_pairs[0]]
+            embeddings1 = embeddings[node_pairs[1]]
+            embeddings = self.linear(torch.abs(embeddings0 - embeddings1))
+            loss = F.mse_loss(embeddings, self.pseudo_labels, reduction='mean')
+        return loss
+
+    def _train_without_val(self, labels, idx_train, train_iters, verbose):
+        self.train()
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output, embeddings = self.myforward(self.features, self.adj_norm)
+            loss_train = F.nll_loss(output[idx_train], labels[idx_train])
+            loss_ssl = self.lambda_ * self.regression_loss(embeddings)
+            loss_total = loss_train + loss_ssl
+            loss_total.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+        self.eval()
+        output = self.forward(self.features, self.adj_norm)
+        self.output = output
+
+    def _train_with_val(self, labels, idx_train, idx_val, train_iters, verbose):
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        best_loss_val = 100
+        best_acc_val = 0
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output, embeddings = self.myforward(self.features, self.adj_norm)
+            loss_train = F.nll_loss(output[idx_train], labels[idx_train])
+            loss_ssl = self.lambda_ * self.regression_loss(embeddings)
+            loss_total = loss_train + loss_ssl
+            loss_total.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.features, self.adj_norm)
+            loss_val = F.nll_loss(output[idx_val], labels[idx_val])
+            acc_val = utils.accuracy(output[idx_val], labels[idx_val])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+            if acc_val > best_acc_val:
+                best_acc_val = acc_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    def _train_with_early_stopping(self, labels, idx_train, idx_val, train_iters, patience, verbose):
+        if verbose:
+            None
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        early_stopping = patience
+        best_loss_val = 100
+        for i in range(train_iters):
+            self.train()
+            optimizer.zero_grad()
+            output, embeddings = self.myforward(self.features, self.adj_norm)
+            loss_train = F.nll_loss(output[idx_train], labels[idx_train])
+            loss_ssl = self.lambda_ * self.regression_loss(embeddings)
+            loss_total = loss_train + loss_ssl
+            loss_total.backward()
+            optimizer.step()
+            if verbose and i % 10 == 0:
+                None
+            self.eval()
+            output = self.forward(self.features, self.adj_norm)
+            loss_val = F.nll_loss(output[idx_val], labels[idx_val])
+            if best_loss_val > loss_val:
+                best_loss_val = loss_val
+                self.output = output
+                weights = deepcopy(self.state_dict())
+                patience = early_stopping
+            else:
+                patience -= 1
+            if i > early_stopping and patience <= 0:
+                break
+        if verbose:
+            None
+        self.load_state_dict(weights)
+
+    def test(self, idx_test):
+        """Evaluate GCN performance on test set.
+
+        Parameters
+        ----------
+        idx_test :
+            node testing indices
+        """
+        self.eval()
+        output = self.predict()
+        loss_test = F.nll_loss(output[idx_test], self.labels[idx_test])
+        acc_test = utils.accuracy(output[idx_test], self.labels[idx_test])
+        None
+        return acc_test.item()
+
+    def predict(self, features=None, adj=None):
+        """By default, the inputs should be unnormalized data
+
+        Parameters
+        ----------
+        features :
+            node features. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+        adj :
+            adjcency matrix. If `features` and `adj` are not given, this function will use previous stored `features` and `adj` from training to make predictions.
+
+
+        Returns
+        -------
+        torch.FloatTensor
+            output (log probabilities) of GCN
+        """
+        self.eval()
+        if features is None and adj is None:
+            return self.forward(self.features, self.adj_norm)
+        else:
+            if type(adj) is not torch.Tensor:
+                features, adj = utils.to_tensor(features, adj, device=self.device)
+            self.features = features
+            if utils.is_sparse_tensor(adj):
+                self.adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
+            else:
+                self.adj_norm = utils.normalize_adj_tensor(adj)
+            return self.forward(self.features, self.adj_norm)
+
+
 class BaseAttack(object):
+    """
+    Attack base class.
+    """
     __metaclass__ = ABCMeta
 
     def __init__(self, model, device='cuda'):
@@ -814,14 +2306,36 @@ class BaseAttack(object):
 
     def generate(self, image, label, **kwargs):
         """
-        :param x: input takes form (N, C, H, W)
+        Overide this function for the main body of attack algorithm.
+
+        Parameters
+        ----------
+        image :
+            original image
+        label :
+            original label
+        kwargs :
+            user defined parameters
         """
         return input
 
     def parse_params(self, **kwargs):
+        """
+        Parse user defined parameters.
+        """
         return True
 
     def check_type_device(self, image, label):
+        """
+        Check device, match variable type to device type.
+
+        Parameters
+        ----------
+        image :
+            image
+        label :
+            label
+        """
         if self.device == 'cuda':
             image = image
             label = label
@@ -835,7 +2349,7 @@ class BaseAttack(object):
         if type(image).__name__ == 'Tensor':
             image = image.float()
             image = image.float().clone().detach().requires_grad_(True)
-        elif type(x).__name__ == 'ndarray':
+        elif type(image).__name__ == 'ndarray':
             image = image.astype('float')
             image = torch.tensor(image, requires_grad=True)
         else:
@@ -857,173 +2371,40 @@ class BaseAttack(object):
         return pred
 
 
-class DICE(BaseAttack):
-
-    def __init__(self, model=None, nnodes=None, attack_structure=True, attack_features=False, device='cpu'):
-        """
-        As is described in ADVERSARIAL ATTACKS ON GRAPH NEURAL NETWORKS VIA META LEARNING (ICLR'19),
-        'DICE (delete internally, connect externally) is a baseline where, for each perturbation,
-        we randomly choose whether to insert or remove an edge. Edges are only removed between
-        nodes from the same classes, and only inserted between nodes from different classes.
-        """
-        super(DICE, self).__init__(model, nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
-        assert not self.attack_features, 'DICE does NOT support attacking features'
-
-    def attack(self, adj, labels, n_perturbations):
-        """
-        Delete internally, connect externally. This baseline has all true class labels
-        (train and test) available.
-        """
-        None
-        modified_adj = adj.tolil()
-        remove_or_insert = np.random.choice(2, n_perturbations)
-        n_remove = sum(remove_or_insert)
-        nonzero = set(zip(*adj.nonzero()))
-        indices = sp.triu(modified_adj).nonzero()
-        possible_indices = [x for x in zip(indices[0], indices[1]) if labels[x[0]] == labels[x[1]]]
-        remove_indices = np.random.permutation(possible_indices)[:n_remove]
-        modified_adj[remove_indices[:, (0)], remove_indices[:, (1)]] = 0
-        modified_adj[remove_indices[:, (1)], remove_indices[:, (0)]] = 0
-        n_insert = n_perturbations - n_remove
-        for i in range(n_insert):
-            node1 = np.random.randint(adj.shape[0])
-            possible_nodes = [x for x in range(adj.shape[0]) if labels[x] != labels[node1] and modified_adj[x, node1] == 0]
-            node2 = possible_nodes[np.random.randint(len(possible_nodes))]
-            modified_adj[node1, node2] = 1
-            modified_adj[node2, node1] = 1
-        self.check_adj(modified_adj)
-        return modified_adj
-
-    def sample_forever(self, adj, exclude):
-        """
-            'exclude' is a set which contains the edges we do not want to sample
-             and the edges already sampled
-        """
-        while True:
-            t = tuple(random.sample(range(0, adj.shape[0]), 2))
-            if t not in exclude:
-                yield t
-                exclude.add(t)
-                exclude.add((t[1], t[0]))
-
-    def random_sample_edges(self, adj, n, exclude):
-        """
-            'exclude' is a set which contains the edges we do not want to sample
-             and the edges already sampled
-        """
-        itr = self.sample_forever(adj, exclude=exclude)
-        return [next(itr) for _ in range(n)]
-
-
-class IGAttack(BaseAttack):
-    """IGAttack: IG-FGSM"""
-
-    def __init__(self, model=None, nnodes=None, feature_shape=None, attack_structure=True, attack_features=True, device='cpu'):
-        super(IGAttack, self).__init__(model, nnodes, attack_structure, attack_features, device)
-        assert attack_features or attack_structure, 'attack_features or attack_structure cannot be both False'
-        self.modified_adj = None
-        self.modified_features = None
-        self.target_node = None
-
-    def attack(self, ori_features, ori_adj, labels, idx_train, target_node, n_perturbations, steps=10):
-        self.surrogate.eval()
-        self.target_node = target_node
-        modified_adj = ori_adj.todense()
-        modified_features = ori_features.todense()
-        adj, features, labels = utils.to_tensor(modified_adj, modified_features, labels, device=self.device)
-        adj_norm = utils.normalize_adj_tensor(adj)
-        s_e = np.zeros(adj.shape[1])
-        s_f = np.zeros(features.shape[1])
-        if self.attack_structure:
-            s_e = self.calc_importance_edge(features, adj_norm, labels, idx_train, steps)
-        if self.attack_features:
-            s_f = self.calc_importance_feature(features, adj_norm, labels, idx_train, steps)
-        for t in range(n_perturbations):
-            s_e_max = np.argmax(s_e)
-            s_f_max = np.argmax(s_f)
-            if s_e[s_e_max] >= s_f[s_f_max]:
-                value = np.abs(1 - modified_adj[target_node, s_e_max])
-                modified_adj[target_node, s_e_max] = value
-                modified_adj[s_e_max, target_node] = value
-                s_e[s_e_max] = 0
-            else:
-                modified_features[target_node, s_f_max] = np.abs(1 - modified_features[target_node, s_f_max])
-                s_f[s_f_max] = 0
-        self.modified_adj = sp.csr_matrix(modified_adj)
-        self.modified_features = sp.csr_matrix(modified_features)
-        self.check_adj(modified_adj)
-
-    def calc_importance_edge(self, features, adj_norm, labels, idx_train, steps):
-        baseline_add = adj_norm.clone()
-        baseline_remove = adj_norm.clone()
-        baseline_add.data[self.target_node] = 1
-        baseline_remove.data[self.target_node] = 0
-        adj_norm.requires_grad = True
-        integrated_grad_list = []
-        i = self.target_node
-        for j in tqdm(range(adj_norm.shape[1])):
-            if adj_norm[i][j]:
-                scaled_inputs = [(baseline_remove + float(k) / steps * (adj_norm - baseline_remove)) for k in range(0, steps + 1)]
-            else:
-                scaled_inputs = [(baseline_add - float(k) / steps * (baseline_add - adj_norm)) for k in range(0, steps + 1)]
-            _sum = 0
-            for new_adj in scaled_inputs:
-                output = self.surrogate(features, new_adj)
-                loss = F.nll_loss(output[idx_train], labels[idx_train])
-                adj_grad = torch.autograd.grad(loss, adj_norm)[0]
-                adj_grad = adj_grad[i][j]
-                _sum += adj_grad
-            if adj_norm[i][j]:
-                avg_grad = (adj_norm[i][j] - 0) * _sum.mean()
-            else:
-                avg_grad = (1 - adj_norm[i][j]) * _sum.mean()
-            integrated_grad_list.append(avg_grad.detach().item())
-        integrated_grad_list[i] = 0
-        integrated_grad_list = np.array(integrated_grad_list)
-        adj = (adj_norm > 0).cpu().numpy()
-        integrated_grad_list = (-2 * adj[self.target_node] + 1) * integrated_grad_list
-        return integrated_grad_list
-
-    def calc_importance_feature(self, features, adj_norm, labels, idx_train, steps):
-        baseline_add = features.clone()
-        baseline_remove = features.clone()
-        baseline_add.data[self.target_node] = 1
-        baseline_remove.data[self.target_node] = 0
-        features.requires_grad = True
-        integrated_grad_list = []
-        i = self.target_node
-        for j in tqdm(range(features.shape[1])):
-            if features[i][j]:
-                scaled_inputs = [(baseline_add + float(k) / steps * (features - baseline_add)) for k in range(0, steps + 1)]
-            else:
-                scaled_inputs = [(baseline_remove - float(k) / steps * (baseline_remove - features)) for k in range(0, steps + 1)]
-            _sum = 0
-            for new_features in scaled_inputs:
-                output = self.surrogate(new_features, adj_norm)
-                loss = F.nll_loss(output[idx_train], labels[idx_train])
-                feature_grad = torch.autograd.grad(loss, features)[0]
-                feature_grad = feature_grad[i][j]
-                _sum += feature_grad
-            if features[i][j]:
-                avg_grad = (features[i][j] - 0) * _sum.mean()
-            else:
-                avg_grad = (1 - features[i][j]) * _sum.mean()
-            integrated_grad_list.append(avg_grad.detach().item())
-        features = (features > 0).cpu().numpy()
-        integrated_grad_list = np.array(integrated_grad_list)
-        integrated_grad_list = (-2 * features[self.target_node] + 1) * integrated_grad_list
-        return integrated_grad_list
-
-
 class BaseMeta(BaseAttack):
+    """Abstract base class for meta attack. Adversarial Attacks on Graph Neural
+    Networks via Meta Learning, ICLR 2019,
+    https://openreview.net/pdf?id=Bylnx209YX
 
-    def __init__(self, model=None, nnodes=None, feature_shape=None, lambda_=0.5, attack_structure=True, attack_features=False, device='cpu'):
+    Parameters
+    ----------
+    model :
+        model to attack. Default `None`.
+    nnodes : int
+        number of nodes in the input graph
+    lambda_ : float
+        lambda_ is used to weight the two objectives in Eq. (10) in the paper.
+    feature_shape : tuple
+        shape of the input node features
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    undirected : bool
+        whether the graph is undirected
+    device: str
+        'cpu' or 'cuda'
+
+    """
+
+    def __init__(self, model=None, nnodes=None, feature_shape=None, lambda_=0.5, attack_structure=True, attack_features=False, undirected=True, device='cpu'):
         super(BaseMeta, self).__init__(model, nnodes, attack_structure, attack_features, device)
         self.lambda_ = lambda_
         assert attack_features or attack_structure, 'attack_features or attack_structure cannot be both False'
         self.modified_adj = None
         self.modified_features = None
         if attack_structure:
+            self.undirected = undirected
             assert nnodes is not None, 'Please give nnodes='
             self.adj_changes = Parameter(torch.FloatTensor(nnodes, nnodes))
             self.adj_changes.data.fill_(0)
@@ -1038,9 +2419,10 @@ class BaseMeta(BaseAttack):
 
     def get_modified_adj(self, ori_adj):
         adj_changes_square = self.adj_changes - torch.diag(torch.diag(self.adj_changes, 0))
-        ind = np.diag_indices(self.adj_changes.shape[0])
-        adj_changes_symm = torch.clamp(adj_changes_square + torch.transpose(adj_changes_square, 1, 0), -1, 1)
-        modified_adj = adj_changes_symm + ori_adj
+        if self.undirected:
+            adj_changes_square = adj_changes_square + torch.transpose(adj_changes_square, 1, 0)
+        adj_changes_square = torch.clamp(adj_changes_square, -1, 1)
+        modified_adj = adj_changes_square + ori_adj
         return modified_adj
 
     def get_modified_features(self, ori_features):
@@ -1055,8 +2437,9 @@ class BaseMeta(BaseAttack):
         degree_one = degrees == 1
         resh = degree_one.repeat(modified_adj.shape[0], 1).float()
         l_and = resh * modified_adj
-        logical_and_symmetric = l_and + l_and.t()
-        flat_mask = 1 - logical_and_symmetric
+        if self.undirected:
+            l_and = l_and + l_and.t()
+        flat_mask = 1 - l_and
         return flat_mask
 
     def self_training_label(self, labels, idx_train):
@@ -1073,8 +2456,11 @@ class BaseMeta(BaseAttack):
         Note that different data type (float, double) can effect the final results.
         """
         t_d_min = torch.tensor(2.0)
-        t_possible_edges = np.array(np.triu(np.ones((self.nnodes, self.nnodes)), k=1).nonzero()).T
-        allowed_mask, current_ratio = utils.likelihood_ratio_filter(t_possible_edges, modified_adj, ori_adj, t_d_min, ll_cutoff)
+        if self.undirected:
+            t_possible_edges = np.array(np.triu(np.ones((self.nnodes, self.nnodes)), k=1).nonzero()).T
+        else:
+            t_possible_edges = np.array((np.ones((self.nnodes, self.nnodes)) - np.eye(self.nnodes)).nonzero()).T
+        allowed_mask, current_ratio = utils.likelihood_ratio_filter(t_possible_edges, modified_adj, ori_adj, t_d_min, ll_cutoff, undirected=self.undirected)
         return allowed_mask, current_ratio
 
     def get_adj_score(self, adj_grad, modified_adj, ori_adj, ll_constraint, ll_cutoff):
@@ -1096,9 +2482,36 @@ class BaseMeta(BaseAttack):
 
 
 class Metattack(BaseMeta):
+    """Meta attack. Adversarial Attacks on Graph Neural Networks
+    via Meta Learning, ICLR 2019.
 
-    def __init__(self, model, nnodes, feature_shape=None, attack_structure=True, attack_features=False, device='cpu', with_bias=False, lambda_=0.5, train_iters=100, lr=0.1, momentum=0.9):
-        super(Metattack, self).__init__(model, nnodes, feature_shape, lambda_, attack_structure, attack_features, device)
+    Examples
+    --------
+
+    >>> import numpy as np
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.global_attack import Metattack
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> idx_unlabeled = np.union1d(idx_val, idx_test)
+    >>> idx_unlabeled = np.union1d(idx_val, idx_test)
+    >>> # Setup Surrogate model
+    >>> surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                    nhid=16, dropout=0, with_relu=False, with_bias=False, device='cpu').to('cpu')
+    >>> surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    >>> # Setup Attack Model
+    >>> model = Metattack(surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
+            attack_structure=True, attack_features=False, device='cpu', lambda_=0).to('cpu')
+    >>> # Attack
+    >>> model.attack(features, adj, labels, idx_train, idx_unlabeled, n_perturbations=10, ll_constraint=False)
+    >>> modified_adj = model.modified_adj
+
+    """
+
+    def __init__(self, model, nnodes, feature_shape=None, attack_structure=True, attack_features=False, undirected=True, device='cpu', with_bias=False, lambda_=0.5, train_iters=100, lr=0.1, momentum=0.9):
+        super(Metattack, self).__init__(model, nnodes, feature_shape, lambda_, attack_structure, attack_features, undirected, device)
         self.momentum = momentum
         self.lr = lr
         self.train_iters = train_iters
@@ -1164,7 +2577,7 @@ class Metattack(BaseMeta):
                     hidden = adj_norm @ torch.spmm(hidden, w) + b
                 else:
                     hidden = adj_norm @ hidden @ w + b
-                if self.with_relu:
+                if self.with_relu and ix != len(self.weights) - 1:
                     hidden = F.relu(hidden)
             output = F.log_softmax(hidden, dim=1)
             loss_labeled = F.nll_loss(output[idx_train], labels[idx_train])
@@ -1185,7 +2598,7 @@ class Metattack(BaseMeta):
                 hidden = adj_norm @ torch.spmm(hidden, w) + b
             else:
                 hidden = adj_norm @ hidden @ w + b
-            if self.with_relu:
+            if self.with_relu and ix != len(self.weights) - 1:
                 hidden = F.relu(hidden)
         output = F.log_softmax(hidden, dim=1)
         loss_labeled = F.nll_loss(output[idx_train], labels[idx_train])
@@ -1207,13 +2620,39 @@ class Metattack(BaseMeta):
             feature_grad = torch.autograd.grad(attack_loss, self.feature_changes, retain_graph=True)[0]
         return adj_grad, feature_grad
 
-    def attack(self, ori_features, ori_adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=True, ll_cutoff=0.004):
+    def attack(self, ori_features, ori_adj, labels, idx_train, idx_unlabeled, n_perturbations, ll_constraint=True, ll_cutoff=0.004):
+        """Generate n_perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features :
+            Original (unperturbed) node feature matrix
+        ori_adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_unlabeled:
+            unlabeled nodes indices
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        ll_constraint: bool
+            whether to exert the likelihood ratio test constraint
+        ll_cutoff : float
+            The critical value for the likelihood ratio test of the power law distributions.
+            See the Chi square distribution with one degree of freedom. Default value 0.004
+            corresponds to a p-value of roughly 0.95. It would be ignored if `ll_constraint`
+            is False.
+
+        """
         self.sparse_features = sp.issparse(ori_features)
         ori_adj, ori_features, labels = utils.to_tensor(ori_adj, ori_features, labels, device=self.device)
         labels_self_training = self.self_training_label(labels, idx_train)
         modified_adj = ori_adj
         modified_features = ori_features
-        for i in tqdm(range(perturbations), desc='Perturbing graph'):
+        for i in tqdm(range(n_perturbations), desc='Perturbing graph'):
             if self.attack_structure:
                 modified_adj = self.get_modified_adj(ori_adj)
             if self.attack_features:
@@ -1231,11 +2670,12 @@ class Metattack(BaseMeta):
                 adj_meta_argmax = torch.argmax(adj_meta_score)
                 row_idx, col_idx = utils.unravel_index(adj_meta_argmax, ori_adj.shape)
                 self.adj_changes.data[row_idx][col_idx] += -2 * modified_adj[row_idx][col_idx] + 1
-                self.adj_changes.data[col_idx][row_idx] += -2 * modified_adj[row_idx][col_idx] + 1
+                if self.undirected:
+                    self.adj_changes.data[col_idx][row_idx] += -2 * modified_adj[row_idx][col_idx] + 1
             else:
                 feature_meta_argmax = torch.argmax(feature_meta_score)
                 row_idx, col_idx = utils.unravel_index(feature_meta_argmax, ori_features.shape)
-                self.features_changes.data[row_idx][col_idx] += -2 * modified_features[row_idx][col_idx] + 1
+                self.feature_changes.data[row_idx][col_idx] += -2 * modified_features[row_idx][col_idx] + 1
         if self.attack_structure:
             self.modified_adj = self.get_modified_adj(ori_adj).detach()
         if self.attack_features:
@@ -1243,9 +2683,37 @@ class Metattack(BaseMeta):
 
 
 class MetaApprox(BaseMeta):
+    """Approximated version of Meta Attack. Adversarial Attacks on
+    Graph Neural Networks via Meta Learning, ICLR 2019.
 
-    def __init__(self, model, nnodes, feature_shape=None, attack_structure=True, attack_features=False, device='cpu', with_bias=False, lambda_=0.5, train_iters=100, lr=0.01):
-        super(MetaApprox, self).__init__(model, nnodes, feature_shape, lambda_, attack_structure, attack_features, device)
+    Examples
+    --------
+
+    >>> import numpy as np
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.global_attack import MetaApprox
+    >>> from deeprobust.graph.utils import preprocess
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False) # conver to tensor
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> idx_unlabeled = np.union1d(idx_val, idx_test)
+    >>> # Setup Surrogate model
+    >>> surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                    nhid=16, dropout=0, with_relu=False, with_bias=False, device='cpu').to('cpu')
+    >>> surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    >>> # Setup Attack Model
+    >>> model = MetaApprox(surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
+            attack_structure=True, attack_features=False, device='cpu', lambda_=0).to('cpu')
+    >>> # Attack
+    >>> model.attack(features, adj, labels, idx_train, idx_unlabeled, n_perturbations=10, ll_constraint=True)
+    >>> modified_adj = model.modified_adj
+
+    """
+
+    def __init__(self, model, nnodes, feature_shape=None, attack_structure=True, attack_features=False, undirected=True, device='cpu', with_bias=False, lambda_=0.5, train_iters=100, lr=0.01):
+        super(MetaApprox, self).__init__(model, nnodes, feature_shape, lambda_, attack_structure, attack_features, undirected, device)
         self.lr = lr
         self.train_iters = train_iters
         self.adj_meta_grad = None
@@ -1282,7 +2750,8 @@ class MetaApprox(BaseMeta):
         adj_norm = utils.normalize_adj_tensor(modified_adj)
         for j in range(self.train_iters):
             hidden = features
-            for w, b in zip(self.weights, self.biases):
+            for ix, w in enumerate(self.weights):
+                b = self.biases[ix] if self.with_bias else 0
                 if self.sparse_features:
                     hidden = adj_norm @ torch.spmm(hidden, w) + b
                 else:
@@ -1300,24 +2769,50 @@ class MetaApprox(BaseMeta):
                 attack_loss = self.lambda_ * loss_labeled + (1 - self.lambda_) * loss_unlabeled
             self.optimizer.zero_grad()
             loss_labeled.backward(retain_graph=True)
-            self.optimizer.step()
             if self.attack_structure:
                 self.adj_changes.grad.zero_()
                 self.adj_grad_sum += torch.autograd.grad(attack_loss, self.adj_changes, retain_graph=True)[0]
             if self.attack_features:
                 self.feature_changes.grad.zero_()
                 self.feature_grad_sum += torch.autograd.grad(attack_loss, self.feature_changes, retain_graph=True)[0]
+            self.optimizer.step()
         loss_test_val = F.nll_loss(output[idx_unlabeled], labels[idx_unlabeled])
         None
         None
 
-    def attack(self, ori_features, ori_adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=True, ll_cutoff=0.004):
+    def attack(self, ori_features, ori_adj, labels, idx_train, idx_unlabeled, n_perturbations, ll_constraint=True, ll_cutoff=0.004):
+        """Generate n_perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features :
+            Original (unperturbed) node feature matrix
+        ori_adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        idx_unlabeled:
+            unlabeled nodes indices
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        ll_constraint: bool
+            whether to exert the likelihood ratio test constraint
+        ll_cutoff : float
+            The critical value for the likelihood ratio test of the power law distributions.
+            See the Chi square distribution with one degree of freedom. Default value 0.004
+            corresponds to a p-value of roughly 0.95. It would be ignored if `ll_constraint`
+            is False.
+
+        """
         ori_adj, ori_features, labels = utils.to_tensor(ori_adj, ori_features, labels, device=self.device)
         labels_self_training = self.self_training_label(labels, idx_train)
         self.sparse_features = sp.issparse(ori_features)
         modified_adj = ori_adj
         modified_features = ori_features
-        for i in tqdm(range(perturbations), desc='Perturbing graph'):
+        for i in tqdm(range(n_perturbations), desc='Perturbing graph'):
             self._initialize()
             if self.attack_structure:
                 modified_adj = self.get_modified_adj(ori_adj)
@@ -1336,121 +2831,371 @@ class MetaApprox(BaseMeta):
                 adj_meta_argmax = torch.argmax(adj_meta_score)
                 row_idx, col_idx = utils.unravel_index(adj_meta_argmax, ori_adj.shape)
                 self.adj_changes.data[row_idx][col_idx] += -2 * modified_adj[row_idx][col_idx] + 1
-                self.adj_changes.data[col_idx][row_idx] += -2 * modified_adj[row_idx][col_idx] + 1
+                if self.undirected:
+                    self.adj_changes.data[col_idx][row_idx] += -2 * modified_adj[row_idx][col_idx] + 1
             else:
                 feature_meta_argmax = torch.argmax(feature_meta_score)
                 row_idx, col_idx = utils.unravel_index(feature_meta_argmax, ori_features.shape)
-                self.features_changes.data[row_idx][col_idx] += -2 * modified_features[row_idx][col_idx] + 1
+                self.feature_changes.data[row_idx][col_idx] += -2 * modified_features[row_idx][col_idx] + 1
         if self.attack_structure:
             self.modified_adj = self.get_modified_adj(ori_adj).detach()
         if self.attack_features:
             self.modified_features = self.get_modified_features(ori_features).detach()
 
 
-class Net(nn.Module):
+def edges_to_sparse(edges, num_nodes, weights=None):
+    if weights is None:
+        weights = np.ones(edges.shape[0])
+    return sp.coo_matrix((weights, (edges[:, 0], edges[:, 1])), shape=(num_nodes, num_nodes)).tocsr()
+
+
+class NodeEmbeddingAttack(BaseAttack):
+    """Node embedding attack. Adversarial Attacks on Node Embeddings via Graph
+    Poisoning. Aleksandar Bojchevski and Stephan Günnemann, ICML 2019
+    http://proceedings.mlr.press/v97/bojchevski19a.html
+
+    Examples
+    -----
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.global_attack import NodeEmbeddingAttack
+    >>> data = Dataset(root='/tmp/', name='cora_ml', seed=15)
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> model = NodeEmbeddingAttack()
+    >>> model.attack(adj, attack_type="remove")
+    >>> modified_adj = model.modified_adj
+    >>> model.attack(adj, attack_type="remove", min_span_tree=True)
+    >>> modified_adj = model.modified_adj
+    >>> model.attack(adj, attack_type="add", n_candidates=10000)
+    >>> modified_adj = model.modified_adj
+    >>> model.attack(adj, attack_type="add_by_remove", n_candidates=10000)
+    >>> modified_adj = model.modified_adj
+    """
 
     def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
+        pass
 
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
+    def attack(self, adj, n_perturbations=1000, dim=32, window_size=5, attack_type='remove', min_span_tree=False, n_candidates=None, seed=None, **kwargs):
+        """Selects the top (n_perturbations) number of flips using our perturbation attack.
 
-
-model = Net()
-
-
-class Random(BaseAttack):
-
-    def __init__(self, model=None, nnodes=None, attack_structure=True, attack_features=False, add_nodes=False, device='cpu'):
+        :param adj: sp.spmatrix
+            The graph represented as a sparse scipy matrix
+        :param n_perturbations: int
+            Number of flips to select
+        :param dim: int
+            Dimensionality of the embeddings.
+        :param window_size: int
+            Co-occurence window size.
+        :param attack_type: str
+            can be chosed from ["remove", "add", "add_by_remove"]
+        :param min_span_tree: bool
+            Whether to disallow edges that lie on the minimum spanning tree;
+            only valid when `attack_type` is "remove"
+        :param n_candidates: int
+            Number of candiates for addition; only valid when `attack_type` is "add" or "add_by_remove";
+        :param seed: int
+            Random seed
         """
-        """
-        super(Random, self).__init__(model, nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
-        self.add_nodes = add_nodes
-        assert not self.attack_features, 'RND does NOT support attacking features'
-
-    def attack(self, adj, n_perturbations, type='add'):
-        """
-        type: 'add', 'remove', 'flip'
-        """
-        if self.attack_structure:
-            modified_adj = self.perturb_adj(adj, n_perturbations, type)
-            return modified_adj
-
-    def perturb_adj(self, adj, n_perturbations, type='add'):
-        """
-        Randomly add or flip edges.
-        """
-        modified_adj = adj.tolil()
-        type = type.lower()
-        assert type in ['add', 'remove', 'flip']
-        if type == 'flip':
-            edges = self.random_sample_edges(adj, n_perturbations, exclude=set())
-            for n1, n2 in edges:
-                modified_adj[n1, n2] = 1 - modified_adj[n1, n2]
-                modified_adj[n2, n1] = 1 - modified_adj[n2, n1]
-        if type == 'add':
-            nonzero = set(zip(*adj.nonzero()))
-            edges = self.random_sample_edges(adj, n_perturbations, exclude=nonzero)
-            for n1, n2 in edges:
-                modified_adj[n1, n2] = 1
-                modified_adj[n2, n1] = 1
-        if type == 'remove':
-            nonzero = np.array(adj.nonzero()).T
-            indices = np.random.permutation(nonzero)[:n_perturbations].T
-            modified_adj[indices[0], indices[1]] = 0
-            modified_adj[indices[1], indices[0]] = 0
+        assert attack_type in ['remove', 'add', 'add_by_remove'], 'attack_type can only be `remove` or `add`'
+        if attack_type == 'remove':
+            if min_span_tree:
+                candidates = self.generate_candidates_removal_minimum_spanning_tree(adj)
+            else:
+                candidates = self.generate_candidates_removal(adj, seed)
+        elif attack_type == 'add' or attack_type == 'add_by_remove':
+            assert n_candidates, 'please specify the value of `n_candidates`, ' + 'i.e. how many candiate you want to genereate for addition'
+            candidates = self.generate_candidates_addition(adj, n_candidates, seed)
+        n_nodes = adj.shape[0]
+        if attack_type == 'add_by_remove':
+            candidates_add = candidates
+            adj_add = self.flip_candidates(adj, candidates_add)
+            vals_org_add, vecs_org_add = spl.eigh(adj_add.toarray(), np.diag(adj_add.sum(1).A1))
+            flip_indicator = 1 - 2 * adj_add[candidates[:, 0], candidates[:, 1]].A1
+            loss_est = estimate_loss_with_delta_eigenvals(candidates_add, flip_indicator, vals_org_add, vecs_org_add, n_nodes, dim, window_size)
+            loss_argsort = loss_est.argsort()
+            top_flips = candidates_add[loss_argsort[:n_perturbations]]
+        else:
+            delta_w = 1 - 2 * adj[candidates[:, 0], candidates[:, 1]].A1
+            deg_matrix = np.diag(adj.sum(1).A1)
+            vals_org, vecs_org = spl.eigh(adj.toarray(), deg_matrix)
+            loss_for_candidates = estimate_loss_with_delta_eigenvals(candidates, delta_w, vals_org, vecs_org, n_nodes, dim, window_size)
+            top_flips = candidates[loss_for_candidates.argsort()[-n_perturbations:]]
+        assert len(top_flips) == n_perturbations
+        modified_adj = self.flip_candidates(adj, top_flips)
         self.check_adj(modified_adj)
-        return modified_adj
+        self.modified_adj = modified_adj
 
-    def perturb_features(self, features, n_perturbations):
-        """
-        Randomly perturb features.
-        """
-        None
-        return modified_features
+    def generate_candidates_removal(self, adj, seed=None):
+        """Generates candidate edge flips for removal (edge -> non-edge),
+        disallowing one random edge per node to prevent singleton nodes.
 
-    def inject_nodes(self, adj, n_add, n_perturbations):
+        :param adj: sp.csr_matrix, shape [n_nodes, n_nodes]
+            Adjacency matrix of the graph
+        :param seed: int
+            Random seed
+        :return: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
         """
-        For each added node, randomly connect with other nodes.
-        """
-        None
-        raise NotImplementedError
-        modified_adj = adj.tolil()
-        return modified_adj
+        n_nodes = adj.shape[0]
+        if seed is not None:
+            np.random.seed(seed)
+        deg = np.where(adj.sum(1).A1 == 1)[0]
+        hiddeen = np.column_stack((np.arange(n_nodes), np.fromiter(map(np.random.choice, adj.tolil().rows), dtype=np.int32)))
+        adj_hidden = edges_to_sparse(hiddeen, adj.shape[0])
+        adj_hidden = adj_hidden.maximum(adj_hidden.T)
+        adj_keep = adj - adj_hidden
+        candidates = np.column_stack(sp.triu(adj_keep).nonzero())
+        candidates = candidates[np.logical_not(np.in1d(candidates[:, 0], deg) | np.in1d(candidates[:, 1], deg))]
+        return candidates
 
-    def random_sample_edges(self, adj, n, exclude):
+    def generate_candidates_removal_minimum_spanning_tree(self, adj):
+        """Generates candidate edge flips for removal (edge -> non-edge),
+         disallowing edges that lie on the minimum spanning tree.
+        adj: sp.csr_matrix, shape [n_nodes, n_nodes]
+            Adjacency matrix of the graph
+        :return: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
         """
-            'exclude' is a set which contains the edges we do not want to sample
-             and the edges already sampled
-        """
-        itr = self.sample_forever(adj, exclude=exclude)
-        return [next(itr) for _ in range(n)]
+        mst = sp.csgraph.minimum_spanning_tree(adj)
+        mst = mst.maximum(mst.T)
+        adj_sample = adj - mst
+        candidates = np.column_stack(sp.triu(adj_sample, 1).nonzero())
+        return candidates
 
-    def sample_forever(self, adj, exclude):
+    def generate_candidates_addition(self, adj, n_candidates, seed=None):
+        """Generates candidate edge flips for addition (non-edge -> edge).
+
+        :param adj: sp.csr_matrix, shape [n_nodes, n_nodes]
+            Adjacency matrix of the graph
+        :param n_candidates: int
+            Number of candidates to generate.
+        :param seed: int
+            Random seed
+        :return: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
         """
-            'exclude' is a set which contains the edges we do not want to sample
-             and the edges already sampled
+        if seed is not None:
+            np.random.seed(seed)
+        num_nodes = adj.shape[0]
+        candidates = np.random.randint(0, num_nodes, [n_candidates * 5, 2])
+        candidates = candidates[candidates[:, 0] < candidates[:, 1]]
+        candidates = candidates[adj[candidates[:, 0], candidates[:, 1]].A1 == 0]
+        candidates = np.array(list(set(map(tuple, candidates))))
+        candidates = candidates[:n_candidates]
+        assert len(candidates) == n_candidates
+        return candidates
+
+    def flip_candidates(self, adj, candidates):
+        """Flip the edges in the candidate set to non-edges and vise-versa.
+
+        :param adj: sp.csr_matrix, shape [n_nodes, n_nodes]
+            Adjacency matrix of the graph
+        :param candidates: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
+        :return: sp.csr_matrix, shape [n_nodes, n_nodes]
+            Adjacency matrix of the graph with the flipped edges/non-edges.
         """
-        while True:
-            t = tuple(random.sample(range(0, adj.shape[0]), 2))
-            if t not in exclude:
-                yield t
-                exclude.add(t)
-                exclude.add((t[1], t[0]))
+        adj_flipped = adj.copy().tolil()
+        adj_flipped[candidates[:, 0], candidates[:, 1]] = 1 - adj[candidates[:, 0], candidates[:, 1]]
+        adj_flipped[candidates[:, 1], candidates[:, 0]] = 1 - adj[candidates[:, 1], candidates[:, 0]]
+        adj_flipped = adj_flipped.tocsr()
+        adj_flipped.eliminate_zeros()
+        return adj_flipped
+
+
+def construct_line_graph(adj):
+    """Construct a line graph from an undirected original graph.
+
+    Parameters
+    ----------
+    adj : sp.spmatrix [n_samples ,n_samples]
+        Symmetric binary adjacency matrix.
+    Returns
+    -------
+    L : sp.spmatrix, shape [A.nnz/2, A.nnz/2]
+        Symmetric binary adjacency matrix of the line graph.
+    """
+    N = adj.shape[0]
+    edges = np.column_stack(sp.triu(adj, 1).nonzero())
+    e1, e2 = edges[:, 0], edges[:, 1]
+    I = sp.eye(N).tocsr()
+    E1 = I[e1]
+    E2 = I[e2]
+    L = E1.dot(E1.T) + E1.dot(E2.T) + E2.dot(E1.T) + E2.dot(E2.T)
+    return L - 2 * sp.eye(L.shape[0])
+
+
+class OtherNodeEmbeddingAttack(NodeEmbeddingAttack):
+    """ Baseline methods from the paper Adversarial Attacks on Node Embeddings
+    via Graph Poisoning. Aleksandar Bojchevski and Stephan Günnemann, ICML 2019.
+    http://proceedings.mlr.press/v97/bojchevski19a.html
+
+    Examples
+    -----
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.global_attack import OtherNodeEmbeddingAttack
+    >>> data = Dataset(root='/tmp/', name='cora_ml', seed=15)
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> model = OtherNodeEmbeddingAttack(type='degree')
+    >>> model.attack(adj, attack_type="remove")
+    >>> modified_adj = model.modified_adj
+    >>> #
+    >>> model = OtherNodeEmbeddingAttack(type='eigencentrality')
+    >>> model.attack(adj, attack_type="remove")
+    >>> modified_adj = model.modified_adj
+    >>> #
+    >>> model = OtherNodeEmbeddingAttack(type='random')
+    >>> model.attack(adj, attack_type="add", n_candidates=10000)
+    >>> modified_adj = model.modified_adj
+    """
+
+    def __init__(self, type):
+        assert type in ['degree', 'eigencentrality', 'random']
+        self.type = type
+
+    def attack(self, adj, n_perturbations=1000, attack_type='remove', min_span_tree=False, n_candidates=None, seed=None, **kwargs):
+        """Selects the top (n_perturbations) number of flips using our perturbation attack.
+
+        :param adj: sp.spmatrix
+            The graph represented as a sparse scipy matrix
+        :param n_perturbations: int
+            Number of flips to select
+        :param dim: int
+            Dimensionality of the embeddings.
+        :param attack_type: str
+            can be chosed from ["remove", "add"]
+        :param min_span_tree: bool
+            Whether to disallow edges that lie on the minimum spanning tree;
+            only valid when `attack_type` is "remove"
+        :param n_candidates: int
+            Number of candiates for addition; only valid when `attack_type` is "add";
+        :param seed: int
+            Random seed;
+        :return: np.ndarray, shape [?, 2]
+            The top edge flips from the candidate set
+        """
+        assert attack_type in ['remove', 'add'], 'attack_type can only be `remove` or `add`'
+        if attack_type == 'remove':
+            if min_span_tree:
+                candidates = self.generate_candidates_removal_minimum_spanning_tree(adj)
+            else:
+                candidates = self.generate_candidates_removal(adj, seed)
+        elif attack_type == 'add':
+            assert n_candidates, 'please specify the value of `n_candidates`, ' + 'i.e. how many candiate you want to genereate for addition'
+            candidates = self.generate_candidates_addition(adj, n_candidates, seed)
+        else:
+            raise NotImplementedError
+        if self.type == 'random':
+            top_flips = self.random_top_flips(candidates, n_perturbations, seed)
+        elif self.type == 'eigencentrality':
+            top_flips = self.eigencentrality_top_flips(adj, candidates, n_perturbations)
+        elif self.type == 'degree':
+            top_flips = self.degree_top_flips(adj, candidates, n_perturbations, complement=False)
+        else:
+            raise NotImplementedError
+        assert len(top_flips) == n_perturbations
+        modified_adj = self.flip_candidates(adj, top_flips)
+        self.check_adj(modified_adj)
+        self.modified_adj = modified_adj
+
+    def random_top_flips(self, candidates, n_perturbations, seed=None):
+        """Selects (n_perturbations) number of flips at random.
+
+        :param candidates: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
+        :param n_perturbations: int
+            Number of flips to select
+        :param seed: int
+            Random seed
+        :return: np.ndarray, shape [?, 2]
+            The top edge flips from the candidate set
+        """
+        if seed is not None:
+            np.random.seed(seed)
+        return candidates[np.random.permutation(len(candidates))[:n_perturbations]]
+
+    def eigencentrality_top_flips(self, adj, candidates, n_perturbations):
+        """Selects the top (n_perturbations) number of flips using eigencentrality score of the edges.
+        Applicable only when removing edges.
+
+        :param adj: sp.spmatrix
+            The graph represented as a sparse scipy matrix
+        :param candidates: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
+        :param n_perturbations: int
+            Number of flips to select
+        :return: np.ndarray, shape [?, 2]
+            The top edge flips from the candidate set
+        """
+        edges = np.column_stack(sp.triu(adj, 1).nonzero())
+        line_graph = construct_line_graph(adj)
+        eigcentrality_scores = nx.eigenvector_centrality_numpy(nx.Graph(line_graph))
+        eigcentrality_scores = {tuple(edges[k]): eigcentrality_scores[k] for k, v in eigcentrality_scores.items()}
+        eigcentrality_scores = np.array([eigcentrality_scores[tuple(cnd)] for cnd in candidates])
+        scores_argsrt = eigcentrality_scores.argsort()
+        return candidates[scores_argsrt[-n_perturbations:]]
+
+    def degree_top_flips(self, adj, candidates, n_perturbations, complement):
+        """Selects the top (n_perturbations) number of flips using degree centrality score of the edges.
+
+        :param adj: sp.spmatrix
+            The graph represented as a sparse scipy matrix
+        :param candidates: np.ndarray, shape [?, 2]
+            Candidate set of edge flips
+        :param n_perturbations: int
+            Number of flips to select
+        :param complement: bool
+            Whether to look at the complement graph
+        :return: np.ndarray, shape [?, 2]
+            The top edge flips from the candidate set
+        """
+        if complement:
+            adj = sp.csr_matrix(1 - adj.toarray())
+        deg = adj.sum(1).A1
+        deg_argsort = (deg[candidates[:, 0]] + deg[candidates[:, 1]]).argsort()
+        return candidates[deg_argsort[-n_perturbations:]]
 
 
 class PGDAttack(BaseAttack):
+    """PGD attack for graph data.
+
+    Parameters
+    ----------
+    model :
+        model to attack. Default `None`.
+    nnodes : int
+        number of nodes in the input graph
+    loss_type: str
+        attack loss type, chosen from ['CE', 'CW']
+    feature_shape : tuple
+        shape of the input node features
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.global_attack import PGDAttack
+    >>> from deeprobust.graph.utils import preprocess
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False) # conver to tensor
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Victim Model
+    >>> victim_model = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                        nhid=16, dropout=0.5, weight_decay=5e-4, device='cpu').to('cpu')
+    >>> victim_model.fit(features, adj, labels, idx_train)
+    >>> # Setup Attack Model
+    >>> model = PGDAttack(model=victim_model, nnodes=adj.shape[0], loss_type='CE', device='cpu').to('cpu')
+    >>> model.attack(features, adj, labels, idx_train, n_perturbations=10)
+    >>> modified_adj = model.modified_adj
+
+    """
 
     def __init__(self, model=None, nnodes=None, loss_type='CE', feature_shape=None, attack_structure=True, attack_features=False, device='cpu'):
         super(PGDAttack, self).__init__(model, nnodes, attack_structure, attack_features, device)
@@ -1466,12 +3211,30 @@ class PGDAttack(BaseAttack):
             assert True, 'Topology Attack does not support attack feature'
         self.complementary = None
 
-    def attack(self, ori_features, ori_adj, labels, idx_train, perturbations):
+    def attack(self, ori_features, ori_adj, labels, idx_train, n_perturbations, epochs=200, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features :
+            Original (unperturbed) node feature matrix
+        ori_adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        epochs:
+            number of training epochs
+
+        """
         victim_model = self.surrogate
         self.sparse_features = sp.issparse(ori_features)
         ori_adj, ori_features, labels = utils.to_tensor(ori_adj, ori_features, labels, device=self.device)
         victim_model.eval()
-        epochs = 200
         for t in tqdm(range(epochs)):
             modified_adj = self.get_modified_adj(ori_adj)
             adj_norm = utils.normalize_adj_tensor(modified_adj)
@@ -1484,27 +3247,27 @@ class PGDAttack(BaseAttack):
             if self.loss_type == 'CW':
                 lr = 0.1 / np.sqrt(t + 1)
                 self.adj_changes.data.add_(lr * adj_grad)
-            self.projection(perturbations)
-        self.random_sample(ori_adj, ori_features, labels, idx_train, perturbations)
+            self.projection(n_perturbations)
+        self.random_sample(ori_adj, ori_features, labels, idx_train, n_perturbations)
         self.modified_adj = self.get_modified_adj(ori_adj).detach()
+        self.check_adj_tensor(self.modified_adj)
 
-    def random_sample(self, ori_adj, ori_features, labels, idx_train, perturbations):
+    def random_sample(self, ori_adj, ori_features, labels, idx_train, n_perturbations):
         K = 20
         best_loss = -1000
         victim_model = self.surrogate
+        victim_model.eval()
         with torch.no_grad():
-            s = self.adj_changes.cpu().numpy()
+            s = self.adj_changes.cpu().detach().numpy()
             for i in range(K):
                 sampled = np.random.binomial(1, s)
-                None
-                if sampled.sum() > perturbations:
+                if sampled.sum() > n_perturbations:
                     continue
                 self.adj_changes.data.copy_(torch.tensor(sampled))
                 modified_adj = self.get_modified_adj(ori_adj)
                 adj_norm = utils.normalize_adj_tensor(modified_adj)
                 output = victim_model(ori_features, adj_norm)
                 loss = self._loss(output[idx_train], labels[idx_train])
-                None
                 if best_loss < loss:
                     best_loss = loss
                     best_s = sampled
@@ -1521,11 +3284,11 @@ class PGDAttack(BaseAttack):
             loss = -torch.clamp(margin, min=k).mean()
         return loss
 
-    def projection(self, perturbations):
-        if torch.clamp(self.adj_changes, 0, 1).sum() > perturbations:
+    def projection(self, n_perturbations):
+        if torch.clamp(self.adj_changes, 0, 1).sum() > n_perturbations:
             left = (self.adj_changes - 1).min()
             right = self.adj_changes.max()
-            miu = self.bisection(left, right, perturbations, epsilon=1e-05)
+            miu = self.bisection(left, right, n_perturbations, epsilon=1e-05)
             self.adj_changes.data.copy_(torch.clamp(self.adj_changes.data - miu, min=0, max=1))
         else:
             self.adj_changes.data.copy_(torch.clamp(self.adj_changes.data, min=0, max=1))
@@ -1534,16 +3297,16 @@ class PGDAttack(BaseAttack):
         if self.complementary is None:
             self.complementary = torch.ones_like(ori_adj) - torch.eye(self.nnodes) - ori_adj - ori_adj
         m = torch.zeros((self.nnodes, self.nnodes))
-        tril_indices = torch.tril_indices(row=self.nnodes - 1, col=self.nnodes - 1, offset=0)
+        tril_indices = torch.tril_indices(row=self.nnodes, col=self.nnodes, offset=-1)
         m[tril_indices[0], tril_indices[1]] = self.adj_changes
         m = m + m.t()
         modified_adj = self.complementary * m + ori_adj
         return modified_adj
 
-    def bisection(self, a, b, perturbations, epsilon):
+    def bisection(self, a, b, n_perturbations, epsilon):
 
         def func(x):
-            return torch.clamp(self.adj_changes - x, 0, 1).sum() - perturbations
+            return torch.clamp(self.adj_changes - x, 0, 1).sum() - n_perturbations
         miu = a
         while b - a >= epsilon:
             miu = (a + b) / 2
@@ -1557,11 +3320,70 @@ class PGDAttack(BaseAttack):
 
 
 class MinMax(PGDAttack):
+    """MinMax attack for graph data.
+
+    Parameters
+    ----------
+    model :
+        model to attack. Default `None`.
+    nnodes : int
+        number of nodes in the input graph
+    loss_type: str
+        attack loss type, chosen from ['CE', 'CW']
+    feature_shape : tuple
+        shape of the input node features
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.global_attack import MinMax
+    >>> from deeprobust.graph.utils import preprocess
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False) # conver to tensor
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Victim Model
+    >>> victim_model = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                        nhid=16, dropout=0.5, weight_decay=5e-4, device='cpu').to('cpu')
+    >>> victim_model.fit(features, adj, labels, idx_train)
+    >>> # Setup Attack Model
+    >>> model = MinMax(model=victim_model, nnodes=adj.shape[0], loss_type='CE', device='cpu').to('cpu')
+    >>> model.attack(features, adj, labels, idx_train, n_perturbations=10)
+    >>> modified_adj = model.modified_adj
+
+    """
 
     def __init__(self, model=None, nnodes=None, loss_type='CE', feature_shape=None, attack_structure=True, attack_features=False, device='cpu'):
         super(MinMax, self).__init__(model, nnodes, loss_type, feature_shape, attack_structure, attack_features, device=device)
 
-    def attack(self, ori_features, ori_adj, labels, idx_train, perturbations):
+    def attack(self, ori_features, ori_adj, labels, idx_train, n_perturbations, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features :
+            Original (unperturbed) node feature matrix
+        ori_adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        epochs:
+            number of training epochs
+
+        """
         victim_model = self.surrogate
         self.sparse_features = sp.issparse(ori_features)
         ori_adj, ori_features, labels = utils.to_tensor(ori_adj, ori_features, labels, device=self.device)
@@ -1589,8 +3411,8 @@ class MinMax(PGDAttack):
             if self.loss_type == 'CW':
                 lr = 0.1 / np.sqrt(t + 1)
                 self.adj_changes.data.add_(lr * adj_grad)
-            self.projection(perturbations)
-        self.random_sample(ori_adj, ori_features, labels, idx_train, perturbations)
+            self.projection(n_perturbations)
+        self.random_sample(ori_adj, ori_features, labels, idx_train, n_perturbations)
         self.modified_adj = self.get_modified_adj(ori_adj).detach()
 
 
@@ -1609,7 +3431,7 @@ class GraphNormTool(object):
         self.gm = gm
         g = StaticGraph.graph
         edges = np.array(g.edges(), dtype=np.int64)
-        rev_edges = np.array([edges[:, (1)], edges[:, (0)]], dtype=np.int64)
+        rev_edges = np.array([edges[:, 1], edges[:, 0]], dtype=np.int64)
         edges = np.hstack((edges.T, rev_edges))
         idxes = torch.LongTensor(edges)
         values = torch.ones(idxes.size()[1])
@@ -1766,7 +3588,7 @@ class QNetNode(nn.Module):
                     merged_linear = node_linear + input_message
                     node_embed = F.relu(merged_linear)
                     lv += 1
-                target_embed = node_embed[(target_nodes[i]), :].view(-1, 1)
+                target_embed = node_embed[target_nodes[i], :].view(-1, 1)
                 if region is not None:
                     node_embed = node_embed[region]
                 graph_embed = torch.mean(node_embed, dim=0, keepdim=True)
@@ -1777,7 +3599,7 @@ class QNetNode(nn.Module):
                         act_idx = region.index(actions[i])
                     else:
                         act_idx = actions[i]
-                    node_embed = node_embed[(act_idx), :].view(1, -1)
+                    node_embed = node_embed[act_idx, :].view(1, -1)
                 embed_s_a = torch.cat((node_embed, graph_embed), dim=1)
                 if self.mlp_hidden:
                     embed_s_a = F.relu(self.linear_1(embed_s_a))
@@ -1810,35 +3632,90 @@ class NStepQNetNode(nn.Module):
 
 
 class FGA(BaseAttack):
+    """FGA/FGSM.
+
+    Parameters
+    ----------
+    model :
+        model to attack
+    nnodes : int
+        number of nodes in the input graph
+    feature_shape : tuple
+        shape of the input node features
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.targeted_attack import FGA
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Surrogate model
+    >>> surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                    nhid=16, dropout=0, with_relu=False, with_bias=False, device='cpu').to('cpu')
+    >>> surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    >>> # Setup Attack Model
+    >>> target_node = 0
+    >>> model = FGA(surrogate, nnodes=adj.shape[0], attack_structure=True, attack_features=False, device='cpu').to('cpu')
+    >>> # Attack
+    >>> model.attack(features, adj, labels, idx_train, target_node, n_perturbations=5)
+    >>> modified_adj = model.modified_adj
+
+    """
 
     def __init__(self, model, nnodes, feature_shape=None, attack_structure=True, attack_features=False, device='cpu'):
         super(FGA, self).__init__(model, nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
-        if self.attack_structure:
-            self.adj_changes = Parameter(torch.FloatTensor(nnodes))
-            self.adj_changes.data.fill_(0)
         assert not self.attack_features, 'not support attacking features'
         if self.attack_features:
             self.feature_changes = Parameter(torch.FloatTensor(feature_shape))
             self.feature_changes.data.fill_(0)
 
-    def attack(self, features, adj, labels, idx_train, target_node, n_perturbations):
-        modified_adj = adj.todense()
-        features = features.todense()
-        modified_adj, features, labels = utils.to_tensor(modified_adj, features, labels, device=self.device)
+    def attack(self, ori_features, ori_adj, labels, idx_train, target_node, n_perturbations, verbose=False, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features : scipy.sparse.csr_matrix
+            Original (unperturbed) adjacency matrix
+        ori_adj : scipy.sparse.csr_matrix
+            Original (unperturbed) node feature matrix
+        labels :
+            node labels
+        idx_train:
+            training node indices
+        target_node : int
+            target node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        """
+        modified_adj = ori_adj.todense()
+        modified_features = ori_features.todense()
+        modified_adj, modified_features, labels = utils.to_tensor(modified_adj, modified_features, labels, device=self.device)
         self.surrogate.eval()
-        None
+        if verbose == True:
+            None
+        pseudo_labels = self.surrogate.predict().detach().argmax(1)
+        pseudo_labels[idx_train] = labels[idx_train]
+        modified_adj.requires_grad = True
         for i in range(n_perturbations):
-            modified_row = modified_adj[target_node] + self.adj_changes
-            modified_adj[target_node] = modified_row
             adj_norm = utils.normalize_adj_tensor(modified_adj)
             if self.attack_structure:
-                output = self.surrogate(features, adj_norm)
-                loss = F.nll_loss(output[idx_train], labels[idx_train])
-                grad = torch.autograd.grad(loss, self.adj_changes, retain_graph=True)[0]
-                grad = grad * (-2 * modified_row + 1)
-                grad[target_node] = 0
+                output = self.surrogate(modified_features, adj_norm)
+                loss = F.nll_loss(output[[target_node]], pseudo_labels[[target_node]])
+                grad = torch.autograd.grad(loss, modified_adj)[0]
+                grad = (grad[target_node] + grad[:, target_node]) * (-2 * modified_adj[target_node] + 1)
+                grad[target_node] = -10
                 grad_argmax = torch.argmax(grad)
-            value = -2 * modified_row[grad_argmax] + 1
+            value = -2 * modified_adj[target_node][grad_argmax] + 1
             modified_adj.data[target_node][grad_argmax] += value
             modified_adj.data[grad_argmax][target_node] += value
             if self.attack_features:
@@ -1847,6 +3724,181 @@ class FGA(BaseAttack):
         modified_adj = sp.csr_matrix(modified_adj)
         self.check_adj(modified_adj)
         self.modified_adj = modified_adj
+
+
+class IGAttack(BaseAttack):
+    """IGAttack: IG-FGSM. Adversarial Examples on Graph Data: Deep Insights into Attack and Defense, https://arxiv.org/pdf/1903.01610.pdf.
+
+    Parameters
+    ----------
+    model :
+        model to attack
+    nnodes : int
+        number of nodes in the input graph
+    feature_shape : tuple
+        shape of the input node features
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.targeted_attack import IGAttack
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Surrogate model
+    >>> surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                    nhid=16, dropout=0, with_relu=False, with_bias=False, device='cpu').to('cpu')
+    >>> surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    >>> # Setup Attack Model
+    >>> target_node = 0
+    >>> model = IGAttack(surrogate, nnodes=adj.shape[0], attack_structure=True, attack_features=True, device='cpu').to('cpu')
+    >>> # Attack
+    >>> model.attack(features, adj, labels, idx_train, target_node, n_perturbations=5, steps=10)
+    >>> modified_adj = model.modified_adj
+    >>> modified_features = model.modified_features
+
+    """
+
+    def __init__(self, model, nnodes=None, feature_shape=None, attack_structure=True, attack_features=True, device='cpu'):
+        super(IGAttack, self).__init__(model, nnodes, attack_structure, attack_features, device)
+        assert attack_features or attack_structure, 'attack_features or attack_structure cannot be both False'
+        self.modified_adj = None
+        self.modified_features = None
+        self.target_node = None
+
+    def attack(self, ori_features, ori_adj, labels, idx_train, target_node, n_perturbations, steps=10, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features :
+            Original (unperturbed) node feature matrix
+        ori_adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train:
+            training nodes indices
+        target_node : int
+            target node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        steps : int
+            steps for computing integrated gradients
+        """
+        self.surrogate.eval()
+        self.target_node = target_node
+        modified_adj = ori_adj.todense()
+        modified_features = ori_features.todense()
+        adj, features, labels = utils.to_tensor(modified_adj, modified_features, labels, device=self.device)
+        adj_norm = utils.normalize_adj_tensor(adj)
+        pseudo_labels = self.surrogate.predict().detach().argmax(1)
+        pseudo_labels[idx_train] = labels[idx_train]
+        self.pseudo_labels = pseudo_labels
+        s_e = np.zeros(adj.shape[1])
+        s_f = np.zeros(features.shape[1])
+        if self.attack_structure:
+            s_e = self.calc_importance_edge(features, adj_norm, labels, steps)
+        if self.attack_features:
+            s_f = self.calc_importance_feature(features, adj_norm, labels, steps)
+        for t in range(n_perturbations):
+            s_e_max = np.argmax(s_e)
+            s_f_max = np.argmax(s_f)
+            if s_e[s_e_max] >= s_f[s_f_max]:
+                if self.attack_structure:
+                    value = np.abs(1 - modified_adj[target_node, s_e_max])
+                    modified_adj[target_node, s_e_max] = value
+                    modified_adj[s_e_max, target_node] = value
+                    s_e[s_e_max] = 0
+                else:
+                    raise Exception("""No posisble perturbation on the structure can be made!
+                            See https://github.com/DSE-MSU/DeepRobust/issues/42 for more details.""")
+            elif self.attack_features:
+                modified_features[target_node, s_f_max] = np.abs(1 - modified_features[target_node, s_f_max])
+                s_f[s_f_max] = 0
+            else:
+                raise Exception("""No posisble perturbation on the features can be made!
+                            See https://github.com/DSE-MSU/DeepRobust/issues/42 for more details.""")
+        self.modified_adj = sp.csr_matrix(modified_adj)
+        self.modified_features = sp.csr_matrix(modified_features)
+        self.check_adj(modified_adj)
+
+    def calc_importance_edge(self, features, adj_norm, labels, steps):
+        """Calculate integrated gradient for edges. Although I think the the gradient should be
+        with respect to adj instead of adj_norm, but the calculation is too time-consuming. So I
+        finally decided to calculate the gradient of loss with respect to adj_norm
+        """
+        baseline_add = adj_norm.clone()
+        baseline_remove = adj_norm.clone()
+        baseline_add.data[self.target_node] = 1
+        baseline_remove.data[self.target_node] = 0
+        adj_norm.requires_grad = True
+        integrated_grad_list = []
+        i = self.target_node
+        for j in tqdm(range(adj_norm.shape[1])):
+            if adj_norm[i][j]:
+                scaled_inputs = [(baseline_remove + float(k) / steps * (adj_norm - baseline_remove)) for k in range(0, steps + 1)]
+            else:
+                scaled_inputs = [(baseline_add - float(k) / steps * (baseline_add - adj_norm)) for k in range(0, steps + 1)]
+            _sum = 0
+            for new_adj in scaled_inputs:
+                output = self.surrogate(features, new_adj)
+                loss = F.nll_loss(output[[self.target_node]], self.pseudo_labels[[self.target_node]])
+                adj_grad = torch.autograd.grad(loss, adj_norm)[0]
+                adj_grad = adj_grad[i][j]
+                _sum += adj_grad
+            if adj_norm[i][j]:
+                avg_grad = (adj_norm[i][j] - 0) * _sum.mean()
+            else:
+                avg_grad = (1 - adj_norm[i][j]) * _sum.mean()
+            integrated_grad_list.append(avg_grad.detach().item())
+        integrated_grad_list[i] = 0
+        integrated_grad_list = np.array(integrated_grad_list)
+        adj = (adj_norm > 0).cpu().numpy()
+        integrated_grad_list = (-2 * adj[self.target_node] + 1) * integrated_grad_list
+        integrated_grad_list[self.target_node] = -10
+        return integrated_grad_list
+
+    def calc_importance_feature(self, features, adj_norm, labels, steps):
+        """Calculate integrated gradient for features
+        """
+        baseline_add = features.clone()
+        baseline_remove = features.clone()
+        baseline_add.data[self.target_node] = 1
+        baseline_remove.data[self.target_node] = 0
+        features.requires_grad = True
+        integrated_grad_list = []
+        i = self.target_node
+        for j in tqdm(range(features.shape[1])):
+            if features[i][j]:
+                scaled_inputs = [(baseline_add + float(k) / steps * (features - baseline_add)) for k in range(0, steps + 1)]
+            else:
+                scaled_inputs = [(baseline_remove - float(k) / steps * (baseline_remove - features)) for k in range(0, steps + 1)]
+            _sum = 0
+            for new_features in scaled_inputs:
+                output = self.surrogate(new_features, adj_norm)
+                loss = F.nll_loss(output[[self.target_node]], self.pseudo_labels[[self.target_node]])
+                feature_grad = torch.autograd.grad(loss, features)[0]
+                feature_grad = feature_grad[i][j]
+                _sum += feature_grad
+            if features[i][j]:
+                avg_grad = (features[i][j] - 0) * _sum.mean()
+            else:
+                avg_grad = (1 - features[i][j]) * _sum.mean()
+            integrated_grad_list.append(avg_grad.detach().item())
+        features = (features > 0).cpu().numpy()
+        integrated_grad_list = np.array(integrated_grad_list)
+        integrated_grad_list = (-2 * features[self.target_node] + 1) * integrated_grad_list
+        return integrated_grad_list
 
 
 def compute_alpha(n, sum_log_degrees, d_min):
@@ -1876,7 +3928,7 @@ def filter_singletons(edges, adj):
     degs = np.squeeze(np.array(np.sum(adj, 0)))
     existing_edges = np.squeeze(np.array(adj.tocsr()[tuple(edges.T)]))
     if existing_edges.size > 0:
-        edge_degrees = degs[np.array(edges)] + 2 * (1 - existing_edges[:, (None)]) - 1
+        edge_degrees = degs[np.array(edges)] + 2 * (1 - existing_edges[:, None]) - 1
     else:
         edge_degrees = degs[np.array(edges)] + 1
     zeros = edge_degrees == 0
@@ -1899,6 +3951,43 @@ def update_Sx(S_old, n_old, d_old, d_new, d_min):
 
 
 class Nettack(BaseAttack):
+    """Nettack.
+
+    Parameters
+    ----------
+    model :
+        model to attack
+    nnodes : int
+        number of nodes in the input graph
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import GCN
+    >>> from deeprobust.graph.targeted_attack import Nettack
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Surrogate model
+    >>> surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1,
+                    nhid=16, dropout=0, with_relu=False, with_bias=False, device='cpu').to('cpu')
+    >>> surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    >>> # Setup Attack Model
+    >>> target_node = 0
+    >>> model = Nettack(surrogate, nnodes=adj.shape[0], attack_structure=True, attack_features=True, device='cpu').to('cpu')
+    >>> # Attack
+    >>> model.attack(features, adj, labels, target_node, n_perturbations=5)
+    >>> modified_adj = model.modified_adj
+    >>> modified_features = model.modified_features
+
+    """
 
     def __init__(self, model, nnodes=None, attack_structure=True, attack_features=False, device='cpu'):
         super(Nettack, self).__init__(model, nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
@@ -1909,9 +3998,9 @@ class Nettack(BaseAttack):
         self.cooc_constraint = None
 
     def filter_potential_singletons(self, modified_adj):
-        """
-        Computes a mask for entries potentially leading to singleton nodes, i.e. one of the two nodes corresponding to
-        the entry have degree 1 and there is an edge between the two nodes.
+        """Computes a mask for entries potentially leading to singleton nodes, i.e.
+        one of the two nodes corresponding to the entry have degree 1 and there
+        is an edge between the two nodes.
         """
         degrees = modified_adj.sum(0)
         degree_one = degrees == 1
@@ -1926,9 +4015,37 @@ class Nettack(BaseAttack):
         W = surrogate.gc1.weight @ surrogate.gc2.weight
         return W.detach().cpu().numpy()
 
-    def attack(self, features, adj, labels, target_node, n_perturbations, direct=True, n_influencers=0, ll_cutoff=0.004, verbose=True):
-        """
-        Perform an attack on the surrogate model.
+    def attack(self, features, adj, labels, target_node, n_perturbations, direct=True, n_influencers=0, ll_cutoff=0.004, verbose=True, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features : torch.Tensor or scipy.sparse.csr_matrix
+            Origina (unperturbed) node feature matrix. Note that
+            torch.Tensor will be automatically transformed into
+            scipy.sparse.csr_matrix
+        ori_adj : torch.Tensor or scipy.sparse.csr_matrix
+            Original (unperturbed) adjacency matrix. Note that
+            torch.Tensor will be automatically transformed into
+            scipy.sparse.csr_matrix
+        labels :
+            node labels
+        target_node : int
+            target node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        direct: bool
+            whether to conduct direct attack
+        n_influencers:
+            number of influencer nodes when performing indirect attack.
+            (setting `direct` to False). When `direct` is True, it would be ignored.
+        ll_cutoff : float
+            The critical value for the likelihood ratio test of the power law distributions.
+            See the Chi square distribution with one degree of freedom. Default value 0.004
+            corresponds to a p-value of roughly 0.95.
+        verbose : bool
+            whether to show verbose logs
         """
         if self.nnodes is None:
             self.nnodes = adj.shape[0]
@@ -1999,7 +4116,7 @@ class Nettack(BaseAttack):
                 filtered_edges = self.potential_edges[singleton_filter]
                 deltas = 2 * (1 - self.modified_adj[tuple(filtered_edges.T)].toarray()[0]) - 1
                 d_edges_old = current_degree_sequence[filtered_edges]
-                d_edges_new = current_degree_sequence[filtered_edges] + deltas[:, (None)]
+                d_edges_new = current_degree_sequence[filtered_edges] + deltas[:, None]
                 new_S_d, new_n = update_Sx(current_S_d, current_n, d_edges_old, d_edges_new, d_min)
                 new_alphas = compute_alpha(new_n, new_S_d, d_min)
                 new_ll = compute_log_likelihood(new_n, new_alphas, new_S_d, d_min)
@@ -2046,6 +4163,9 @@ class Nettack(BaseAttack):
                 surrogate_losses.append(best_feature_score)
 
     def get_attacker_nodes(self, n=5, add_additional_nodes=False):
+        """Determine the influencer nodes to attack node i based on
+        the weights W and the attributes X.
+        """
         assert n < self.nnodes - 1, 'number of influencers cannot be >= number of nodes in the graph!'
         neighbors = self.ori_adj[self.target_node].nonzero()[1]
         assert self.target_node not in neighbors
@@ -2080,8 +4200,7 @@ class Nettack(BaseAttack):
         return (logits - 1000 * label_u_onehot).argmax()
 
     def feature_scores(self):
-        """
-        Compute feature scores for all possible feature changes.
+        """Compute feature scores for all possible feature changes.
         """
         if self.cooc_constraint is None:
             self.compute_cooccurrence_constraint(self.influencer_nodes)
@@ -2125,7 +4244,7 @@ class Nettack(BaseAttack):
         inv_word_degrees = np.reciprocal(word_degrees.astype(float) + 1e-08)
         sd = np.zeros([self.nnodes])
         for n in range(self.nnodes):
-            n_idx = self.modified_features[(n), :].nonzero()[1]
+            n_idx = self.modified_features[n, :].nonzero()[1]
             sd[n] = np.sum(inv_word_degrees[n_idx.tolist()])
         scores_matrix = sp.lil_matrix((self.nnodes, D))
         for n in nodes:
@@ -2134,14 +4253,13 @@ class Nettack(BaseAttack):
             nnz = common_words.nonzero()[0]
             scores = np.array([idegs[nnz == ix].sum() for ix in range(D)])
             scores_matrix[n] = scores
-        self.cooc_constraint = sp.csr_matrix(scores_matrix - 0.5 * sd[:, (None)] > 0)
+        self.cooc_constraint = sp.csr_matrix(scores_matrix - 0.5 * sd[:, None] > 0)
 
     def gradient_wrt_x(self, label):
-        return self.adj_norm.dot(self.adj_norm)[self.target_node].T.dot(self.W[:, (label)].reshape(1, -1))
+        return self.adj_norm.dot(self.adj_norm)[self.target_node].T.dot(self.W[:, label].reshape(1, -1))
 
     def reset(self):
-        """
-        Reset Nettack
+        """Reset Nettack
         """
         self.modified_adj = self.ori_adj.copy()
         self.modified_features = self.ori_features.copy()
@@ -2171,7 +4289,7 @@ class Nettack(BaseAttack):
         logits = a_hat_uv.dot(XW)
         label_onehot = np.eye(XW.shape[1])[self.label_u]
         best_wrong_class_logits = (logits - 1000 * label_onehot).max(1)
-        logits_for_correct_class = logits[:, (self.label_u)]
+        logits_for_correct_class = logits[:, self.label_u]
         struct_scores = logits_for_correct_class - best_wrong_class_logits
         return struct_scores
 
@@ -2193,37 +4311,81 @@ class Nettack(BaseAttack):
         edges_set = {tuple(x) for x in edges}
         A_hat_sq = self.adj_norm @ self.adj_norm
         values_before = A_hat_sq[target_node].toarray()[0]
-        node_ixs = np.unique(edges[:, (0)], return_index=True)[1]
+        node_ixs = np.unique(edges[:, 0], return_index=True)[1]
         twohop_ixs = np.array(A_hat_sq.nonzero()).T
         degrees = self.modified_adj.sum(0).A1 + 1
         ixs, vals = compute_new_a_hat_uv(edges, node_ixs, edges_set, twohop_ixs, values_before, degrees, potential_edges.astype(np.int32), target_node)
         ixs_arr = np.array(ixs)
-        a_hat_uv = sp.coo_matrix((vals, (ixs_arr[:, (0)], ixs_arr[:, (1)])), shape=[len(potential_edges), self.nnodes])
+        a_hat_uv = sp.coo_matrix((vals, (ixs_arr[:, 0], ixs_arr[:, 1])), shape=[len(potential_edges), self.nnodes])
         return a_hat_uv
 
 
 class RND(BaseAttack):
+    """As is described in Adversarial Attacks on Neural Networks for Graph Data (KDD'19),
+    'Rnd is an attack in which we modify the structure of the graph. Given our target node v,
+    in each step we randomly sample nodes u whose lable is different from v and
+    add the edge u,v to the graph structure
+
+    Parameters
+    ----------
+    model :
+        model to attack
+    nnodes : int
+        number of nodes in the input graph
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.targeted_attack import RND
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> # Setup Attack Model
+    >>> target_node = 0
+    >>> model = RND()
+    >>> # Attack
+    >>> model.attack(adj, labels, idx_train, target_node, n_perturbations=5)
+    >>> modified_adj = model.modified_adj
+    >>> # # You can also inject nodes
+    >>> # model.add_nodes(features, adj, labels, idx_train, target_node, n_added=10, n_perturbations=100)
+    >>> # modified_adj = model.modified_adj
+
+    """
 
     def __init__(self, model=None, nnodes=None, attack_structure=True, attack_features=False, device='cpu'):
-        """
-        As is described in Adversarial Attacks on Neural Networks for Graph Data (KDD'19),
-        'Rnd is an attack in which we modify the structure of the graph. Given our target node v,
-        in each step we randomly sample nodes u whose lable is different from v and
-        add the edge u,v to the graph structure
-
-        """
         super(RND, self).__init__(model, nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
         assert not self.attack_features, 'RND does NOT support attacking features except adding nodes'
 
-    def attack(self, adj, labels, idx_train, target_node, n_perturbations):
+    def attack(self, ori_adj, labels, idx_train, target_node, n_perturbations, **kwargs):
         """
         Randomly sample nodes u whose lable is different from v and
         add the edge u,v to the graph structure. This baseline only
         has access to true class labels in training set
+
+        Parameters
+        ----------
+        ori_adj : scipy.sparse.csr_matrix
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        idx_train :
+            node training indices
+        target_node : int
+            target node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
         """
         None
-        modified_adj = adj.tolil()
-        row = adj[target_node].todense().A1
+        modified_adj = ori_adj.tolil()
+        row = ori_adj[target_node].todense().A1
         diff_label_nodes = [x for x in idx_train if labels[x] != labels[target_node] and row[x] == 0]
         diff_label_nodes = np.random.permutation(diff_label_nodes)
         if len(diff_label_nodes) >= n_perturbations:
@@ -2232,25 +4394,24 @@ class RND(BaseAttack):
             modified_adj[changed_nodes, target_node] = 1
         else:
             changed_nodes = diff_label_nodes
-            unlabeled_nodes = [x for x in range(adj.shape[0]) if x not in idx_train and row[x] == 0]
+            unlabeled_nodes = [x for x in range(ori_adj.shape[0]) if x not in idx_train and row[x] == 0]
             unlabeled_nodes = np.random.permutation(unlabeled_nodes)
             changed_nodes = np.concatenate([changed_nodes, unlabeled_nodes[:n_perturbations - len(diff_label_nodes)]])
             modified_adj[target_node, changed_nodes] = 1
             modified_adj[changed_nodes, target_node] = 1
         self.check_adj(modified_adj)
         self.modified_adj = modified_adj
-        self.modified_features = modified_features
 
-    def add_nodes(self, features, adj, labels, idx_train, target_node, n_added=1, n_perturbations=10):
+    def add_nodes(self, features, ori_adj, labels, idx_train, target_node, n_added=1, n_perturbations=10, **kwargs):
         """
         For each added node, first connect the target node with added fake nodes.
         Then randomly connect the fake nodes with other nodes whose label is
         different from target node. As for the node feature, simply copy arbitary node
         """
         None
-        N = adj.shape[0]
+        N = ori_adj.shape[0]
         D = features.shape[1]
-        modified_adj = self.reshape_mx(adj, shape=(N + n_added, N + n_added))
+        modified_adj = self.reshape_mx(ori_adj, shape=(N + n_added, N + n_added))
         modified_features = self.reshape_mx(features, shape=(N + n_added, D))
         diff_labels = [l for l in range(labels.max() + 1) if l != labels[target_node]]
         diff_labels = np.random.permutation(diff_labels)
@@ -2270,6 +4431,1001 @@ class RND(BaseAttack):
     def reshape_mx(self, mx, shape):
         indices = mx.nonzero()
         return sp.csr_matrix((mx.data, (indices[0], indices[1])), shape=shape).tolil()
+
+
+SubGraph = namedtuple('SubGraph', ['edge_index', 'non_edge_index', 'self_loop', 'self_loop_weight', 'edge_weight', 'non_edge_weight', 'edges_all'])
+
+
+class SGAttack(BaseAttack):
+    """SGAttack proposed in `Adversarial Attack on Large Scale Graph` TKDE 2021
+    <https://arxiv.org/abs/2009.03488>
+
+    SGAttack follows these steps::
+    + training a surrogate SGC model with hop K
+    + extrack a K-hop subgraph centered at target node
+    + choose top-N attacker nodes that belong to the best wrong classes of the target node
+    + compute gradients w.r.t to the subgraph to add or remove edges iteratively
+
+    Parameters
+    ----------
+    model :
+        model to attack
+    nnodes : int
+        number of nodes in the input graph
+    attack_structure : bool
+        whether to attack graph structure
+    attack_features : bool
+        whether to attack node features
+    device: str
+        'cpu' or 'cuda'
+
+    Examples
+    --------
+
+    >>> from deeprobust.graph.data import Dataset
+    >>> from deeprobust.graph.defense import SGC
+    >>> data = Dataset(root='/tmp/', name='cora')
+    >>> adj, features, labels = data.adj, data.features, data.labels
+    >>> idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    >>> surrogate = SGC(nfeat=features.shape[1], K=3, lr=0.1,
+              nclass=labels.max().item() + 1, device='cuda')
+    >>> surrogate = surrogate.to('cuda')
+    >>> pyg_data = Dpr2Pyg(data) # convert deeprobust dataset to pyg dataset
+    >>> surrogate.fit(pyg_data, train_iters=200, patience=200, verbose=True) # train with earlystopping
+    >>> from deeprobust.graph.targeted_attack import SGAttack
+    >>> # Setup Attack Model
+    >>> target_node = 0
+    >>> model = SGAttack(surrogate, attack_structure=True, device=device)
+    >>> # Attack
+    >>> model.attack(features, adj, labels, target_node, n_perturbations=5)
+    >>> modified_adj = model.modified_adj
+    >>> modified_features = model.modified_features
+    """
+
+    def __init__(self, model, nnodes=None, attack_structure=True, attack_features=False, device='cpu'):
+        super(SGAttack, self).__init__(model=None, nnodes=nnodes, attack_structure=attack_structure, attack_features=attack_features, device=device)
+        self.target_node = None
+        self.logits = model.predict()
+        self.K = model.conv1.K
+        W = model.conv1.lin.weight
+        b = model.conv1.lin.bias
+        if b is not None:
+            b = b
+        self.weight, self.bias = W, b
+
+    @lru_cache(maxsize=1)
+    def compute_XW(self):
+        return F.linear(self.modified_features, self.weight)
+
+    def attack(self, features, adj, labels, target_node, n_perturbations, direct=True, n_influencers=3, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        features :
+            Original (unperturbed) node feature matrix
+        adj :
+            Original (unperturbed) adjacency matrix
+        labels :
+            node labels
+        target_node : int
+            target_node node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        direct: bool
+            whether to conduct direct attack
+        n_influencers : int
+            number of the top influencers to choose. For direct attack, it will set as `n_perturbations`.
+        """
+        if sp.issparse(features):
+            features = features.A
+        if not torch.is_tensor(features):
+            features = torch.tensor(features, device=self.device)
+        if torch.is_tensor(adj):
+            adj = utils.to_scipy(adj).csr()
+        self.modified_features = features.requires_grad_(bool(self.attack_features))
+        target_label = torch.LongTensor([labels[target_node]])
+        best_wrong_label = torch.LongTensor([(self.logits[target_node].cpu() - 1000 * torch.eye(self.logits.size(1))[target_label]).argmax()])
+        self.selfloop_degree = torch.tensor(adj.sum(1).A1 + 1, device=self.device)
+        self.target_label = target_label
+        self.best_wrong_label = best_wrong_label
+        self.n_perturbations = n_perturbations
+        self.ori_adj = adj
+        self.target_node = target_node
+        self.direct = direct
+        attacker_nodes = torch.where(torch.as_tensor(labels) == best_wrong_label)[0]
+        subgraph = self.get_subgraph(attacker_nodes, n_influencers)
+        if not direct:
+            mask = torch.logical_or(subgraph.edge_index[0] == target_node, subgraph.edge_index[1] == target_node)
+        structure_perturbations = []
+        feature_perturbations = []
+        num_features = features.shape[-1]
+        for _ in range(n_perturbations):
+            edge_grad, non_edge_grad, features_grad = self.compute_gradient(subgraph)
+            max_structure_score = max_feature_score = 0.0
+            if self.attack_structure:
+                edge_grad *= -2 * subgraph.edge_weight + 1
+                non_edge_grad *= -2 * subgraph.non_edge_weight + 1
+                min_grad = min(edge_grad.min().item(), non_edge_grad.min().item())
+                edge_grad -= min_grad
+                non_edge_grad -= min_grad
+                if not direct:
+                    edge_grad[mask] = 0.0
+                max_edge_grad, max_edge_idx = torch.max(edge_grad, dim=0)
+                max_non_edge_grad, max_non_edge_idx = torch.max(non_edge_grad, dim=0)
+                max_structure_score = max(max_edge_grad.item(), max_non_edge_grad.item())
+            if self.attack_features:
+                features_grad *= -2 * self.modified_features + 1
+                features_grad -= features_grad.min()
+                if not direct:
+                    features_grad[target_node] = 0.0
+                max_feature_grad, max_feature_idx = torch.max(features_grad.view(-1), dim=0)
+                max_feature_score = max_feature_grad.item()
+            if max_structure_score >= max_feature_score:
+                if max_edge_grad > max_non_edge_grad:
+                    best_edge = subgraph.edge_index[:, max_edge_idx]
+                    subgraph.edge_weight.data[max_edge_idx] = 0.0
+                    self.selfloop_degree[best_edge] -= 1.0
+                else:
+                    best_edge = subgraph.non_edge_index[:, max_non_edge_idx]
+                    subgraph.non_edge_weight.data[max_non_edge_idx] = 1.0
+                    self.selfloop_degree[best_edge] += 1.0
+                u, v = best_edge.tolist()
+                structure_perturbations.append((u, v))
+            else:
+                u, v = divmod(max_feature_idx.item(), num_features)
+                feature_perturbations.append((u, v))
+                self.modified_features[u, v].data.fill_(1.0 - self.modified_features[u, v].data)
+        if structure_perturbations:
+            modified_adj = adj.tolil(copy=True)
+            row, col = list(zip(*structure_perturbations))
+            modified_adj[row, col] = modified_adj[col, row] = 1 - modified_adj[row, col].A
+            modified_adj = modified_adj.tocsr(copy=False)
+            modified_adj.eliminate_zeros()
+        else:
+            modified_adj = adj.copy()
+        self.modified_adj = modified_adj
+        self.modified_features = self.modified_features.detach().cpu().numpy()
+        self.structure_perturbations = structure_perturbations
+        self.feature_perturbations = feature_perturbations
+
+    def get_subgraph(self, attacker_nodes, n_influencers=None):
+        target_node = self.target_node
+        neighbors = self.ori_adj[target_node].indices
+        sub_nodes, sub_edges = self.ego_subgraph()
+        if self.direct or n_influencers is not None:
+            influencers = [target_node]
+            attacker_nodes = np.setdiff1d(attacker_nodes, neighbors)
+        else:
+            influencers = neighbors
+        subgraph = self.subgraph_processing(influencers, attacker_nodes, sub_nodes, sub_edges)
+        if n_influencers is not None and self.attack_structure:
+            if self.direct:
+                influencers = [target_node]
+                attacker_nodes = self.get_topk_influencers(subgraph, k=self.n_perturbations + 1)
+            else:
+                influencers = neighbors
+                attacker_nodes = self.get_topk_influencers(subgraph, k=n_influencers)
+            subgraph = self.subgraph_processing(influencers, attacker_nodes, sub_nodes, sub_edges)
+        return subgraph
+
+    def get_topk_influencers(self, subgraph, k):
+        _, non_edge_grad, _ = self.compute_gradient(subgraph)
+        _, topk_nodes = torch.topk(non_edge_grad, k=k, sorted=False)
+        influencers = subgraph.non_edge_index[1][topk_nodes.cpu()]
+        return influencers.cpu().numpy()
+
+    def subgraph_processing(self, influencers, attacker_nodes, sub_nodes, sub_edges):
+        if not self.attack_structure:
+            self_loop = sub_nodes.repeat((2, 1))
+            edges_all = torch.cat([sub_edges, sub_edges[[1, 0]], self_loop], dim=1)
+            edge_weight = torch.ones(edges_all.size(1), device=self.device)
+            return SubGraph(edge_index=sub_edges, non_edge_index=None, self_loop=None, edges_all=edges_all, edge_weight=edge_weight, non_edge_weight=None, self_loop_weight=None)
+        row = np.repeat(influencers, len(attacker_nodes))
+        col = np.tile(attacker_nodes, len(influencers))
+        non_edges = np.row_stack([row, col])
+        if len(influencers) > 1:
+            mask = self.ori_adj[non_edges[0], non_edges[1]].A1 == 0
+            non_edges = non_edges[:, mask]
+        non_edges = torch.as_tensor(non_edges, device=self.device)
+        unique_nodes = np.union1d(sub_nodes.tolist(), attacker_nodes)
+        unique_nodes = torch.as_tensor(unique_nodes, device=self.device)
+        self_loop = unique_nodes.repeat((2, 1))
+        edges_all = torch.cat([sub_edges, sub_edges[[1, 0]], non_edges, non_edges[[1, 0]], self_loop], dim=1)
+        edge_weight = torch.ones(sub_edges.size(1), device=self.device).requires_grad_(bool(self.attack_structure))
+        non_edge_weight = torch.zeros(non_edges.size(1), device=self.device).requires_grad_(bool(self.attack_structure))
+        self_loop_weight = torch.ones(self_loop.size(1), device=self.device)
+        edge_index = sub_edges
+        non_edge_index = non_edges
+        self_loop = self_loop
+        subgraph = SubGraph(edge_index=edge_index, non_edge_index=non_edge_index, self_loop=self_loop, edges_all=edges_all, edge_weight=edge_weight, non_edge_weight=non_edge_weight, self_loop_weight=self_loop_weight)
+        return subgraph
+
+    def SGCCov(self, x, edge_index, edge_weight):
+        row, col = edge_index
+        for _ in range(self.K):
+            src = x[row] * edge_weight.view(-1, 1)
+            x = scatter_add(src, col, dim=-2, dim_size=x.size(0))
+        return x
+
+    def compute_gradient(self, subgraph, eps=5.0):
+        if self.attack_structure:
+            edge_weight = subgraph.edge_weight
+            non_edge_weight = subgraph.non_edge_weight
+            self_loop_weight = subgraph.self_loop_weight
+            weights = torch.cat([edge_weight, edge_weight, non_edge_weight, non_edge_weight, self_loop_weight], dim=0)
+        else:
+            weights = subgraph.edge_weight
+        weights = self.gcn_norm(subgraph.edges_all, weights, self.selfloop_degree)
+        logit = self.SGCCov(self.compute_XW(), subgraph.edges_all, weights)
+        logit = logit[self.target_node]
+        if self.bias is not None:
+            logit += self.bias
+        logit = F.log_softmax(logit.view(1, -1) / eps, dim=1)
+        loss = F.nll_loss(logit, self.target_label) - F.nll_loss(logit, self.best_wrong_label)
+        edge_grad = non_edge_grad = features_grad = None
+        if self.attack_structure and self.attack_features:
+            edge_grad, non_edge_grad, features_grad = torch.autograd.grad(loss, [edge_weight, non_edge_weight, self.modified_features], create_graph=False)
+        elif self.attack_structure:
+            edge_grad, non_edge_grad = torch.autograd.grad(loss, [edge_weight, non_edge_weight], create_graph=False)
+        else:
+            features_grad = torch.autograd.grad(loss, self.modified_features, create_graph=False)[0]
+        if self.attack_features:
+            self.compute_XW.cache_clear()
+        return edge_grad, non_edge_grad, features_grad
+
+    def ego_subgraph(self):
+        edge_index = np.asarray(self.ori_adj.nonzero())
+        edge_index = torch.as_tensor(edge_index, dtype=torch.long, device=self.device)
+        sub_nodes, sub_edges, *_ = k_hop_subgraph(int(self.target_node), self.K, edge_index)
+        sub_edges = sub_edges[:, sub_edges[0] < sub_edges[1]]
+        return sub_nodes, sub_edges
+
+    @staticmethod
+    def gcn_norm(edge_index, weights, degree):
+        row, col = edge_index
+        inv_degree = torch.pow(degree, -0.5)
+        normed_weights = weights * inv_degree[row] * inv_degree[col]
+        return normed_weights
+
+
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 20, 5, 1)
+        self.conv2 = nn.Conv2d(20, 50, 5, 1)
+        self.fc1 = nn.Linear(4 * 4 * 50, 500)
+        self.fc2 = nn.Linear(500, 10)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(-1, 4 * 4 * 50)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
+
+
+model = Net()
+
+
+class NATTACK(BaseAttack):
+    """
+    Nattack is a black box attack algorithm. 
+    """
+
+    def __init__(self, model, device='cuda'):
+        super(NATTACK, self).__init__(model, device)
+        self.model = model
+        self.device = device
+
+    def generate(self, **kwargs):
+        """
+        Call this function to generate adversarial examples.
+
+        Parameters
+        ----------
+        kwargs :
+            user defined paremeters
+        """
+        assert self.parse_params(**kwargs)
+        return attack(self.model, self.dataloader, self.classnum, self.clip_max, self.clip_min, self.epsilon, self.population, self.max_iterations, self.learning_rate, self.sigma, self.target_or_not)
+        assert self.check_type_device(self.dataloader)
+
+    def parse_params(self, dataloader, classnum, target_or_not=False, clip_max=1, clip_min=0, epsilon=0.2, population=300, max_iterations=400, learning_rate=2, sigma=0.1):
+        """parse_params.
+
+        Parameters
+        ----------
+        dataloader :
+            dataloader
+        classnum :
+            classnum
+        target_or_not :
+            target_or_not
+        clip_max :
+            maximum pixel value
+        clip_min :
+            minimum pixel value
+        epsilon :
+            perturb constraint    
+        population :
+            population
+        max_iterations :
+            maximum number of iterations
+        learning_rate :
+            learning rate
+        sigma :
+            sigma
+        """
+        self.dataloader = dataloader
+        self.classnum = classnum
+        self.target_or_not = target_or_not
+        self.clip_max = clip_max
+        self.clip_min = clip_min
+        self.epsilon = epsilon
+        self.population = population
+        self.max_iterations = max_iterations
+        self.learning_rate = learning_rate
+        self.sigma = sigma
+        return True
+
+
+class FASTPGD(BaseAttack):
+    """
+    This module is the adversarial example gererated algorithm in YOPO.
+    
+    References
+    ----------
+    Original code: https://github.com/a1600012888/YOPO-You-Only-Propagate-Once
+    """
+
+    def __init__(self, eps=6 / 255.0, sigma=3 / 255.0, nb_iter=20, norm=np.inf, DEVICE=torch.device('cpu'), mean=torch.tensor(np.array([0]).astype(np.float32)[np.newaxis, :, np.newaxis, np.newaxis]), std=torch.tensor(np.array([1.0]).astype(np.float32)[np.newaxis, :, np.newaxis, np.newaxis]), random_start=True):
+        """
+        :param eps: maximum distortion of adversarial examples
+        :param sigma: single step size
+        :param nb_iter: number of attack iterations
+        :param norm: which norm to bound the perturbations
+        """
+        self.eps = eps
+        self.sigma = sigma
+        self.nb_iter = nb_iter
+        self.norm = norm
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.DEVICE = DEVICE
+        self._mean = mean
+        self._std = std
+        self.random_start = random_start
+
+    def single_attack(self, net, inp, label, eta, target=None):
+        """
+        Given the original image and the perturbation computed so far, computes
+        a new perturbation.
+        :param net:
+        :param inp: original image
+        :param label:
+        :param eta: perturbation computed so far
+        :return: a new perturbation
+        """
+        adv_inp = inp + eta
+        pred = net(adv_inp)
+        if target is not None:
+            targets = torch.sum(pred[:, target])
+            grad_sign = torch.autograd.grad(targets, adv_in, only_inputs=True, retain_graph=False)[0].sign()
+        else:
+            loss = self.criterion(pred, label)
+            grad_sign = torch.autograd.grad(loss, adv_inp, only_inputs=True, retain_graph=False)[0].sign()
+        adv_inp = adv_inp + grad_sign * (self.sigma / self._std)
+        tmp_adv_inp = adv_inp * self._std + self._mean
+        tmp_inp = inp * self._std + self._mean
+        tmp_adv_inp = torch.clamp(tmp_adv_inp, 0, 1)
+        tmp_eta = tmp_adv_inp - tmp_inp
+        if self.norm == np.inf:
+            tmp_eta = torch.clamp(tmp_eta, -self.eps, self.eps)
+        eta = tmp_eta / self._std
+        return eta
+
+    def attack(self, net, inp, label, target=None):
+        if self.random_start:
+            eta = torch.FloatTensor(*inp.shape).uniform_(-self.eps, self.eps)
+        else:
+            eta = torch.zeros_like(inp)
+        eta = eta
+        eta = (eta - self._mean) / self._std
+        net.eval()
+        inp.requires_grad = True
+        eta.requires_grad = True
+        for i in range(self.nb_iter):
+            eta = self.single_attack(net, inp, label, eta, target)
+        adv_inp = inp + eta
+        tmp_adv_inp = adv_inp * self._std + self._mean
+        tmp_adv_inp = torch.clamp(tmp_adv_inp, 0, 1)
+        adv_inp = (tmp_adv_inp - self._mean) / self._std
+        return adv_inp
+
+    def to(self, device):
+        self.DEVICE = device
+        self._mean = self._mean
+        self._std = self._std
+        self.criterion = self.criterion
+
+
+class AdamOptimizer:
+    """Basic Adam optimizer implementation that can minimize w.r.t.
+    a single variable.
+    Parameters
+    ----------
+    shape : tuple
+        shape of the variable w.r.t. which the loss should be minimized
+    """
+
+    def __init__(self, shape):
+        self.m = np.zeros(shape)
+        self.v = np.zeros(shape)
+        self.t = 0
+
+    def __call__(self, gradient, learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-08):
+        """Updates internal parameters of the optimizer and returns
+        the change that should be applied to the variable.
+        Parameters
+        ----------
+        gradient : `np.ndarray`
+            the gradient of the loss w.r.t. to the variable
+        learning_rate: float
+            the learning rate in the current iteration
+        beta1: float
+            decay rate for calculating the exponentially
+            decaying average of past gradients
+        beta2: float
+            decay rate for calculating the exponentially
+            decaying average of past squared gradients
+        epsilon: float
+            small value to avoid division by zero
+        """
+        self.t += 1
+        self.m = beta1 * self.m + (1 - beta1) * gradient
+        self.v = beta2 * self.v + (1 - beta2) * gradient ** 2
+        bias_correction_1 = 1 - beta1 ** self.t
+        bias_correction_2 = 1 - beta2 ** self.t
+        m_hat = self.m / bias_correction_1
+        v_hat = self.v / bias_correction_2
+        return -learning_rate * m_hat / (np.sqrt(v_hat) + epsilon)
+
+
+def onehot_like(a, index, value=1):
+    """Creates an array like a, with all values
+    set to 0 except one.
+    Parameters
+    ----------
+    a : array_like
+        The returned one-hot array will have the same shape
+        and dtype as this array
+    index : int
+        The index that should be set to `value`
+    value : single value compatible with a.dtype
+        The value to set at the given index
+    Returns
+    -------
+    `numpy.ndarray`
+        One-hot array with the given value at the given
+        location and zeros everywhere else.
+    """
+    x = np.zeros_like(a)
+    x[index] = value
+    return x
+
+
+class CarliniWagner(BaseAttack):
+    """
+    C&W attack is an effective method to calcuate high-confidence adversarial examples.
+
+    References
+    ----------
+    .. [1] Carlini, N., & Wagner, D. (2017, May). Towards evaluating the robustness of neural networks. https://arxiv.org/pdf/1608.04644.pdf
+
+    This reimplementation is based on https://github.com/kkew3/pytorch-cw2
+    Copyright 2018 Kaiwen Wu
+
+    Examples
+    --------
+
+    >>> from deeprobust.image.attack.cw import CarliniWagner
+    >>> from deeprobust.image.netmodels.CNN import Net
+    >>> from deeprobust.image.config import attack_params
+
+    >>> model = Net()
+    >>> model.load_state_dict(torch.load("./trained_models/MNIST_CNN_epoch_20.pt", map_location = torch.device('cuda')))
+    >>> model.eval()
+
+    >>> x,y = datasets.MNIST()
+    >>> attack = CarliniWagner(model, device='cuda')
+    >>> AdvExArray = attack.generate(x, y, target_label = 1, classnum = 10, **attack_params['CW_MNIST])
+
+    """
+
+    def __init__(self, model, device='cuda'):
+        super(CarliniWagner, self).__init__(model, device)
+        self.model = model
+        self.device = device
+
+    def generate(self, image, label, target_label, **kwargs):
+        """
+        Call this function to generate adversarial examples.
+
+        Parameters
+        ----------
+        image :
+            original image
+        label :
+            target label
+        kwargs :
+            user defined paremeters
+        """
+        assert self.check_type_device(image, label)
+        assert self.parse_params(**kwargs)
+        self.target = target_label
+        return self.cw(self.model, self.image, self.label, self.target, self.confidence, self.clip_max, self.clip_min, self.max_iterations, self.initial_const, self.binary_search_steps, self.learning_rate)
+
+    def parse_params(self, classnum=10, confidence=0.0001, clip_max=1, clip_min=0, max_iterations=1000, initial_const=0.01, binary_search_steps=5, learning_rate=1e-05, abort_early=True):
+        """
+        Parse the user defined parameters.
+
+        Parameters
+        ----------
+        classnum :
+            number of class
+        confidence :
+            confidence
+        clip_max :
+            maximum pixel value
+        clip_min :
+            minimum pixel value
+        max_iterations :
+            maximum number of iterations
+        initial_const :
+            initialization of binary search
+        binary_search_steps :
+            step number of binary search
+        learning_rate :
+            learning rate
+        abort_early :
+            Set abort_early = True to allow early stop
+        """
+        self.classnum = classnum
+        self.confidence = confidence
+        self.clip_max = clip_max
+        self.clip_min = clip_min
+        self.max_iterations = max_iterations
+        self.initial_const = initial_const
+        self.binary_search_steps = binary_search_steps
+        self.learning_rate = learning_rate
+        self.abort_early = abort_early
+        return True
+
+    def cw(self, model, image, label, target, confidence, clip_max, clip_min, max_iterations, initial_const, binary_search_steps, learning_rate):
+        img_tanh = self.to_attack_space(image.cpu())
+        img_ori, _ = self.to_model_space(img_tanh)
+        img_ori = img_ori
+        c = initial_const
+        c_low = 0
+        c_high = np.inf
+        found_adv = False
+        last_loss = np.inf
+        for step in range(binary_search_steps):
+            w = torch.from_numpy(img_tanh.numpy())
+            optimizer = AdamOptimizer(img_tanh.shape)
+            is_adversarial = False
+            for iteration in range(max_iterations):
+                img_adv, adv_grid = self.to_model_space(w)
+                img_adv = img_adv
+                img_adv.requires_grad = True
+                output = model.get_logits(img_adv)
+                is_adversarial = self.pending_f(img_adv)
+                loss, loss_grad = self.loss_function(img_adv, c, self.target, img_ori, self.confidence, self.clip_min, self.clip_max)
+                gradient = adv_grid * loss_grad
+                w = w + torch.from_numpy(optimizer(gradient.cpu().detach().numpy(), learning_rate)).float()
+                if is_adversarial:
+                    found_adv = True
+            if found_adv:
+                c_high = c
+            else:
+                c_low = c
+            if c_high == np.inf:
+                c *= 10
+            else:
+                c = (c_high + c_low) / 2
+            if step % 10 == 0:
+                None
+            if self.abort_early == True and step % 10 == 0 and step > 100:
+                None
+                if not loss <= 0.9999 * last_loss:
+                    break
+                last_loss = loss
+        return img_adv.detach()
+
+    def loss_function(self, x_p, const, target, reconstructed_original, confidence, min_, max_):
+        """Returns the loss and the gradient of the loss w.r.t. x,
+        assuming that logits = model(x)."""
+        x_p.requires_grad = True
+        logits = self.model.get_logits(x_p)
+        targetlabel_mask = torch.from_numpy(onehot_like(np.zeros(self.classnum), target)).double()
+        secondlargest_mask = torch.from_numpy(np.ones(self.classnum)) - targetlabel_mask
+        secondlargest = np.argmax((logits.double() * secondlargest_mask).cpu().detach().numpy(), axis=1)
+        is_adv_loss = logits[0][secondlargest] - logits[0][target]
+        is_adv_loss += confidence
+        if is_adv_loss == 0:
+            is_adv_loss_grad = 0
+        else:
+            is_adv_loss.backward()
+            is_adv_loss_grad = x_p.grad
+        is_adv_loss = max(0, is_adv_loss)
+        s = max_ - min_
+        squared_l2_distance = np.sum(((x_p - reconstructed_original) ** 2).cpu().detach().numpy()) / s ** 2
+        total_loss = squared_l2_distance + const * is_adv_loss
+        squared_l2_distance_grad = 2 / s ** 2 * (x_p - reconstructed_original)
+        total_loss_grad = squared_l2_distance_grad + const * is_adv_loss_grad
+        return total_loss, total_loss_grad
+
+    def pending_f(self, x_p):
+        """Pending is the loss function is less than 0
+        """
+        targetlabel_mask = torch.from_numpy(onehot_like(np.zeros(self.classnum), self.target))
+        secondlargest_mask = torch.from_numpy(np.ones(self.classnum)) - targetlabel_mask
+        targetlabel_mask = targetlabel_mask
+        secondlargest_mask = secondlargest_mask
+        Zx_i = np.max((self.model.get_logits(x_p).double() * secondlargest_mask).cpu().detach().numpy())
+        Zx_t = np.max((self.model.get_logits(x_p).double() * targetlabel_mask).cpu().detach().numpy())
+        if Zx_i - Zx_t < -self.confidence:
+            return True
+        else:
+            return False
+
+    def to_attack_space(self, x):
+        x = x.detach()
+        a = (self.clip_min + self.clip_max) / 2
+        b = (self.clip_max - self.clip_min) / 2
+        x = (x - a) / b
+        x = x * 0.999999
+        return np.arctanh(x)
+
+    def to_model_space(self, x):
+        """Transforms an input from the attack space
+        to the model space. This transformation and
+        the returned gradient are elementwise."""
+        x = np.tanh(x)
+        grad = 1 - np.square(x)
+        a = (self.clip_min + self.clip_max) / 2
+        b = (self.clip_max - self.clip_min) / 2
+        x = x * b + a
+        grad = grad * b
+        return x, grad
+
+
+def zero_gradients(x):
+    if isinstance(x, torch.Tensor):
+        if x.grad is not None:
+            x.grad.detach_()
+            x.grad.zero_()
+        elif isinstance(x, collections.abc.Iterable):
+            for elem in x:
+                zero_gradients(elem)
+
+
+def deepfool(model, image, num_classes, overshoot, max_iter, device):
+    f_image = model.forward(image).data.cpu().numpy().flatten()
+    output = np.array(f_image).flatten().argsort()[::-1]
+    output = output[0:num_classes]
+    label = output[0]
+    input_shape = image.cpu().numpy().shape
+    x = copy.deepcopy(image).requires_grad_(True)
+    w = np.zeros(input_shape)
+    r_tot = np.zeros(input_shape)
+    fs = model.forward(x)
+    fs_list = [fs[0, output[k]] for k in range(num_classes)]
+    current_pred_label = label
+    for i in range(max_iter):
+        pert = np.inf
+        fs[0, output[0]].backward(retain_graph=True)
+        grad_orig = x.grad.data.cpu().numpy().copy()
+        for k in range(1, num_classes):
+            zero_gradients(x)
+            fs[0, output[k]].backward(retain_graph=True)
+            cur_grad = x.grad.data.cpu().numpy().copy()
+            w_k = cur_grad - grad_orig
+            f_k = (fs[0, output[k]] - fs[0, output[0]]).data.cpu().numpy()
+            pert_k = abs(f_k) / np.linalg.norm(w_k.flatten())
+            if pert_k < pert:
+                pert = pert_k
+                w = w_k
+        r_i = (pert + 0.0001) * w / np.linalg.norm(w)
+        r_tot = np.float32(r_tot + r_i)
+        pert_image = image + (1 + overshoot) * torch.from_numpy(r_tot)
+        x = pert_image.detach().requires_grad_(True)
+        fs = model.forward(x)
+        if not np.argmax(fs.data.cpu().numpy().flatten()) == label:
+            break
+    r_tot = (1 + overshoot) * r_tot
+    return pert_image, r_tot, i
+
+
+class DeepFool(BaseAttack):
+    """DeepFool attack.
+    """
+
+    def __init__(self, model, device='cuda'):
+        super(DeepFool, self).__init__(model, device)
+        self.model = model
+        self.device = device
+
+    def generate(self, image, label, **kwargs):
+        """
+        Call this function to generate adversarial examples.
+
+        Parameters
+        ----------
+        image : 1*H*W*3
+            original image
+        label : int
+            target label
+        kwargs :
+            user defined paremeters
+
+        Returns
+        -------
+        adv_img :
+            adversarial examples
+        """
+        assert self.check_type_device(image, label)
+        is_cuda = torch.cuda.is_available()
+        if is_cuda and self.device == 'cuda':
+            self.image = image
+            self.model = self.model
+        else:
+            self.image = image
+        assert self.parse_params(**kwargs)
+        adv_img, self.r, self.ite = deepfool(self.model, self.image, self.num_classes, self.overshoot, self.max_iteration, self.device)
+        return adv_img
+
+    def getpert(self):
+        return self.r, self.ite
+
+    def parse_params(self, num_classes=10, overshoot=0.02, max_iteration=50):
+        """
+        Parse the user defined parameters
+
+        Parameters
+        ----------
+        num_classes : int
+            limits the number of classes to test against. (default = 10)
+        overshoot : float
+            used as a termination criterion to prevent vanishing updates (default = 0.02).
+        max_iteration : int
+            maximum number of iteration for deepfool (default = 50)
+        """
+        self.num_classes = num_classes
+        self.overshoot = overshoot
+        self.max_iteration = max_iteration
+        return True
+
+
+def fgm(model, image, label, epsilon, order, clip_min, clip_max, device):
+    imageArray = image.cpu().detach().numpy()
+    X_fgsm = torch.tensor(imageArray)
+    X_fgsm.requires_grad = True
+    opt = optim.SGD([X_fgsm], lr=0.001)
+    opt.zero_grad()
+    loss = nn.CrossEntropyLoss()(model(X_fgsm), label)
+    loss.backward()
+    if order == np.inf:
+        d = epsilon * X_fgsm.grad.data.sign()
+    elif order == 2:
+        gradient = X_fgsm.grad
+        d = torch.zeros(gradient.shape, device=device)
+        for i in range(gradient.shape[0]):
+            norm_grad = gradient[i].data / LA.norm(gradient[i].data.cpu().numpy())
+            d[i] = norm_grad * epsilon
+    else:
+        raise ValueError('Other p norms may need other algorithms')
+    x_adv = X_fgsm + d
+    if clip_max == None and clip_min == None:
+        clip_max = np.inf
+        clip_min = -np.inf
+    x_adv = torch.clamp(x_adv, clip_min, clip_max)
+    return x_adv
+
+
+class FGSM(BaseAttack):
+    """
+    FGSM attack is an one step gradient descent method.
+
+    """
+
+    def __init__(self, model, device='cuda'):
+        super(FGSM, self).__init__(model, device)
+
+    def generate(self, image, label, **kwargs):
+        """"
+        Call this function to generate FGSM adversarial examples.
+
+        Parameters
+        ----------
+        image :
+            original image
+        label :
+            target label
+        kwargs :
+            user defined paremeters
+        """
+        label = label.type(torch.FloatTensor)
+        assert self.check_type_device(image, label)
+        assert self.parse_params(**kwargs)
+        return fgm(self.model, self.image, self.label, self.epsilon, self.order, self.clip_min, self.clip_max, self.device)
+
+    def parse_params(self, epsilon=0.2, order=np.inf, clip_max=None, clip_min=None):
+        """
+        Parse the user defined parameters.
+        :param model: victim model
+        :param image: original attack images
+        :param label: target labels
+        :param epsilon: perturbation constraint
+        :param order: constraint type
+        :param clip_min: minimum pixel value
+        :param clip_max: maximum pixel value
+        :param device: device type, cpu or gpu
+
+        :type image: [N*C*H*W],floatTensor
+        :type label: int
+        :type epsilon: float
+        :type order: int
+        :type clip_min: float
+        :type clip_max: float
+        :type device: string('cpu' or 'cuda')
+
+        :return: perturbed images
+        :rtype: [N*C*H*W], floatTensor
+
+        """
+        self.epsilon = epsilon
+        self.order = order
+        self.clip_max = clip_max
+        self.clip_min = clip_min
+        return True
+
+
+def optimize(model, image, label, target_label, bounds, epsilon, maxiter, class_num, device):
+    x_t = image
+    x0 = image[0].detach().numpy()
+    min_, max_ = bounds
+    target_dist = torch.tensor(target_label)
+    target_dist = target_dist.unsqueeze_(0).long()
+    shape = x0.shape
+    dtype = x0.dtype
+    x0 = x0.flatten().astype(np.float64)
+    n = len(x0)
+    bounds = [(min_, max_)] * n
+
+    def loss(x, c):
+        v1 = torch.norm(torch.from_numpy(x0) - x) ** 2
+        x = torch.tensor(x.astype(dtype).reshape(shape))
+        x = x.unsqueeze_(0).float()
+        predict = model(x)
+        v2 = F.nll_loss(predict, target_dist)
+        v = c * v1 + v2
+        return np.float64(v)
+
+    def lbfgs_b(c):
+        approx_grad_eps = (max_ - min_) / 100
+        None
+        optimize_output, f, d = so.fmin_l_bfgs_b(loss, x0, args=(c,), approx_grad=True, bounds=bounds, m=15, maxiter=maxiter, factr=10000000000.0, maxls=5, epsilon=approx_grad_eps, iprint=11)
+        None
+        if np.amax(optimize_output) > max_ or np.amin(optimize_output) < min_:
+            logging.info('Input out of bounds (min, max = {}, {}). Performing manual clip.'.format(np.amin(optimize_output), np.amax(optimize_output)))
+            optimize_output = np.clip(optimize_output, min_, max_)
+        optimize_output = optimize_output.reshape(shape).astype(dtype)
+        optimize_output = torch.from_numpy(optimize_output)
+        optimize_output = optimize_output.unsqueeze_(0).float()
+        predict1 = model(optimize_output)
+        label = predict1.argmax(dim=1, keepdim=True)
+        if label == target_label:
+            is_adversarial = True
+            None
+        else:
+            is_adversarial = False
+            None
+        return optimize_output, is_adversarial
+    c = epsilon
+    None
+    for i in range(30):
+        c = 2 * c
+        x_new, is_adversarial = lbfgs_b(c)
+        if is_adversarial == False:
+            break
+    None
+    None
+    x_new, is_adversarial = lbfgs_b(0)
+    if is_adversarial == False:
+        None
+        return
+    None
+    c_low = 0
+    c_high = c
+    while c_high - c_low >= epsilon:
+        None
+        c_half = (c_low + c_high) / 2
+        x_new, is_adversarial = lbfgs_b(c_half)
+        if is_adversarial:
+            c_low = c_half
+        else:
+            c_high = c_half
+    x_new, is_adversarial = lbfgs_b(c_low)
+    dis = torch.norm(x_new.reshape(shape) - x0.reshape(shape)) ** 2
+    x_new = x_new.flatten().numpy()
+    mintargetfunc = loss(x_new.astype(np.float64), c_low)
+    x_new = x_new.astype(dtype)
+    x_new = x_new.reshape(shape)
+    x_new = torch.from_numpy(x_new).unsqueeze_(0).float()
+    return x_new
+
+
+class LBFGS(BaseAttack):
+    """
+    LBFGS is the first adversarial generating algorithm.
+    """
+
+    def __init__(self, model, device='cuda'):
+        super(LBFGS, self).__init__(model, device)
+
+    def generate(self, image, label, target_label, **kwargs):
+        """
+        Call this function to generate adversarial examples.
+
+        Parameters
+        ----------
+        image :
+            original image
+        label :
+            target label
+        kwargs :
+            user defined paremeters
+        """
+        assert self.check_type_device(image, label)
+        assert self.parse_params(**kwargs)
+        self.target_label = target_label
+        adv_img = optimize(self.model, self.image, self.label, self.target_label, self.bounds, self.epsilon, self.maxiter, self.class_num, self.device)
+        return adv_img
+
+    def distance(self):
+        return self.dist
+
+    def loss(self):
+        return self.loss
+
+    def parse_params(self, clip_max=1, clip_min=0, class_num=10, epsilon=1e-05, maxiter=20):
+        """
+        Parse the user defined parameters.
+
+        Parameters
+        ----------
+        clip_max :
+            maximum pixel value
+        clip_min :
+            minimum pixel value
+        class_num :
+            total number of class
+        epsilon :
+            step length for binary seach
+        maxiter :
+            maximum number of iterations
+        """
+        self.epsilon = epsilon
+        self.maxiter = maxiter
+        self.class_num = class_num
+        self.bounds = clip_min, clip_max
+        return True
 
 
 def perturb_image(xs, img):
@@ -2450,7 +5606,7 @@ class DifferentialEvolutionSolver(object):
         self.num_population_members = max(5, popsize * self.parameter_count)
         self.population_shape = self.num_population_members, self.parameter_count
         self._nfev = 0
-        if isinstance(init, string_types):
+        if isinstance(init, str):
             if init == 'latinhypercube':
                 self.init_population_lhs()
             elif init == 'random':
@@ -2469,11 +5625,11 @@ class DifferentialEvolutionSolver(object):
         """
         rng = self.random_number_generator
         segsize = 1.0 / self.num_population_members
-        samples = segsize * rng.random_sample(self.population_shape) + np.linspace(0.0, 1.0, self.num_population_members, endpoint=False)[:, (np.newaxis)]
+        samples = segsize * rng.random_sample(self.population_shape) + np.linspace(0.0, 1.0, self.num_population_members, endpoint=False)[:, np.newaxis]
         self.population = np.zeros_like(samples)
         for j in range(self.parameter_count):
             order = rng.permutation(range(self.num_population_members))
-            self.population[:, (j)] = samples[order, j]
+            self.population[:, j] = samples[order, j]
         self.population_energies = np.ones(self.num_population_members) * np.inf
         self._nfev = 0
 
@@ -2543,7 +5699,7 @@ class DifferentialEvolutionSolver(object):
         status_message = _status_message['success']
         if np.all(np.isinf(self.population_energies)):
             self._calculate_population_energies()
-        for nit in xrange(1, self.maxiter + 1):
+        for nit in range(1, self.maxiter + 1):
             try:
                 next(self)
             except StopIteration:
@@ -2592,7 +5748,7 @@ class DifferentialEvolutionSolver(object):
         lowest_energy = self.population_energies[minval]
         self.population_energies[minval] = self.population_energies[0]
         self.population_energies[0] = lowest_energy
-        self.population[([0, minval]), :] = self.population[([minval, 0]), :]
+        self.population[[0, minval], :] = self.population[[minval, 0], :]
 
     def __iter__(self):
         return self
@@ -2888,27 +6044,7 @@ def differential_evolution(func, bounds, args=(), strategy='best1bin', maxiter=1
     values. This has the effect of widening the search radius, but slowing
     convergence.
     .. versionadded:: 0.15.0
-    Examples
-    --------
-    Let us consider the problem of minimizing the Rosenbrock function. This
-    function is implemented in `rosen` in `scipy.optimize`.
-    >>> from scipy.optimize import rosen, differential_evolution
-    >>> bounds = [(0,2), (0, 2), (0, 2), (0, 2), (0, 2)]
-    >>> result = differential_evolution(rosen, bounds)
-    >>> result.x, result.fun
-    (array([1., 1., 1., 1., 1.]), 1.9216496320061384e-19)
-    Next find the minimum of the Ackley function
-    (http://en.wikipedia.org/wiki/Test_functions_for_optimization).
-    >>> from scipy.optimize import differential_evolution
-    >>> import numpy as np
-    >>> def ackley(x):
-    ...     arg1 = -0.2 * np.sqrt(0.5 * (x[0] ** 2 + x[1] ** 2))
-    ...     arg2 = 0.5 * (np.cos(2. * np.pi * x[0]) + np.cos(2. * np.pi * x[1]))
-    ...     return -20. * np.exp(arg1) - np.exp(arg2) + 20. + np.e
-    >>> bounds = [(-5, 5), (-5, 5)]
-    >>> result = differential_evolution(ackley, bounds)
-    >>> result.x, result.fun
-    (array([ 0.,  0.]), 4.4408920985006262e-16)
+
     References
     ----------
     .. [1] Storn, R and Price, K, Differential Evolution - a Simple and
@@ -2923,16 +6059,39 @@ def differential_evolution(func, bounds, args=(), strategy='best1bin', maxiter=1
 
 def predict_classes(xs, img, target_calss, net, minimize=True, device='cuda'):
     imgs_perturbed = perturb_image(xs, img.clone())
-    predictions = F.softmax(net(imgs_perturbed)).data.cpu().numpy()[:, (target_calss)]
+    predictions = F.softmax(net(imgs_perturbed)).data.cpu().numpy()[:, target_calss]
     return predictions if minimize else 1 - predictions
 
 
 class Onepixel(BaseAttack):
+    """
+    Onepixel attack is an algorithm that allow attacker to only manipulate one (or a few) pixel to mislead classifier.
+    This is a re-implementation of One pixel attack.
+    Copyright (c) 2018 Debang Li
+
+    References
+    ----------
+    Akhtar, N., & Mian, A. (2018).Threat of Adversarial Attacks on Deep Learning in Computer Vision: A Survey: A Survey. IEEE Access, 6, 14410-14430.
+
+    Reference code: https://github.com/DebangLi/one-pixel-attack-pytorch
+    """
 
     def __init__(self, model, device='cuda'):
         super(Onepixel, self).__init__(model, device)
 
     def generate(self, image, label, **kwargs):
+        """
+        Call this function to generate Onepixel adversarial examples.
+
+        Parameters
+        ----------
+        image :1*3*W*H
+            original image
+        label :
+            target label
+        kwargs :
+            user defined paremeters
+        """
         label = label.type(torch.FloatTensor)
         assert self.check_type_device(image, label)
         assert self.parse_params(**kwargs)
@@ -2942,6 +6101,26 @@ class Onepixel(BaseAttack):
         return self.adv_pred
 
     def parse_params(self, pixels=1, maxiter=100, popsize=400, samples=100, targeted_attack=False, print_log=True, target=0):
+        """
+        Parse the user-defined params.
+
+        Parameters
+        ----------
+        pixels :
+            maximum number of manipulated pixels
+        maxiter :
+            maximum number of iteration
+        popsize :
+            population size
+        samples :
+            samples
+        targeted_attack :
+            targeted attack or not
+        print_log :
+            Set print_log = True to print out details in the searching algorithm
+        target :
+            target label (if targeted attack is set to be True)
+        """
         self.pixels = pixels
         self.maxiter = maxiter
         self.popsize = popsize
@@ -2971,545 +6150,12 @@ class Onepixel(BaseAttack):
         predicted_probs = F.softmax(self.model(attack_var)).data.cpu().numpy()[0]
         predicted_class = np.argmax(predicted_probs)
         if not targeted_attack and predicted_class != label or targeted_attack and predicted_class == target_calss:
-            self.adv_pred = predict_class
+            self.adv_pred = predicted_class
             return attack_image
         return [None]
 
 
-attack = Onepixel(model, 'cuda')
-
-
-class NATTACK(BaseAttack):
-
-    def __init__(self, model, device='cuda'):
-        super(NATTACK, self).__init__(model, device)
-        self.model = model
-        self.device = device
-
-    def generate(self, **kwargs):
-        assert self.parse_params(**kwargs)
-        return attack(self.model, self.dataloader, self.classnum, self.clip_max, self.clip_min, self.epsilon, self.population, self.max_iterations, self.learning_rate, self.sigma, self.target_or_not)
-        assert self.check_type_device(self.dataloader)
-
-    def parse_params(self, dataloader, classnum, target_or_not=False, clip_max=1, clip_min=0, epsilon=0.2, population=300, max_iterations=400, learning_rate=2, sigma=0.1):
-        self.dataloader = dataloader
-        self.classnum = classnum
-        self.target_or_not = target_or_not
-        self.clip_max = clip_max
-        self.clip_min = clip_min
-        self.epsilon = epsilon
-        self.population = population
-        self.max_iterations = max_iterations
-        self.learning_rate = learning_rate
-        self.sigma = sigma
-        return True
-
-
-class FASTPGD(BaseAttack):
-
-    def __init__(self, eps=6 / 255.0, sigma=3 / 255.0, nb_iter=20, norm=np.inf, DEVICE=torch.device('cpu'), mean=torch.tensor(np.array([0]).astype(np.float32)[(np.newaxis), :, (np.newaxis), (np.newaxis)]), std=torch.tensor(np.array([1.0]).astype(np.float32)[(np.newaxis), :, (np.newaxis), (np.newaxis)]), random_start=True):
-        """
-        :param eps: maximum distortion of adversarial examples
-        :param sigma: single step size
-        :param nb_iter: number of attack iterations
-        :param norm: which norm to bound the perturbations
-        """
-        self.eps = eps
-        self.sigma = sigma
-        self.nb_iter = nb_iter
-        self.norm = norm
-        self.criterion = torch.nn.CrossEntropyLoss()
-        self.DEVICE = DEVICE
-        self._mean = mean
-        self._std = std
-        self.random_start = random_start
-
-    def single_attack(self, net, inp, label, eta, target=None):
-        """
-        Given the original image and the perturbation computed so far, computes
-        a new perturbation.
-        :param net:
-        :param inp: original image
-        :param label:
-        :param eta: perturbation computed so far
-        :return: a new perturbation
-        """
-        adv_inp = inp + eta
-        pred = net(adv_inp)
-        if target is not None:
-            targets = torch.sum(pred[:, (target)])
-            grad_sign = torch.autograd.grad(targets, adv_in, only_inputs=True, retain_graph=False)[0].sign()
-        else:
-            loss = self.criterion(pred, label)
-            grad_sign = torch.autograd.grad(loss, adv_inp, only_inputs=True, retain_graph=False)[0].sign()
-        adv_inp = adv_inp + grad_sign * (self.sigma / self._std)
-        tmp_adv_inp = adv_inp * self._std + self._mean
-        tmp_inp = inp * self._std + self._mean
-        tmp_adv_inp = torch.clamp(tmp_adv_inp, 0, 1)
-        tmp_eta = tmp_adv_inp - tmp_inp
-        if self.norm == np.inf:
-            tmp_eta = torch.clamp(tmp_eta, -self.eps, self.eps)
-        eta = tmp_eta / self._std
-        return eta
-
-    def attack(self, net, inp, label, target=None):
-        if self.random_start:
-            eta = torch.FloatTensor(*inp.shape).uniform_(-self.eps, self.eps)
-        else:
-            eta = torch.zeros_like(inp)
-        eta = eta
-        eta = (eta - self._mean) / self._std
-        net.eval()
-        inp.requires_grad = True
-        eta.requires_grad = True
-        for i in range(self.nb_iter):
-            eta = self.single_attack(net, inp, label, eta, target)
-        adv_inp = inp + eta
-        tmp_adv_inp = adv_inp * self._std + self._mean
-        tmp_adv_inp = torch.clamp(tmp_adv_inp, 0, 1)
-        adv_inp = (tmp_adv_inp - self._mean) / self._std
-        return adv_inp
-
-    def to(self, device):
-        self.DEVICE = device
-        self._mean = self._mean
-        self._std = self._std
-        self.criterion = self.criterion
-
-
-class AdamOptimizer:
-    """Basic Adam optimizer implementation that can minimize w.r.t.
-    a single variable. 
-    Parameters
-    ----------
-    shape : tuple
-        shape of the variable w.r.t. which the loss should be minimized
-    """
-
-    def __init__(self, shape):
-        self.m = np.zeros(shape)
-        self.v = np.zeros(shape)
-        self.t = 0
-
-    def __call__(self, gradient, learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-08):
-        """Updates internal parameters of the optimizer and returns
-        the change that should be applied to the variable.
-        Parameters
-        ----------
-        gradient : `np.ndarray`
-            the gradient of the loss w.r.t. to the variable
-        learning_rate: float
-            the learning rate in the current iteration
-        beta1: float
-            decay rate for calculating the exponentially
-            decaying average of past gradients
-        beta2: float
-            decay rate for calculating the exponentially
-            decaying average of past squared gradients
-        epsilon: float
-            small value to avoid division by zero
-        """
-        self.t += 1
-        self.m = beta1 * self.m + (1 - beta1) * gradient
-        self.v = beta2 * self.v + (1 - beta2) * gradient ** 2
-        bias_correction_1 = 1 - beta1 ** self.t
-        bias_correction_2 = 1 - beta2 ** self.t
-        m_hat = self.m / bias_correction_1
-        v_hat = self.v / bias_correction_2
-        return -learning_rate * m_hat / (np.sqrt(v_hat) + epsilon)
-
-
-def onehot_like(a, index, value=1):
-    """Creates an array like a, with all values
-    set to 0 except one.
-    Parameters
-    ----------
-    a : array_like
-        The returned one-hot array will have the same shape
-        and dtype as this array
-    index : int
-        The index that should be set to `value`
-    value : single value compatible with a.dtype
-        The value to set at the given index
-    Returns
-    -------
-    `numpy.ndarray`
-        One-hot array with the given value at the given
-        location and zeros everywhere else.
-    """
-    x = np.zeros_like(a)
-    x[index] = value
-    return x
-
-
-class CarliniWagner(BaseAttack):
-
-    def __init__(self, model, device='cuda'):
-        super(CarliniWagner, self).__init__(model, device)
-        self.model = model
-        self.device = device
-
-    def generate(self, image, label, target_label, **kwargs):
-        assert self.check_type_device(image, label)
-        assert self.parse_params(**kwargs)
-        self.target = target_label
-        return self.cw(self.model, self.image, self.label, self.target, self.confidence, self.clip_min, self.clip_min, self.max_iterations, self.initial_const, self.binary_search_steps, self.learning_rate)
-
-    def parse_params(self, classnum=10, confidence=0.0001, clip_max=1, clip_min=0, max_iterations=1000, initial_const=0.01, binary_search_steps=5, learning_rate=1e-05, abort_early=True):
-        self.classnum = classnum
-        self.confidence = confidence
-        self.clip_max = clip_max
-        self.clip_min = clip_min
-        self.max_iterations = max_iterations
-        self.initial_const = initial_const
-        self.binary_search_steps = binary_search_steps
-        self.learning_rate = learning_rate
-        self.abort_early = abort_early
-        return True
-
-    def cw(self, model, image, label, target, confidence, clip_max, clip_min, max_iterations, initial_const, binary_search_steps, learning_rate):
-        """
-        parameters:
-        :param model: the target model to attack
-        :param image: original image to perturb
-        :param label: true label of original image
-        :param target: target class
-        :param confidence: 
-        :param clip_max, clip_min:
-        :param max_iterations: the maximum number of iteration in cw attack procedure
-        :param initial_const:
-        :param binary_search_steps:
-        :param learning_rate:
-        """
-        img_tanh = self.to_attack_space(image.cpu())
-        img_ori, _ = self.to_model_space(img_tanh)
-        img_ori = img_ori
-        c = initial_const
-        c_low = 0
-        c_high = np.inf
-        found_adv = False
-        last_loss = np.inf
-        for step in range(binary_search_steps):
-            w = torch.from_numpy(img_tanh.numpy())
-            optimizer = AdamOptimizer(img_tanh.shape)
-            is_adversarial = False
-            for iteration in range(max_iterations):
-                img_adv, adv_grid = self.to_model_space(w)
-                img_adv = img_adv
-                img_adv.requires_grad = True
-                output = model.get_logits(img_adv)
-                is_adversarial = self.pending_f(img_adv)
-                loss, loss_grad = self.loss_function(img_adv, c, self.target, img_ori, self.confidence, self.clip_min, self.clip_max)
-                gradient = adv_grid * loss_grad
-                w = w + torch.from_numpy(optimizer(gradient.cpu().detach().numpy(), learning_rate)).float()
-                if is_adversarial:
-                    found_adv = True
-            if found_adv:
-                c_high = c
-            else:
-                c_low = c
-            if c_high == np.inf:
-                c *= 10
-            else:
-                c = (c_high + c_low) / 2
-            if step % 10 == 0:
-                None
-            if self.abort_early == True and step % 10 == 0 and step > 100:
-                None
-                if not loss <= 0.9999 * last_loss:
-                    break
-                last_loss = loss
-        return img_adv.detach()
-
-    def loss_function(self, x_p, const, target, reconstructed_original, confidence, min_, max_):
-        """Returns the loss and the gradient of the loss w.r.t. x,
-        assuming that logits = model(x)."""
-        x_p.requires_grad = True
-        logits = self.model.get_logits(x_p)
-        targetlabel_mask = torch.from_numpy(onehot_like(np.zeros(self.classnum), target)).double()
-        secondlargest_mask = torch.from_numpy(np.ones(self.classnum)) - targetlabel_mask
-        secondlargest = np.argmax((logits.double() * secondlargest_mask).cpu().detach().numpy())
-        is_adv_loss = logits[0][secondlargest] - logits[0][target]
-        is_adv_loss += confidence
-        if is_adv_loss == 0:
-            is_adv_loss_grad = 0
-        else:
-            is_adv_loss.backward()
-            is_adv_loss_grad = x_p.grad
-        is_adv_loss = max(0, is_adv_loss)
-        s = max_ - min_
-        squared_l2_distance = np.sum(((x_p - reconstructed_original) ** 2).cpu().detach().numpy()) / s ** 2
-        total_loss = squared_l2_distance + const * is_adv_loss
-        squared_l2_distance_grad = 2 / s ** 2 * (x_p - reconstructed_original)
-        total_loss_grad = squared_l2_distance_grad + const * is_adv_loss_grad
-        return total_loss, total_loss_grad
-
-    def pending_f(self, x_p):
-        """Pending is the loss function is less than 0
-        """
-        targetlabel_mask = torch.from_numpy(onehot_like(np.zeros(self.classnum), self.target))
-        secondlargest_mask = torch.from_numpy(np.ones(self.classnum)) - targetlabel_mask
-        targetlabel_mask = targetlabel_mask
-        secondlargest_mask = secondlargest_mask
-        Zx_i = np.max((self.model.get_logits(x_p).double() * secondlargest_mask).cpu().detach().numpy())
-        Zx_t = np.max((self.model.get_logits(x_p).double() * targetlabel_mask).cpu().detach().numpy())
-        if Zx_i - Zx_t < -self.confidence:
-            return True
-        else:
-            return False
-
-    def to_attack_space(self, x):
-        x = x.detach()
-        a = (self.clip_min + self.clip_max) / 2
-        b = (self.clip_max - self.clip_min) / 2
-        x = (x - a) / b
-        x = x * 0.999999
-        return np.arctanh(x)
-
-    def to_model_space(self, x):
-        """Transforms an input from the attack space
-        to the model space. This transformation and
-        the returned gradient are elementwise."""
-        x = np.tanh(x)
-        grad = 1 - np.square(x)
-        a = (self.clip_min + self.clip_max) / 2
-        b = (self.clip_max - self.clip_min) / 2
-        x = x * b + a
-        grad = grad * b
-        return x, grad
-
-
-def deepfool(model, image, num_classes, overshoot, max_iter, device):
-    """
-       :param image: 1*H*W*3
-            -a batch of Image
-       :param model:
-            -network (input: images, output: values of activation **BEFORE** softmax).
-       :param num_classes: int
-            -num_classes (limits the number of classes to test against, by default = 10)
-       :param overshoot: float
-            -used as a termination criterion to prevent vanishing updates (default = 0.02).
-       :param max_iter: int
-            -maximum number of iterations for deepfool (default = 50)
-       :return: tensor
-            -minimal perturbation that fools the classifier, number of iterations that it required, new estimated_label and perturbed image
-    """
-    f_image = model.forward(image).data.cpu().numpy().flatten()
-    output = np.array(f_image).flatten().argsort()[::-1]
-    output = output[0:num_classes]
-    label = output[0]
-    input_shape = image.cpu().numpy().shape
-    x = copy.deepcopy(image).requires_grad_(True)
-    w = np.zeros(input_shape)
-    r_tot = np.zeros(input_shape)
-    fs = model.forward(x)
-    fs_list = [fs[0, output[k]] for k in range(num_classes)]
-    current_pred_label = label
-    for i in range(max_iter):
-        pert = np.inf
-        fs[0, output[0]].backward(retain_graph=True)
-        grad_orig = x.grad.data.cpu().numpy().copy()
-        for k in range(1, num_classes):
-            zero_gradients(x)
-            fs[0, output[k]].backward(retain_graph=True)
-            cur_grad = x.grad.data.cpu().numpy().copy()
-            w_k = cur_grad - grad_orig
-            f_k = (fs[0, output[k]] - fs[0, output[0]]).data.cpu().numpy()
-            pert_k = abs(f_k) / np.linalg.norm(w_k.flatten())
-            if pert_k < pert:
-                pert = pert_k
-                w = w_k
-        r_i = (pert + 0.0001) * w / np.linalg.norm(w)
-        r_tot = np.float32(r_tot + r_i)
-        pert_image = image + (1 + overshoot) * torch.from_numpy(r_tot)
-        x = pert_image.detach().requires_grad_(True)
-        fs = model.forward(x)
-        if not np.argmax(fs.data.cpu().numpy().flatten()) == label:
-            break
-    r_tot = (1 + overshoot) * r_tot
-    return pert_image, r_tot, i
-
-
-class DeepFool(BaseAttack):
-
-    def __init__(self, model, device='cuda'):
-        super(DeepFool, self).__init__(model, device)
-        self.model = model
-        self.device = device
-
-    def generate(self, image, label, **kwargs):
-        assert self.check_type_device(image, label)
-        is_cuda = torch.cuda.is_available()
-        if is_cuda and self.device == 'cuda':
-            self.image = image
-            self.model = self.model
-        else:
-            self.image = image
-        assert self.parse_params(**kwargs)
-        adv_img, self.r, self.ite = deepfool(self.model, self.image, self.num_classes, self.overshoot, self.max_iteration, self.device)
-        return adv_img
-
-    def getpert(self):
-        return self.r, self.ite
-
-    def parse_params(self, num_classes=10, overshoot=0.02, max_iteration=50):
-        self.num_classes = num_classes
-        self.overshoot = overshoot
-        self.max_iteration = max_iteration
-        return True
-
-
-def fgm(model, image, label, epsilon, order, clip_min, clip_max, device):
-    imageArray = image.cpu().detach().numpy()
-    X_fgsm = torch.tensor(imageArray)
-    X_fgsm.requires_grad = True
-    opt = optim.SGD([X_fgsm], lr=0.001)
-    opt.zero_grad()
-    loss = nn.CrossEntropyLoss()(model(X_fgsm), label)
-    loss.backward()
-    if order == np.inf:
-        d = epsilon * X_fgsm.grad.data.sign()
-    elif order == 2:
-        gradient = X_fgsm.grad
-        d = torch.zeros(gradient.shape, device=device)
-        for i in range(gradient.shape[0]):
-            norm_grad = gradient[i].data / LA.norm(gradient[i].data.cpu().numpy())
-            d[i] = norm_grad * epsilon
-    else:
-        raise ValueError('Other p norms may need other algorithms')
-    x_adv = X_fgsm + d
-    if clip_max == None and clip_min == None:
-        clip_max = np.inf
-        clip_min = -np.inf
-    x_adv = torch.clamp(x_adv, clip_min, clip_max)
-    return x_adv
-
-
-class FGSM(BaseAttack):
-
-    def __init__(self, model, device='cuda'):
-        super(FGSM, self).__init__(model, device)
-
-    def generate(self, image, label, **kwargs):
-        label = label.type(torch.FloatTensor)
-        assert self.check_type_device(image, label)
-        assert self.parse_params(**kwargs)
-        return fgm(self.model, self.image, self.label, self.epsilon, self.order, self.clip_min, self.clip_max, self.device)
-
-    def parse_params(self, epsilon=0.2, order=np.inf, clip_max=None, clip_min=None):
-        self.epsilon = epsilon
-        self.order = order
-        self.clip_max = clip_max
-        self.clip_min = clip_min
-        return True
-
-
-def optimize(model, image, label, target_label, bounds, epsilon, maxiter, class_num, device):
-    x_t = image
-    x0 = image[0].detach().numpy()
-    min_, max_ = bounds
-    target_dist = torch.tensor(target_label)
-    target_dist = target_dist.unsqueeze_(0).long()
-    shape = x0.shape
-    dtype = x0.dtype
-    x0 = x0.flatten().astype(np.float64)
-    n = len(x0)
-    bounds = [(min_, max_)] * n
-
-    def distance(x, y):
-        x = torch.from_numpy(x).double()
-        y = torch.from_numpy(y).double()
-        dist_squ = torch.norm(x - y)
-        return dist_squ ** 2
-
-    def loss(x, c):
-        v1 = distance(x0, x)
-        x = torch.tensor(x.astype(dtype).reshape(shape))
-        x = x.unsqueeze_(0).float()
-        predict = model(x)
-        v2 = F.nll_loss(predict, target_dist)
-        v = c * v1 + v2
-        return np.float64(v)
-
-    def pending_attack(target_model, adv_exp, target_label):
-        adv_exp = adv_exp.reshape(shape).astype(dtype)
-        adv_exp = torch.from_numpy(adv_exp)
-        adv_exp = adv_exp.unsqueeze_(0).float()
-        predict1 = target_model(adv_exp)
-        label = predict1.argmax(dim=1, keepdim=True)
-        if label == target_label:
-            return True
-        else:
-            return False
-
-    def lbfgs_b(c):
-        approx_grad_eps = (max_ - min_) / 100
-        None
-        optimize_output, f, d = so.fmin_l_bfgs_b(loss, x0, args=(c,), approx_grad=True, bounds=bounds, m=15, maxiter=maxiter, factr=10000000000.0, maxls=5, epsilon=approx_grad_eps)
-        None
-        if np.amax(optimize_output) > max_ or np.amin(optimize_output) < min_:
-            logging.info('Input out of bounds (min, max = {}, {}). Performing manual clip.'.format(np.amin(optimize_output), np.amax(optimize_output)))
-            optimize_output = np.clip(optimize_output, min_, max_)
-        is_adversarial = pending_attack(target_model=model, adv_exp=optimize_output, target_label=target_label)
-        return optimize_output, is_adversarial
-    c = epsilon
-    None
-    for i in range(30):
-        c = 2 * c
-        x_new, is_adversarial = lbfgs_b(c)
-        if is_adversarial == False:
-            break
-    None
-    if is_adversarial == True:
-        None
-        return
-    None
-    c_low = 0
-    c_high = c
-    while c_high - c_low >= epsilon:
-        None
-        c_half = (c_low + c_high) / 2
-        x_new, is_adversarial = lbfgs_b(c_half)
-        if is_adversarial:
-            c_low = c_half
-        else:
-            c_high = c_half
-    x_new, is_adversarial = lbfgs_b(c_low)
-    dis = distance(x_new, x0)
-    mintargetfunc = loss(x_new, c_low)
-    x_new = x_new.astype(dtype)
-    x_new = x_new.reshape(shape)
-    x_new = torch.from_numpy(x_new).unsqueeze_(0).float()
-    return x_new, dis, mintargetfunc
-
-
-class LBFGS(BaseAttack):
-
-    def __init__(self, model, label, device='cuda'):
-        super(LBFGS, self).__init__(model, device)
-
-    def generate(self, image, label, target_label, **kwargs):
-        assert self.check_type_device(image, label)
-        assert self.parse_params(**kwargs)
-        self.target_label = target_label
-        adv_img, self.dist, self.loss = optimize(self.model, self.image, self.label, self.target_label, self.bounds, self.epsilon, self.maxiter, self.class_num, self.device)
-        return adv_img
-
-    def distance(self):
-        return self.dist
-
-    def loss(self):
-        return self.loss
-
-    def parse_params(self, clip_max=1, clip_min=0, class_num=10, epsilon=1e-05, maxiter=20):
-        self.epsilon = epsilon
-        self.maxiter = maxiter
-        self.class_num = class_num
-        self.bounds = clip_min, clip_max
-        return True
-
-
-def pgd_attack(model, X, y, epsilon, clip_max, clip_min, num_steps, step_size, print_process):
+def pgd_attack(model, X, y, epsilon, clip_max, clip_min, num_steps, step_size, print_process, bound='linf'):
     out = model(X)
     err = (out.data.max(1)[1] != y.data).float().sum()
     device = X.device
@@ -3518,41 +6164,88 @@ def pgd_attack(model, X, y, epsilon, clip_max, clip_min, num_steps, step_size, p
     imageArray = np.clip(imageArray + X_random, 0, 1.0)
     X_pgd = torch.tensor(imageArray).float()
     X_pgd.requires_grad = True
+    eta = torch.zeros_like(X)
+    eta.requires_grad = True
     for i in range(num_steps):
         pred = model(X_pgd)
         loss = nn.CrossEntropyLoss()(pred, y)
         if print_process:
             None
         loss.backward()
-        eta = step_size * X_pgd.grad.data.sign()
-        X_pgd = X_pgd + eta
-        eta = torch.clamp(X_pgd.data - X.data, -epsilon, epsilon)
-        X_pgd = X.data + eta
-        X_pgd = torch.clamp(X_pgd, clip_min, clip_max)
-        X_pgd = X_pgd.detach()
-        X_pgd.requires_grad_()
-        X_pgd.retain_grad()
+        if bound == 'linf':
+            eta = step_size * X_pgd.grad.data.sign()
+            X_pgd = X_pgd + eta
+            eta = torch.clamp(X_pgd.data - X.data, -epsilon, epsilon)
+            X_pgd = X.data + eta
+            X_pgd = torch.clamp(X_pgd, clip_min, clip_max)
+            X_pgd = X_pgd.detach()
+            X_pgd.requires_grad_()
+            X_pgd.retain_grad()
+        if bound == 'l2':
+            output = model(X + eta)
+            incorrect = output.max(1)[1] != y
+            correct = (~incorrect).unsqueeze(1).unsqueeze(1).unsqueeze(1).float()
+            loss = nn.CrossEntropyLoss()(model(X + eta), y)
+            loss.backward()
+            eta.data += correct * step_size * eta.grad.detach() / torch.norm(eta.grad.detach())
+            eta.data *= epsilon / torch.norm(eta.detach()).clamp(min=epsilon)
+            eta.data = torch.min(torch.max(eta.detach(), -X), 1 - X)
+            eta.grad.zero_()
+            X_pgd = X + eta
     return X_pgd
 
 
 class PGD(BaseAttack):
+    """
+    This is the multi-step version of FGSM attack.
+    """
 
     def __init__(self, model, device='cuda'):
         super(PGD, self).__init__(model, device)
 
     def generate(self, image, label, **kwargs):
+        """
+        Call this function to generate PGD adversarial examples.
+
+        Parameters
+        ----------
+        image :
+            original image
+        label :
+            target label
+        kwargs :
+            user defined paremeters
+        """
         label = label.type(torch.FloatTensor)
         assert self.check_type_device(image, label)
         assert self.parse_params(**kwargs)
-        return pgd_attack(self.model, self.image, self.label, self.epsilon, self.clip_max, self.clip_min, self.num_steps, self.step_size, self.print_process)
+        return pgd_attack(self.model, self.image, self.label, self.epsilon, self.clip_max, self.clip_min, self.num_steps, self.step_size, self.print_process, self.bound)
 
-    def parse_params(self, epsilon=0.03, num_steps=40, step_size=0.01, clip_max=1.0, clip_min=0.0, print_process=False):
+    def parse_params(self, epsilon=0.03, num_steps=40, step_size=0.01, clip_max=1.0, clip_min=0.0, print_process=False, bound='linf'):
+        """parse_params.
+
+        Parameters
+        ----------
+        epsilon :
+            perturbation constraint
+        num_steps :
+            iteration step
+        step_size :
+            step size
+        clip_max :
+            maximum pixel value
+        clip_min :
+            minimum pixel value
+        print_process :
+            whether to print out the log during optimization process, True or False print out the log during optimization process, True or False.
+        """
         self.epsilon = epsilon
         self.num_steps = num_steps
         self.step_size = step_size
         self.clip_max = clip_max
         self.clip_min = clip_min
         self.print_process = print_process
+        self.bound = bound
         return True
 
 
@@ -3630,6 +6323,9 @@ class Transition(nn.Module):
 
 
 class DenseNet(nn.Module):
+    """DenseNet.
+    
+    """
 
     def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_classes=10):
         super(DenseNet, self).__init__()
@@ -3723,6 +6419,8 @@ class PreActBottleneck(nn.Module):
 
 
 class PreActResNet(nn.Module):
+    """PreActResNet.
+    """
 
     def __init__(self, block, num_blocks, num_classes=10):
         super(PreActResNet, self).__init__()
@@ -3778,6 +6476,8 @@ class BasicBlock(nn.Module):
 
 
 class VGG(nn.Module):
+    """VGG.
+    """
 
     def __init__(self, vgg_name):
         super(VGG, self).__init__()
@@ -3803,6 +6503,48 @@ class VGG(nn.Module):
         return nn.Sequential(*layers)
 
 
+class Generator(nn.Module):
+
+    def __init__(self, in_ch):
+        super(Generator, self).__init__()
+        self.conv1 = nn.Conv2d(in_ch, 64, 4, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(64, 128, 4, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.deconv3 = nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.deconv4 = nn.ConvTranspose2d(64, in_ch, 4, stride=2, padding=1)
+
+    def forward(self, x):
+        h = F.leaky_relu(self.bn1(self.conv1(x)))
+        h = F.leaky_relu(self.bn2(self.conv2(h)))
+        h = F.leaky_relu(self.bn3(self.deconv3(h)))
+        h = F.tanh(self.deconv4(h))
+        return h
+
+
+class Discriminator(nn.Module):
+
+    def __init__(self, in_ch):
+        super(Discriminator, self).__init__()
+        self.conv1 = nn.Conv2d(in_ch, 64, 3, stride=2)
+        self.conv2 = nn.Conv2d(64, 128, 3, stride=2)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128, 256, 3, stride=2)
+        self.bn3 = nn.BatchNorm2d(256)
+        if in_ch == 1:
+            self.fc4 = nn.Linear(1024, 1)
+        else:
+            self.fc4 = nn.Linear(2304, 1)
+
+    def forward(self, x):
+        h = F.leaky_relu(self.conv1(x))
+        h = F.leaky_relu(self.bn2(self.conv2(h)))
+        h = F.leaky_relu(self.bn3(self.conv3(h)))
+        h = F.sigmoid(self.fc4(h.view(h.size(0), -1)))
+        return h
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -3817,6 +6559,10 @@ TESTCASES = [
     (Bottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrossEntropyWithWeightPenlty,
+     lambda: ([], {'module': _mock_layer(), 'DEVICE': 4}),
+     lambda: ([], {'pred': torch.rand([4, 4]), 'label': torch.rand([4, 4])}),
      True),
     (GCNJaccard,
      lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4}),
@@ -3838,6 +6584,10 @@ TESTCASES = [
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
+    (Generator,
+     lambda: ([], {'in_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GraphConvolution,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -3849,7 +6599,7 @@ TESTCASES = [
     (PreActBlock,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (PreActBottleneck,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3896,4 +6646,10 @@ class Test_DSE_MSU_DeepRobust(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

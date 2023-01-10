@@ -136,7 +136,7 @@ class LearnedGroupConv(nn.Module):
             wi = weight[i * d_out:(i + 1) * d_out, :]
             di = wi.sum(0).sort()[1][self.count:self.count + delta]
             for d in di.data:
-                self._mask[i::self.groups, (d), :, :].fill_(0)
+                self._mask[i::self.groups, d, :, :].fill_(0)
         self.count = self.count + delta
 
     @property
@@ -188,7 +188,7 @@ class CondensingLinear(nn.Module):
         self.linear.bias.data = model.bias.data.clone()
         for i in range(self.in_features):
             self.index[i] = index[i]
-            self.linear.weight.data[:, (i)] = model.weight.data[:, (index[i])]
+            self.linear.weight.data[:, i] = model.weight.data[:, index[i]]
 
     def forward(self, x):
         x = torch.index_select(x, 1, Variable(self.index))
@@ -225,7 +225,7 @@ class CondensingConv(nn.Module):
                     for k in range(self.out_channels // self.groups):
                         idx_i = int(k + i * (self.out_channels // self.groups))
                         idx_j = index % (self.in_channels // self.groups)
-                        self.conv.weight.data[(idx_i), (idx_j), :, :] = model.conv.weight.data[(int(i + k * self.groups)), (j), :, :]
+                        self.conv.weight.data[idx_i, idx_j, :, :] = model.conv.weight.data[int(i + k * self.groups), j, :, :]
                         self.norm.weight.data[index] = model.norm.weight.data[j]
                         self.norm.bias.data[index] = model.norm.bias.data[j]
                         self.norm.running_mean[index] = model.norm.running_mean[j]

@@ -2,213 +2,331 @@ import sys
 _module = sys.modules[__name__]
 del sys
 autoPyTorch = _module
-components = _module
-ensembles = _module
+__version__ = _module
+api = _module
+base_task = _module
+tabular_classification = _module
+tabular_regression = _module
+time_series_forecasting = _module
+configs = _module
+constants = _module
+data = _module
+base_feature_validator = _module
+base_target_validator = _module
+base_validator = _module
+tabular_feature_validator = _module
+tabular_target_validator = _module
+tabular_validator = _module
+time_series_feature_validator = _module
+time_series_forecasting_validator = _module
+time_series_target_validator = _module
+utils = _module
+datasets = _module
+base_dataset = _module
+image_dataset = _module
+resampling_strategy = _module
+tabular_dataset = _module
+time_series_dataset = _module
+ensemble = _module
 abstract_ensemble = _module
+ensemble_builder = _module
 ensemble_selection = _module
-lr_scheduler = _module
-lr_schedulers = _module
+singlebest_ensemble = _module
+evaluation = _module
+abstract_evaluator = _module
+tae = _module
+test_evaluator = _module
+time_series_forecasting_train_evaluator = _module
+train_evaluator = _module
+utils_extra = _module
 metrics = _module
-additional_logs = _module
-balanced_accuracy = _module
-pac_score = _module
-standard_metrics = _module
-networks = _module
-activations = _module
-base_net = _module
-feature = _module
-embedding = _module
-mlpnet = _module
-resnet = _module
-shapedmlpnet = _module
-shapedresnet = _module
-image = _module
-convnet = _module
-darts = _module
-darts_worker = _module
-genotypes = _module
-model = _module
-operations = _module
-utils = _module
-densenet = _module
-densenet_flexible = _module
-mobilenet = _module
-resnet = _module
-resnet152 = _module
-conv2d_helpers = _module
-mobilenet_utils = _module
-shakedrop = _module
-shakeshakeblock = _module
-utils = _module
-initialization = _module
 optimizer = _module
-optimizer = _module
+smbo = _module
+pipeline = _module
+base_pipeline = _module
+components = _module
+base_choice = _module
+base_component = _module
 preprocessing = _module
-feature_preprocessing = _module
-fast_ica = _module
-kernel_pca = _module
-kitchen_sinks = _module
-nystroem = _module
-polynomial_features = _module
-power_transformer = _module
-truncated_svd = _module
+base_preprocessing = _module
 image_preprocessing = _module
-archive = _module
-augmentation_transforms = _module
-transforms = _module
-loss_weight_strategies = _module
-preprocessor_base = _module
-resampling = _module
-random = _module
-smote = _module
-target_size_strategies = _module
-resampling_base = _module
-regularization = _module
-mixup = _module
-shake = _module
+base_image_preprocessor = _module
+ImageNormalizer = _module
+NoNormalizer = _module
+normalise = _module
+base_normalizer = _module
+TabularColumnTransformer = _module
+tabular_preprocessing = _module
+base_tabular_preprocessing = _module
+MinorityCoalescer = _module
+NoCoalescer = _module
+coalescer = _module
+base_coalescer = _module
+NoEncoder = _module
+OneHotEncoder = _module
+encoding = _module
+base_encoder = _module
+ExtraTreesPreprocessorClassification = _module
+ExtraTreesPreprocessorRegression = _module
+FastICA = _module
+FeatureAgglomeration = _module
+KernelPCA = _module
+LibLinearSVCPreprocessor = _module
+NoFeaturePreprocessor = _module
+Nystroem = _module
+PCA = _module
+PolynomialFeatures = _module
+RandomKitchenSinks = _module
+RandomTreesEmbedding = _module
+SelectPercentileClassification = _module
+SelectPercentileRegression = _module
+SelectRatesClassification = _module
+SelectRatesRegression = _module
+TruncatedSVD = _module
+feature_preprocessing = _module
+base_feature_preprocessor = _module
+SimpleImputer = _module
+imputation = _module
+base_imputer = _module
+MinMaxScaler = _module
+NoScaler = _module
+Normalizer = _module
+PowerTransformer = _module
+QuantileTransformer = _module
+RobustScaler = _module
+StandardScaler = _module
+scaling = _module
+base_scaler = _module
+VarianceThreshold = _module
+variance_thresholding = _module
+TimeSeriesTransformer = _module
+time_series_preprocessing = _module
+base_time_series_preprocessing = _module
+time_series_base_encoder = _module
+TimeSeriesImputer = _module
+setup = _module
+augmentation = _module
+GaussianBlur = _module
+GaussianNoise = _module
+HorizontalFlip = _module
+ImageAugmenter = _module
+RandomAffine = _module
+RandomCutout = _module
+Resize = _module
+VerticalFlip = _module
+ZeroPadAndCrop = _module
+image = _module
+base_image_augmenter = _module
+base_setup = _module
+EarlyPreprocessing = _module
+TimeSeriesEarlyPreProcessing = _module
+early_preprocessor = _module
+forecasting_target_scaling = _module
+base_target_scaler = _module
+utils = _module
+DistributionLoss = _module
+QuantileLoss = _module
+RegressionLoss = _module
+forecasting_training_loss = _module
+base_forecasting_loss = _module
+CosineAnnealingLR = _module
+CosineAnnealingWarmRestarts = _module
+CyclicLR = _module
+ExponentialLR = _module
+NoScheduler = _module
+ReduceLROnPlateau = _module
+StepLR = _module
+lr_scheduler = _module
+base_scheduler = _module
+network = _module
+base_network = _module
+forecasting_architecture = _module
+forecasting_network = _module
+ConvNetImageBackbone = _module
+DenseNetImageBackbone = _module
+MLPBackbone = _module
+ResNetBackbone = _module
+ShapedMLPBackbone = _module
+ShapedResNetBackbone = _module
+network_backbone = _module
+base_network_backbone = _module
+forecasting_backbone = _module
+cells = _module
+components_util = _module
+MLPDecoder = _module
+NBEATSDecoder = _module
+RNNDecoder = _module
+TransformerDecoder = _module
+forecasting_decoder = _module
+base_forecasting_decoder = _module
+components = _module
+forecasting_encoder = _module
+base_forecasting_encoder = _module
+components = _module
+MLPEncoder = _module
+NBEATSEncoder = _module
+flat_encoder = _module
+InceptionTimeEncoder = _module
+RNNEncoder = _module
+TCNEncoder = _module
+TransformerEncoder = _module
+seq_encoder = _module
+TemporalFusion = _module
+other_components = _module
+utils = _module
+LearnedEntityEmbedding = _module
+NoEmbedding = _module
+network_embedding = _module
+base_network_embedding = _module
+network_head = _module
+base_network_head = _module
+NBEATS_head = _module
+forecasting_network_head = _module
+distribution = _module
+forecasting_head = _module
+fully_connected = _module
+fully_convolutional = _module
+utils = _module
+KaimingInit = _module
+NoInit = _module
+OrthogonalInit = _module
+SparseInit = _module
+XavierInit = _module
+network_initializer = _module
+base_network_initializer = _module
+AdamOptimizer = _module
+AdamWOptimizer = _module
+RMSpropOptimizer = _module
+SGDOptimizer = _module
+base_optimizer = _module
+traditional_ml = _module
+base_model = _module
+tabular_traditional_model = _module
+traditional_learner = _module
+base_traditional_learner = _module
+learners = _module
 training = _module
 base_training = _module
-budget_types = _module
-early_stopping = _module
-base_training = _module
-checkpoints = _module
-load_specific = _module
-save_load = _module
-lr_scheduling = _module
-mixup = _module
-trainer = _module
-trainer = _module
-core = _module
-api = _module
-autonet_classes = _module
-autonet_feature_classification = _module
-autonet_feature_data = _module
-autonet_feature_multilabel = _module
-autonet_feature_regression = _module
-autonet_image_classification = _module
-autonet_image_classification_multiple_datasets = _module
-autonet_image_data = _module
-ensemble = _module
-hpbandster_extensions = _module
-bohb_ext = _module
-hyperband_ext = _module
-run_with_time = _module
-presets = _module
-feature_classification = _module
-feature_multilabel = _module
-feature_regression = _module
-image_classification = _module
-image_classification_multiple_datasets = _module
-worker = _module
-worker_no_timelimit = _module
-data_management = _module
-data_converter = _module
 data_loader = _module
-data_manager = _module
-data_reader = _module
-image_loader = _module
-pipeline = _module
+base_data_loader = _module
+feature_data_loader = _module
+image_data_loader = _module
+time_series_forecasting_data_loader = _module
+time_series_util = _module
+losses = _module
 base = _module
-node = _module
-pipeline_node = _module
-sub_pipeline_node = _module
-nodes = _module
-autonet_settings = _module
-create_dataloader = _module
-create_dataset_info = _module
-cross_validation = _module
-embedding_selector = _module
-autonet_settings_no_shuffle = _module
-create_image_dataloader = _module
-cross_validation_indices = _module
-image_augmentation = _module
-image_dataset_reader = _module
-loss_module_selector_indices = _module
-multiple_datasets = _module
-network_selector_datasetinfo = _module
-optimization_algorithm_no_timelimit = _module
-simple_scheduler_selector = _module
-simple_train_node = _module
-single_dataset = _module
-imputation = _module
-initialization_selector = _module
-log_functions_selector = _module
-loss_module_selector = _module
-lr_scheduler_selector = _module
-metric_selector = _module
-network_selector = _module
-normalization_strategy_selector = _module
-one_hot_encoding = _module
-optimization_algorithm = _module
-optimizer_selector = _module
-preprocessor_selector = _module
-resampling_strategy_selector = _module
-train_node = _module
-benchmarking = _module
-benchmark = _module
-benchmark_pipeline = _module
-apply_user_updates = _module
-benchmark_settings = _module
-create_autonet = _module
-fit_autonet = _module
-for_autonet_config = _module
-for_instance = _module
-for_run = _module
-prepare_result_folder = _module
-read_instance_data = _module
-save_ensemble_logs = _module
-save_results = _module
-set_autonet_config = _module
-set_ensemble_config = _module
-visualization_pipeline = _module
-collect_trajectories = _module
-get_additional_trajectories = _module
-get_ensemble_trajectories = _module
-get_run_trajectories = _module
-plot_summary = _module
-plot_trajectories = _module
-read_instance_info = _module
-visualization_settings = _module
-config = _module
-config_condition = _module
-config_file_parser = _module
-config_option = _module
-config_space_hyperparameter = _module
-configspace_wrapper = _module
+MixUpTrainer = _module
+StandardTrainer = _module
+trainer = _module
+base_trainer = _module
+ForecastingMixUpTrainer = _module
+ForecastingStandardTrainer = _module
+forecasting_trainer = _module
+forecasting_base_trainer = _module
+create_searchspace_util = _module
+image_classification = _module
+tabular_classification = _module
+tabular_regression = _module
+time_series_forecasting = _module
+traditional_tabular_classification = _module
+traditional_tabular_regression = _module
+common = _module
 hyperparameter_search_space_update = _module
-loggers = _module
-mem_test_thread = _module
-modify_config_space = _module
-modules = _module
-thread_read_write = _module
-examples = _module
-classification = _module
-modify_pipeline = _module
-regression = _module
-advanced_classification = _module
-classification_test = _module
-openml_task = _module
-build_singularity_container = _module
-recompute_ensemble_performance = _module
-run_benchmark = _module
-run_benchmark_cluster = _module
-run_benchmark_cluster_condensed = _module
-visualize_benchmark = _module
-setup = _module
+implementations = _module
+logging_ = _module
+parallel = _module
+parallel_model_runner = _module
+results_manager = _module
+results_visualizer = _module
+single_thread_client = _module
+stopwatch = _module
+test_preselected_configs = _module
+conf = _module
+example_image_classification = _module
+example_tabular_classification = _module
+example_tabular_regression = _module
+example_time_series_forecasting = _module
+example_custom_configuration_space = _module
+example_parallel_n_jobs = _module
+example_pass_feature_types = _module
+example_plot_over_time = _module
+example_resampling_strategy = _module
+example_run_with_portfolio = _module
+example_single_configuration = _module
+example_visualization = _module
 test = _module
+conftest = _module
+test_api = _module
+test_base_api = _module
+test_data = _module
+test_feature_validator = _module
+test_forecasting_feature_validator = _module
+test_forecasting_input_validator = _module
+test_forecasting_target_validator = _module
+test_target_validator = _module
+test_utils = _module
+test_validation = _module
+test_base_dataset = _module
+test_image_dataset = _module
+test_resampling_strategies = _module
+test_tabular_dataset = _module
+test_time_series_datasets = _module
+ensemble_utils = _module
+test_ensemble = _module
+test_evaluation = _module
+evaluation_util = _module
+test_abstract_evaluator = _module
+test_evaluators = _module
+test_forecasting_evaluators = _module
 test_pipeline = _module
-test_cross_validation = _module
-test_imputation = _module
-test_initialization = _module
-test_log_selector = _module
-test_loss_selector = _module
-test_lr_scheduler_selector = _module
-test_metric_selector = _module
-test_network_selector = _module
-test_normalization_strategy_selector = _module
-test_optimization_algorithm = _module
-test_optimizer_selector = _module
-test_resampling_strategy_selector = _module
+forecasting = _module
+test_encoder_choice = _module
+test_encoders = _module
+test_imputer = _module
+test_scaling = _module
+test_time_series_transformer = _module
+test_coalescer = _module
+test_feature_preprocessor = _module
+test_feature_preprocessor_choice = _module
+test_imputers = _module
+test_normalizer_choice = _module
+test_normalizers = _module
+test_scaler_choice = _module
+test_scalers = _module
+test_tabular_column_transformer = _module
+test_variance_thresholding = _module
+forecasting_networks = _module
+test_base_components = _module
+test_flat_backbones = _module
+test_forecasting_architecture = _module
+test_seq_encoder = _module
+test_forecasting_target_scaling = _module
+test_forecasting_training_losses = _module
+test_setup = _module
+test_setup_image_augmenter = _module
+test_setup_networks = _module
+test_setup_preprocessing_node = _module
+test_setup_traditional_models = _module
+base = _module
+test_feature_data_loader = _module
+test_forecasting_training = _module
+test_image_data_loader = _module
+test_time_series_data_loader = _module
+test_training = _module
+test_base_component = _module
+test_losses = _module
+test_metrics = _module
+test_tabular_classification = _module
+test_tabular_regression = _module
+test_time_series_forecasting_pipeline = _module
+test_traditional_pipeline = _module
+test_coalescer_transformer = _module
+test_common = _module
+test_hyperparameter_search_space_update = _module
+test_parallel_model_runner = _module
+test_results_manager = _module
+test_results_visualizer = _module
+test_single_thread_client = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -230,512 +348,1303 @@ xrange = range
 wraps = functools.wraps
 
 
+import uuid
+
+
+from abc import ABCMeta
+
+
+from typing import Any
+
+
+from typing import Dict
+
+
+from typing import List
+
+
+from typing import Optional
+
+
+from typing import Sequence
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+from typing import cast
+
+
 import numpy as np
 
 
-import math
+from scipy.sparse import issparse
 
 
-import torch
-
-
-import torch.optim.lr_scheduler as lr_scheduler
-
-
-from torch.optim import Optimizer
-
-
-import sklearn.metrics as metrics
-
-
-import torch.nn as nn
-
-
-import inspect
-
-
-from collections import OrderedDict
-
-
-import torchvision.transforms as transforms
-
-
-from torch.autograd import Variable
-
-
-import re
-
-
-import torch.nn.functional as F
-
-
-import torch.utils.model_zoo as model_zoo
-
-
-import logging
-
-
-from copy import deepcopy
-
-
-from torch.autograd import Function
-
-
-import torch.optim as optim
-
-
-import warnings
-
-
-from torchvision.transforms import *
-
-
-import random
-
-
-import time
-
-
-import scipy.sparse
-
-
-import copy
-
-
-import torchvision
-
-
-from sklearn.datasets import make_regression
-
-
-from sklearn.datasets import make_multilabel_classification
-
-
-from enum import Enum
-
-
-import torch.utils.data as data
-
-
-from torch.utils.data import DataLoader
-
-
-from torch.utils.data import TensorDataset
-
-
-from torch.utils.data.dataset import Subset
-
-
-from torch.utils.data.sampler import SubsetRandomSampler
-
-
-import pandas as pd
-
-
-from sklearn.model_selection import BaseCrossValidator
+from sklearn.utils.multiclass import type_of_target
 
 
 from torch.utils.data import Dataset
 
 
-from torchvision import datasets
+from torch.utils.data import Subset
 
 
-from torchvision import models
+import torchvision
 
 
-from torchvision import transforms
+import torch
 
 
-from sklearn.model_selection import StratifiedKFold
+from torch.utils.data import TensorDataset
 
 
-from sklearn.model_selection import StratifiedShuffleSplit
+import torchvision.transforms
 
 
-import torchvision.models as models
+from torchvision.transforms import functional as TF
 
 
-from sklearn.impute import SimpleImputer
+import copy
+
+
+import warnings
+
+
+import pandas as pd
+
+
+from pandas._libs.tslibs.np_datetime import OutOfBoundsDatetime
+
+
+from torch.utils.data.dataset import ConcatDataset
+
+
+from torch.utils.data.dataset import Dataset
+
+
+from collections import Counter
+
+
+from sklearn.pipeline import Pipeline
+
+
+from sklearn.utils.validation import check_random_state
+
+
+from scipy.sparse import spmatrix
+
+
+from sklearn.base import BaseEstimator
 
 
 from sklearn.compose import ColumnTransformer
 
 
-from torch.nn.modules.loss import _Loss
+from sklearn.pipeline import make_pipeline
 
 
-from sklearn.model_selection import KFold
+import torch.optim.lr_scheduler
 
 
-from numpy.testing import assert_array_equal
+from torch.optim import Optimizer
 
 
-from torch.nn import Linear
+from torch.optim.lr_scheduler import _LRScheduler
 
 
-from numpy.testing import assert_array_almost_equal
+from torch import nn
 
 
-from sklearn.preprocessing import MinMaxScaler
+from abc import abstractmethod
 
 
-class BaseNet(nn.Module):
-    """ Parent class for all Networks"""
+from torch.distributions import AffineTransform
 
-    def __init__(self, config, in_features, out_features, final_activation):
+
+from torch.distributions import TransformedDistribution
+
+
+from typing import Iterable
+
+
+import math
+
+
+from collections import OrderedDict
+
+
+from torch.nn import functional as F
+
+
+from typing import Callable
+
+
+from typing import NamedTuple
+
+
+from enum import Enum
+
+
+from torch.nn.utils import weight_norm
+
+
+from torch.autograd import Function
+
+
+import torch.nn as nn
+
+
+from typing import Type
+
+
+import torch.nn.functional as F
+
+
+from torch.distributions import Beta
+
+
+from torch.distributions import Distribution
+
+
+from torch.distributions import Gamma
+
+
+from torch.distributions import Normal
+
+
+from torch.distributions import Poisson
+
+
+from torch.distributions import StudentT
+
+
+from torch.optim import Adam
+
+
+from torch.optim import AdamW
+
+
+from torch.optim import RMSprop
+
+
+from torch.optim import SGD
+
+
+import logging.handlers
+
+
+from sklearn.utils import check_random_state
+
+
+from sklearn.utils import check_array
+
+
+from functools import partial
+
+
+from typing import Iterator
+
+
+import collections
+
+
+from typing import Mapping
+
+
+from typing import Sized
+
+
+from torch._six import string_classes
+
+
+from torch.utils.data._utils.collate import default_collate
+
+
+from torch.utils.data._utils.collate import default_collate_err_msg_format
+
+
+from torch.utils.data._utils.collate import np_str_obj_array_pattern
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+from torch.nn.modules.loss import BCEWithLogitsLoss
+
+
+from torch.nn.modules.loss import CrossEntropyLoss
+
+
+from torch.nn.modules.loss import L1Loss
+
+
+from torch.nn.modules.loss import MSELoss
+
+
+from torch.nn.modules.loss import _Loss as Loss
+
+
+import time
+
+
+from torch.utils.tensorboard.writer import SummaryWriter
+
+
+from abc import ABC
+
+
+from sklearn.base import ClassifierMixin
+
+
+from sklearn.base import RegressorMixin
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from scipy import sparse
+
+
+from sklearn.base import TransformerMixin
+
+
+import random
+
+
+import sklearn.datasets
+
+
+import re
+
+
+from sklearn.datasets import fetch_openml
+
+
+from sklearn.datasets import make_classification
+
+
+from sklearn.datasets import make_regression
+
+
+import itertools
+
+
+from itertools import product
+
+
+from sklearn.base import clone
+
+
+import logging
+
+
+from sklearn.preprocessing import StandardScaler
+
+
+ALL_NET_OUTPUT = Union[torch.Tensor, List[torch.Tensor], torch.distributions.Distribution]
+
+
+BaseDatasetPropertiesType = Union[int, float, str, List, bool, Tuple]
+
+
+HyperparameterValueType = Union[int, str, float]
+
+
+class HyperparameterSearchSpace(NamedTuple):
+    """
+    A class that holds the search space for an individual hyperparameter.
+    Attributes:
+        hyperparameter (str):
+            name of the hyperparameter
+        value_range (Sequence[HyperparameterValueType]):
+            range of the hyperparameter, can be defined as min and
+            max values for Numerical hyperparameter or a list of
+            choices for a Categorical hyperparameter
+        default_value (HyperparameterValueType):
+            default value of the hyperparameter
+        log (bool):
+            whether to sample hyperparameter on a log scale
+    """
+    hyperparameter: str
+    value_range: Sequence[HyperparameterValueType]
+    default_value: HyperparameterValueType
+    log: bool = False
+
+    def __str__(self) ->str:
         """
-        Initialize the BaseNet.
+        String representation for the Search Space
         """
-        super(BaseNet, self).__init__()
-        self.layers = nn.Sequential()
-        self.config = config
-        self.n_feats = in_features
-        self.n_classes = out_features
-        self.epochs_trained = 0
-        self.budget_trained = 0
-        self.stopped_early = False
-        self.last_compute_result = None
-        self.logs = []
-        self.num_epochs_no_progress = 0
-        self.current_best_epoch_performance = None
-        self.best_parameters = None
-        self.final_activation = final_activation
-
-    def forward(self, x):
-        x = self.layers(x)
-        if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
-        return x
-
-    def snapshot(self):
-        self.best_parameters = OrderedDict({key: value.cpu().clone() for key, value in self.state_dict().items()})
-
-    def load_snapshot(self):
-        if self.best_parameters is not None:
-            self.load_state_dict(self.best_parameters)
-
-    @staticmethod
-    def get_config_space():
-        return ConfigSpace.ConfigurationSpace()
+        return 'Hyperparameter: %s | Range: %s | Default: %s | log: %s' % (self.hyperparameter, self.value_range, self.default_value, self.log)
 
 
-class BaseFeatureNet(BaseNet):
-    """ Parent class for MlpNet, ResNet, ... Can use entity embedding for cagtegorical features"""
+VERY_SMALL_VALUE = 1e-12
 
-    def __init__(self, config, in_features, out_features, embedding, final_activation):
+
+class TargetScaler(BaseEstimator):
+    """
+    To accelerate training, this scaler is only applied under trainer (after the data is loaded by dataloader)
+    """
+
+    def __init__(self, mode: str):
+        self.mode = mode
+
+    def fit(self, X: Dict, y: Any=None) ->'TargetScaler':
+        return self
+
+    def transform(self, past_targets: torch.Tensor, past_observed_values: torch.BoolTensor, future_targets: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        if past_observed_values is None or torch.all(past_observed_values):
+            if self.mode == 'standard':
+                loc = torch.mean(past_targets, dim=1, keepdim=True)
+                scale = torch.std(past_targets, dim=1, keepdim=True)
+                offset_targets = past_targets - loc
+                scale = torch.where(torch.logical_or(scale == 0.0, scale == torch.nan), offset_targets[:, [-1]], scale)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = (future_targets - loc) / scale
+                return (past_targets - loc) / scale, future_targets, loc, scale
+            elif self.mode == 'min_max':
+                min_ = torch.min(past_targets, dim=1, keepdim=True)[0]
+                max_ = torch.max(past_targets, dim=1, keepdim=True)[0]
+                diff_ = max_ - min_
+                loc = min_
+                scale = torch.where(diff_ == 0, past_targets[:, [-1]], diff_)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = (future_targets - loc) / scale
+                return (past_targets - loc) / scale, future_targets, loc, scale
+            elif self.mode == 'max_abs':
+                max_abs_ = torch.max(torch.abs(past_targets), dim=1, keepdim=True)[0]
+                max_abs_[max_abs_ < VERY_SMALL_VALUE] = 1.0
+                scale = max_abs_
+                if future_targets is not None:
+                    future_targets = future_targets / scale
+                return past_targets / scale, future_targets, None, scale
+            elif self.mode == 'mean_abs':
+                mean_abs = torch.mean(torch.abs(past_targets), dim=1, keepdim=True)
+                scale = torch.where(mean_abs == 0.0, past_targets[:, [-1]], mean_abs)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = future_targets / scale
+                return past_targets / scale, future_targets, None, scale
+            elif self.mode == 'none':
+                return past_targets, future_targets, None, None
+            else:
+                raise ValueError(f'Unknown mode {self.mode} for Forecasting scaler')
+        else:
+            valid_past_targets = past_observed_values * past_targets
+            valid_past_obs = torch.sum(past_observed_values, dim=1, keepdim=True)
+            if self.mode == 'standard':
+                dfredom = 1
+                loc = torch.sum(valid_past_targets, dim=1, keepdim=True) / valid_past_obs
+                scale = torch.sum(torch.square(valid_past_targets - loc * past_observed_values), dim=1, keepdim=True)
+                scale /= valid_past_obs - dfredom
+                scale = torch.sqrt(scale)
+                offset_targets = past_targets - loc
+                scale = torch.where(torch.logical_or(scale == 0.0, scale == torch.nan), offset_targets[:, [-1]], scale)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = (future_targets - loc) / scale
+                scaled_past_targets = torch.where(past_observed_values, offset_targets / scale, past_targets)
+                return scaled_past_targets, future_targets, loc, scale
+            elif self.mode == 'min_max':
+                obs_mask = ~past_observed_values
+                min_masked_past_targets = past_targets.masked_fill(obs_mask, value=torch.inf)
+                max_masked_past_targets = past_targets.masked_fill(obs_mask, value=-torch.inf)
+                min_ = torch.min(min_masked_past_targets, dim=1, keepdim=True)[0]
+                max_ = torch.max(max_masked_past_targets, dim=1, keepdim=True)[0]
+                diff_ = max_ - min_
+                loc = min_
+                scale = torch.where(diff_ == 0, past_targets[:, [-1]], diff_)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = (future_targets - loc) / scale
+                scaled_past_targets = torch.where(past_observed_values, (past_targets - loc) / scale, past_targets)
+                return scaled_past_targets, future_targets, loc, scale
+            elif self.mode == 'max_abs':
+                max_abs_ = torch.max(torch.abs(valid_past_targets), dim=1, keepdim=True)[0]
+                max_abs_[max_abs_ < VERY_SMALL_VALUE] = 1.0
+                scale = max_abs_
+                if future_targets is not None:
+                    future_targets = future_targets / scale
+                scaled_past_targets = torch.where(past_observed_values, past_targets / scale, past_targets)
+                return scaled_past_targets, future_targets, None, scale
+            elif self.mode == 'mean_abs':
+                mean_abs = torch.sum(torch.abs(valid_past_targets), dim=1, keepdim=True) / valid_past_obs
+                scale = torch.where(mean_abs == 0.0, valid_past_targets[:, [-1]], mean_abs)
+                scale[scale < VERY_SMALL_VALUE] = 1.0
+                if future_targets is not None:
+                    future_targets = future_targets / scale
+                scaled_past_targets = torch.where(past_observed_values, past_targets / scale, past_targets)
+                return scaled_past_targets, future_targets, None, scale
+            elif self.mode == 'none':
+                return past_targets, future_targets, None, None
+            else:
+                raise ValueError(f'Unknown mode {self.mode} for Forecasting scaler')
+
+
+class FitRequirement(NamedTuple):
+    """
+    A class that holds inputs required to fit a pipeline. Also indicates whether
+    requirements have to be user specified or are generated by the pipeline itself.
+
+    Attributes:
+        name (str): The name of the variable expected in the input dictionary
+        supported_types (Iterable[Type]): An iterable of all types that are supported
+        user_defined (bool): If false, this requirement does not have to be given to the pipeline
+        dataset_property (bool): If True, this requirement is automatically inferred
+            by the Dataset class
+    """
+    name: str
+    supported_types: Iterable[Type]
+    user_defined: bool
+    dataset_property: bool
+
+    def __str__(self) ->str:
         """
-        Initialize the BaseFeatureNet.
+        String representation for the requirements
         """
-        super(BaseFeatureNet, self).__init__(config, in_features, out_features, final_activation)
-        self.embedding = embedding
-
-    def forward(self, x):
-        x = self.embedding(x)
-        return super(BaseFeatureNet, self).forward(x)
+        return 'Name: %s | Supported types: %s | User defined: %s | Dataset property: %s' % (self.name, self.supported_types, self.user_defined, self.dataset_property)
 
 
-class BaseImageNet(BaseNet):
+class HyperparameterSearchSpaceUpdate:
+    """
+    Allows specifying update to the search space of a
+    particular hyperparameter.
 
-    def __init__(self, config, in_features, out_features, final_activation):
-        super(BaseImageNet, self).__init__(config, in_features, out_features, final_activation)
-        if len(in_features) == 2:
-            self.channels = 1
-            self.iw = in_features[0]
-            self.ih = in_features[1]
-        if len(in_features) == 3:
-            self.channels = in_features[0]
-            self.iw = in_features[1]
-            self.ih = in_features[2]
+    Args:
+        node_name (str):
+            The name of the node in the pipeline
+        hyperparameter (str):
+            The name of the hyperparameter
+        value_range (Sequence[HyperparameterValueType]):
+            In case of categorical hyperparameter, defines the new categorical choices.
+            In case of numerical hyperparameter, defines the new range
+            in the form of (LOWER, UPPER)
+        default_value (HyperparameterValueType):
+            New default value for the hyperparameter
+        log (bool) (default=False):
+            In case of numerical hyperparameters, whether to sample on a log scale
+    """
 
+    def __init__(self, node_name: str, hyperparameter: str, value_range: Sequence[HyperparameterValueType], default_value: HyperparameterValueType, log: bool=False) ->None:
+        self.node_name = node_name
+        self.hyperparameter = hyperparameter
+        if len(value_range) == 0:
+            raise ValueError('The new value range needs at least one value')
+        self.value_range = value_range
+        self.log = log
+        self.default_value = default_value
 
-def get_hyperparameter(hyper_type, name, value_range, log=False):
-    if isinstance(value_range, tuple) and len(value_range) == 2 and isinstance(value_range[1], bool) and isinstance(value_range[0], (tuple, list)):
-        value_range, log = value_range
-    if len(value_range) == 0:
-        raise ValueError(name + ': The range has to contain at least one element')
-    if len(value_range) == 1:
-        return CSH.Constant(name, int(value_range[0]) if isinstance(value_range[0], bool) else value_range[0])
-    if len(value_range) == 2 and value_range[0] == value_range[1]:
-        return CSH.Constant(name, int(value_range[0]) if isinstance(value_range[0], bool) else value_range[0])
-    if hyper_type == CSH.CategoricalHyperparameter:
-        return CSH.CategoricalHyperparameter(name, value_range)
-    if hyper_type == CSH.UniformFloatHyperparameter:
-        assert len(value_range) == 2, 'Float HP range update for %s is specified by the two upper and lower values. %s given.' % (name, len(value_range))
-        return CSH.UniformFloatHyperparameter(name, lower=value_range[0], upper=value_range[1], log=log)
-    if hyper_type == CSH.UniformIntegerHyperparameter:
-        assert len(value_range) == 2, 'Int HP range update for %s is specified by the two upper and lower values. %s given.' % (name, len(value_range))
-        return CSH.UniformIntegerHyperparameter(name, lower=value_range[0], upper=value_range[1], log=log)
-    raise ValueError('Unknown type: %s for hp %s' % (hyper_type, name))
-
-
-class LearnedEntityEmbedding(nn.Module):
-    """ Parent class for MlpNet, ResNet, ... Can use entity embedding for cagtegorical features"""
-
-    def __init__(self, config, in_features, one_hot_encoder):
+    def apply(self, pipeline: List[Tuple[str, BaseEstimator]]) ->None:
         """
-        Initialize the BaseFeatureNet.
-        
-        Arguments:
-            config: The configuration sampled by the hyperparameter optimizer
-            in_features: the number of features of the dataset
-            one_hot_encoder: OneHot encoder, that is used to encode X
+        Applies the update to the appropriate hyperparameter of the pipeline
+        Args:
+            pipeline (List[Tuple[str, BaseEstimator]]):
+                The named steps of the current autopytorch pipeline
+
+        Returns:
+            None
         """
-        super(LearnedEntityEmbedding, self).__init__()
-        self.config = config
-        self.n_feats = in_features
-        self.one_hot_encoder = one_hot_encoder
-        self.num_numerical = len([f for f in one_hot_encoder.categorical_features if not f])
-        self.num_input_features = [len(c) for c in one_hot_encoder.categories_]
-        self.embed_features = [(num_in >= config['min_unique_values_for_embedding']) for num_in in self.num_input_features]
-        self.num_output_dimensions = [(config['dimension_reduction_' + str(i)] * num_in) for i, num_in in enumerate(self.num_input_features)]
-        self.num_output_dimensions = [int(np.clip(num_out, 1, num_in - 1)) for num_out, num_in in zip(self.num_output_dimensions, self.num_input_features)]
-        self.num_output_dimensions = [(num_out if embed else num_in) for num_out, embed, num_in in zip(self.num_output_dimensions, self.embed_features, self.num_input_features)]
-        self.num_out_feats = self.num_numerical + sum(self.num_output_dimensions)
-        self.ee_layers = self._create_ee_layers(in_features)
+        [node[1]._apply_search_space_update(self) for node in pipeline if node[0] == self.node_name]
 
-    def forward(self, x):
-        concat_seq = []
-        last_concat = 0
-        x_pointer = 0
-        layer_pointer = 0
-        for num_in, embed in zip(self.num_input_features, self.embed_features):
-            if not embed:
-                x_pointer += 1
-                continue
-            if x_pointer > last_concat:
-                concat_seq.append(x[:, last_concat:x_pointer])
-            categorical_feature_slice = x[:, x_pointer:x_pointer + num_in]
-            concat_seq.append(self.ee_layers[layer_pointer](categorical_feature_slice))
-            layer_pointer += 1
-            x_pointer += num_in
-            last_concat = x_pointer
-        concat_seq.append(x[:, last_concat:])
-        return torch.cat(concat_seq, dim=1)
+    def __str__(self) ->str:
+        return '{}, {}, {}, {}, {}'.format(self.node_name, self.hyperparameter, str(self.value_range), self.default_value if isinstance(self.default_value, str) else self.default_value, ' log' if self.log else '')
 
-    def _create_ee_layers(self, in_features):
-        layers = nn.ModuleList()
-        for i, (num_in, embed, num_out) in enumerate(zip(self.num_input_features, self.embed_features, self.num_output_dimensions)):
-            if not embed:
-                continue
-            layers.append(nn.Linear(num_in, num_out))
-        return layers
+    def get_search_space(self, remove_prefix: Optional[str]=None) ->HyperparameterSearchSpace:
+        """
+        Get Update as a HyperparameterSearchSpace object.
 
-    @staticmethod
-    def get_config_space(categorical_features=None, min_unique_values_for_embedding=((3, 300), True), dimension_reduction=(0, 1), **kwargs):
-        if categorical_features is None or not any(categorical_features):
-            return CS.ConfigurationSpace()
-        cs = CS.ConfigurationSpace()
-        min_hp = get_hyperparameter(CSH.UniformIntegerHyperparameter, 'min_unique_values_for_embedding', min_unique_values_for_embedding)
-        cs.add_hyperparameter(min_hp)
-        for i in range(len([x for x in categorical_features if x])):
-            ee_dimensions_hp = get_hyperparameter(CSH.UniformFloatHyperparameter, 'dimension_reduction_' + str(i), kwargs.pop('dimension_reduction_' + str(i), dimension_reduction))
-            cs.add_hyperparameter(ee_dimensions_hp)
-        assert len(kwargs) == 0, 'Invalid hyperparameter updates for learned embedding: %s' % str(kwargs)
-        return cs
+        Args:
+            remove_prefix (Optional[str]):
+                if specified, remove given prefix from hyperparameter name
+
+        Returns:
+            HyperparameterSearchSpace
+        """
+        hyperparameter_name = self.hyperparameter
+        if remove_prefix is not None:
+            if remove_prefix in self.hyperparameter:
+                hyperparameter_name = hyperparameter_name.replace(f'{remove_prefix}:', '')
+        return HyperparameterSearchSpace(hyperparameter=hyperparameter_name, value_range=self.value_range, default_value=self.default_value, log=self.log)
 
 
-class NoEmbedding(nn.Module):
+class DecoderProperties(NamedTuple):
+    """
+    Decoder properties
 
-    def __init__(self, config, in_features, one_hot_encoder):
-        super(NoEmbedding, self).__init__()
-        self.config = config
-        self.n_feats = in_features
-        self.num_out_feats = self.n_feats
+    Args:
+        has_hidden_states (bool):
+            if the decoder has hidden states. A decoder with hidden states might have additional output and requires
+            additional inputs
+        has_local_layer (bool):
+            if the decoder has local layer, in which case the output is also a 3D sequential feature
+        recurrent (bool):
+            if the decoder is recurrent. This determines if decoders can be auto-regressive
+        lagged_input (bool):
+            if the decoder accepts past targets as additional features
+        multi_blocks (bool):
+            If the decoder is stacked by multiple blocks (only for N-BEATS)
+    """
+    has_hidden_states: bool = False
+    has_local_layer: bool = True
+    recurrent: bool = False
+    lagged_input: bool = False
+    multi_blocks: bool = False
 
-    def forward(self, x):
-        return x
 
-    @staticmethod
-    def get_config_space(*args, **kwargs):
-        return CS.ConfigurationSpace()
+class DecoderBlockInfo(NamedTuple):
+    """
+    Decoder block infos
+
+    Args:
+        decoder (nn.Module):
+            decoder network
+        decoder_properties (EncoderProperties):
+            decoder properties
+        decoder_output_shape (Tuple[int, ...]):
+            output shape that the decoder ought to output
+
+        decoder_input_shape (Tuple[int, ...]):
+            requried input shape of the decoder
+
+    """
+    decoder: nn.Module
+    decoder_properties: DecoderProperties
+    decoder_output_shape: Tuple[int, ...]
+    decoder_input_shape: Tuple[int, ...]
 
 
-def add_hyperparameter(cs, hyper_type, name, value_range, log=False):
-    return cs.add_hyperparameter(get_hyperparameter(hyper_type, name, value_range, log))
+class EncoderProperties(NamedTuple):
+    """
+    Encoder properties
+
+    Args:
+        has_hidden_states (bool):
+            if the encoder has hidden states. An encoder with hidden states might have additional output
+        bijective_seq_output (bool):
+            if the encoder's output sequence has the same length as its input sequence's length
+        fixed_input_seq_length (bool):
+            if the encoder requries a fixed length of input (for instance, MLP)
+        lagged_input (bool):
+            if the encoder accepts past targets as additional features
+        is_casual (bool):
+            If the output of the encoder only depends on the past targets
+    """
+    has_hidden_states: bool = False
+    bijective_seq_output: bool = True
+    fixed_input_seq_length: bool = False
+    lagged_input: bool = False
+    is_casual: bool = True
 
 
-class MlpNet(BaseFeatureNet):
-    activations = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh}
+class EncoderBlockInfo(NamedTuple):
+    """
+    Encoder block infos
 
-    def __init__(self, config, in_features, out_features, embedding, final_activation=None):
-        super(MlpNet, self).__init__(config, in_features, out_features, embedding, final_activation)
-        self.activation = self.activations[config['activation']]
-        self.layers = self._build_net(self.n_feats, self.n_classes)
+    Args:
+        encoder (nn.Module):
+            encoder network
+        encoder_properties (EncoderProperties):
+            encoder properties
+        encoder_input_shape (Tuple[int, ...]):
+            requried input shape of the encoder
+        encoder_output_shape (Tuple[int, ...]):
+            output shape that the encoder ought to output
+        n_hidden_states (int):
+            number of hidden states
+    """
+    encoder: nn.Module
+    encoder_properties: EncoderProperties
+    encoder_input_shape: Tuple[int, ...]
+    encoder_output_shape: Tuple[int, ...]
+    n_hidden_states: int
 
-    def _build_net(self, in_features, out_features):
-        layers = list()
-        self._add_layer(layers, in_features, self.config['num_units_1'], 1)
-        for i in range(2, self.config['num_layers'] + 1):
-            self._add_layer(layers, self.config['num_units_%d' % (i - 1)], self.config['num_units_%d' % i], i)
-        layers.append(nn.Linear(self.config['num_units_%d' % self.config['num_layers']], out_features))
-        return nn.Sequential(*layers)
 
-    def _add_layer(self, layers, in_features, out_features, layer_id):
-        layers.append(nn.Linear(in_features, out_features))
-        layers.append(self.activation())
-        if self.config['use_dropout']:
-            layers.append(nn.Dropout(self.config['dropout_%d' % layer_id]))
+class NetworkStructure(NamedTuple):
+    num_blocks: int = 1
+    variable_selection: bool = False
+    share_single_variable_networks: bool = False
+    use_temporal_fusion: bool = False
+    skip_connection: bool = False
+    skip_connection_type: str = 'add'
+    grn_dropout_rate: float = 0.0
 
-    @staticmethod
-    def get_config_space(num_layers=((1, 15), False), num_units=((10, 1024), True), activation=('sigmoid', 'tanh', 'relu'), dropout=(0.0, 0.8), use_dropout=(True, False), **kwargs):
-        cs = CS.ConfigurationSpace()
-        num_layers_hp = get_hyperparameter(CSH.UniformIntegerHyperparameter, 'num_layers', num_layers)
-        cs.add_hyperparameter(num_layers_hp)
-        use_dropout_hp = add_hyperparameter(cs, CS.CategoricalHyperparameter, 'use_dropout', use_dropout)
-        for i in range(1, num_layers[0][1] + 1):
-            n_units_hp = get_hyperparameter(CSH.UniformIntegerHyperparameter, 'num_units_%d' % i, kwargs.pop('num_units_%d' % i, num_units))
-            cs.add_hyperparameter(n_units_hp)
-            if i > num_layers[0][0]:
-                cs.add_condition(CS.GreaterThanCondition(n_units_hp, num_layers_hp, i - 1))
-            if True in use_dropout:
-                dropout_hp = get_hyperparameter(CSH.UniformFloatHyperparameter, 'dropout_%d' % i, kwargs.pop('dropout_%d' % i, dropout))
-                cs.add_hyperparameter(dropout_hp)
-                dropout_condition_1 = CS.EqualsCondition(dropout_hp, use_dropout_hp, True)
-                if i > num_layers[0][0]:
-                    dropout_condition_2 = CS.GreaterThanCondition(dropout_hp, num_layers_hp, i - 1)
-                    cs.add_condition(CS.AndConjunction(dropout_condition_1, dropout_condition_2))
+
+class AddLayer(nn.Module):
+
+    def __init__(self, input_size: int, skip_size: int):
+        super().__init__()
+        if input_size == skip_size:
+            self.fc = nn.Linear(skip_size, input_size)
+        self.norm = nn.LayerNorm(input_size)
+
+    def forward(self, input: torch.Tensor, skip: torch.Tensor) ->torch.Tensor:
+        if hasattr(self, 'fc'):
+            return self.norm(input + self.fc(skip))
+        else:
+            return self.norm(input)
+
+
+class StackedDecoder(nn.Module):
+    """
+    Decoder network that is stacked by several decoders. Skip-connections can be applied to each stack. It decodes the
+    encoded features (encoder2decoder) from each corresponding stacks and known_future_features to generate the decoded
+    output features that will be further fed to the network decoder.
+    """
+
+    def __init__(self, network_structure: NetworkStructure, encoder: nn.ModuleDict, encoder_info: Dict[str, EncoderBlockInfo], decoder_info: Dict[str, DecoderBlockInfo]):
+        super().__init__()
+        self.num_blocks = network_structure.num_blocks
+        self.first_block = -1
+        self.skip_connection = network_structure.skip_connection
+        self.decoder_has_hidden_states = []
+        decoder = nn.ModuleDict()
+        for i in range(1, self.num_blocks + 1):
+            block_id = f'block_{i}'
+            if block_id in decoder_info:
+                self.first_block = i if self.first_block == -1 else self.first_block
+                decoder[block_id] = decoder_info[block_id].decoder
+                if decoder_info[block_id].decoder_properties.has_hidden_states:
+                    self.decoder_has_hidden_states.append(True)
                 else:
-                    cs.add_condition(dropout_condition_1)
-        add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'activation', activation)
-        assert len(kwargs) == 0, 'Invalid hyperparameter updates for mlpnet: %s' % str(kwargs)
-        return cs
+                    self.decoder_has_hidden_states.append(False)
+                if self.skip_connection:
+                    input_size_encoder = encoder_info[block_id].encoder_output_shape[-1]
+                    skip_size_encoder = encoder_info[block_id].encoder_input_shape[-1]
+                    input_size_decoder = decoder_info[block_id].decoder_output_shape[-1]
+                    skip_size_decoder = decoder_info[block_id].decoder_input_shape[-1]
+                    if skip_size_decoder > 0:
+                        if input_size_encoder == input_size_decoder and skip_size_encoder == skip_size_decoder:
+                            decoder[f'skip_connection_{i}'] = encoder[f'skip_connection_{i}']
+                        elif network_structure.skip_connection_type == 'add':
+                            decoder[f'skip_connection_{i}'] = AddLayer(input_size_decoder, skip_size_decoder)
+                        elif network_structure.skip_connection_type == 'gate_add_norm':
+                            decoder[f'skip_connection_{i}'] = GateAddNorm(input_size_decoder, hidden_size=input_size_decoder, skip_size=skip_size_decoder, dropout=network_structure.grn_dropout_rate)
+        self.cached_intermediate_state = [torch.empty(0) for _ in range(self.num_blocks + 1 - self.first_block)]
+        self.decoder = decoder
 
+    def forward(self, x_future: Optional[torch.Tensor], encoder_output: List[torch.Tensor], pos_idx: Optional[Tuple[int]]=None, cache_intermediate_state: bool=False, incremental_update: bool=False) ->torch.Tensor:
+        """
+        A forward pass through the decoder
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        Args:
+            x_future (Optional[torch.Tensor]):
+                known future features
+            encoder_output (List[torch.Tensor])
+                encoded features, stored as List, whereas each element in the list indicates encoded features from an
+                encoder stack
+            pos_idx (int)
+                position index of the current x_future. This is applied to transformer decoder
+            cache_intermediate_state (bool):
+                if the intermediate values are cached
+            incremental_update (bool):
+                if an incremental update is applied, this is normally applied for auto-regressive model
 
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-class ResNet(BaseImageNet):
-
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
-        self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)
-                elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)
-        self.layers = nn.Sequential(self.conv1, self.bn1, self.relu, self.maxpool, self.layer1, self.layer2, self.layer3, self.layer4, self.avgpool)
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        Returns:
+            decoder_output (torch.Tensor):
+                decoder output that will be passed to the network head
+        """
+        x = x_future
+        for i, block_id in enumerate(range(self.first_block, self.num_blocks + 1)):
+            decoder_i = self.decoder[f'block_{block_id}']
+            if self.decoder_has_hidden_states[i]:
+                if incremental_update:
+                    hx = self.cached_intermediate_state[i]
+                    fx, hx = decoder_i(x_future=x, encoder_output=hx, pos_idx=pos_idx)
+                else:
+                    fx, hx = decoder_i(x_future=x, encoder_output=encoder_output[i], pos_idx=pos_idx)
+            elif incremental_update:
+                fx = decoder_i(x, encoder_output=encoder_output[i], pos_idx=pos_idx)
+            else:
+                fx = decoder_i(x, encoder_output=encoder_output[i], pos_idx=pos_idx)
+            skip_id = f'skip_connection_{block_id}'
+            if self.skip_connection and skip_id in self.decoder and x is not None:
+                fx = self.decoder[skip_id](fx, x)
+            if cache_intermediate_state:
+                if self.decoder_has_hidden_states[i]:
+                    self.cached_intermediate_state[i] = hx
+            x = fx
         return x
+
+
+class EncoderOutputForm(Enum):
+    NoOutput = 0
+    HiddenStates = 1
+    Sequence = 2
+    SequenceLast = 3
+
+
+class StackedEncoder(nn.Module):
+    """
+    Encoder network that is stacked by several encoders. Skip-connections can be applied to each stack. Each stack
+    needs to generate a sequence of encoded features passed to the next stack and the
+    corresponding decoder (encoder2decoder) that is located at the same layer.Additionally, if temporal fusion
+    transformer is applied, the last encoder also needs to output the full encoded feature sequence
+    """
+
+    def __init__(self, network_structure: NetworkStructure, has_temporal_fusion: bool, encoder_info: Dict[str, EncoderBlockInfo], decoder_info: Dict[str, DecoderBlockInfo]):
+        super().__init__()
+        self.num_blocks = network_structure.num_blocks
+        self.skip_connection = network_structure.skip_connection
+        self.has_temporal_fusion = has_temporal_fusion
+        self.encoder_output_type = [EncoderOutputForm.NoOutput] * self.num_blocks
+        self.encoder_has_hidden_states = [False] * self.num_blocks
+        len_cached_intermediate_states = self.num_blocks + 1 if self.has_temporal_fusion else self.num_blocks
+        self.cached_intermediate_state = [torch.empty(0) for _ in range(len_cached_intermediate_states)]
+        self.encoder_num_hidden_states = [0] * self.num_blocks
+        encoder = nn.ModuleDict()
+        for i, block_idx in enumerate(range(1, self.num_blocks + 1)):
+            block_id = f'block_{block_idx}'
+            encoder[block_id] = encoder_info[block_id].encoder
+            if self.skip_connection:
+                input_size = encoder_info[block_id].encoder_output_shape[-1]
+                skip_size = encoder_info[block_id].encoder_input_shape[-1]
+                if network_structure.skip_connection_type == 'add':
+                    encoder[f'skip_connection_{block_idx}'] = AddLayer(input_size, skip_size)
+                elif network_structure.skip_connection_type == 'gate_add_norm':
+                    encoder[f'skip_connection_{block_idx}'] = GateAddNorm(input_size, hidden_size=input_size, skip_size=skip_size, dropout=network_structure.grn_dropout_rate)
+            if block_id in decoder_info:
+                if decoder_info[block_id].decoder_properties.recurrent:
+                    if decoder_info[block_id].decoder_properties.has_hidden_states:
+                        self.encoder_output_type[i] = EncoderOutputForm.HiddenStates
+                    else:
+                        self.encoder_output_type[i] = EncoderOutputForm.Sequence
+                else:
+                    self.encoder_output_type[i] = EncoderOutputForm.SequenceLast
+            if encoder_info[block_id].encoder_properties.has_hidden_states:
+                self.encoder_has_hidden_states[i] = True
+                self.encoder_num_hidden_states[i] = encoder_info[block_id].n_hidden_states
+            else:
+                self.encoder_has_hidden_states[i] = False
+        self.encoder = encoder
+
+    def forward(self, encoder_input: torch.Tensor, additional_input: List[Optional[torch.Tensor]], output_seq: bool=False, cache_intermediate_state: bool=False, incremental_update: bool=False) ->Tuple[List[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        A forward pass through the encoder
+
+        Args:
+            encoder_input (torch.Tensor):
+                encoder input
+            additional_input (List[Optional[torch.Tensor]])
+                additional input to the encoder, e.g., initial hidden states
+            output_seq (bool)
+                if the encoder want to generate a sequence of multiple time steps or a single time step
+            cache_intermediate_state (bool):
+                if the intermediate values are cached
+            incremental_update (bool):
+                if an incremental update is applied, this is normally applied for
+                auto-regressive model, however, ony deepAR requires incremental update in encoder
+
+        Returns:
+            encoder2decoder ([List[torch.Tensor]]):
+                encoder output that will be passed to decoders
+            encoder_output (torch.Tensor):
+                full sequential encoded features from the last encoder layer. Applied to temporal transformer
+        """
+        encoder2decoder = []
+        x = encoder_input
+        for i, block_id in enumerate(range(1, self.num_blocks + 1)):
+            output_seq_i = output_seq or self.has_temporal_fusion or block_id < self.num_blocks
+            encoder_i = self.encoder[f'block_{block_id}']
+            if self.encoder_has_hidden_states[i]:
+                if incremental_update:
+                    hx = self.cached_intermediate_state[i]
+                    fx, hx = encoder_i(x, output_seq=False, hx=hx)
+                else:
+                    rnn_num_layers = encoder_i.config['num_layers']
+                    hx = additional_input[i]
+                    if hx is None:
+                        fx, hx = encoder_i(x, output_seq=output_seq_i, hx=hx)
+                    elif self.encoder_num_hidden_states[i] == 1:
+                        fx, hx = encoder_i(x, output_seq=output_seq_i, hx=hx[0].expand((rnn_num_layers, -1, -1)).contiguous())
+                    else:
+                        hx = tuple(hx_i.expand(rnn_num_layers, -1, -1).contiguous() for hx_i in hx)
+                        fx, hx = encoder_i(x, output_seq=output_seq_i, hx=hx)
+            elif incremental_update:
+                x_all = torch.cat([self.cached_intermediate_state[i], x], dim=1)
+                fx = encoder_i(x_all, output_seq=False)
+            else:
+                fx = encoder_i(x, output_seq=output_seq_i)
+            if self.skip_connection:
+                if output_seq_i:
+                    fx = self.encoder[f'skip_connection_{block_id}'](fx, x)
+                else:
+                    fx = self.encoder[f'skip_connection_{block_id}'](fx, x[:, -1:])
+            if self.encoder_output_type[i] == EncoderOutputForm.HiddenStates:
+                encoder2decoder.append(hx)
+            elif self.encoder_output_type[i] == EncoderOutputForm.Sequence:
+                encoder2decoder.append(fx)
+            elif self.encoder_output_type[i] == EncoderOutputForm.SequenceLast:
+                if output_seq_i and not output_seq:
+                    encoder2decoder.append(encoder_i.get_last_seq_value(fx).squeeze(1))
+                else:
+                    encoder2decoder.append(fx)
+            else:
+                raise NotImplementedError
+            if cache_intermediate_state:
+                if self.encoder_has_hidden_states[i]:
+                    self.cached_intermediate_state[i] = hx
+                elif incremental_update:
+                    self.cached_intermediate_state[i] = x_all
+                else:
+                    self.cached_intermediate_state[i] = x
+            x = fx
+        if self.has_temporal_fusion:
+            if incremental_update:
+                self.cached_intermediate_state[i + 1] = torch.cat([self.cached_intermediate_state[i + 1], x], dim=1)
+            else:
+                self.cached_intermediate_state[i + 1] = x
+            return encoder2decoder, x
+        else:
+            return encoder2decoder, None
+
+
+class TemporalFusionLayer(nn.Module):
+    """
+    (Lim et al.
+    Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting,
+    https://arxiv.org/abs/1912.09363)
+    we follow the implementation from pytorch forecasting:
+    https://github.com/jdb78/pytorch-forecasting/blob/master/pytorch_forecasting/models/temporal_fusion_transformer/__init__.py
+    """
+
+    def __init__(self, window_size: int, network_structure: NetworkStructure, network_encoder: Dict[str, EncoderBlockInfo], n_decoder_output_features: int, d_model: int, n_head: int, dropout: Optional[float]=None):
+        super().__init__()
+        num_blocks = network_structure.num_blocks
+        last_block = f'block_{num_blocks}'
+        n_encoder_output = network_encoder[last_block].encoder_output_shape[-1]
+        self.window_size = window_size
+        if n_decoder_output_features != n_encoder_output:
+            self.decoder_proj_layer = nn.Linear(n_decoder_output_features, n_encoder_output, bias=False)
+        else:
+            self.decoder_proj_layer = None
+        if network_structure.variable_selection:
+            if network_structure.skip_connection:
+                n_encoder_output_first = network_encoder['block_1'].encoder_output_shape[-1]
+                self.static_context_enrichment = GatedResidualNetwork(n_encoder_output_first, n_encoder_output_first, n_encoder_output_first, dropout)
+                self.enrichment = GatedResidualNetwork(input_size=n_encoder_output, hidden_size=n_encoder_output, output_size=d_model, dropout=dropout, context_size=n_encoder_output_first, residual=False)
+                self.enrich_with_static = True
+        if not hasattr(self, 'enrichment'):
+            self.enrichment = GatedResidualNetwork(input_size=n_encoder_output, hidden_size=n_encoder_output, output_size=d_model, dropout=dropout, residual=False)
+            self.enrich_with_static = False
+        self.attention_fusion = InterpretableMultiHeadAttention(d_model=d_model, n_head=n_head, dropout=dropout or 0.0)
+        self.post_attn_gate_norm = GateAddNorm(d_model, dropout=dropout, trainable_add=False)
+        self.pos_wise_ff = GatedResidualNetwork(input_size=d_model, hidden_size=d_model, output_size=d_model, dropout=dropout)
+        self.network_structure = network_structure
+        if network_structure.skip_connection:
+            if network_structure.skip_connection_type == 'add':
+                self.residual_connection = AddLayer(d_model, n_encoder_output)
+            elif network_structure.skip_connection_type == 'gate_add_norm':
+                self.residual_connection = GateAddNorm(d_model, skip_size=n_encoder_output, dropout=None, trainable_add=False)
+        self._device = 'cpu'
+
+    def forward(self, encoder_output: torch.Tensor, decoder_output: torch.Tensor, past_observed_targets: torch.BoolTensor, decoder_length: int, static_embedding: Optional[torch.Tensor]=None) ->torch.Tensor:
+        """
+        Args:
+            encoder_output (torch.Tensor):
+                the output of the last layer of encoder network
+            decoder_output (torch.Tensor):
+                the output of the last layer of decoder network
+            past_observed_targets (torch.BoolTensor):
+                observed values in the past
+            decoder_length (int):
+                length of decoder network
+            static_embedding Optional[torch.Tensor]:
+                embeddings of static features  (if available)
+        """
+        if self.decoder_proj_layer is not None:
+            decoder_output = self.decoder_proj_layer(decoder_output)
+        network_output = torch.cat([encoder_output, decoder_output], dim=1)
+        if self.enrich_with_static and static_embedding is not None:
+            static_context_enrichment = self.static_context_enrichment(static_embedding)
+            attn_input = self.enrichment(network_output, static_context_enrichment[:, None].expand(-1, network_output.shape[1], -1))
+        else:
+            attn_input = self.enrichment(network_output)
+        encoder_out_length = encoder_output.shape[1]
+        past_observed_targets = past_observed_targets[:, -encoder_out_length:]
+        past_observed_targets = past_observed_targets
+        mask = self.get_attention_mask(past_observed_targets=past_observed_targets, decoder_length=decoder_length)
+        if mask.shape[-1] < attn_input.shape[1]:
+            mask = torch.cat([mask.new_full((*mask.shape[:-1], attn_input.shape[1] - mask.shape[-1]), True), mask], dim=-1)
+        attn_output, attn_output_weights = self.attention_fusion(q=attn_input[:, -decoder_length:], k=attn_input, v=attn_input, mask=mask)
+        attn_output = self.post_attn_gate_norm(attn_output, attn_input[:, -decoder_length:])
+        output = self.pos_wise_ff(attn_output)
+        if self.network_structure.skip_connection:
+            return self.residual_connection(output, decoder_output)
+        else:
+            return output
+
+    @property
+    def device(self) ->torch.device:
+        return self._device
+
+    @device.setter
+    def device(self, device: torch.device) ->None:
+        self
+        self._device = device
+
+    def get_attention_mask(self, past_observed_targets: torch.BoolTensor, decoder_length: int) ->torch.Tensor:
+        """
+        https://github.com/jdb78/pytorch-forecasting/blob/master/pytorch_forecasting/models/
+        temporal_fusion_transformer/__init__.py
+        """
+        attend_step = torch.arange(decoder_length, device=self.device)
+        predict_step = torch.arange(0, decoder_length, device=self.device)[:, None]
+        decoder_mask = attend_step >= predict_step
+        encoder_mask = ~past_observed_targets.squeeze(-1)
+        mask = torch.cat((encoder_mask.unsqueeze(1).expand(-1, decoder_length, -1), decoder_mask.unsqueeze(0).expand(encoder_mask.size(0), -1, -1)), dim=2)
+        return mask
+
+
+class TransformedDistribution_(TransformedDistribution):
+    """
+    We implement the mean function such that we do not need to enquire base mean every time
+    """
+
+    @property
+    def mean(self) ->torch.Tensor:
+        mean = self.base_dist.mean
+        for transform in self.transforms:
+            mean = transform(mean)
+        return mean
+
+
+class VariableSelector(nn.Module):
+
+    def __init__(self, network_structure: NetworkStructure, dataset_properties: Dict[str, Any], network_encoder: Dict[str, EncoderBlockInfo], auto_regressive: bool=False, feature_names: Union[Tuple[str], Tuple[()]]=(), known_future_features: Union[Tuple[str], Tuple[()]]=(), feature_shapes: Dict[str, int]={}, static_features: Union[Tuple[Union[str, int]], Tuple[()]]=(), time_feature_names: Union[Tuple[str], Tuple[()]]=()):
+        """
+        Variable Selector. This models follows the implementation from
+        pytorch_forecasting.models.temporal_fusion_transformer.sub_modules.VariableSelectionNetwork
+        However, we adjust the structure to fit the data extracted from our dataloader: we record the feature index from
+        each feature names and break the input features on the fly.
+
+        The order of the input variables is as follows:
+        [features (from the dataset), time_features (from time feature transformers), targets]
+        Args:
+            network_structure (NetworkStructure):
+                contains the information of the overall architecture information
+            dataset_properties (Dict):
+                dataset properties
+            network_encoder(Dict[str, EncoderBlockInfo]):
+                Network encoders
+            auto_regressive (bool):
+                if it belongs to an auto-regressive model
+            feature_names (Tuple[str]):
+                feature names, used to construct the selection network
+            known_future_features (Tuple[str]):
+                known future features
+            feature_shapes (Dict[str, int]):
+                shapes of each features
+            time_feature_names (Tuple[str]):
+                time feature names, used to complement feature_shapes
+        """
+        super().__init__()
+        first_encoder_output_shape = network_encoder['block_1'].encoder_output_shape[-1]
+        self.hidden_size = first_encoder_output_shape
+        assert set(feature_names) == set(feature_shapes.keys()), f'feature_names and feature_shapes must have the same variable names but they are differentat {set(feature_names) ^ set(feature_shapes.keys())}'
+        pre_scalar = {'past_targets': nn.Linear(dataset_properties['output_shape'][-1], self.hidden_size)}
+        encoder_input_sizes = {'past_targets': self.hidden_size}
+        decoder_input_sizes = {}
+        future_feature_name2tensor_idx = {}
+        feature_names2tensor_idx = {}
+        idx_tracker = 0
+        idx_tracker_future = 0
+        static_features = set(static_features)
+        static_features_input_size = {}
+        known_future_features = tuple(known_future_features)
+        feature_names = tuple(feature_names)
+        time_feature_names = tuple(time_feature_names)
+        if feature_names:
+            for name in feature_names:
+                feature_shape = feature_shapes[name]
+                feature_names2tensor_idx[name] = [idx_tracker, idx_tracker + feature_shape]
+                idx_tracker += feature_shape
+                pre_scalar[name] = nn.Linear(feature_shape, self.hidden_size)
+                if name in static_features:
+                    static_features_input_size[name] = self.hidden_size
+                else:
+                    encoder_input_sizes[name] = self.hidden_size
+                    if name in known_future_features:
+                        decoder_input_sizes[name] = self.hidden_size
+        for future_name in known_future_features:
+            feature_shape = feature_shapes[future_name]
+            future_feature_name2tensor_idx[future_name] = [idx_tracker_future, idx_tracker_future + feature_shape]
+            idx_tracker_future += feature_shape
+        if time_feature_names:
+            for name in time_feature_names:
+                feature_names2tensor_idx[name] = [idx_tracker, idx_tracker + 1]
+                future_feature_name2tensor_idx[name] = [idx_tracker_future, idx_tracker_future + 1]
+                idx_tracker += 1
+                idx_tracker_future += 1
+                pre_scalar[name] = nn.Linear(1, self.hidden_size)
+                encoder_input_sizes[name] = self.hidden_size
+                decoder_input_sizes[name] = self.hidden_size
+        if not feature_names or not known_future_features:
+            placeholder_features = 'placeholder_features'
+            i = 0
+            self.placeholder_features: List[str] = []
+            while placeholder_features in feature_names or placeholder_features in self.placeholder_features:
+                i += 1
+                placeholder_features = f'placeholder_features_{i}'
+                if i == 5000:
+                    raise RuntimeError('Cannot assign name to placeholder features, please considering rename your features')
+            name = placeholder_features
+            pre_scalar[name] = nn.Linear(1, self.hidden_size)
+            encoder_input_sizes[name] = self.hidden_size
+            decoder_input_sizes[name] = self.hidden_size
+            self.placeholder_features.append(placeholder_features)
+        feature_names = time_feature_names + feature_names
+        known_future_features = time_feature_names + known_future_features
+        self.feature_names = feature_names
+        self.feature_names2tensor_idx = feature_names2tensor_idx
+        self.future_feature_name2tensor_idx = future_feature_name2tensor_idx
+        self.known_future_features = known_future_features
+        if auto_regressive:
+            pre_scalar.update({'future_prediction': nn.Linear(dataset_properties['output_shape'][-1], self.hidden_size)})
+            decoder_input_sizes.update({'future_prediction': self.hidden_size})
+        self.pre_scalars = nn.ModuleDict(pre_scalar)
+        self._device = torch.device('cpu')
+        if not dataset_properties['uni_variant']:
+            self.static_variable_selection = VariableSelectionNetwork(input_sizes=static_features_input_size, hidden_size=self.hidden_size, input_embedding_flags={}, dropout=network_structure.grn_dropout_rate, prescalers=self.pre_scalars)
+        self.static_input_sizes = static_features_input_size
+        self.static_features = static_features
+        self.auto_regressive = auto_regressive
+        if network_structure.share_single_variable_networks:
+            self.shared_single_variable_grns = nn.ModuleDict()
+            for name, input_size in encoder_input_sizes.items():
+                self.shared_single_variable_grns[name] = GatedResidualNetwork(input_size, min(input_size, self.hidden_size), self.hidden_size, network_structure.grn_dropout_rate)
+            for name, input_size in decoder_input_sizes.items():
+                if name not in self.shared_single_variable_grns:
+                    self.shared_single_variable_grns[name] = GatedResidualNetwork(input_size, min(input_size, self.hidden_size), self.hidden_size, network_structure.grn_dropout_rate)
+        self.encoder_variable_selection = VariableSelectionNetwork(input_sizes=encoder_input_sizes, hidden_size=self.hidden_size, input_embedding_flags={}, dropout=network_structure.grn_dropout_rate, context_size=self.hidden_size, single_variable_grns={} if not network_structure.share_single_variable_networks else self.shared_single_variable_grns, prescalers=self.pre_scalars)
+        self.decoder_variable_selection = VariableSelectionNetwork(input_sizes=decoder_input_sizes, hidden_size=self.hidden_size, input_embedding_flags={}, dropout=network_structure.grn_dropout_rate, context_size=self.hidden_size, single_variable_grns={} if not network_structure.share_single_variable_networks else self.shared_single_variable_grns, prescalers=self.pre_scalars)
+        self.static_context_variable_selection = GatedResidualNetwork(input_size=self.hidden_size, hidden_size=self.hidden_size, output_size=self.hidden_size, dropout=network_structure.grn_dropout_rate)
+        n_hidden_states = 0
+        if network_encoder['block_1'].encoder_properties.has_hidden_states:
+            n_hidden_states = network_encoder['block_1'].n_hidden_states
+        static_context_initial_hidden = [GatedResidualNetwork(input_size=self.hidden_size, hidden_size=self.hidden_size, output_size=self.hidden_size, dropout=network_structure.grn_dropout_rate) for _ in range(n_hidden_states)]
+        self.static_context_initial_hidden = nn.ModuleList(static_context_initial_hidden)
+        self.cached_static_contex: Optional[torch.Tensor] = None
+        self.cached_static_embedding: Optional[torch.Tensor] = None
+
+    @property
+    def device(self) ->torch.device:
+        return self._device
+
+    @device.setter
+    def device(self, device: torch.device) ->None:
+        self
+        self._device = device
+
+    def forward(self, x_past: Optional[Dict[str, torch.Tensor]], x_future: Optional[Dict[str, torch.Tensor]], x_static: Optional[Dict[str, torch.Tensor]], length_past: int=0, length_future: int=0, batch_size: int=0, cache_static_contex: bool=False, use_cached_static_contex: bool=False) ->Tuple[Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
+        if x_past is None and x_future is None:
+            raise ValueError('Either past input or future inputs need to be given!')
+        if length_past == 0 and length_future == 0:
+            raise ValueError('Either length_past or length_future must be given!')
+        timesteps = length_past + length_future
+        if not use_cached_static_contex:
+            if len(self.static_input_sizes) > 0:
+                static_embedding, _ = self.static_variable_selection(x_static)
+            else:
+                if length_past > 0:
+                    assert x_past is not None, 'x_past must be given when length_past is greater than 0!'
+                    model_dtype = next(iter(x_past.values())).dtype
+                else:
+                    assert x_future is not None, 'x_future must be given when length_future is greater than 0!'
+                    model_dtype = next(iter(x_future.values())).dtype
+                static_embedding = torch.zeros((batch_size, self.hidden_size), dtype=model_dtype, device=self.device)
+            static_context_variable_selection = self.static_context_variable_selection(static_embedding)[:, None]
+            static_context_initial_hidden: Optional[Tuple[torch.Tensor, ...]] = tuple(init_hidden(static_embedding) for init_hidden in self.static_context_initial_hidden)
+            if cache_static_contex:
+                self.cached_static_contex = static_context_variable_selection
+                self.cached_static_embedding = static_embedding
+        else:
+            static_embedding = self.cached_static_embedding
+            static_context_initial_hidden = None
+            static_context_variable_selection = self.cached_static_contex
+        static_context_variable_selection = static_context_variable_selection.expand(-1, timesteps, -1)
+        if x_past is not None:
+            embeddings_varying_encoder, _ = self.encoder_variable_selection(x_past, static_context_variable_selection[:, :length_past])
+        else:
+            embeddings_varying_encoder = None
+        if x_future is not None:
+            embeddings_varying_decoder, _ = self.decoder_variable_selection(x_future, static_context_variable_selection[:, length_past:])
+        else:
+            embeddings_varying_decoder = None
+        return embeddings_varying_encoder, embeddings_varying_decoder, static_embedding, static_context_initial_hidden
+
+
+class _NoEmbedding(nn.Module):
+
+    def get_partial_models(self, subset_features: List[int]) ->'_NoEmbedding':
+        return self
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        return x
+
+
+def get_lagged_subsequences(sequence: torch.Tensor, subsequences_length: int, lags_seq: Optional[List[int]]=None, mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Returns lagged subsequences of a given sequence, this allows the model to receive the input from the past targets
+    outside the sliding windows. This implementation is similar to gluonTS's implementation
+     the only difference is that we pad the sequence that is not long enough
+
+    Args:
+        sequence (torch.Tensor):
+            the sequence from which lagged subsequences should be extracted, Shape: (N, T, C).
+        subsequences_length (int):
+            length of the subsequences to be extracted.
+        lags_seq (Optional[List[int]]):
+            lags of the sequence, indicating the sequence that needs to be extracted
+        mask (Optional[torch.Tensor]):
+            a mask tensor indicating, it is a cached mask tensor that allows the model to quickly extract the desired
+            lagged values
+
+    Returns:
+        lagged (Tensor)
+            A tensor of shape (N, S, I * C), where S = subsequences_length and I = len(indices),
+             containing lagged subsequences.
+        mask (torch.Tensor):
+            cached mask
+    """
+    batch_size = sequence.shape[0]
+    num_features = sequence.shape[2]
+    if mask is None:
+        if lags_seq is None:
+            warnings.warn('Neither lag_mask or lags_seq is given, we simply return the input value')
+            return sequence, None
+        num_lags = len(lags_seq)
+        mask_length = max(lags_seq) + subsequences_length
+        mask = torch.zeros((num_lags, mask_length), dtype=torch.bool)
+        for i, lag_index in enumerate(lags_seq):
+            begin_index = -lag_index - subsequences_length
+            end_index = -lag_index if lag_index > 0 else None
+            mask[i, begin_index:end_index] = True
+    else:
+        num_lags = mask.shape[0]
+        mask_length = mask.shape[1]
+    mask_extend = mask.clone()
+    if mask_length > sequence.shape[1]:
+        sequence = torch.cat([sequence.new_zeros([batch_size, mask_length - sequence.shape[1], num_features]), sequence], dim=1)
+    elif mask_length < sequence.shape[1]:
+        mask_extend = torch.cat([mask.new_zeros([num_lags, sequence.shape[1] - mask_length]), mask_extend], dim=1)
+    sequence = sequence.unsqueeze(1)
+    mask_extend = mask_extend.unsqueeze(-1)
+    lagged_seq = torch.masked_select(sequence, mask_extend).reshape(batch_size, num_lags, subsequences_length, -1)
+    lagged_seq = torch.transpose(lagged_seq, 1, 2).reshape(batch_size, subsequences_length, -1)
+    return lagged_seq, mask
+
+
+def get_lagged_subsequences_inference(sequence: torch.Tensor, subsequences_length: int, lags_seq: List[int]) ->torch.Tensor:
+    """
+    this function works exactly the same as get_lagged_subsequences. However, this implementation is faster when no
+    cached value is available, thus it is applied during inference times.
+
+    Args:
+        sequence (torch.Tensor):
+            the sequence from which lagged subsequences should be extracted, Shape: (N, T, C).
+        subsequences_length (int):
+            length of the subsequences to be extracted.
+        lags_seq (Optional[List[int]]):
+            lags of the sequence, indicating the sequence that needs to be extracted
+
+    Returns:
+        lagged (Tensor)
+            A tensor of shape (N, S, I * C), where S = subsequences_length and I = len(indices),
+             containing lagged subsequences.
+    """
+    sequence_length = sequence.shape[1]
+    batch_size = sequence.shape[0]
+    lagged_values = []
+    for lag_index in lags_seq:
+        begin_index = -lag_index - subsequences_length
+        end_index = -lag_index if lag_index > 0 else None
+        if end_index is not None and end_index < -sequence_length:
+            lagged_values.append(torch.zeros([batch_size, subsequences_length, *sequence.shape[2:]]))
+            continue
+        if begin_index < -sequence_length:
+            if end_index is not None:
+                pad_shape = [batch_size, subsequences_length - sequence_length - end_index, *sequence.shape[2:]]
+                lagged_values.append(torch.cat([torch.zeros(pad_shape), sequence[:, :end_index, ...]], dim=1))
+            else:
+                pad_shape = [batch_size, subsequences_length - sequence_length, *sequence.shape[2:]]
+                lagged_values.append(torch.cat([torch.zeros(pad_shape), sequence], dim=1))
+            continue
+        else:
+            lagged_values.append(sequence[:, begin_index:end_index, ...])
+    lagged_seq = torch.stack(lagged_values, -1).transpose(-1, -2).reshape(batch_size, subsequences_length, -1)
+    return lagged_seq
+
+
+_activations = {'relu': torch.nn.ReLU, 'tanh': torch.nn.Tanh, 'sigmoid': torch.nn.Sigmoid}
+
+
+class _DenseLayer(nn.Sequential):
+
+    def __init__(self, num_input_features: int, activation: str, growth_rate: int, bn_size: int, drop_rate: float, bn_args: Dict[str, Any]):
+        super(_DenseLayer, self).__init__()
+        self.add_module('norm1', nn.BatchNorm2d(num_input_features, **bn_args)),
+        self.add_module('relu1', _activations[activation]()),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate, **bn_args)),
+        self.add_module('relu2', _activations[activation]()),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.drop_rate = drop_rate
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        new_features = super(_DenseLayer, self).forward(x)
+        if self.drop_rate > 0:
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
+        return torch.cat([x, new_features], 1)
+
+
+class _DenseBlock(nn.Sequential):
+
+    def __init__(self, num_layers: int, num_input_features: int, activation: str, bn_size: int, growth_rate: int, drop_rate: float, bn_args: Dict[str, Any]):
+        super(_DenseBlock, self).__init__()
+        for i in range(num_layers):
+            layer = _DenseLayer(num_input_features=num_input_features + i * growth_rate, activation=activation, growth_rate=growth_rate, bn_size=bn_size, drop_rate=drop_rate, bn_args=bn_args)
+            self.add_module('denselayer%d' % (i + 1), layer)
+
+
+class _Transition(nn.Sequential):
+
+    def __init__(self, num_input_features: int, activation: str, num_output_features: int, pool_size: int, bn_args: Dict[str, Any]):
+        super(_Transition, self).__init__()
+        self.add_module('norm', nn.BatchNorm2d(num_input_features, **bn_args))
+        self.add_module('relu', _activations[activation]())
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
+        self.add_module('pool', nn.AvgPool2d(kernel_size=pool_size, stride=pool_size))
 
 
 class ShakeDropFunction(Function):
+    """
+    References:
+        Title: ShakeDrop Regularization for Deep Residual Learning
+        Authors: Yoshihiro Yamada et. al.
+        URL: https://arxiv.org/pdf/1802.02375.pdf
+        Title: ShakeDrop Regularization
+        Authors: Yoshihiro Yamada et. al.
+        URL: https://openreview.net/pdf?id=S1NHaMW0b
+        Github URL: https://github.com/owruby/shake-drop_pytorch/blob/master/models/shakedrop.py
+    """
 
     @staticmethod
-    def forward(ctx, x, alpha, beta, bl):
+    def forward(ctx: Any, x: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, bl: torch.Tensor) ->torch.Tensor:
         ctx.save_for_backward(x, alpha, beta, bl)
         y = (bl + alpha - bl * alpha) * x
         return y
 
     @staticmethod
-    def backward(ctx, grad_output):
-        x, alpha, beta, bl = ctx.saved_variables
+    def backward(ctx: Any, grad_output: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        x, alpha, beta, bl = ctx.saved_tensors
         grad_x = grad_alpha = grad_beta = grad_bl = None
         if ctx.needs_input_grad[0]:
             grad_x = grad_output * (bl + beta - bl * beta)
@@ -745,19 +1654,61 @@ class ShakeDropFunction(Function):
 shake_drop = ShakeDropFunction.apply
 
 
-def shake_drop_get_bl(block_index, min_prob_no_shake, num_blocks, is_training, is_cuda):
+def shake_drop_get_bl(block_index: int, min_prob_no_shake: float, num_blocks: int, is_training: bool, is_cuda: bool) ->torch.Tensor:
+    """
+    The sampling of Bernoulli random variable
+    based on Eq. (4) in the paper
+
+    Args:
+        block_index (int): The index of the block from the input layer
+        min_prob_no_shake (float): The initial shake probability
+        num_blocks (int): The total number of building blocks
+        is_training (bool): Whether it is training
+        is_cuda (bool): Whether the tensor is on CUDA
+
+    Returns:
+        bl (torch.Tensor): a Bernoulli random variable in {0, 1}
+
+    Reference:
+        ShakeDrop Regularization for Deep Residual Learning
+        Yoshihiro Yamada et. al. (2020)
+        paper: https://arxiv.org/pdf/1802.02375.pdf
+        implementation: https://github.com/imenurok/ShakeDrop
+    """
     pl = 1 - (block_index + 1) / num_blocks * (1 - min_prob_no_shake)
-    if not is_training:
-        bl = torch.tensor(1.0) if random.random() <= pl else torch.tensor(0.0)
     if is_training:
-        bl = torch.tensor(pl)
+        bl = torch.as_tensor(1.0) if torch.rand(1) <= pl else torch.as_tensor(0.0)
+    else:
+        bl = torch.as_tensor(pl)
     if is_cuda:
         bl = bl
     return bl
 
 
-def shake_get_alpha_beta(is_training, is_cuda):
-    if is_training:
+def shake_get_alpha_beta(is_training: bool, is_cuda: bool) ->Tuple[torch.Tensor, torch.Tensor]:
+    """
+    The methods used in this function have been introduced in 'ShakeShake Regularisation'
+    Currently, this function supports `shake-shake`.
+
+    Args:
+        is_training (bool): Whether the computation for the training
+        is_cuda (bool): Whether the tensor is on CUDA
+
+    Returns:
+        alpha, beta (Tuple[float, float]):
+            alpha (in [0, 1]) is the weight coefficient  for the forward pass
+            beta (in [0, 1]) is the weight coefficient for the backward pass
+
+    Reference:
+        Title: Shake-shake regularization
+        Author: Xavier Gastaldi
+        URL: https://arxiv.org/abs/1705.07485
+
+    Note:
+        The names have been taken from the paper as well.
+        Currently, this function supports `shake-shake`.
+    """
+    if not is_training:
         result = torch.FloatTensor([0.5]), torch.FloatTensor([0.5])
         return result if not is_cuda else (result[0], result[1])
     alpha = torch.rand(1)
@@ -769,16 +1720,23 @@ def shake_get_alpha_beta(is_training, is_cuda):
 
 
 class ShakeShakeFunction(Function):
+    """
+    References:
+        Title: Shake-Shake regularization
+        Authors: Xavier Gastaldi
+        URL: https://arxiv.org/pdf/1705.07485.pdf
+        Github URL: https://github.com/hysts/pytorch_shake_shake/blob/master/functions/shake_shake_function.py
+    """
 
     @staticmethod
-    def forward(ctx, x1, x2, alpha, beta):
+    def forward(ctx: Any, x1: torch.Tensor, x2: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor) ->torch.Tensor:
         ctx.save_for_backward(x1, x2, alpha, beta)
         y = x1 * alpha + x2 * (1 - alpha)
         return y
 
     @staticmethod
-    def backward(ctx, grad_output):
-        x1, x2, alpha, beta = ctx.saved_variables
+    def backward(ctx: Any, grad_output: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        x1, x2, alpha, beta = ctx.saved_tensors
         grad_x1 = grad_x2 = grad_alpha = grad_beta = None
         if ctx.needs_input_grad[0]:
             grad_x1 = grad_output * beta
@@ -791,26 +1749,29 @@ shake_shake = ShakeShakeFunction.apply
 
 
 class ResBlock(nn.Module):
+    """
+    __author__ = "Max Dippel, Michael Burkart and Matthias Urban"
+    """
 
-    def __init__(self, config, in_features, out_features, block_index, dropout, activation):
+    def __init__(self, config: Dict[str, Any], in_features: int, out_features: int, blocks_per_group: int, block_index: int, dropout: Optional[float], activation: nn.Module):
         super(ResBlock, self).__init__()
         self.config = config
         self.dropout = dropout
         self.activation = activation
         self.shortcut = None
-        self.start_norm = None
+        self.start_norm: Optional[Callable] = None
         if in_features != out_features:
             self.shortcut = nn.Linear(in_features, out_features)
             self.start_norm = nn.Sequential(nn.BatchNorm1d(in_features), self.activation())
         self.block_index = block_index
-        self.num_blocks = self.config['blocks_per_group'] * self.config['num_groups']
+        self.num_blocks = blocks_per_group * self.config['num_groups']
         self.layers = self._build_block(in_features, out_features)
         if config['use_shake_shake']:
             self.shake_shake_layers = self._build_block(in_features, out_features)
 
-    def _build_block(self, in_features, out_features):
+    def _build_block(self, in_features: int, out_features: int) ->nn.Module:
         layers = list()
-        if self.start_norm == None:
+        if self.start_norm is None:
             layers.append(nn.BatchNorm1d(in_features))
             layers.append(self.activation())
         layers.append(nn.Linear(in_features, out_features))
@@ -821,9 +1782,9 @@ class ResBlock(nn.Module):
         layers.append(nn.Linear(out_features, out_features))
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.FloatTensor) ->torch.FloatTensor:
         residual = x
-        if self.shortcut != None:
+        if self.shortcut is not None and self.start_norm is not None:
             x = self.start_norm(x)
             residual = self.shortcut(x)
         if self.config['use_shake_shake']:
@@ -841,1670 +1802,763 @@ class ResBlock(nn.Module):
         return x
 
 
-def get_shaped_neuron_counts(shape, in_feat, out_feat, max_neurons, layer_count):
-    counts = []
-    if layer_count <= 0:
-        return counts
-    if layer_count == 1:
-        counts.append(out_feat)
-        return counts
-    max_neurons = max(in_feat, max_neurons)
-    if shape == 'brick':
-        for _ in range(layer_count - 1):
-            counts.append(max_neurons)
-        counts.append(out_feat)
-    if shape == 'triangle':
-        previous = in_feat
-        step_size = int((max_neurons - previous) / (layer_count - 1))
-        step_size = max(0, step_size)
-        for _ in range(layer_count - 2):
-            previous = previous + step_size
-            counts.append(previous)
-        counts.append(max_neurons)
-        counts.append(out_feat)
-    if shape == 'funnel':
-        previous = max_neurons
-        counts.append(previous)
-        step_size = int((previous - out_feat) / (layer_count - 1))
-        step_size = max(0, step_size)
-        for _ in range(layer_count - 2):
-            previous = previous - step_size
-            counts.append(previous)
-        counts.append(out_feat)
-    if shape == 'long_funnel':
-        brick_layer = int(layer_count / 2)
-        funnel_layer = layer_count - brick_layer
-        counts.extend(get_shaped_neuron_counts('brick', in_feat, max_neurons, max_neurons, brick_layer))
-        counts.extend(get_shaped_neuron_counts('funnel', in_feat, out_feat, max_neurons, funnel_layer))
-        if len(counts) != layer_count:
-            None
-    if shape == 'diamond':
-        triangle_layer = int(layer_count / 2) + 1
-        funnel_layer = layer_count - triangle_layer
-        counts.extend(get_shaped_neuron_counts('triangle', in_feat, max_neurons, max_neurons, triangle_layer))
-        remove_triangle_layer = len(counts) > 1
-        if remove_triangle_layer:
-            counts = counts[0:-2]
-        counts.extend(get_shaped_neuron_counts('funnel', max_neurons, out_feat, max_neurons, funnel_layer + (2 if remove_triangle_layer else 0)))
-        if len(counts) != layer_count:
-            None
-    if shape == 'hexagon':
-        triangle_layer = int(layer_count / 3) + 1
-        funnel_layer = triangle_layer
-        brick_layer = layer_count - triangle_layer - funnel_layer
-        counts.extend(get_shaped_neuron_counts('triangle', in_feat, max_neurons, max_neurons, triangle_layer))
-        counts.extend(get_shaped_neuron_counts('brick', max_neurons, max_neurons, max_neurons, brick_layer))
-        counts.extend(get_shaped_neuron_counts('funnel', max_neurons, out_feat, max_neurons, funnel_layer))
-        if len(counts) != layer_count:
-            None
-    if shape == 'stairs':
-        previous = max_neurons
-        counts.append(previous)
-        if layer_count % 2 == 1:
-            counts.append(previous)
-        step_size = 2 * int((max_neurons - out_feat) / (layer_count - 1))
-        step_size = max(0, step_size)
-        for _ in range(int(layer_count / 2 - 1)):
-            previous = previous - step_size
-            counts.append(previous)
-            counts.append(previous)
-        counts.append(out_feat)
-        if len(counts) != layer_count:
-            None
-    return counts
-
-
-class ShapedMlpNet(MlpNet):
-
-    def __init__(self, *args, **kwargs):
-        super(ShapedMlpNet, self).__init__(*args, **kwargs)
-
-    def _build_net(self, in_features, out_features):
-        layers = list()
-        neuron_counts = get_shaped_neuron_counts(self.config['mlp_shape'], in_features, out_features, self.config['max_units'], self.config['num_layers'])
-        if self.config['use_dropout']:
-            dropout_shape = get_shaped_neuron_counts(self.config['dropout_shape'], 0, 0, 1000, self.config['num_layers'])
-        previous = in_features
-        for i in range(self.config['num_layers'] - 1):
-            if i >= len(neuron_counts):
-                break
-            dropout = dropout_shape[i] / 1000 * self.config['max_dropout'] if self.config['use_dropout'] else 0
-            self._add_layer(layers, previous, neuron_counts[i], dropout)
-            previous = neuron_counts[i]
-        layers.append(nn.Linear(previous, out_features))
-        return nn.Sequential(*layers)
-
-    def _add_layer(self, layers, in_features, out_features, dropout):
-        layers.append(nn.Linear(in_features, out_features))
-        layers.append(self.activation())
-        if self.config['use_dropout']:
-            layers.append(nn.Dropout(dropout))
-
-    @staticmethod
-    def get_config_space(num_layers=(1, 15), max_units=((10, 1024), True), activation=('sigmoid', 'tanh', 'relu'), mlp_shape=('funnel', 'long_funnel', 'diamond', 'hexagon', 'brick', 'triangle', 'stairs'), dropout_shape=('funnel', 'long_funnel', 'diamond', 'hexagon', 'brick', 'triangle', 'stairs'), max_dropout=(0, 0.8), use_dropout=(True, False)):
-        cs = CS.ConfigurationSpace()
-        mlp_shape_hp = get_hyperparameter(CSH.CategoricalHyperparameter, 'mlp_shape', mlp_shape)
-        cs.add_hyperparameter(mlp_shape_hp)
-        num_layers_hp = get_hyperparameter(CSH.UniformIntegerHyperparameter, 'num_layers', num_layers)
-        cs.add_hyperparameter(num_layers_hp)
-        max_units_hp = get_hyperparameter(CSH.UniformIntegerHyperparameter, 'max_units', max_units)
-        cs.add_hyperparameter(max_units_hp)
-        use_dropout_hp = add_hyperparameter(cs, CS.CategoricalHyperparameter, 'use_dropout', use_dropout)
-        if True in use_dropout:
-            dropout_shape_hp = add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'dropout_shape', dropout_shape)
-            max_dropout_hp = add_hyperparameter(cs, CSH.UniformFloatHyperparameter, 'max_dropout', max_dropout)
-            cs.add_condition(CS.EqualsCondition(dropout_shape_hp, use_dropout_hp, True))
-            cs.add_condition(CS.EqualsCondition(max_dropout_hp, use_dropout_hp, True))
-        add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'activation', activation)
-        return cs
-
-
-class ConvNet(BaseImageNet):
-
-    def __init__(self, config, in_features, out_features, final_activation, *args, **kwargs):
-        super(ConvNet, self).__init__(config, in_features, out_features, final_activation)
-        self.layers = self._build_net(self.n_classes)
-
-    def forward(self, x):
-        x = self.layers(x)
-        x = x.reshape(x.size(0), -1)
-        x = self.last_layer(x)
-        if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
-        return x
-
-    def _build_net(self, out_features):
-        layers = list()
-        init_filter = self.config['conv_init_filters']
-        self._add_layer(layers, self.channels, init_filter, 1)
-        cw, ch = self._get_layer_size(self.iw, self.ih)
-        self.dense_size = init_filter * cw * ch
-        None
-        for i in range(2, self.config['num_layers'] + 1):
-            cw, ch = self._get_layer_size(cw, ch)
-            if cw == 0 or ch == 0:
-                None
-                break
-            self._add_layer(layers, init_filter, init_filter * 2, i)
-            init_filter *= 2
-            self.dense_size = init_filter * cw * ch
-            None
-        self.last_layer = nn.Linear(self.dense_size, out_features)
-        nw = nn.Sequential(*layers)
-        return nw
-
-    def _get_layer_size(self, w, h):
-        cw = (w - self.config['conv_kernel_size'] + 2 * self.config['conv_kernel_padding']) // self.config['conv_kernel_stride'] + 1
-        ch = (h - self.config['conv_kernel_size'] + 2 * self.config['conv_kernel_padding']) // self.config['conv_kernel_stride'] + 1
-        cw, ch = cw // self.config['pool_size'], ch // self.config['pool_size']
-        return cw, ch
-
-    def _add_layer(self, layers, in_filters, out_filters, layer_id):
-        layers.append(nn.Conv2d(in_filters, out_filters, kernel_size=self.config['conv_kernel_size'], stride=self.config['conv_kernel_stride'], padding=self.config['conv_kernel_padding']))
-        layers.append(nn.BatchNorm2d(out_filters))
-        layers.append(self.activation())
-        layers.append(nn.MaxPool2d(kernel_size=self.config['pool_size'], stride=self.config['pool_size']))
-
-    @staticmethod
-    def get_config_space(user_updates=None):
-        cs = CS.ConfigurationSpace()
-        cs.add_hyperparameter(CSH.CategoricalHyperparameter('activation', ['relu']))
-        num_layers = CSH.UniformIntegerHyperparameter('num_layers', lower=2, upper=5)
-        cs.add_hyperparameter(num_layers)
-        cs.add_hyperparameter(CSH.UniformIntegerHyperparameter('conv_init_filters', lower=16, upper=64))
-        cs.add_hyperparameter(CSH.UniformIntegerHyperparameter('conv_kernel_size', lower=2, upper=5))
-        cs.add_hyperparameter(CSH.UniformIntegerHyperparameter('conv_kernel_stride', lower=1, upper=3))
-        cs.add_hyperparameter(CSH.UniformIntegerHyperparameter('conv_kernel_padding', lower=2, upper=3))
-        cs.add_hyperparameter(CSH.UniformIntegerHyperparameter('pool_size', lower=2, upper=3))
-        return cs
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, affine=True):
-        super(FactorizedReduce, self).__init__()
-        assert C_out % 2 == 0
-        self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class DilConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Zero(nn.Module):
-
-    def __init__(self, stride):
-        super(Zero, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        if self.stride == 1:
-            return x.mul(0.0)
-        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
-
-
-OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C, stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C, affine=affine))}
-
-
-class ReLUConvBN(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        try:
-            mask = Variable(torch.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
-        except:
-            mask = Variable(torch.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
-class Cell(nn.Module):
-
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
-        super(Cell, self).__init__()
-        if reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C)
-        else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
-        if reduction:
-            op_names, indices = zip(*genotype.reduce)
-            concat = genotype.reduce_concat
-        else:
-            op_names, indices = zip(*genotype.normal)
-            concat = genotype.normal_concat
-        self._compile(C, op_names, indices, concat, reduction)
-
-    def _compile(self, C, op_names, indices, concat, reduction):
-        assert len(op_names) == len(indices)
-        self._steps = len(op_names) // 2
-        self._concat = concat
-        self.multiplier = len(concat)
-        self._ops = nn.ModuleList()
-        for name, index in zip(op_names, indices):
-            stride = 2 if reduction and index < 2 else 1
-            op = OPS[name](C, stride, True)
-            self._ops += [op]
-        self._indices = indices
-
-    def forward(self, s0, s1, drop_prob):
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
-        states = [s0, s1]
-        for i in range(self._steps):
-            h1 = states[self._indices[2 * i]]
-            h2 = states[self._indices[2 * i + 1]]
-            op1 = self._ops[2 * i]
-            op2 = self._ops[2 * i + 1]
-            h1 = op1(h1)
-            h2 = op2(h2)
-            if self.training and drop_prob > 0.0:
-                if not isinstance(op1, Identity):
-                    h1 = drop_path(h1, drop_prob)
-                if not isinstance(op2, Identity):
-                    h2 = drop_path(h2, drop_prob)
-            s = h1 + h2
-            states += [s]
-        return torch.cat([states[i] for i in self._concat], dim=1)
-
-
-class AuxiliaryHeadCIFAR(nn.Module):
-
-    def __init__(self, C, num_classes):
-        """assuming input size 8x8"""
-        super(AuxiliaryHeadCIFAR, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=3, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
-        self.classifier = nn.Linear(768, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x.view(x.size(0), -1))
-        return x
-
-
-class AuxiliaryHeadImageNet(nn.Module):
-
-    def __init__(self, C, num_classes):
-        """assuming input size 14x14"""
-        super(AuxiliaryHeadImageNet, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.ReLU(inplace=True))
-        self.classifier = nn.Linear(768, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x.view(x.size(0), -1))
-        return x
-
-
-class NetworkCIFAR(BaseImageNet):
-
-    def __init__(self, C, num_classes, layers, auxiliary, genotype):
-        self._layers = layers
-        self._auxiliary = auxiliary
-        stem_multiplier = 3
-        C_curr = stem_multiplier * C
-        self.stem = nn.Sequential(nn.Conv2d(3, C_curr, 3, padding=1, bias=False), nn.BatchNorm2d(C_curr))
-        C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
-        self.cells = nn.ModuleList()
-        reduction_prev = False
-        for i in range(layers):
-            if i in [layers // 3, 2 * layers // 3]:
-                C_curr *= 2
-                reduction = True
-            else:
-                reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
-            reduction_prev = reduction
-            self.cells += [cell]
-            C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
-            if i == 2 * layers // 3:
-                C_to_auxiliary = C_prev
-        if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadCIFAR(C_to_auxiliary, num_classes)
-        self.global_pooling = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Linear(C_prev, num_classes)
-
-    def forward(self, input):
-        logits_aux = None
-        s0 = s1 = self.stem(input)
-        for i, cell in enumerate(self.cells):
-            s0, s1 = s1, cell(s0, s1, self.drop_path_prob)
-            if i == 2 * self._layers // 3:
-                if self._auxiliary and self.training:
-                    logits_aux = self.auxiliary_head(s1)
-        out = self.global_pooling(s1)
-        logits = self.classifier(out.view(out.size(0), -1))
-        return logits
-
-
-class NetworkImageNet(BaseImageNet):
-
-    def __init__(self, C, num_classes, layers, auxiliary, genotype):
-        self._layers = layers
-        self._auxiliary = auxiliary
-        self.stem0 = nn.Sequential(nn.Conv2d(3, C // 2, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C // 2), nn.ReLU(inplace=True), nn.Conv2d(C // 2, C, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C))
-        self.stem1 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(C, C, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C))
-        C_prev_prev, C_prev, C_curr = C, C, C
-        self.cells = nn.ModuleList()
-        reduction_prev = True
-        for i in range(layers):
-            if i in [layers // 3, 2 * layers // 3]:
-                C_curr *= 2
-                reduction = True
-            else:
-                reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
-            reduction_prev = reduction
-            self.cells += [cell]
-            C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
-            if i == 2 * layers // 3:
-                C_to_auxiliary = C_prev
-        if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadImageNet(C_to_auxiliary, num_classes)
-        self.global_pooling = nn.AdaptiveAvgPool2d((1, 1))
-        self.classifier = nn.Linear(C_prev, num_classes)
-
-    def forward(self, input):
-        logits_aux = None
-        s0 = self.stem0(input)
-        s1 = self.stem1(s0)
-        for i, cell in enumerate(self.cells):
-            s0, s1 = s1, cell(s0, s1, self.drop_path_prob)
-            if i == 2 * self._layers // 3:
-                if self._auxiliary and self.training:
-                    logits_aux = self.auxiliary_head(s1)
-        out = self.global_pooling(s1)
-        logits = self.classifier(out.view(out.size(0), -1))
-        return logits
-
-
-PRIMITIVES = ['max_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
-
-
-def generate_genotype(gene_function):
-
-    @wraps(gene_function)
-    def wrapper(config=None, steps=4):
-        concat = range(2, 6)
-        gene_normal, gene_reduce = gene_function(config, steps).values()
-        genotype = Genotype(normal=gene_normal, normal_concat=concat, reduce=gene_reduce, reduce_concat=concat)
-        return genotype
-    return wrapper
-
-
-@generate_genotype
-def get_gene_from_config(config, steps=4):
-    gene = {'normal': [], 'reduce': []}
-    for cell_type in gene.keys():
-        first_edge = config['edge_{}_0'.format(cell_type)], 0
-        second_edge = config['edge_{}_1'.format(cell_type)], 1
-        gene[cell_type].append(first_edge)
-        gene[cell_type].append(second_edge)
-    for i, offset in zip(range(3, steps + 2), [2, 5, 9]):
-        for cell_type in gene.keys():
-            input_nodes = config['inputs_node_{}_{}'.format(cell_type, i)].split('_')
-            for node in input_nodes:
-                edge = config['edge_{}_{}'.format(cell_type, int(node) + offset)], int(node)
-                gene[cell_type].append(edge)
-    return gene
-
-
-class DARTSImageNet(NetworkCIFAR):
-
-    def __init__(self, config, in_features, out_features, final_activation, **kwargs):
-        super(NetworkCIFAR, self).__init__(config, in_features, out_features, final_activation)
-        self.drop_path_prob = config['drop_path_prob']
-        topology = {key: config[key] for key in config if 'edge' in key or 'inputs_node' in key}
-        genotype = get_gene_from_config(topology)
-        super(DARTSImageNet, self).__init__(config['init_channels'], out_features, config['layers'], config['auxiliary'], genotype)
-
-    def forward(self, x):
-        x = super(DARTSImageNet, self).forward(x)
-        if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
-        return x
-
-    @staticmethod
-    def get_config_space(**kwargs):
-        return DARTSWorker.get_config_space()
-
-
-all_activations = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh, 'leakyrelu': nn.LeakyReLU, 'selu': nn.SELU, 'rrelu': nn.RReLU, 'tanhshrink': nn.Tanhshrink, 'hardtanh': nn.Hardtanh, 'elu': nn.ELU, 'prelu': nn.PReLU}
-
-
-def get_activation(name, inplace=False):
-    if name not in all_activations:
-        raise ValueError('Activation ' + str(name) + ' not defined')
-    activation = all_activations[name]
-    activation_kwargs = {'inplace': True} if 'inplace' in inspect.getargspec(activation)[0] else dict()
-    return activation(**activation_kwargs)
-
-
-class _DenseLayer(nn.Sequential):
-
-    def __init__(self, nChannels, growth_rate, drop_rate, bottleneck, kernel_size, activation):
-        super(_DenseLayer, self).__init__()
-        self.add_module('norm1', nn.BatchNorm2d(nChannels))
-        self.add_module('relu1', get_activation(activation, inplace=True))
-        if bottleneck:
-            self.add_module('conv1', nn.Conv2d(nChannels, 4 * growth_rate, kernel_size=1, stride=1, bias=False))
-            nChannels = 4 * growth_rate
-            if drop_rate > 0:
-                self.add_module('drop', nn.Dropout2d(p=drop_rate, inplace=True))
-            self.add_module('norm2', nn.BatchNorm2d(nChannels))
-            self.add_module('relu2', get_activation(activation, inplace=True))
-        self.add_module('conv2', nn.Conv2d(nChannels, growth_rate, kernel_size=kernel_size, stride=1, padding=int((kernel_size - 1) / 2), bias=False))
-        if drop_rate > 0:
-            self.add_module('drop', nn.Dropout2d(p=drop_rate, inplace=True))
-
-    def forward(self, x):
-        new_features = super(_DenseLayer, self).forward(x)
-        return torch.cat([x, new_features], 1)
-
-
-class _DenseBlock(nn.Sequential):
-
-    def __init__(self, N, nChannels, growth_rate, drop_rate, bottleneck, kernel_size, activation):
-        super(_DenseBlock, self).__init__()
-        for i in range(N):
-            self.add_module('denselayer%d' % (i + 1), _DenseLayer(nChannels, growth_rate, drop_rate, bottleneck, kernel_size, activation))
-            nChannels += growth_rate
-
-
-class Reshape(nn.Module):
-
-    def __init__(self, size):
-        super(Reshape, self).__init__()
-        self.size = size
-
-    def forward(self, x):
-        return x.reshape(-1, self.size)
-
-
-class _Transition(nn.Sequential):
-
-    def __init__(self, nChannels, nOutChannels, drop_rate, last, pool_size, kernel_size, stride, padding, activation):
-        super(_Transition, self).__init__()
-        self.add_module('norm', nn.BatchNorm2d(nChannels))
-        self.add_module('relu', get_activation(activation, inplace=True))
-        if last:
-            self.add_module('pool', nn.AvgPool2d(kernel_size=pool_size, stride=pool_size))
-            self.add_module('reshape', Reshape(nChannels))
-        else:
-            self.add_module('conv', nn.Conv2d(nChannels, nOutChannels, kernel_size=1, stride=1, bias=False))
-            if drop_rate > 0:
-                self.add_module('drop', nn.Dropout2d(p=drop_rate, inplace=True))
-            self.add_module('pool', nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding))
-
-
-class DenseNet(BaseImageNet):
-    """Densenet-BC model class, based on
-    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+class PositionalEncoding(nn.Module):
+    """https://github.com/pytorch/examples/blob/master/word_language_model/model.py
+
+        NOTE: different from the raw implementation, this model is designed for the batch_first inputs!
+        Inject some information about the relative or absolute position of the tokens
+        in the sequence. The positional encodings have the same dimension as
+        the embeddings, so that the two can be summed. Here, we use sine and cosine
+        functions of different frequencies.
+    .. math::
+        \\text{PosEncoder}(pos, 2i) = sin(pos/10000^(2i/d_model))
+        \\text{PosEncoder}(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+        \\text{where pos is the word position and i is the embed idx)
     Args:
-        growth_rate (int) - how many filters to add each layer (`k` in paper)
-        block_config (list of 4 ints) - how many layers in each pooling block
-        num_init_features (int) - the number of filters to learn in the first convolution layer
-        bn_size (int) - multiplicative factor for number of bottle neck layers
-          (i.e. bn_size * k features in the bottleneck layer)
-        drop_rate (float) - dropout rate after each dense layer
-        num_classes (int) - number of classification classes
+        d_model (int):
+            the embed dim (required).
+        dropout(float):
+            the dropout value (default=0.1).
+        max_len(int):
+            the max. length of the incoming sequence (default=5000).
+    Examples:
+        >>> pos_encoder = PositionalEncoding(d_model)
     """
 
-    def __init__(self, config, in_features, out_features, final_activation, *args, **kwargs):
-        super(DenseNet, self).__init__(config, in_features, out_features, final_activation)
-        growth_rate = config['growth_rate']
-        block_config = [config['layer_in_block_%d' % (i + 1)] for i in range(config['blocks'])]
-        num_init_features = 2 * growth_rate
-        bn_size = 4
-        drop_rate = config['dropout'] if config['use_dropout'] else 0
-        num_classes = self.n_classes
-        image_size, min_image_size = min(self.iw, self.ih), 1
-        import math
-        division_steps = math.floor(math.log2(image_size) - math.log2(min_image_size) - 1e-05) + 1
-        if division_steps > len(block_config) + 1:
-            self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(self.channels, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
-            division_steps -= 2
-        else:
-            self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(self.channels, num_init_features, kernel_size=3, stride=1, padding=1, bias=False))]))
-        num_features = num_init_features
-        for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
-            self.features.add_module('denseblock%d' % (i + 1), block)
-            num_features = num_features + num_layers * growth_rate
-            if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2, pool_size=2 if i > len(block_config) - division_steps else 1)
-                self.features.add_module('transition%d' % (i + 1), trans)
-                num_features = num_features // 2
-        self.features.add_module('last_norm', nn.BatchNorm2d(num_features))
-        self.classifier = nn.Linear(num_features, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.constant_(m.bias, 0)
-        self.layers = nn.Sequential(self.features)
-
-    def forward(self, x):
-        features = self.features(x)
-        out = F.relu(features, inplace=True)
-        out = F.adaptive_avg_pool2d(out, (1, 1)).view(features.size(0), -1)
-        out = self.classifier(out)
-        if not self.training and self.final_activation is not None:
-            out = self.final_activation(out)
-        return out
-
-    @staticmethod
-    def get_config_space(growth_rate_range=(12, 40), nr_blocks=(3, 4), layer_range=([1, 12], [6, 24], [12, 64], [12, 64]), num_init_features=(32, 128), **kwargs):
-        cs = CS.ConfigurationSpace()
-        growth_rate_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'growth_rate', growth_rate_range)
-        cs.add_hyperparameter(growth_rate_hp)
-        blocks_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'blocks', nr_blocks)
-        cs.add_hyperparameter(blocks_hp)
-        use_dropout = add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'use_dropout', [True, False])
-        dropout = add_hyperparameter(cs, CSH.UniformFloatHyperparameter, 'dropout', [0.0, 1.0])
-        cs.add_condition(CS.EqualsCondition(dropout, use_dropout, True))
-        if type(nr_blocks[0]) == int:
-            min_blocks = nr_blocks[0]
-            max_blocks = nr_blocks[1]
-        else:
-            min_blocks = nr_blocks[0][0]
-            max_blocks = nr_blocks[0][1]
-        for i in range(1, max_blocks + 1):
-            layer_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'layer_in_block_%d' % i, layer_range[i - 1])
-            cs.add_hyperparameter(layer_hp)
-            if i > min_blocks:
-                cs.add_condition(CS.GreaterThanCondition(layer_hp, blocks_hp, i - 1))
-        return cs
-
-
-logger = logging.getLogger('autonet')
-
-
-class PrintNode(nn.Module):
-
-    def __init__(self, msg):
-        super(PrintNode, self).__init__()
-        self.msg = msg
-
-    def forward(self, x):
-        logger.debug(self.msg)
-        return x
-
-
-def _get_out_size(in_size, kernel_size, stride, padding):
-    return int(math.floor((in_size - kernel_size + 2 * padding) / stride + 1))
-
-
-def get_layer_params(in_size, out_size, kernel_size):
-    kernel_size = int(kernel_size)
-    stride = int(max(1, math.ceil((in_size - kernel_size) / (out_size - 1)) if out_size > 1 else 1))
-    cur_out_size = _get_out_size(in_size, kernel_size, stride, 0)
-    required_padding = stride / 2 * (in_size - cur_out_size)
-    cur_padding = int(math.ceil(required_padding))
-    cur_out_size = _get_out_size(in_size, kernel_size, stride, cur_padding)
-    if cur_padding < kernel_size and cur_out_size <= in_size and cur_out_size >= 1:
-        return cur_out_size, kernel_size, stride, cur_padding
-    cur_padding = int(math.floor(required_padding))
-    cur_out_size = _get_out_size(in_size, kernel_size, stride, cur_padding)
-    if cur_padding < kernel_size and cur_out_size <= in_size and cur_out_size >= 1:
-        return cur_out_size, kernel_size, stride, cur_padding
-    if stride > 1:
-        stride = int(stride - 1)
-        cur_padding = 0
-        cur_out_size = int(_get_out_size(in_size, kernel_size, stride, cur_padding))
-        if cur_padding < kernel_size and cur_out_size <= in_size and cur_out_size >= 1:
-            return cur_out_size, kernel_size, stride, cur_padding
-    if kernel_size % 2 == 0 and out_size == in_size:
-        return get_layer_params(in_size, out_size, kernel_size + 1)
-    raise Exception('Could not find padding and stride to reduce ' + str(in_size) + ' to ' + str(out_size) + ' using kernel ' + str(kernel_size))
-
-
-class DenseNetFlexible(BaseImageNet):
-
-    def __init__(self, config, in_features, out_features, final_activation, *args, **kwargs):
-        super(DenseNetFlexible, self).__init__(config, in_features, out_features, final_activation)
-        growth_rate = config['growth_rate']
-        bottleneck = config['bottleneck']
-        channel_reduction = config['channel_reduction']
-        in_size = min(self.iw, self.ih)
-        out_size = max(1, in_size * config['last_image_size'])
-        size_reduction = math.pow(in_size / out_size, 1 / (config['blocks'] + 1))
-        nChannels = 2 * growth_rate
-        self.features = nn.Sequential()
-        sizes = [max(1, round(in_size / math.pow(size_reduction, i + 1))) for i in range(config['blocks'] + 2)]
-        in_size, kernel_size, stride, padding = get_layer_params(in_size, sizes[0], config['first_conv_kernel'])
-        self.features.add_module('conv0', nn.Conv2d(self.channels, nChannels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False))
-        self.features.add_module('norm0', nn.BatchNorm2d(nChannels))
-        self.features.add_module('activ0', get_activation(config['first_activation'], inplace=True))
-        in_size, kernel_size, stride, padding = get_layer_params(in_size, sizes[1], config['first_pool_kernel'])
-        self.features.add_module('pool0', nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding))
-        nOutChannels = nChannels
-        for i in range(1, config['blocks'] + 1):
-            nChannels = nOutChannels
-            drop_rate = config['dropout_%d' % i] if config['use_dropout'] else 0
-            block = _DenseBlock(N=config['layer_in_block_%d' % i], nChannels=nChannels, bottleneck=bottleneck, growth_rate=growth_rate, drop_rate=drop_rate, kernel_size=config['conv_kernel_%d' % i], activation=config['activation_%d' % i])
-            self.features.add_module('denseblock%d' % i, block)
-            nChannels = nChannels + config['layer_in_block_%d' % i] * growth_rate
-            nOutChannels = max(1, math.floor(nChannels * channel_reduction))
-            out_size, kernel_size, stride, padding = get_layer_params(in_size, sizes[i + 1], config['pool_kernel_%d' % i])
-            transition = _Transition(nChannels=nChannels, nOutChannels=nOutChannels, drop_rate=drop_rate, last=i == config['blocks'], pool_size=in_size, kernel_size=kernel_size, stride=stride, padding=padding, activation=config['activation_%d' % i])
-            in_size = out_size
-            self.features.add_module('trans%d' % i, transition)
-        self.classifier = nn.Linear(nChannels, out_features)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                self.matrix_init(m.weight, config['conv_init'])
-            elif isinstance(m, nn.BatchNorm2d):
-                self.matrix_init(m.weight, config['batchnorm_weight_init'])
-                self.matrix_init(m.bias, config['batchnorm_bias_init'])
-            elif isinstance(m, nn.Linear):
-                self.matrix_init(m.bias, config['linear_bias_init'])
-        self.layers = nn.Sequential(self.features)
-
-    def matrix_init(self, matrix, init_type):
-        if init_type == 'kaiming_normal':
-            nn.init.kaiming_normal_(matrix)
-        elif init_type == 'constant_0':
-            nn.init.constant_(matrix, 0)
-        elif init_type == 'constant_1':
-            nn.init.constant_(matrix, 1)
-        elif init_type == 'constant_05':
-            nn.init.constant_(matrix, 0.5)
-        elif init_type == 'random':
-            return
-        else:
-            raise ValueError('Init type ' + init_type + ' is not supported')
-
-    def forward(self, x):
-        out = self.features(x)
-        out = self.classifier(out)
-        if not self.training and self.final_activation is not None:
-            out = self.final_activation(out)
-        return out
-
-    @staticmethod
-    def get_config_space(growth_rate_range=(5, 128), nr_blocks=(1, 5), kernel_range=(2, 7), layer_range=(5, 50), activations=all_activations.keys(), conv_init=('random', 'kaiming_normal', 'constant_0', 'constant_1', 'constant_05'), batchnorm_weight_init=('random', 'constant_0', 'constant_1', 'constant_05'), batchnorm_bias_init=('random', 'constant_0', 'constant_1', 'constant_05'), linear_bias_init=('random', 'constant_0', 'constant_1', 'constant_05'), **kwargs):
-        cs = CS.ConfigurationSpace()
-        growth_rate_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'growth_rate', growth_rate_range)
-        first_conv_kernel_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'first_conv_kernel', kernel_range)
-        first_pool_kernel_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'first_pool_kernel', kernel_range)
-        conv_init_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'conv_init', conv_init)
-        batchnorm_weight_init_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'batchnorm_weight_init', batchnorm_weight_init)
-        batchnorm_bias_init_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'batchnorm_bias_init', batchnorm_bias_init)
-        linear_bias_init_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'linear_bias_init', linear_bias_init)
-        first_activation_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'first_activation', set(activations).intersection(all_activations))
-        blocks_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'blocks', nr_blocks)
-        cs.add_hyperparameter(growth_rate_hp)
-        cs.add_hyperparameter(first_conv_kernel_hp)
-        cs.add_hyperparameter(first_pool_kernel_hp)
-        cs.add_hyperparameter(conv_init_hp)
-        cs.add_hyperparameter(batchnorm_weight_init_hp)
-        cs.add_hyperparameter(batchnorm_bias_init_hp)
-        cs.add_hyperparameter(linear_bias_init_hp)
-        cs.add_hyperparameter(first_activation_hp)
-        cs.add_hyperparameter(blocks_hp)
-        add_hyperparameter(cs, CSH.UniformFloatHyperparameter, 'channel_reduction', [0.1, 0.9])
-        add_hyperparameter(cs, CSH.UniformFloatHyperparameter, 'last_image_size', [0, 1])
-        add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'bottleneck', [True, False])
-        use_dropout = add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'use_dropout', [True, False])
-        if type(nr_blocks[0]) == int:
-            min_blocks = nr_blocks[0]
-            max_blocks = nr_blocks[1]
-        else:
-            min_blocks = nr_blocks[0][0]
-            max_blocks = nr_blocks[0][1]
-        for i in range(1, max_blocks + 1):
-            layer_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'layer_in_block_%d' % i, layer_range)
-            pool_kernel_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'pool_kernel_%d' % i, kernel_range)
-            activation_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'activation_%d' % i, set(activations).intersection(all_activations))
-            cs.add_hyperparameter(layer_hp)
-            cs.add_hyperparameter(pool_kernel_hp)
-            cs.add_hyperparameter(activation_hp)
-            dropout = add_hyperparameter(cs, CSH.UniformFloatHyperparameter, 'dropout_%d' % i, [0.0, 1.0])
-            conv_kernel = add_hyperparameter(cs, CSH.CategoricalHyperparameter, 'conv_kernel_%d' % i, [3, 5, 7])
-            if i > min_blocks:
-                cs.add_condition(CS.GreaterThanCondition(layer_hp, blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(conv_kernel, blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(pool_kernel_hp, blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(activation_hp, blocks_hp, i - 1))
-                cs.add_condition(CS.AndConjunction(CS.EqualsCondition(dropout, use_dropout, True), CS.GreaterThanCondition(dropout, blocks_hp, i - 1)))
-            else:
-                cs.add_condition(CS.EqualsCondition(dropout, use_dropout, True))
-        return cs
-
-
-class Arch_Encoder:
-    """ Encode block definition string
-    Encodes a list of config space (dicts) through a string notation of arguments for further usage with _decode_architecure and timm.
-    E.g. ir_r2_k3_s2_e1_i32_o16_se0.25_noskip
-    
-    leading string - block type (
-      ir = InvertedResidual, ds = DepthwiseSep, dsa = DeptwhiseSep with pw act, cn = ConvBnAct)
-    r - number of repeat blocks,
-    k - kernel size,
-    s - strides (1-9),
-    e - expansion ratio,
-    c - output channels,
-    se - squeeze/excitation ratio
-    n - activation fn ('re', 'r6', 'hs', or 'sw')
-    Args:
-        block hyperpar dict as coming from MobileNet class
-    Returns:
-        Architecture encoded as string for further usage with _decode_architecure and timm.
-    """
-
-    def __init__(self, block_types, nr_sub_blocks, kernel_sizes, strides, output_filters, se_ratios, skip_connections, expansion_rates=0):
-        self.block_types = block_types
-        self.nr_sub_blocks = nr_sub_blocks
-        self.kernel_sizes = kernel_sizes
-        self.strides = strides
-        self.expansion_rates = expansion_rates
-        self.output_filters = output_filters
-        self.se_ratios = se_ratios
-        self.skip_connections = skip_connections
-        self.arch_encoded = [[''] for ind in range(len(self.block_types))]
-        self._encode_architecture()
-
-    def _encode_architecture(self):
-        encoding_functions = [self._get_encoded_blocks, self._get_encoded_nr_sub_bocks, self._get_encoded_kernel_sizes, self._get_encoded_strides, self._get_encoded_expansion_rates, self._get_encoded_output_filters, self._get_encoded_se_ratios, self._get_encoded_skip_connections]
-        for func in encoding_functions:
-            return_val = func()
-            self._add_specifications(return_val)
-
-    def _add_specifications(self, arguments):
-        for ind, arg in enumerate(arguments):
-            if len(self.arch_encoded[ind][0]) != 0 and arg != '' and not self.arch_encoded[ind][0].endswith('_'):
-                self.arch_encoded[ind][0] = self.arch_encoded[ind][0] + '_'
-            self.arch_encoded[ind][0] = self.arch_encoded[ind][0] + arg
-
-    def _get_encoded_blocks(self):
-        block_type_dict = {'inverted_residual': 'ir', 'dwise_sep_conv': 'ds', 'conv_bn_act': 'cn'}
-        block_type_list = self._dict_to_list(self.block_types)
-        return [block_type_dict[item] for item in block_type_list]
-
-    def _get_encoded_nr_sub_bocks(self):
-        nr_sub_blocks_dict = dict([(i, 'r' + str(i)) for i in range(10)])
-        nr_sub_blocks_list = self._dict_to_list(self.nr_sub_blocks)
-        return [nr_sub_blocks_dict[item] for item in nr_sub_blocks_list]
-
-    def _get_encoded_kernel_sizes(self):
-        kernel_sizes_dict = dict([(i, 'k' + str(i)) for i in range(10)])
-        kernel_sizes_list = self._dict_to_list(self.kernel_sizes)
-        return [kernel_sizes_dict[item] for item in kernel_sizes_list]
-
-    def _get_encoded_strides(self):
-        strides_dict = dict([(i, 's' + str(i)) for i in range(10)])
-        strides_list = self._dict_to_list(self.strides)
-        return [strides_dict[item] for item in strides_list]
-
-    def _get_encoded_expansion_rates(self):
-        if self.expansion_rates == 0:
-            exp_list = ['e1', 'e6', 'e6', 'e6', 'e6', 'e6', 'e6']
-            return exp_list[0:len(self.block_types)]
-        else:
-            expansion_rates_dict = dict([(i, 'e' + str(i)) for i in range(10)])
-            expansion_rates_list = self._dict_to_list(self.expansion_rates)
-            return [expansion_rates_dict[item] for item in expansion_rates_list]
-
-    def _get_encoded_output_filters(self):
-        output_filters_dict = dict([(i, 'c' + str(i)) for i in range(5000)])
-        output_filters_list = self._dict_to_list(self.output_filters)
-        return [output_filters_dict[item] for item in output_filters_list]
-
-    def _get_encoded_se_ratios(self):
-        se_ratios_dict = {(0): '', (0.25): 'se0.25'}
-        se_ratios_list = self._dict_to_list(self.se_ratios)
-        return [se_ratios_dict[item] for item in se_ratios_list]
-
-    def _get_encoded_skip_connections(self):
-        skip_connections_dict = {(True): '', (False): 'no_skip'}
-        skip_connections_list = self._dict_to_list(self.skip_connections)
-        return [skip_connections_dict[item] for item in skip_connections_list]
-
-    def _dict_to_list(self, input_dict):
-        output_list = []
-        dict_len = len(input_dict)
-        for ind in range(dict_len):
-            output_list.append(input_dict['Group_' + str(ind + 1)])
-        return output_list
-
-    def get_encoded_architecture(self):
-        return self.arch_encoded
-
-
-def adaptive_avgmax_pool2d(x, output_size=1):
-    x_avg = F.adaptive_avg_pool2d(x, output_size)
-    x_max = F.adaptive_max_pool2d(x, output_size)
-    return 0.5 * (x_avg + x_max)
-
-
-class AdaptiveAvgMaxPool2d(nn.Module):
-
-    def __init__(self, output_size=1):
-        super(AdaptiveAvgMaxPool2d, self).__init__()
-        self.output_size = output_size
-
-    def forward(self, x):
-        return adaptive_avgmax_pool2d(x, self.output_size)
-
-
-def adaptive_catavgmax_pool2d(x, output_size=1):
-    x_avg = F.adaptive_avg_pool2d(x, output_size)
-    x_max = F.adaptive_max_pool2d(x, output_size)
-    return torch.cat((x_avg, x_max), 1)
-
-
-class AdaptiveCatAvgMaxPool2d(nn.Module):
-
-    def __init__(self, output_size=1):
-        super(AdaptiveCatAvgMaxPool2d, self).__init__()
-        self.output_size = output_size
-
-    def forward(self, x):
-        return adaptive_catavgmax_pool2d(x, self.output_size)
-
-
-def adaptive_pool_feat_mult(pool_type='avg'):
-    if pool_type == 'catavgmax':
-        return 2
-    else:
-        return 1
-
-
-class SelectAdaptivePool2d(nn.Module):
-    """Selectable global pooling layer with dynamic input kernel size
-    """
-
-    def __init__(self, output_size=1, pool_type='avg'):
-        super(SelectAdaptivePool2d, self).__init__()
-        self.output_size = output_size
-        self.pool_type = pool_type
-        if pool_type == 'avgmax':
-            self.pool = AdaptiveAvgMaxPool2d(output_size)
-        elif pool_type == 'catavgmax':
-            self.pool = AdaptiveCatAvgMaxPool2d(output_size)
-        elif pool_type == 'max':
-            self.pool = nn.AdaptiveMaxPool2d(output_size)
-        else:
-            if pool_type != 'avg':
-                assert False, 'Invalid pool type: %s' % pool_type
-            self.pool = nn.AdaptiveAvgPool2d(output_size)
-
-    def forward(self, x):
-        return self.pool(x)
-
-    def feat_mult(self):
-        return adaptive_pool_feat_mult(self.pool_type)
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + 'output_size=' + str(self.output_size) + ', pool_type=' + self.pool_type + ')'
-
-
-_BN_EPS_PT_DEFAULT = 1e-05
-
-
-_BN_MOMENTUM_PT_DEFAULT = 0.01
-
-
-_BN_ARGS_PT = dict(momentum=_BN_MOMENTUM_PT_DEFAULT, eps=_BN_EPS_PT_DEFAULT)
-
-
-def _split_channels(num_chan, num_groups):
-    split = [(num_chan // num_groups) for _ in range(num_groups)]
-    split[0] += num_chan - sum(split)
-    return split
-
-
-def _calc_same_pad(i, k, s, d):
-    return max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0)
-
-
-class Conv2dSame(nn.Conv2d):
-    """ Tensorflow like 'SAME' convolution wrapper for 2D convolutions
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2dSame, self).__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        pad_h = _calc_same_pad(ih, kh, self.stride[0], self.dilation[0])
-        pad_w = _calc_same_pad(iw, kw, self.stride[1], self.dilation[1])
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-
-def _get_padding(kernel_size, stride=1, dilation=1, **_):
-    padding = (stride - 1 + dilation * (kernel_size - 1)) // 2
-    return padding
-
-
-def _is_static_pad(kernel_size, stride=1, dilation=1, **_):
-    return stride == 1 and dilation * (kernel_size - 1) % 2 == 0
-
-
-def conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
-    padding = kwargs.pop('padding', '')
-    kwargs.setdefault('bias', False)
-    if isinstance(padding, str):
-        padding = padding.lower()
-        if padding == 'same':
-            if _is_static_pad(kernel_size, **kwargs):
-                padding = _get_padding(kernel_size, **kwargs)
-                return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **kwargs)
-            else:
-                return Conv2dSame(in_chs, out_chs, kernel_size, **kwargs)
-        elif padding == 'valid':
-            return nn.Conv2d(in_chs, out_chs, kernel_size, padding=0, **kwargs)
-        else:
-            padding = _get_padding(kernel_size, **kwargs)
-            return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **kwargs)
-    else:
-        return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **kwargs)
-
-
-class MixedConv2d(nn.Module):
-    """ Mixed Grouped Convolution
-    Based on MDConv and GroupedConv in MixNet impl:
-      https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mixnet/custom_layers.py
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding='', dilated=False, depthwise=False, **kwargs):
-        super(MixedConv2d, self).__init__()
-        kernel_size = kernel_size if isinstance(kernel_size, list) else [kernel_size]
-        num_groups = len(kernel_size)
-        in_splits = _split_channels(in_channels, num_groups)
-        out_splits = _split_channels(out_channels, num_groups)
-        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits, out_splits)):
-            d = 1
-            if stride == 1 and dilated:
-                d, k = (k - 1) // 2, 3
-            conv_groups = out_ch if depthwise else 1
-            self.add_module(str(idx), conv2d_pad(in_ch, out_ch, k, stride=stride, padding=padding, dilation=d, groups=conv_groups, **kwargs))
-        self.splits = in_splits
-
-    def forward(self, x):
-        x_split = torch.split(x, self.splits, 1)
-        x_out = [c(x) for x, c in zip(x_split, self._modules.values())]
-        x = torch.cat(x_out, 1)
-        return x
-
-
-def select_conv2d(in_chs, out_chs, kernel_size, **kwargs):
-    assert 'groups' not in kwargs
-    if isinstance(kernel_size, list):
-        return MixedConv2d(in_chs, out_chs, kernel_size, **kwargs)
-    else:
-        depthwise = kwargs.pop('depthwise', False)
-        groups = out_chs if depthwise else 1
-        return conv2d_pad(in_chs, out_chs, kernel_size, groups=groups, **kwargs)
-
-
-class ConvBnAct(nn.Module):
-
-    def __init__(self, in_chs, out_chs, kernel_size, stride=1, pad_type='', act_fn=F.relu, bn_args=_BN_ARGS_PT):
-        super(ConvBnAct, self).__init__()
-        assert stride in [1, 2]
-        self.act_fn = act_fn
-        self.conv = select_conv2d(in_chs, out_chs, kernel_size, stride=stride, padding=pad_type)
-        self.bn1 = nn.BatchNorm2d(out_chs, **bn_args)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn1(x)
-        x = self.act_fn(x, inplace=True)
-        return x
-
-
-def sigmoid(x, inplace=False):
-    return x.sigmoid_() if inplace else x.sigmoid()
-
-
-class SqueezeExcite(nn.Module):
-
-    def __init__(self, in_chs, reduce_chs=None, act_fn=F.relu, gate_fn=sigmoid):
-        super(SqueezeExcite, self).__init__()
-        self.act_fn = act_fn
-        self.gate_fn = gate_fn
-        reduced_chs = reduce_chs or in_chs
-        self.conv_reduce = nn.Conv2d(in_chs, reduced_chs, 1, bias=True)
-        self.conv_expand = nn.Conv2d(reduced_chs, in_chs, 1, bias=True)
-
-    def forward(self, x):
-        x_se = x.view(x.size(0), x.size(1), -1).mean(-1).view(x.size(0), x.size(1), 1, 1)
-        x_se = self.conv_reduce(x_se)
-        x_se = self.act_fn(x_se, inplace=True)
-        x_se = self.conv_expand(x_se)
-        x = x * self.gate_fn(x_se)
-        return x
-
-
-def drop_connect(inputs, training=False, drop_connect_rate=0.0):
-    """Apply drop connect."""
-    if not training:
-        return inputs
-    keep_prob = 1 - drop_connect_rate
-    random_tensor = keep_prob + torch.rand((inputs.size()[0], 1, 1, 1), dtype=inputs.dtype, device=inputs.device)
-    random_tensor.floor_()
-    output = inputs.div(keep_prob) * random_tensor
-    return output
-
-
-class DepthwiseSeparableConv(nn.Module):
-    """ DepthwiseSeparable block
-    Used for DS convs in MobileNet-V1 and in the place of IR blocks with an expansion
-    factor of 1.0. This is an alternative to having a IR with optional first pw conv.
-    """
-
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_fn=F.relu, noskip=False, pw_kernel_size=1, pw_act=False, se_ratio=0.0, se_gate_fn=sigmoid, bn_args=_BN_ARGS_PT, drop_connect_rate=0.0):
-        super(DepthwiseSeparableConv, self).__init__()
-        assert stride in [1, 2]
-        self.has_se = se_ratio is not None and se_ratio > 0.0
-        self.has_residual = (stride == 1 and in_chs == out_chs) and not noskip
-        self.has_pw_act = pw_act
-        self.act_fn = act_fn
-        self.drop_connect_rate = drop_connect_rate
-        self.conv_dw = select_conv2d(in_chs, in_chs, dw_kernel_size, stride=stride, padding=pad_type, depthwise=True)
-        self.bn1 = nn.BatchNorm2d(in_chs, **bn_args)
-        if self.has_se:
-            self.se = SqueezeExcite(in_chs, reduce_chs=max(1, int(in_chs * se_ratio)), act_fn=act_fn, gate_fn=se_gate_fn)
-        self.conv_pw = select_conv2d(in_chs, out_chs, pw_kernel_size, padding=pad_type)
-        self.bn2 = nn.BatchNorm2d(out_chs, **bn_args)
-
-    def forward(self, x):
-        residual = x
-        x = self.conv_dw(x)
-        x = self.bn1(x)
-        x = self.act_fn(x, inplace=True)
-        if self.has_se:
-            x = self.se(x)
-        x = self.conv_pw(x)
-        x = self.bn2(x)
-        if self.has_pw_act:
-            x = self.act_fn(x, inplace=True)
-        if self.has_residual:
-            if self.drop_connect_rate > 0.0:
-                x = drop_connect(x, self.training, self.drop_connect_rate)
-            x += residual
-        return x
-
-
-class ChannelShuffle(nn.Module):
-
-    def __init__(self, groups):
-        super(ChannelShuffle, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        assert C % g == 0, 'Incompatible group size {} for input channel {}'.format(g, C)
-        return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class InvertedResidual(nn.Module):
-    """ Inverted residual block w/ optional SE"""
-
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_fn=F.relu, noskip=False, exp_ratio=1.0, exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_reduce_mid=False, se_gate_fn=sigmoid, shuffle_type=None, bn_args=_BN_ARGS_PT, drop_connect_rate=0.0):
-        super(InvertedResidual, self).__init__()
-        mid_chs = int(in_chs * exp_ratio)
-        self.has_se = se_ratio is not None and se_ratio > 0.0
-        self.has_residual = (in_chs == out_chs and stride == 1) and not noskip
-        self.act_fn = act_fn
-        self.drop_connect_rate = drop_connect_rate
-        self.conv_pw = select_conv2d(in_chs, mid_chs, exp_kernel_size, padding=pad_type)
-        self.bn1 = nn.BatchNorm2d(mid_chs, **bn_args)
-        self.shuffle_type = shuffle_type
-        if shuffle_type is not None and isinstance(exp_kernel_size, list):
-            self.shuffle = ChannelShuffle(len(exp_kernel_size))
-        self.conv_dw = select_conv2d(mid_chs, mid_chs, dw_kernel_size, stride=stride, padding=pad_type, depthwise=True)
-        self.bn2 = nn.BatchNorm2d(mid_chs, **bn_args)
-        if self.has_se:
-            se_base_chs = mid_chs if se_reduce_mid else in_chs
-            self.se = SqueezeExcite(mid_chs, reduce_chs=max(1, int(se_base_chs * se_ratio)), act_fn=act_fn, gate_fn=se_gate_fn)
-        self.conv_pwl = select_conv2d(mid_chs, out_chs, pw_kernel_size, padding=pad_type)
-        self.bn3 = nn.BatchNorm2d(out_chs, **bn_args)
-
-    def forward(self, x):
-        residual = x
-        x = self.conv_pw(x)
-        x = self.bn1(x)
-        x = self.act_fn(x, inplace=True)
-        if self.shuffle_type == 'mid':
-            x = self.shuffle(x)
-        x = self.conv_dw(x)
-        x = self.bn2(x)
-        x = self.act_fn(x, inplace=True)
-        if self.has_se:
-            x = self.se(x)
-        x = self.conv_pwl(x)
-        x = self.bn3(x)
-        if self.has_residual:
-            if self.drop_connect_rate > 0.0:
-                x = drop_connect(x, self.training, self.drop_connect_rate)
-            x += residual
-        return x
-
-
-class _BlockBuilder:
-    """ Build Trunk Blocks
-    This ended up being somewhat of a cross between
-    https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mnasnet_models.py
-    and
-    https://github.com/facebookresearch/maskrcnn-benchmark/blob/master/maskrcnn_benchmark/modeling/backbone/fbnet_builder.py
-    """
-
-    def __init__(self, channel_multiplier=1.0, channel_divisor=8, channel_min=None, pad_type='', act_fn=None, se_gate_fn=sigmoid, se_reduce_mid=False, bn_args=_BN_ARGS_PT, drop_connect_rate=0.0, verbose=False):
-        self.channel_multiplier = channel_multiplier
-        self.channel_divisor = channel_divisor
-        self.channel_min = channel_min
-        self.pad_type = pad_type
-        self.act_fn = act_fn
-        self.se_gate_fn = se_gate_fn
-        self.se_reduce_mid = se_reduce_mid
-        self.bn_args = bn_args
-        self.drop_connect_rate = drop_connect_rate
-        self.verbose = verbose
-        self.in_chs = None
-        self.block_idx = 0
-        self.block_count = 0
-
-    def _round_channels(self, chs):
-        return _round_channels(chs, self.channel_multiplier, self.channel_divisor, self.channel_min)
-
-    def _make_block(self, ba):
-        bt = ba.pop('block_type')
-        ba['in_chs'] = self.in_chs
-        ba['out_chs'] = self._round_channels(ba['out_chs'])
-        ba['bn_args'] = self.bn_args
-        ba['pad_type'] = self.pad_type
-        ba['act_fn'] = ba['act_fn'] if ba['act_fn'] is not None else self.act_fn
-        assert ba['act_fn'] is not None
-        if bt == 'ir':
-            ba['drop_connect_rate'] = self.drop_connect_rate * self.block_idx / self.block_count
-            ba['se_gate_fn'] = self.se_gate_fn
-            ba['se_reduce_mid'] = self.se_reduce_mid
-            if self.verbose:
-                logging.info('  InvertedResidual {}, Args: {}'.format(self.block_idx, str(ba)))
-            block = InvertedResidual(**ba)
-        elif bt == 'ds' or bt == 'dsa':
-            ba['drop_connect_rate'] = self.drop_connect_rate * self.block_idx / self.block_count
-            if self.verbose:
-                logging.info('  DepthwiseSeparable {}, Args: {}'.format(self.block_idx, str(ba)))
-            block = DepthwiseSeparableConv(**ba)
-        elif bt == 'cn':
-            if self.verbose:
-                logging.info('  ConvBnAct {}, Args: {}'.format(self.block_idx, str(ba)))
-            block = ConvBnAct(**ba)
-        else:
-            assert False, 'Uknkown block type (%s) while building model.' % bt
-        self.in_chs = ba['out_chs']
-        return block
-
-    def _make_stack(self, stack_args):
-        blocks = []
-        for i, ba in enumerate(stack_args):
-            if self.verbose:
-                logging.info(' Block: {}'.format(i))
-            if i >= 1:
-                ba['stride'] = 1
-            block = self._make_block(ba)
-            blocks.append(block)
-            self.block_idx += 1
-        return nn.Sequential(*blocks)
-
-    def __call__(self, in_chs, block_args):
-        """ Build the blocks
+    def __init__(self, d_model: int, dropout: float=0.1, max_len: int=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor, pos_idx: Optional[Tuple[int]]=None) ->torch.Tensor:
+        """Inputs of forward function
         Args:
-            in_chs: Number of input-channels passed to first block
-            block_args: A list of lists, outer list defines stages, inner
-                list contains strings defining block configuration(s)
-        Return:
-             List of block stacks (each stack wrapped in nn.Sequential)
+            x (torch.Tensor(B, L, N)):
+                the sequence fed to the positional encoder model (required).
+            pos_idx (Tuple[int]):
+                position idx indicating the start (first) and end (last) time index of x in a sequence
+
+        Examples:
+            >>> output = pos_encoder(x)
         """
-        if self.verbose:
-            logging.info('Building model trunk with %d stages...' % len(block_args))
-        self.in_chs = in_chs
-        self.block_count = sum([len(x) for x in block_args])
-        self.block_idx = 0
-        blocks = []
-        for stack_idx, stack in enumerate(block_args):
-            if self.verbose:
-                logging.info('Stack: {}'.format(stack_idx))
-            assert isinstance(stack, list)
-            stack = self._make_stack(stack)
-            blocks.append(stack)
-        return blocks
-
-
-_DEBUG = False
-
-
-def _initialize_weight_default(m):
-    if isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
-
-
-def _initialize_weight_goog(m):
-    if isinstance(m, nn.Conv2d):
-        n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-        m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if m.bias is not None:
-            m.bias.data.zero_()
-    elif isinstance(m, nn.BatchNorm2d):
-        m.weight.data.fill_(1.0)
-        m.bias.data.zero_()
-    elif isinstance(m, nn.Linear):
-        n = m.weight.size(0)
-        init_range = 1.0 / math.sqrt(n)
-        m.weight.data.uniform_(-init_range, init_range)
-        m.bias.data.zero_()
-
-
-def _round_channels(channels, multiplier=1.0, divisor=8, channel_min=None):
-    """Round number of filters based on depth multiplier."""
-    if not multiplier:
-        return channels
-    channels *= multiplier
-    channel_min = channel_min or divisor
-    new_channels = max(int(channels + divisor / 2) // divisor * divisor, channel_min)
-    if new_channels < 0.9 * channels:
-        new_channels += divisor
-    return new_channels
-
-
-class GenEfficientNet(nn.Module):
-    """ Generic EfficientNet
-    An implementation of efficient network architectures, in many cases mobile optimized networks:
-      * MobileNet-V1
-      * MobileNet-V2
-      * MobileNet-V3
-      * MnasNet A1, B1, and small
-      * FBNet A, B, and C
-      * ChamNet (arch details are murky)
-      * Single-Path NAS Pixel1
-      * EfficientNet B0-B7
-      * MixNet S, M, L
-    """
-
-    def __init__(self, block_args, num_classes=1000, in_chans=3, stem_size=32, num_features=1280, channel_multiplier=1.0, channel_divisor=8, channel_min=None, pad_type='', act_fn=F.relu, drop_rate=0.0, drop_connect_rate=0.0, se_gate_fn=sigmoid, se_reduce_mid=False, bn_args=_BN_ARGS_PT, global_pool='avg', head_conv='default', weight_init='goog'):
-        super(GenEfficientNet, self).__init__()
-        self.num_classes = num_classes
-        self.drop_rate = drop_rate
-        self.act_fn = act_fn
-        self.num_features = num_features
-        stem_size = _round_channels(stem_size, channel_multiplier, channel_divisor, channel_min)
-        self.conv_stem = select_conv2d(in_chans, stem_size, 3, stride=2, padding=pad_type)
-        self.bn1 = nn.BatchNorm2d(stem_size, **bn_args)
-        in_chs = stem_size
-        builder = _BlockBuilder(channel_multiplier, channel_divisor, channel_min, pad_type, act_fn, se_gate_fn, se_reduce_mid, bn_args, drop_connect_rate, verbose=_DEBUG)
-        self.blocks = nn.Sequential(*builder(in_chs, block_args))
-        in_chs = builder.in_chs
-        if not head_conv or head_conv == 'none':
-            self.efficient_head = False
-            self.conv_head = None
-            assert in_chs == self.num_features
+        if pos_idx is None:
+            x = x + self.pe[:, :x.size(1), :]
         else:
-            self.efficient_head = head_conv == 'efficient'
-            self.conv_head = select_conv2d(in_chs, self.num_features, 1, padding=pad_type)
-            self.bn2 = None if self.efficient_head else nn.BatchNorm2d(self.num_features, **bn_args)
-        self.global_pool = SelectAdaptivePool2d(pool_type=global_pool)
-        self.classifier = nn.Linear(self.num_features * self.global_pool.feat_mult(), self.num_classes)
-        for m in self.modules():
-            if weight_init == 'goog':
-                _initialize_weight_goog(m)
-            else:
-                _initialize_weight_default(m)
+            x = x + self.pe[:, pos_idx[0]:pos_idx[1], :]
+        return self.dropout(x)
 
-    def get_classifier(self):
-        return self.classifier
 
-    def reset_classifier(self, num_classes, global_pool='avg'):
-        self.global_pool = SelectAdaptivePool2d(pool_type=global_pool)
-        self.num_classes = num_classes
-        del self.classifier
-        if num_classes:
-            self.classifier = nn.Linear(self.num_features * self.global_pool.feat_mult(), num_classes)
-        else:
-            self.classifier = None
+class DecoderNetwork(nn.Module):
 
-    def forward_features(self, x, pool=True):
-        x = self.conv_stem(x)
-        x = self.bn1(x)
-        x = self.act_fn(x, inplace=True)
-        x = self.blocks(x)
-        if self.efficient_head:
-            x = self.global_pool(x)
-            x = self.conv_head(x)
-            x = self.act_fn(x, inplace=True)
-            if pool:
-                x = x.view(x.size(0), -1)
-        else:
-            if self.conv_head is not None:
-                x = self.conv_head(x)
-                x = self.bn2(x)
-            x = self.act_fn(x, inplace=True)
-            if pool:
-                x = self.global_pool(x)
-                x = x.view(x.size(0), -1)
+    def forward(self, x_future: torch.Tensor, encoder_output: torch.Tensor, pos_idx: Optional[Tuple[int]]=None) ->torch.Tensor:
+        """
+        Base forecasting Decoder Network, its output needs to be a 3-d Tensor:
+
+
+        Args:
+            x_future: torch.Tensor(B, L_future, N_out), the future features
+            encoder_output: torch.Tensor(B, L_encoder, N), output of the encoder network, or the hidden states
+            pos_idx: positional index, indicating the position of the forecasted tensor, used for transformer
+        Returns:
+            net_output: torch.Tensor with shape either (B, L_future, N)
+
+        """
+        raise NotImplementedError
+
+
+class EncoderNetwork(nn.Module):
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False) ->torch.Tensor:
+        """
+        Base forecasting network, its output needs to be a 2-d or 3-d Tensor:
+        When the decoder is an auto-regressive model, then it needs to output a 3-d Tensor, in which case, output_seq
+         needs to be set as True
+        When the decoder is a seq2seq model, the network needs to output a 2-d Tensor (B, N), in which case,
+        output_seq needs to be set as False
+
+        Args:
+            x: torch.Tensor(B, L_in, N)
+                input data
+            output_seq (bool): if the network outputs a sequence tensor. If it is set True,
+                output will be a 3-d Tensor (B, L_out, N). L_out = L_in if encoder_properties['recurrent'] is True.
+                If this value is set as False, the network only returns the last item of the sequence.
+            hx (Optional[torch.Tensor]): addational input to the network, this could be a hidden states or a sequence
+                from previous inputs
+
+        Returns:
+            net_output: torch.Tensor with shape either (B, N) or (B, L_out, N)
+
+        """
+        raise NotImplementedError
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
+        """
+        get the last value of the sequential output
+        Args:
+            x (torch.Tensor(B, L, N)):
+                a sequential value output by the network, usually this value needs to be fed to the decoder
+                (or a 2D tensor for a flat encoder)
+        Returns:
+            output (torch.Tensor(B, 1, M)):
+                last element of the sequential value (or a 2D tensor for flat encoder)
+
+        """
+        raise NotImplementedError
+
+
+class TimeSeriesMLP(EncoderNetwork):
+
+    def __init__(self, window_size: int, network: Optional[nn.Module]=None):
+        """
+        Transform the input features (B, T, N) to fit the requirement of MLP
+        Args:
+            window_size (int): T
+            fill_lower_resolution_seq: if sequence with lower resolution needs to be filled with 0
+        (for multi-fidelity problems with resolution as fidelity)
+        """
+        super().__init__()
+        self.window_size = window_size
+        self.network = network
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False) ->torch.Tensor:
+        """
+
+        Args:
+            x: torch.Tensor(B, L_in, N)
+            output_seq (bool), if the MLP outputs a squence, in which case, the input will be rolled to fit the size of
+            the network. For Instance if self.window_size = 3, and we obtain a squence with [1, 2, 3, 4, 5]
+            the input of this mlp is rolled as :
+            [[1, 2, 3]
+            [2, 3, 4]
+            [3, 4 ,5]]
+
+        Returns:
+
+        """
+        if output_seq:
+            x = x.unfold(1, self.window_size, 1).transpose(-1, -2)
+        elif x.shape[1] > self.window_size:
+            x = x[:, -self.window_size:]
+        x = x.flatten(-2)
+        return x if self.network is None else self.network(x)
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
         return x
 
-    def forward(self, x):
-        x = self.forward_features(x)
-        if self.drop_rate > 0.0:
-            x = F.dropout(x, p=self.drop_rate, training=self.training)
-        return self.classifier(x)
+
+class _InceptionBlock(nn.Module):
+
+    def __init__(self, n_inputs: int, n_filters: int, kernel_size: int, bottleneck: int=None):
+        super(_InceptionBlock, self).__init__()
+        self.n_filters = n_filters
+        self.bottleneck = None if bottleneck is None else nn.Conv1d(n_inputs, bottleneck, kernel_size=1)
+        kernel_sizes = [(kernel_size // 2 ** i) for i in range(3)]
+        n_inputs = n_inputs if bottleneck is None else bottleneck
+        self.pad1 = nn.ConstantPad1d(padding=self._padding(kernel_sizes[0]), value=0)
+        self.conv1 = nn.Conv1d(n_inputs, n_filters, kernel_sizes[0])
+        self.pad2 = nn.ConstantPad1d(padding=self._padding(kernel_sizes[1]), value=0)
+        self.conv2 = nn.Conv1d(n_inputs, n_filters, kernel_sizes[1])
+        self.pad3 = nn.ConstantPad1d(padding=self._padding(kernel_sizes[2]), value=0)
+        self.conv3 = nn.Conv1d(n_inputs, n_filters, kernel_sizes[2])
+        self.maxpool = nn.MaxPool1d(kernel_size=3, stride=1, padding=1)
+        self.convpool = nn.Conv1d(n_inputs, n_filters, 1)
+        self.bn = nn.BatchNorm1d(4 * n_filters)
+
+    def _padding(self, kernel_size: int) ->Tuple[int, int]:
+        if kernel_size % 2 == 0:
+            return kernel_size // 2, kernel_size // 2 - 1
+        else:
+            return kernel_size // 2, kernel_size // 2
+
+    def get_n_outputs(self) ->int:
+        return 4 * self.n_filters
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        if self.bottleneck is not None:
+            x = self.bottleneck(x)
+        x1 = self.conv1(self.pad1(x))
+        x2 = self.conv2(self.pad2(x))
+        x3 = self.conv3(self.pad3(x))
+        x4 = self.convpool(self.maxpool(x))
+        x = torch.cat([x1, x2, x3, x4], dim=1)
+        x = self.bn(x)
+        return torch.relu(x)
 
 
-def _parse_ksize(ss):
-    if ss.isdigit():
-        return int(ss)
-    else:
-        return [int(k) for k in ss.split('.')]
+class _ResidualBlock(nn.Module):
+
+    def __init__(self, n_res_inputs: int, n_outputs: int):
+        super(_ResidualBlock, self).__init__()
+        self.shortcut = nn.Conv1d(n_res_inputs, n_outputs, 1, bias=False)
+        self.bn = nn.BatchNorm1d(n_outputs)
+
+    def forward(self, x: torch.Tensor, res: torch.Tensor) ->torch.Tensor:
+        shortcut = self.shortcut(res)
+        shortcut = self.bn(shortcut)
+        x = x + shortcut
+        return torch.relu(x)
 
 
-def hard_swish(x, inplace=False):
-    if inplace:
-        return x.mul_(F.relu6(x + 3.0) / 6.0)
-    else:
-        return x * F.relu6(x + 3.0) / 6.0
+class _InceptionTime(nn.Module):
+
+    def __init__(self, in_features: int, config: Dict[str, Any]) ->None:
+        super().__init__()
+        self.config = config
+        n_inputs = in_features
+        n_filters = self.config['num_filters']
+        bottleneck_size = self.config['bottleneck_size']
+        kernel_size = self.config['kernel_size']
+        n_res_inputs = in_features
+        receptive_field = 1
+        for i in range(self.config['num_blocks']):
+            block = _InceptionBlock(n_inputs=n_inputs, n_filters=n_filters, bottleneck=bottleneck_size, kernel_size=kernel_size)
+            receptive_field += max(kernel_size, 3) - 1
+            self.__setattr__(f'inception_block_{i}', block)
+            if i % 3 == 2:
+                n_res_outputs = block.get_n_outputs()
+                self.__setattr__(f'residual_block_{i}', _ResidualBlock(n_res_inputs=n_res_inputs, n_outputs=n_res_outputs))
+                n_res_inputs = n_res_outputs
+            n_inputs = block.get_n_outputs()
+        self.receptive_field = receptive_field
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False) ->torch.Tensor:
+        x = x.transpose(1, 2).contiguous()
+        res = x
+        for i in range(self.config['num_blocks']):
+            x = self.__getattr__(f'inception_block_{i}')(x)
+            if i % 3 == 2:
+                x = self.__getattr__(f'residual_block_{i}')(x, res)
+                res = x
+        x = x.transpose(1, 2).contiguous()
+        if output_seq:
+            return x
+        else:
+            return self.get_last_seq_value(x)
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
+        return x[:, -1:, :]
 
 
-def swish(x, inplace=False):
-    if inplace:
-        return x.mul_(x.sigmoid())
-    else:
-        return x * x.sigmoid()
+class _RNN(EncoderNetwork):
+
+    def __init__(self, in_features: int, config: Dict[str, Any], lagged_value: Optional[List[int]]=None):
+        super().__init__()
+        if lagged_value is None:
+            self.lagged_value = [0]
+        else:
+            self.lagged_value = lagged_value
+        self.config = config
+        if config['cell_type'] == 'lstm':
+            cell_type = nn.LSTM
+        else:
+            cell_type = nn.GRU
+        self.lstm = cell_type(input_size=in_features, hidden_size=config['hidden_size'], num_layers=config['num_layers'], dropout=config.get('dropout', 0.0), bidirectional=config['bidirectional'], batch_first=True)
+        self.cell_type = config['cell_type']
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False, hx: Optional[Tuple[torch.Tensor, torch.Tensor]]=None) ->Tuple[torch.Tensor, ...]:
+        B, T, _ = x.shape
+        x, hidden_state = self.lstm(x, hx)
+        if output_seq:
+            return x, hidden_state
+        else:
+            return self.get_last_seq_value(x), hidden_state
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
+        B, T, _ = x.shape
+        if not self.config['bidirectional']:
+            return x[:, -1:]
+        else:
+            x_by_direction = x.view(B, T, 2, self.config['hidden_size'])
+            x = torch.cat([x_by_direction[:, -1, [0], :], x_by_direction[:, 0, [1], :]], dim=-1)
+            return x
 
 
-def _decode_block_str(block_str, depth_multiplier=1.0):
-    """ Decode block definition string
-    Gets a list of block arg (dicts) through a string notation of arguments.
-    E.g. ir_r2_k3_s2_e1_i32_o16_se0.25_noskip
-    All args can exist in any order with the exception of the leading string which
-    is assumed to indicate the block type.
-    leading string - block type (
-      ir = InvertedResidual, ds = DepthwiseSep, dsa = DeptwhiseSep with pw act, cn = ConvBnAct)
-    r - number of repeat blocks,
-    k - kernel size,
-    s - strides (1-9),
-    e - expansion ratio,
-    c - output channels,
-    se - squeeze/excitation ratio
-    n - activation fn ('re', 'r6', 'hs', or 'sw')
-    Args:
-        block_str: a string representation of block arguments.
-    Returns:
-        A list of block args (dicts)
-    Raises:
-        ValueError: if the string def not properly specified (TODO)
-    """
-    assert isinstance(block_str, str)
-    ops = block_str.split('_')
-    block_type = ops[0]
-    ops = ops[1:]
-    options = {}
-    noskip = False
-    for op in ops:
-        if op == 'noskip':
-            noskip = True
-        elif op.startswith('n'):
-            key = op[0]
-            v = op[1:]
-            if v == 're':
-                value = F.relu
-            elif v == 'r6':
-                value = F.relu6
-            elif v == 'hs':
-                value = hard_swish
-            elif v == 'sw':
-                value = swish
-            else:
+class _Chomp1d(nn.Module):
+
+    def __init__(self, chomp_size: int):
+        super(_Chomp1d, self).__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        return x[:, :, :-self.chomp_size].contiguous()
+
+
+class _TemporalBlock(nn.Module):
+
+    def __init__(self, n_inputs: int, n_outputs: int, kernel_size: int, stride: int, dilation: int, padding: int, dropout: float=0.2):
+        super(_TemporalBlock, self).__init__()
+        self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size, stride=stride, padding=padding, dilation=dilation))
+        self.chomp1 = _Chomp1d(padding)
+        self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout)
+        self.conv2 = weight_norm(nn.Conv1d(n_outputs, n_outputs, kernel_size, stride=stride, padding=padding, dilation=dilation))
+        self.chomp2 = _Chomp1d(padding)
+        self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1, self.conv2, self.chomp2, self.relu2, self.dropout2)
+        self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
+        self.relu = nn.ReLU()
+
+    def init_weights(self) ->None:
+        self.conv1.weight.data.normal_(0, 0.01)
+        self.conv2.weight.data.normal_(0, 0.01)
+        if self.downsample is not None:
+            self.downsample.weight.data.normal_(0, 0.01)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        out = self.net(x)
+        res = x if self.downsample is None else self.downsample(x)
+        return self.relu(out + res)
+
+
+class _TemporalConvNet(EncoderNetwork):
+
+    def __init__(self, num_inputs: int, num_channels: List[int], kernel_size: List[int], dropout: float=0.2):
+        super(_TemporalConvNet, self).__init__()
+        layers: List[Any] = []
+        num_levels = len(num_channels)
+        receptive_field = 1
+        for i in range(num_levels):
+            dilation_size = 2 ** i
+            in_channels = num_inputs if i == 0 else num_channels[i - 1]
+            out_channels = num_channels[i]
+            stride = 1
+            layers += [_TemporalBlock(in_channels, out_channels, kernel_size[i], stride=stride, dilation=dilation_size, padding=(kernel_size[i] - 1) * dilation_size, dropout=dropout)]
+            receptive_field_block = 1 + 2 * (kernel_size[i] - 1) * dilation_size
+            receptive_field += receptive_field_block
+        self.receptive_field = receptive_field
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False) ->torch.Tensor:
+        x = x.transpose(1, 2).contiguous()
+        x = self.network(x)
+        x = x.transpose(1, 2).contiguous()
+        if output_seq:
+            return x
+        else:
+            return self.get_last_seq_value(x)
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
+        return x[:, -1:]
+
+
+class _TransformerEncoder(EncoderNetwork):
+
+    def __init__(self, in_features: int, d_model: int, num_layers: int, transformer_encoder_layers: nn.Module, use_positional_encoder: bool, use_layer_norm_output: bool, dropout_pe: float=0.0, layer_norm_eps_output: Optional[float]=None, lagged_value: Optional[List[int]]=None):
+        super().__init__()
+        if lagged_value is None:
+            self.lagged_value = [0]
+        else:
+            self.lagged_value = lagged_value
+        if in_features != d_model:
+            input_layer = [nn.Linear(in_features, d_model, bias=False)]
+        else:
+            input_layer = []
+        if use_positional_encoder:
+            input_layer.append(PositionalEncoding(d_model, dropout_pe))
+        self.input_layer = nn.Sequential(*input_layer)
+        self.use_layer_norm_output = use_layer_norm_output
+        if use_layer_norm_output:
+            norm = nn.LayerNorm(d_model, eps=layer_norm_eps_output)
+        else:
+            norm = None
+        self.transformer_encoder_layers = nn.TransformerEncoder(encoder_layer=transformer_encoder_layers, num_layers=num_layers, norm=norm)
+
+    def forward(self, x: torch.Tensor, output_seq: bool=False, mask: Optional[torch.Tensor]=None, src_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+        x = self.input_layer(x)
+        x = self.transformer_encoder_layers(x)
+        if output_seq:
+            return x
+        else:
+            return self.get_last_seq_value(x)
+
+    def get_last_seq_value(self, x: torch.Tensor) ->torch.Tensor:
+        return x[:, -1:]
+
+
+class _LearnedEntityEmbedding(nn.Module):
+    """ Learned entity embedding module for categorical features"""
+
+    def __init__(self, config: Dict[str, Any], num_input_features: np.ndarray, num_numerical_features: int):
+        """
+        Args:
+            config (Dict[str, Any]): The configuration sampled by the hyperparameter optimizer
+            num_input_features (np.ndarray): column wise information of number of output columns after transformation
+                for each categorical column and 0 for numerical columns
+            num_numerical_features (int): number of numerical features in X
+        """
+        super().__init__()
+        self.config = config
+        self.num_numerical = num_numerical_features
+        self.num_input_features = num_input_features
+        categorical_features: np.ndarray = self.num_input_features > 0
+        self.num_categorical_features = self.num_input_features[categorical_features]
+        self.embed_features = [(num_in >= config['min_unique_values_for_embedding']) for num_in in self.num_input_features]
+        self.num_output_dimensions = [0] * num_numerical_features
+        self.num_output_dimensions.extend([(config['dimension_reduction_' + str(i)] * num_in) for i, num_in in enumerate(self.num_categorical_features)])
+        self.num_output_dimensions = [int(np.clip(num_out, 1, num_in - 1)) for num_out, num_in in zip(self.num_output_dimensions, self.num_input_features)]
+        self.num_output_dimensions = [(num_out if embed else num_in) for num_out, embed, num_in in zip(self.num_output_dimensions, self.embed_features, self.num_input_features)]
+        self.num_out_feats = self.num_numerical + sum(self.num_output_dimensions)
+        self.ee_layers = self._create_ee_layers()
+
+    def get_partial_models(self, subset_features: List[int]) ->'_LearnedEntityEmbedding':
+        """
+        extract a partial models that only works on a subset of the data that ought to be passed to the embedding
+        network, this function is implemented for time series forecasting tasks where the known future features is only
+        a subset of the past features
+        Args:
+            subset_features (List[int]):
+                a set of index identifying which features will pass through the partial model
+
+        Returns:
+            partial_model (_LearnedEntityEmbedding)
+                a new partial model
+        """
+        num_input_features = self.num_input_features[subset_features]
+        num_numerical_features = sum([(sf < self.num_numerical) for sf in subset_features])
+        num_output_dimensions = [self.num_output_dimensions[sf] for sf in subset_features]
+        embed_features = [self.embed_features[sf] for sf in subset_features]
+        ee_layers = []
+        ee_layer_tracker = 0
+        for sf in subset_features:
+            if self.embed_features[sf]:
+                ee_layers.append(self.ee_layers[ee_layer_tracker])
+                ee_layer_tracker += 1
+        ee_layers = nn.ModuleList(ee_layers)
+        return PartialLearnedEntityEmbedding(num_input_features, num_numerical_features, embed_features, num_output_dimensions, ee_layers)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        concat_seq = []
+        last_concat = 0
+        x_pointer = 0
+        layer_pointer = 0
+        for num_in, embed in zip(self.num_input_features, self.embed_features):
+            if not embed:
+                x_pointer += 1
                 continue
-            options[key] = value
+            if x_pointer > last_concat:
+                concat_seq.append(x[..., last_concat:x_pointer])
+            categorical_feature_slice = x[..., x_pointer:x_pointer + num_in]
+            concat_seq.append(self.ee_layers[layer_pointer](categorical_feature_slice))
+            layer_pointer += 1
+            x_pointer += num_in
+            last_concat = x_pointer
+        concat_seq.append(x[..., last_concat:])
+        return torch.cat(concat_seq, dim=-1)
+
+    def _create_ee_layers(self) ->nn.ModuleList:
+        layers = nn.ModuleList()
+        for i, (num_in, embed, num_out) in enumerate(zip(self.num_input_features, self.embed_features, self.num_output_dimensions)):
+            if not embed:
+                continue
+            layers.append(nn.Linear(num_in, num_out))
+        return layers
+
+
+class TransposeLinear(nn.Module):
+
+    def __init__(self, weights: torch.Tensor):
+        super().__init__()
+        self.register_buffer('weights', weights)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        return x.mm(self.weights)
+
+
+class ProjectionLayer(nn.Module):
+    """
+    A projection layer that project features to a torch distribution
+    """
+    value_in_support = 0.0
+
+    def __init__(self, num_in_features: int, output_shape: Tuple[int, ...], n_prediction_heads: int, decoder_has_local_layer: bool, **kwargs: Any):
+        super().__init__(**kwargs)
+
+        def build_single_proj_layer(arg_dim: int) ->nn.Module:
+            """
+            build a single proj layer given the input dims, the output is unflattened to fit the required output_shape
+            and n_prediction_steps.
+            we note that output_shape's first dimensions is always n_prediction_steps
+            Args:
+                arg_dim (int):
+                    dimension of the target distribution
+
+            Returns:
+                proj_layer (nn.Module):
+                    projection layer that maps the decoder output to parameterize distributions
+            """
+            if decoder_has_local_layer:
+                return nn.Sequential(nn.Linear(num_in_features, np.prod(output_shape).item() * arg_dim), nn.Unflatten(-1, (*output_shape, arg_dim)))
+            else:
+                return nn.Sequential(nn.Linear(num_in_features, n_prediction_heads * np.prod(output_shape).item() * arg_dim), nn.Unflatten(-1, (n_prediction_heads, *output_shape, arg_dim)))
+        self.proj = nn.ModuleList([build_single_proj_layer(dim) for dim in self.arg_dims.values()])
+
+    def forward(self, x: torch.Tensor) ->torch.distributions:
+        """
+        get a target distribution
+        Args:
+            x: input tensor ([batch_size, in_features]):
+                input tensor, acquired by the base header, have the shape [batch_size, in_features]
+
+        Returns:
+            dist: torch.distributions ([batch_size, n_prediction_steps, output_shape]):
+                an output torch distribution with shape (batch_size, n_prediction_steps, output_shape)
+        """
+        params_unbounded = [proj(x) for proj in self.proj]
+        return self.dist_cls(*self.domain_map(*params_unbounded))
+
+    @property
+    @abstractmethod
+    def arg_dims(self) ->Dict[str, int]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def domain_map(self, *args: torch.Tensor) ->Tuple[torch.Tensor, ...]:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def dist_cls(self) ->Type[Distribution]:
+        raise NotImplementedError
+
+
+class NormalOutput(ProjectionLayer):
+
+    @property
+    def arg_dims(self) ->Dict[str, int]:
+        return {'loc': 1, 'scale': 1}
+
+    def domain_map(self, loc: torch.Tensor, scale: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+        scale = F.softplus(scale) + 1e-10
+        return loc.squeeze(-1), scale.squeeze(-1)
+
+    @property
+    def dist_cls(self) ->Type[Distribution]:
+        return Normal
+
+
+class StudentTOutput(ProjectionLayer):
+
+    @property
+    def arg_dims(self) ->Dict[str, int]:
+        return {'df': 1, 'loc': 1, 'scale': 1}
+
+    def domain_map(self, df: torch.Tensor, loc: torch.Tensor, scale: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        scale = F.softplus(scale) + 1e-10
+        df = 2.0 + F.softplus(df)
+        return df.squeeze(-1), loc.squeeze(-1), scale.squeeze(-1)
+
+    @property
+    def dist_cls(self) ->Type[Distribution]:
+        return StudentT
+
+
+class BetaOutput(ProjectionLayer):
+    value_in_support = 0.5
+
+    @property
+    def arg_dims(self) ->Dict[str, int]:
+        return {'concentration1': 1, 'concentration0': 1}
+
+    def domain_map(self, concentration1: torch.Tensor, concentration0: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+        epsilon = 1e-10
+        concentration1 = F.softplus(concentration1) + epsilon
+        concentration0 = F.softplus(concentration0) + epsilon
+        return concentration1.squeeze(-1), concentration0.squeeze(-1)
+
+    @property
+    def dist_cls(self) ->Type[Distribution]:
+        return Beta
+
+
+class GammaOutput(ProjectionLayer):
+    value_in_support = 0.5
+
+    @property
+    def arg_dims(self) ->Dict[str, int]:
+        return {'concentration': 1, 'rate': 1}
+
+    def domain_map(self, concentration: torch.Tensor, rate: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+        epsilon = 1e-10
+        concentration = F.softplus(concentration) + epsilon
+        rate = F.softplus(rate) + epsilon
+        return concentration.squeeze(-1), rate.squeeze(-1)
+
+    @property
+    def dist_cls(self) ->Type[Distribution]:
+        return Gamma
+
+
+class PoissonOutput(ProjectionLayer):
+
+    @property
+    def arg_dims(self) ->Dict[str, int]:
+        return {'rate': 1}
+
+    def domain_map(self, rate: torch.Tensor) ->Tuple[torch.Tensor]:
+        rate_pos = F.softplus(rate).clone()
+        return rate_pos.squeeze(-1),
+
+    @property
+    def dist_cls(self) ->Type[Distribution]:
+        return Poisson
+
+
+class QuantileHead(nn.Module):
+
+    def __init__(self, head_components: List[nn.Module]):
+        super().__init__()
+        self.net = nn.ModuleList(head_components)
+
+    def forward(self, x: torch.Tensor) ->List[torch.Tensor]:
+        return [net(x) for net in self.net]
+
+
+class _FullyConvolutional2DHead(nn.Module):
+
+    def __init__(self, input_shape: Tuple[int, ...], output_shape: Tuple[int, ...], pooling_method: str, activation: str, num_layers: int, num_channels: List[int]):
+        super().__init__()
+        layers = []
+        in_channels = input_shape[0]
+        for i in range(1, num_layers):
+            layers.append(nn.Conv2d(in_channels=in_channels, out_channels=num_channels[i - 1], kernel_size=1))
+            layers.append(_activations[activation]())
+            in_channels = num_channels[i - 1]
+        out_channels = output_shape[0]
+        layers.append(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1))
+        if pooling_method == 'average':
+            layers.append(nn.AdaptiveAvgPool2d(output_size=1))
         else:
-            splits = re.split('(\\d.*)', op)
-            if len(splits) >= 2:
-                key, value = splits[:2]
-                options[key] = value
-    act_fn = options['n'] if 'n' in options else None
-    exp_kernel_size = _parse_ksize(options['a']) if 'a' in options else 1
-    pw_kernel_size = _parse_ksize(options['p']) if 'p' in options else 1
-    num_repeat = int(options['r'])
-    if block_type == 'ir':
-        block_args = dict(block_type=block_type, dw_kernel_size=_parse_ksize(options['k']), exp_kernel_size=exp_kernel_size, pw_kernel_size=pw_kernel_size, out_chs=int(options['c']), exp_ratio=float(options['e']), se_ratio=float(options['se']) if 'se' in options else None, stride=int(options['s']), act_fn=act_fn, noskip=noskip)
-    elif block_type == 'ds' or block_type == 'dsa':
-        block_args = dict(block_type=block_type, dw_kernel_size=_parse_ksize(options['k']), pw_kernel_size=pw_kernel_size, out_chs=int(options['c']), se_ratio=float(options['se']) if 'se' in options else None, stride=int(options['s']), act_fn=act_fn, pw_act=block_type == 'dsa', noskip=block_type == 'dsa' or noskip)
-    elif block_type == 'cn':
-        block_args = dict(block_type=block_type, kernel_size=int(options['k']), out_chs=int(options['c']), stride=int(options['s']), act_fn=act_fn)
-    else:
-        assert False, 'Unknown block type (%s)' % block_type
-    num_repeat = int(math.ceil(num_repeat * depth_multiplier))
-    return [deepcopy(block_args) for _ in range(num_repeat)]
+            layers.append(nn.AdaptiveMaxPool2d(output_size=1))
+        self.head = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        B, C, H, W = x.size()
+        return self.head(x).view(B, -1)
 
 
-def _decode_arch_def(arch_def, depth_multiplier=1.0):
-    arch_args = []
-    for stack_idx, block_strings in enumerate(arch_def):
-        assert isinstance(block_strings, list)
-        stack_args = []
-        for block_str in block_strings:
-            assert isinstance(block_str, str)
-            stack_args.extend(_decode_block_str(block_str, depth_multiplier))
-        arch_args.append(stack_args)
-    return arch_args
+class AbstractForecastingLoss(Loss):
+    __constants__ = ['reduction']
+
+    def __init__(self, reduction: str='mean') ->None:
+        super(AbstractForecastingLoss, self).__init__(reduction=reduction)
+
+    def aggregate_loss(self, loss_values: torch.Tensor) ->torch.Tensor:
+        if self.reduction == 'mean':
+            return loss_values.mean()
+        elif self.reduction == 'sum':
+            return loss_values.sum()
+        else:
+            return loss_values
 
 
-_BN_EPS_TF_DEFAULT = 0.001
+class LogProbLoss(AbstractForecastingLoss):
+
+    def forward(self, input_dist: torch.distributions.Distribution, target_tensor: torch.Tensor) ->torch.Tensor:
+        scores = input_dist.log_prob(target_tensor)
+        return self.aggregate_loss(-scores)
 
 
-_BN_MOMENTUM_TF_DEFAULT = 1 - 0.99
+class MAPELoss(AbstractForecastingLoss):
+
+    def forward(self, predictions: torch.Tensor, target_tensor: torch.Tensor) ->torch.Tensor:
+        denominator = torch.abs(target_tensor)
+        diff = torch.abs(predictions - target_tensor)
+        flag = (denominator == 0).float()
+        mape = diff * (1 - flag) / (denominator + flag)
+        return self.aggregate_loss(mape)
 
 
-_BN_ARGS_TF = dict(momentum=_BN_MOMENTUM_TF_DEFAULT, eps=_BN_EPS_TF_DEFAULT)
+class MASELoss(AbstractForecastingLoss):
+
+    def __init__(self, reduction: str='mean') ->None:
+        super(MASELoss, self).__init__(reduction=reduction)
+        self._mase_coefficient: Union[float, torch.Tensor] = 1.0
+
+    def set_mase_coefficient(self, mase_coefficient: torch.Tensor) ->'MASELoss':
+        """
+        set mase coefficient for computing MASE losses
+        Args:
+            mase_coefficient (torch.Tensor): mase coefficient, its dimensions corresponds to [B, L, N] and can be
+                broadcasted
+
+        Returns:
+
+        """
+        if len(mase_coefficient.shape) == 2:
+            mase_coefficient = mase_coefficient.unsqueeze(1)
+        self._mase_coefficient = mase_coefficient
+        return self
+
+    def forward(self, predictions: torch.Tensor, target_tensor: torch.Tensor) ->torch.Tensor:
+        if isinstance(self._mase_coefficient, torch.Tensor):
+            mase_shape = self._mase_coefficient.shape
+            pred_shape = predictions.shape
+            if len(mase_shape) == len(pred_shape):
+                if mase_shape[0] != pred_shape[0] or mase_shape[-1] != pred_shape[-1]:
+                    raise ValueError(f'If self._mase_coefficient is a Tensor, it must have the same batch size and num_targets as the predictions, However, their shapes are {mase_shape}(self._mase_coefficient) and {pred_shape}(pred_shape)')
+        loss_values = torch.abs(predictions - target_tensor) * self._mase_coefficient
+        return self.aggregate_loss(loss_values)
 
 
-def _resolve_bn_args(kwargs):
-    bn_args = _BN_ARGS_TF.copy() if kwargs.pop('bn_tf', False) else _BN_ARGS_PT.copy()
-    bn_momentum = kwargs.pop('bn_momentum', None)
-    if bn_momentum is not None:
-        bn_args['momentum'] = bn_momentum
-    bn_eps = kwargs.pop('bn_eps', None)
-    if bn_eps is not None:
-        bn_args['eps'] = bn_eps
-    return bn_args
+class QuantileLoss(AbstractForecastingLoss):
+
+    def __init__(self, reduction: str='mean', quantiles: List[float]=[0.5]) ->None:
+        super(QuantileLoss, self).__init__(reduction=reduction)
+        self.quantiles = quantiles
+
+    def set_quantiles(self, quantiles: List[float]) ->None:
+        self.quantiles = quantiles
+
+    def forward(self, predictions: List[torch.Tensor], target_tensor: torch.Tensor) ->torch.Tensor:
+        assert len(self.quantiles) == len(predictions)
+        losses_all = []
+        for q, y_pred in zip(self.quantiles, predictions):
+            diff = target_tensor - y_pred
+            loss_q = torch.max(q * diff, (q - 1) * diff)
+            losses_all.append(loss_q.unsqueeze(-1))
+        losses_all = torch.mean(torch.concat(losses_all, dim=-1), dim=-1)
+        return self.aggregate_loss(losses_all)
 
 
-class MobileNet(BaseImageNet):
-    """
-    Implements a search space as in MnasNet (https://arxiv.org/abs/1807.11626) using inverted residuals.
-    """
-
-    def __init__(self, config, in_features, out_features, final_activation, **kwargs):
-        super(MobileNet, self).__init__(config, in_features, out_features, final_activation)
-        nn.Module.config = config
-        self.final_activation = final_activation
-        self.nr_main_blocks = config['nr_main_blocks']
-        self.initial_filters = config['initial_filters']
-        self.nr_sub_blocks = dict([('Group_%d' % (i + 1), config['nr_sub_blocks_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.op_types = dict([('Group_%d' % (i + 1), config['op_type_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.kernel_sizes = dict([('Group_%d' % (i + 1), config['kernel_size_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.strides = dict([('Group_%d' % (i + 1), config['stride_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.output_filters = dict([('Group_%d' % (i + 1), config['out_filters_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.skip_cons = dict([('Group_%d' % (i + 1), config['skip_con_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        self.se_ratios = dict([('Group_%d' % (i + 1), config['se_ratio_%i' % (i + 1)]) for i in range(self.nr_main_blocks)])
-        encoder = Arch_Encoder(block_types=self.op_types, nr_sub_blocks=self.nr_sub_blocks, kernel_sizes=self.kernel_sizes, strides=self.strides, expansion_rates=0, output_filters=self.output_filters, se_ratios=self.se_ratios, skip_connections=self.skip_cons)
-        arch_enc = encoder.get_encoded_architecture()
-        kwargs['bn_momentum'] = 0.01
-        self.model = GenEfficientNet(_decode_arch_def(arch_enc, depth_multiplier=1.0), num_classes=out_features, stem_size=self.initial_filters, channel_multiplier=1.0, num_features=_round_channels(1280, 1.0, 8, None), bn_args=_resolve_bn_args(kwargs), act_fn=swish, drop_connect_rate=0.2, drop_rate=0.2, **kwargs)
-
-        def _cfg(url='', **kwargs):
-            return {'url': url, 'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': (7, 7), 'crop_pct': 0.875, 'interpolation': 'bicubic', 'mean': (0.485, 0.456, 0.406), 'std': (0.229, 0.224, 0.225), 'first_conv': 'conv_stem', 'classifier': 'classifier', **kwargs}
-        self.model.default_cfg = _cfg(url='', input_size=in_features, pool_size=(10, 10), crop_pct=0.904, num_classes=out_features)
+class DummyEmbedding(torch.nn.Module):
 
     def forward(self, x):
-        x = self.model(x)
-        if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
+        if x.shape[-1] > 10:
+            return x[..., :-10]
         return x
 
-    @staticmethod
-    def get_config_space(nr_main_blocks=[3, 7], initial_filters=([8, 32], True), nr_sub_blocks=([1, 4], False), op_types=['inverted_residual', 'dwise_sep_conv'], kernel_sizes=[3, 5], strides=[1, 2], output_filters=[[12, 16, 20], [18, 24, 30], [24, 32, 40], [48, 64, 80], [72, 96, 120], [120, 160, 200], [240, 320, 400]], skip_connection=[True, False], se_ratios=[0, 0.25], **kwargs):
-        cs = CS.ConfigurationSpace()
-        main_blocks_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'nr_main_blocks', nr_main_blocks)
-        initial_filters_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'initial_filters', initial_filters)
-        cs.add_hyperparameter(main_blocks_hp)
-        cs.add_hyperparameter(initial_filters_hp)
-        if type(nr_main_blocks[0]) == int:
-            min_blocks = nr_main_blocks[0]
-            max_blocks = nr_main_blocks[1]
-        else:
-            min_blocks = nr_main_blocks[0][0]
-            max_blocks = nr_main_blocks[0][1]
-        for i in range(1, max_blocks + 1):
-            sub_blocks_hp = get_hyperparameter(ConfigSpace.UniformIntegerHyperparameter, 'nr_sub_blocks_%d' % i, nr_sub_blocks)
-            op_type_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'op_type_%d' % i, op_types)
-            kernel_size_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'kernel_size_%d' % i, kernel_sizes)
-            stride_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'stride_%d' % i, strides)
-            out_filters_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'out_filters_%d' % i, output_filters[i - 1])
-            se_ratio_hp = get_hyperparameter(ConfigSpace.CategoricalHyperparameter, 'se_ratio_%d' % i, se_ratios)
-            cs.add_hyperparameter(sub_blocks_hp)
-            cs.add_hyperparameter(op_type_hp)
-            cs.add_hyperparameter(kernel_size_hp)
-            cs.add_hyperparameter(stride_hp)
-            cs.add_hyperparameter(out_filters_hp)
-            cs.add_hyperparameter(se_ratio_hp)
-            skip_con = cs.add_hyperparameter(CSH.CategoricalHyperparameter('skip_con_%d' % i, [True, False]))
-            if i > min_blocks:
-                cs.add_condition(CS.GreaterThanCondition(sub_blocks_hp, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(op_type_hp, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(kernel_size_hp, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(stride_hp, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(out_filters_hp, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(skip_con, main_blocks_hp, i - 1))
-                cs.add_condition(CS.GreaterThanCondition(se_ratio_hp, main_blocks_hp, i - 1))
-        return cs
+
+class DummyEncoderNetwork(EncoderNetwork):
+
+    def forward(self, x, output_seq=False):
+        if output_seq:
+            return torch.ones((*x.shape[:-1], 10))
+        return torch.ones((*x.shape[:-2], 1, 10))
 
 
-class SkipConnection(nn.Module):
+class ReducedEmbedding(torch.nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride):
-        super(SkipConnection, self).__init__()
-        self.s1 = nn.Sequential()
-        self.s1.add_module('Skip_1_AvgPool', nn.AvgPool2d(1, stride=stride))
-        self.s1.add_module('Skip_1_Conv', nn.Conv2d(in_channels, int(out_channels / 2), kernel_size=1, stride=1, padding=0, bias=False))
-        self.s2 = nn.Sequential()
-        self.s2.add_module('Skip_2_AvgPool', nn.AvgPool2d(1, stride=stride))
-        self.s2.add_module('Skip_2_Conv', nn.Conv2d(in_channels, int(out_channels / 2) if out_channels % 2 == 0 else int(out_channels / 2) + 1, kernel_size=1, stride=1, padding=0, bias=False))
-        self.batch_norm = nn.BatchNorm2d(out_channels)
+    def __init__(self, num_input_features, num_numerical_features: int):
+        super(ReducedEmbedding, self).__init__()
+        self.num_input_features = num_input_features
+        self.num_numerical_features = num_numerical_features
+        self.n_cat_features = len(num_input_features) - num_numerical_features
 
     def forward(self, x):
-        out1 = F.relu(x, inplace=False)
-        out1 = self.s1(out1)
-        out2 = F.pad(x[:, :, 1:, 1:], (0, 1, 0, 1))
-        out2 = self.s2(out2)
-        out = torch.cat([out1, out2], dim=1)
-        out = self.batch_norm(out)
-        return out
-
-
-class ResidualBranch(nn.Module):
-
-    def __init__(self, in_channels, out_channels, filter_size, stride, branch_index):
-        super(ResidualBranch, self).__init__()
-        self.residual_branch = nn.Sequential()
-        self.residual_branch.add_module('Branch_{}:ReLU_1'.format(branch_index), nn.ReLU(inplace=False))
-        self.residual_branch.add_module('Branch_{}:Conv_1'.format(branch_index), nn.Conv2d(in_channels, out_channels, kernel_size=filter_size, stride=stride, padding=round(filter_size / 3), bias=False))
-        self.residual_branch.add_module('Branch_{}:BN_1'.format(branch_index), nn.BatchNorm2d(out_channels))
-        self.residual_branch.add_module('Branch_{}:ReLU_2'.format(branch_index), nn.ReLU(inplace=False))
-        self.residual_branch.add_module('Branch_{}:Conv_2'.format(branch_index), nn.Conv2d(out_channels, out_channels, kernel_size=filter_size, stride=1, padding=round(filter_size / 3), bias=False))
-        self.residual_branch.add_module('Branch_{}:BN_2'.format(branch_index), nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        return self.residual_branch(x)
-
-
-class ResidualGroup(nn.Module):
-
-    def __init__(self, block, n_input_plane, n_output_plane, n_blocks, filter_size, res_branches, stride, shake_config):
-        super(ResidualGroup, self).__init__()
-        self.group = nn.Sequential()
-        self.n_blocks = n_blocks
-        self.group.add_module('Block_1', block(n_input_plane, n_output_plane, filter_size, res_branches, stride=stride, shake_config=shake_config))
-        for block_index in range(2, n_blocks + 1):
-            block_name = 'Block_{}'.format(block_index)
-            self.group.add_module(block_name, block(n_output_plane, n_output_plane, filter_size, res_branches, stride=1, shake_config=shake_config))
-
-    def forward(self, x):
-        return self.group(x)
-
-
-class ResNet152(ResNet):
-
-    def __init__(self, config, in_features, out_features, final_activation, **kwargs):
-        super(ResNet, self).__init__(config, in_features, out_features, final_activation)
-        super(ResNet152, self).__init__(Bottleneck, [3, 8, 36, 3], num_classes=out_features)
-
-    def forward(self, x):
-        x = super(ResNet152, self).forward(x)
-        if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
+        x = x[..., :-self.n_cat_features]
         return x
+
+    def get_partial_models(self, subset_features):
+        num_numerical_features = sum([(sf < self.num_numerical_features) for sf in subset_features])
+        num_input_features = [self.num_input_features[sf] for sf in subset_features]
+        return ReducedEmbedding(num_input_features, num_numerical_features)
 
 
 import torch
@@ -2514,110 +2568,74 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AdaptiveAvgMaxPool2d,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (AdaptiveCatAvgMaxPool2d,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (BaseNet,
-     lambda: ([], {'config': _mock_config(), 'in_features': 4, 'out_features': 4, 'final_activation': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+    (AddLayer,
+     lambda: ([], {'input_size': 4, 'skip_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (BasicBlock,
-     lambda: ([], {'inplanes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ChannelShuffle,
-     lambda: ([], {'groups': 1}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Conv2dSame,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (ConvBnAct,
-     lambda: ([], {'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (DepthwiseSeparableConv,
-     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DilConv,
-     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (FactorizedReduce,
-     lambda: ([], {'C_in': 4, 'C_out': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (GenEfficientNet,
-     lambda: ([], {'block_args': _mock_config()}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (Identity,
+    (DummyEmbedding,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (InvertedResidual,
-     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+    (DummyEncoderNetwork,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (MixedConv2d,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+    (MAPELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MASELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (NoEmbedding,
-     lambda: ([], {'config': _mock_config(), 'in_features': 4, 'one_hot_encoder': 4}),
+    (QuantileHead,
+     lambda: ([], {'head_components': [_mock_layer()]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (PrintNode,
-     lambda: ([], {'msg': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (ReLUConvBN,
-     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+    (ReducedEmbedding,
+     lambda: ([], {'num_input_features': [4, 4], 'num_numerical_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (ResBlock,
-     lambda: ([], {'config': _mock_config(blocks_per_group=4, num_groups=1, use_dropout=0.5, use_shake_shake=4, use_shake_drop=4, max_shake_drop_probability=4), 'in_features': 4, 'out_features': 4, 'block_index': 4, 'dropout': 0.5, 'activation': _mock_layer}),
+     lambda: ([], {'config': _mock_config(num_groups=1, use_dropout=0.5, use_shake_shake=4, use_shake_drop=4, max_shake_drop_probability=4), 'in_features': 4, 'out_features': 4, 'blocks_per_group': 4, 'block_index': 4, 'dropout': 0.5, 'activation': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (ResNet152,
-     lambda: ([], {'config': _mock_config(), 'in_features': [4, 4], 'out_features': 4, 'final_activation': _mock_layer()}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+    (TimeSeriesMLP,
+     lambda: ([], {'window_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_Chomp1d,
+     lambda: ([], {'chomp_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_FullyConvolutional2DHead,
+     lambda: ([], {'input_shape': [4, 4], 'output_shape': [4, 4], 'pooling_method': 4, 'activation': 4, 'num_layers': 1, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_InceptionBlock,
+     lambda: ([], {'n_inputs': 4, 'n_filters': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
-    (Reshape,
-     lambda: ([], {'size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ResidualBranch,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'filter_size': 4, 'stride': 1, 'branch_index': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SelectAdaptivePool2d,
+    (_InceptionTime,
+     lambda: ([], {'in_features': 4, 'config': _mock_config(num_filters=4, bottleneck_size=4, kernel_size=4, num_blocks=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (_NoEmbedding,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SepConv,
-     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+    (_ResidualBlock,
+     lambda: ([], {'n_res_inputs': 4, 'n_outputs': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
-    (SkipConnection,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SqueezeExcite,
-     lambda: ([], {'in_chs': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+    (_TemporalConvNet,
+     lambda: ([], {'num_inputs': 4, 'num_channels': [4, 4], 'kernel_size': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (Zero,
-     lambda: ([], {'stride': 1}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
 ]
 
 class Test_automl_Auto_PyTorch(_paritybench_base):
@@ -2671,31 +2689,4 @@ class Test_automl_Auto_PyTorch(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
-
-    def test_020(self):
-        self._check(*TESTCASES[20])
-
-    def test_021(self):
-        self._check(*TESTCASES[21])
-
-    def test_022(self):
-        self._check(*TESTCASES[22])
-
-    def test_023(self):
-        self._check(*TESTCASES[23])
-
-    def test_024(self):
-        self._check(*TESTCASES[24])
-
-    def test_025(self):
-        self._check(*TESTCASES[25])
 

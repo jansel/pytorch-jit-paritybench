@@ -2,38 +2,24 @@ import sys
 _module = sys.modules[__name__]
 del sys
 pts = _module
-core = _module
-_base = _module
-component = _module
-serde = _module
 dataset = _module
-artificial = _module
-common = _module
-file_dataset = _module
-list_dataset = _module
 loader = _module
-multivariate_grouper = _module
-process = _module
-recipe = _module
 repository = _module
-_artificial = _module
-_gp_copula_2019 = _module
-_lstnet = _module
-_m4 = _module
-_util = _module
+_m5 = _module
 datasets = _module
-stat = _module
-transformed_iterable_dataset = _module
+distributions = _module
+implicit_quantile = _module
+piecewise_linear = _module
 utils = _module
-evaluation = _module
-backtest = _module
-evaluator = _module
-exception = _module
+zero_inflated = _module
 feature = _module
+fourier_date_feature = _module
 holiday = _module
-lag = _module
-time_feature = _module
+lags = _module
 model = _module
+causal_deepar = _module
+causal_deepar_estimator = _module
+causal_deepar_network = _module
 deepar = _module
 deepar_estimator = _module
 deepar_network = _module
@@ -41,8 +27,6 @@ deepvar = _module
 deepvar_estimator = _module
 deepvar_network = _module
 estimator = _module
-forecast = _module
-forecast_generator = _module
 lstnet = _module
 lstnet_estimator = _module
 lstnet_network = _module
@@ -50,14 +34,22 @@ n_beats = _module
 n_beats_ensemble = _module
 n_beats_estimator = _module
 n_beats_network = _module
-predictor = _module
-quantile = _module
 simple_feedforward = _module
 simple_feedforward_estimator = _module
 simple_feedforward_network = _module
 tempflow = _module
 tempflow_estimator = _module
 tempflow_network = _module
+tft = _module
+tft_estimator = _module
+tft_modules = _module
+tft_network = _module
+tft_output = _module
+tft_transform = _module
+time_grad = _module
+epsilon_theta = _module
+time_grad_estimator = _module
+time_grad_network = _module
 transformer = _module
 transformer_estimator = _module
 transformer_network = _module
@@ -69,22 +61,14 @@ modules = _module
 distribution_output = _module
 feature = _module
 flows = _module
-lambda_layer = _module
+gaussian_diffusion = _module
+iqn_modules = _module
 scaler = _module
 trainer = _module
-transform = _module
-convert = _module
-field = _module
-sampler = _module
-split = _module
 setup = _module
-test_common = _module
-test_multivariate_grouper = _module
-test_process = _module
-test_stat = _module
-test_evaluator = _module
+test_piecewise_linear = _module
+test_zero_inflated = _module
 test_holiday = _module
-test_lag = _module
 test_auxillary_outputs = _module
 test_lags = _module
 test_deepvar = _module
@@ -92,8 +76,8 @@ test_forecast = _module
 test_lstnet = _module
 test_distribution_output = _module
 test_feature = _module
+test_implicit_quantile_distr_output = _module
 test_scaler = _module
-test_transform = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -115,40 +99,46 @@ xrange = range
 wraps = functools.wraps
 
 
-import functools
-
-
-import inspect
-
-
-from collections import OrderedDict
-
-
-from typing import Any
-
-
-import torch
+from typing import Optional
 
 
 import itertools
 
 
-from collections import defaultdict
+from torch.utils.data import IterableDataset
 
 
-from typing import Dict
+import torch
 
 
-from typing import Iterable
+from torch.distributions import Distribution
 
 
-from typing import Iterator
+from torch.distributions import TransformedDistribution
+
+
+from torch.distributions import AffineTransform
+
+
+import torch.nn.functional as F
+
+
+from torch.distributions import constraints
+
+
+from torch.distributions import NegativeBinomial
+
+
+from torch.distributions import Poisson
+
+
+from torch.distributions.utils import broadcast_all
+
+
+from torch.distributions.utils import lazy_property
 
 
 from typing import List
-
-
-from typing import Optional
 
 
 import numpy as np
@@ -163,43 +153,49 @@ from typing import Tuple
 from typing import Union
 
 
-from torch.distributions import Distribution
-
-
-from abc import ABC
-
-
-from abc import abstractmethod
+from typing import Callable
 
 
 from typing import NamedTuple
 
 
+from functools import partial
+
+
+from torch.utils import data
+
+
 from torch.utils.data import DataLoader
 
 
-from enum import Enum
+from itertools import chain
 
 
-from typing import Set
+from typing import Dict
 
 
-from typing import Callable
+import math
 
 
-import pandas as pd
+from torch import nn
 
 
-import torch.nn.functional as F
+from torch.nn.modules import loss
+
+
+import inspect
+
+
+from abc import ABC
 
 
 from abc import abstractclassmethod
 
 
+import warnings
+
+
 from torch.distributions import Beta
-
-
-from torch.distributions import NegativeBinomial
 
 
 from torch.distributions import StudentT
@@ -223,31 +219,40 @@ from torch.distributions import LowRankMultivariateNormal
 from torch.distributions import MultivariateNormal
 
 
-from torch.distributions import TransformedDistribution
-
-
-from torch.distributions import AffineTransform
-
-
 import copy
 
 
-import math
+from inspect import isfunction
+
+
+from torch import einsum
+
+
+from math import pi
+
+
+from torch import nn as nn
+
+
+from abc import abstractmethod
 
 
 import time
 
 
-from torch.utils.tensorboard import SummaryWriter
+from torch.optim import Adam
 
 
-from scipy.special import erf
+from torch.optim.lr_scheduler import OneCycleLR
 
 
-from scipy.special import erfinv
+from numpy.testing import assert_allclose as assert_close
 
 
 from itertools import islice
+
+
+import pandas as pd
 
 
 from torch.distributions import Uniform
@@ -262,221 +267,10 @@ from torch.optim import SGD
 from torch.utils.data import TensorDataset
 
 
-from itertools import chain
-
-
 from itertools import combinations
 
 
-class ArgProj(nn.Module):
-
-    def __init__(self, in_features: int, args_dim: Dict[str, int], domain_map: Callable[..., Tuple[torch.Tensor]], dtype: np.dtype=np.float32, prefix: Optional[str]=None, **kwargs):
-        super().__init__(**kwargs)
-        self.args_dim = args_dim
-        self.dtype = dtype
-        self.proj = nn.ModuleList([nn.Linear(in_features, dim) for dim in args_dim.values()])
-        self.domain_map = domain_map
-
-    def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor]:
-        params_unbounded = [proj(x) for proj in self.proj]
-        return self.domain_map(*params_unbounded)
-
-
-class LambdaLayer(nn.Module):
-
-    def __init__(self, function):
-        super().__init__()
-        self._func = function
-
-    def forward(self, x, *args):
-        return self._func(x, *args)
-
-
-class Output(ABC):
-    in_features: int
-    args_dim: Dict[str, int]
-    _dtype: np.dtype = np.float32
-
-    @property
-    def dtype(self):
-        return self._dtype
-
-    @dtype.setter
-    def dtype(self, dtype: np.dtype):
-        self._dtype = dtype
-
-    def get_args_proj(self, in_features: int, prefix: Optional[str]=None) ->ArgProj:
-        return ArgProj(in_features=in_features, args_dim=self.args_dim, domain_map=LambdaLayer(self.domain_map), prefix=prefix, dtype=self.dtype)
-
-    @abstractclassmethod
-    def domain_map(cls, *args: torch.Tensor):
-        pass
-
-
-def fqname_for(cls: type) ->str:
-    """
-    Returns the fully qualified name of ``cls``.
-
-    Parameters
-    ----------
-    cls
-        The class we are interested in.
-
-    Returns
-    -------
-    str
-        The fully qualified name of ``cls``.
-    """
-    return f'{cls.__module__}.{cls.__qualname__}'
-
-
-kind_inst = 'instance'
-
-
-kind_type = 'type'
-
-
-def dump_code(o: Any) ->str:
-    """
-    Serializes an object to a Python code string.
-
-    Parameters
-    ----------
-    o
-        The object to serialize.
-
-    Returns
-    -------
-    str
-        A string representing the object as Python code.
-
-    See Also
-    --------
-    load_code
-        Inverse function.
-    """
-
-    def _dump_code(x: Any) ->str:
-        if type(x) == dict and x.get('__kind__') == kind_inst:
-            args = x.get('args', [])
-            kwargs = x.get('kwargs', {})
-            fqname = x['class']
-            bindings = ', '.join(itertools.chain(map(_dump_code, args), [f'{k}={_dump_code(v)}' for k, v in kwargs.items()]))
-            return f'{fqname}({bindings})'
-        if type(x) == dict and x.get('__kind__') == kind_type:
-            return x['class']
-        if isinstance(x, dict):
-            inner = ', '.join(f'{_dump_code(k)}: {_dump_code(v)}' for k, v in x.items())
-            return f'{{{inner}}}'
-        if isinstance(x, list):
-            inner = ', '.join(list(map(dump_code, x)))
-            return f'[{inner}]'
-        if isinstance(x, tuple):
-            inner = ', '.join(list(map(dump_code, x)))
-            if len(x) == 1:
-                inner += ','
-            return f'({inner})'
-        if isinstance(x, str):
-            return json.dumps(x)
-        if isinstance(x, float) or np.issubdtype(type(x), np.inexact):
-            if math.isfinite(x):
-                return str(x)
-            else:
-                return 'float("{x}")'
-        if isinstance(x, int) or np.issubdtype(type(x), np.integer):
-            return str(x)
-        if x is None:
-            return str(x)
-        raise RuntimeError(f'Unexpected element type {fqname_for(x.__class__)}')
-    return _dump_code(encode(o))
-
-
-def validated(base_model=None):
-    """
-    Decorates an ``__init__`` method with typed parameters with validation
-    and auto-conversion logic.
-
-    >>> class ComplexNumber:
-    ...     @validated()
-    ...     def __init__(self, x: float = 0.0, y: float = 0.0) -> None:
-    ...         self.x = x
-    ...         self.y = y
-
-    Classes with decorated initializers can be instantiated using arguments of
-    another type (e.g. an ``y`` argument of type ``str`` ). The decorator
-    handles the type conversion logic.
-
-    >>> c = ComplexNumber(y='42')
-    >>> (c.x, c.y)
-    (0.0, 42.0)
-
-    If the bound argument cannot be converted, the decorator throws an error.
-
-    >>> c = ComplexNumber(y=None)
-    Traceback (most recent call last):
-        ...
-    pydantic.error_wrappers.ValidationError: 1 validation error for ComplexNumberModel
-    y
-      none is not an allowed value (type=type_error.none.not_allowed)
-
-    Internally, the decorator delegates all validation and conversion logic to
-    `a Pydantic model <https://pydantic-docs.helpmanual.io/>`_, which can be
-    accessed through the ``Model`` attribute of the decorated initiazlier.
-
-    >>> ComplexNumber.__init__.Model
-    <class 'ComplexNumberModel'>
-
-    The Pydantic model is synthesized automatically from on the parameter
-    names and types of the decorated initializer. In the ``ComplexNumber``
-    example, the synthesized Pydantic model corresponds to the following
-    definition.
-
-    >>> class ComplexNumberModel(BaseValidatedInitializerModel):
-    ...     x: float = 0.0
-    ...     y: float = 0.0
-
-
-    Clients can optionally customize the base class of the synthesized
-    Pydantic model using the ``base_model`` decorator parameter. The default
-    behavior uses :class:`BaseValidatedInitializerModel` and its
-    `model config <https://pydantic-docs.helpmanual.io/#config>`_.
-
-    See Also
-    --------
-    BaseValidatedInitializerModel
-        Default base class for all synthesized Pydantic models.
-    """
-
-    def validator(init):
-        init_qualname = dict(inspect.getmembers(init))['__qualname__']
-        init_clsnme = init_qualname.split('.')[0]
-        init_params = inspect.signature(init).parameters
-        init_fields = {param.name: (param.annotation if param.annotation != inspect.Parameter.empty else Any, param.default if param.default != inspect.Parameter.empty else ...) for param in init_params.values() if param.name != 'self' and param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD}
-        if base_model is None:
-            PydanticModel = create_model(f'{init_clsnme}Model', __config__=BaseValidatedInitializerModel.Config, **init_fields)
-        else:
-            PydanticModel = create_model(f'{init_clsnme}Model', __base__=base_model, **init_fields)
-
-        def validated_repr(self) ->str:
-            return dump_code(self)
-
-        def validated_getnewargs_ex(self):
-            return (), self.__init_args__
-
-        @functools.wraps(init)
-        def init_wrapper(*args, **kwargs):
-            self, *args = args
-            nmargs = {name: arg for (name, param), arg in zip(list(init_params.items()), [self] + args) if name != 'self'}
-            model = PydanticModel(**{**nmargs, **kwargs})
-            all_args = {**nmargs, **kwargs, **model.__dict__}
-            if not getattr(self, '__init_args__', {}):
-                self.__init_args__ = OrderedDict({name: arg for name, arg in sorted(all_args.items()) if type(arg) != torch.nn.ParameterDict})
-                self.__class__.__getnewargs_ex__ = validated_getnewargs_ex
-                self.__class__.__repr__ = validated_repr
-            return init(self, **all_args)
-        setattr(init_wrapper, 'Model', PydanticModel)
-        return init_wrapper
-    return validator
+from torch.distributions import Bernoulli
 
 
 class FeatureEmbedder(nn.Module):
@@ -527,7 +321,7 @@ class Scaler(ABC, nn.Module):
         Tensor
             Tensor containing the "scaled" data, shape: (N, T, C) or (N, C, T).
         Tensor
-            Tensor containing the scale, of shape (N, C) if ``keepdim == False``, 
+            Tensor containing the scale, of shape (N, C) if ``keepdim == False``,
             and shape (N, 1, C) or (N, C, 1) if ``keepdim == True``.
         """
         scale = self.compute_scale(data, observed_indicator)
@@ -542,57 +336,6 @@ class Scaler(ABC, nn.Module):
             return data / scale.unsqueeze(dim=dim), scale
 
 
-class MeanScaler(Scaler):
-    """
-    The ``MeanScaler`` computes a per-item scale according to the average
-    absolute value over time of each item. The average is computed only among
-    the observed values in the data tensor, as indicated by the second
-    argument. Items with no observed data are assigned a scale based on the
-    global average.
-
-    Parameters
-    ----------
-    minimum_scale
-        default scale that is used if the time series has only zeros.
-    """
-
-    def __init__(self, minimum_scale: float=1e-10, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer('minimum_scale', torch.tensor(minimum_scale))
-
-    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
-        if self.time_first:
-            dim = 1
-        else:
-            dim = 2
-        num_observed = observed_indicator.sum(dim=dim)
-        sum_observed = (data.abs() * observed_indicator).sum(dim=dim)
-        total_observed = num_observed.sum(dim=0)
-        denominator = torch.max(total_observed, torch.ones_like(total_observed))
-        default_scale = sum_observed.sum(dim=0) / denominator
-        denominator = torch.max(num_observed, torch.ones_like(num_observed))
-        scale = sum_observed / denominator
-        scale = torch.where(sum_observed > torch.zeros_like(sum_observed), scale, default_scale * torch.ones_like(num_observed))
-        return torch.max(scale, self.minimum_scale).detach()
-
-
-class NOPScaler(Scaler):
-    """
-    The ``NOPScaler`` assigns a scale equals to 1 to each input item, i.e.,
-    no scaling is applied upon calling the ``NOPScaler``.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
-        if self.time_first:
-            dim = 1
-        else:
-            dim = 2
-        return torch.ones_like(data).mean(dim=dim)
-
-
 def prod(xs):
     p = 1
     for x in xs:
@@ -600,21 +343,32 @@ def prod(xs):
     return p
 
 
-def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=None, dim=None):
+def weighted_average(x: torch.Tensor, weights: Optional[torch.Tensor]=None, dim=None) ->torch.Tensor:
+    """
+    Computes the weighted average of a given tensor across a given dim, masking
+    values associated with weight zero,
+    meaning instead of `nan * 0 = nan` you will get `0 * 0 = 0`.
+
+    Parameters
+    ----------
+    x
+        Input tensor, of which the average must be computed.
+    weights
+        Weights tensor, of the same shape as `x`.
+    dim
+        The dim along which to average `x`
+
+    Returns
+    -------
+    Tensor:
+        The tensor with values averaged along the specified `dim`.
+    """
     if weights is not None:
-        weighted_tensor = tensor * weights
-        if dim is not None:
-            sum_weights = torch.sum(weights, dim)
-            sum_weighted_tensor = torch.sum(weighted_tensor, dim)
-        else:
-            sum_weights = weights.sum()
-            sum_weighted_tensor = weighted_tensor.sum()
-        sum_weights = torch.max(torch.ones_like(sum_weights), sum_weights)
-        return sum_weighted_tensor / sum_weights
-    elif dim is not None:
-        return torch.mean(tensor, dim=dim)
+        weighted_tensor = torch.where(weights != 0, x * weights, torch.zeros_like(x))
+        sum_weights = torch.clamp(weights.sum(dim=dim) if dim else weights.sum(), min=1.0)
+        return (weighted_tensor.sum(dim=dim) if dim else weighted_tensor.sum()) / sum_weights
     else:
-        return tensor.mean()
+        return x.mean(dim=dim)
 
 
 class LSTNetBase(nn.Module):
@@ -660,14 +414,14 @@ class LSTNetBase(nn.Module):
             self.scaler = NOPScaler(keepdim=True, time_first=False)
 
     def forward(self, past_target: torch.Tensor, past_observed_values: torch.Tensor) ->torch.Tensor:
-        scaled_past_target, scale = self.scaler(past_target[(...), -self.context_length:], past_observed_values[(...), -self.context_length:])
+        scaled_past_target, scale = self.scaler(past_target[..., -self.context_length:], past_observed_values[..., -self.context_length:])
         c = F.relu(self.cnn(scaled_past_target.unsqueeze(1)))
         c = self.dropout(c)
         c = c.squeeze(2)
         r = c.permute(2, 0, 1)
         _, r = self.rnn(r)
         r = self.dropout(r.squeeze(0))
-        skip_c = c[(...), -self.conv_skip * self.skip_size:]
+        skip_c = c[..., -self.conv_skip * self.skip_size:]
         skip_c = skip_c.reshape(-1, self.channels, self.conv_skip, self.skip_size)
         skip_c = skip_c.permute(2, 0, 3, 1)
         skip_c = skip_c.reshape((self.conv_skip, -1, self.channels))
@@ -675,7 +429,7 @@ class LSTNetBase(nn.Module):
         skip_c = skip_c.reshape((-1, self.skip_size * self.skip_rnn_num_cells))
         skip_c = self.dropout(skip_c)
         res = self.fc(torch.cat((r, skip_c), 1)).unsqueeze(-1)
-        ar_x = scaled_past_target[(...), -self.ar_window:]
+        ar_x = scaled_past_target[..., -self.ar_window:]
         ar_x = ar_x.reshape(-1, self.ar_window)
         ar_x = self.ar_fc(ar_x)
         if self.horizon:
@@ -697,7 +451,7 @@ class LSTNetTrain(LSTNetBase):
     def forward(self, past_target: torch.Tensor, past_observed_values: torch.Tensor, future_target: torch.Tensor) ->torch.Tensor:
         ret, scale = super().forward(past_target, past_observed_values)
         if self.horizon:
-            future_target = future_target[(...), -1:]
+            future_target = future_target[..., -1:]
         loss = self.loss_fn(ret * scale, future_target)
         return loss
 
@@ -845,7 +599,7 @@ class NBEATSNetwork(nn.Module):
     def mase_loss(self, forecast: torch.Tensor, future_target: torch.Tensor, past_target: torch.Tensor, periodicity: int) ->torch.Tensor:
         factor = 1 / (self.context_length + self.prediction_length - periodicity)
         whole_target = torch.cat((past_target, future_target), dim=1)
-        seasonal_error = factor * torch.mean(torch.abs(whole_target[:, periodicity:, (...)] - whole_target[:, :-periodicity, (...)]), dim=1)
+        seasonal_error = factor * torch.mean(torch.abs(whole_target[:, periodicity:, ...] - whole_target[:, :-periodicity, ...]), dim=1)
         flag = seasonal_error == 0
         return torch.mean(torch.abs(future_target - forecast), dim=1) * torch.logical_not(flag) / (seasonal_error + flag)
 
@@ -1141,6 +895,417 @@ class RealNVP(Flow):
         self.net = FlowSequential(*modules)
 
 
+class FeatureProjector(nn.Module):
+
+    def __init__(self, feature_dims: List[int], embedding_dims: List[int]):
+        super().__init__()
+        self.__num_features = len(feature_dims)
+        if self.__num_features > 1:
+            self.feature_slices = feature_dims[0:1] + np.cumsum(feature_dims)[:-1].tolist()
+        else:
+            self.feature_slices = feature_dims
+        self.feature_dims = feature_dims
+        self._projector = nn.ModuleList([nn.Linear(in_features=in_feature, out_features=out_features) for in_feature, out_features in zip(self.feature_dims, embedding_dims)])
+
+    def forward(self, features: torch.Tensor) ->List[torch.Tensor]:
+        if self.__num_features > 1:
+            real_feature_slices = torch.tensor_split(features, self.feature_slices[1:], dim=-1)
+        else:
+            real_feature_slices = [features]
+        return [proj(real_feature_slice) for proj, real_feature_slice in zip(self._projector, real_feature_slices)]
+
+
+class GatedLinearUnit(nn.Module):
+
+    def __init__(self, dim: int=-1, nonlinear: bool=True):
+        super().__init__()
+        self.dim = dim
+        self.nonlinear = nonlinear
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        val, gate = torch.chunk(x, 2, dim=self.dim)
+        if self.nonlinear:
+            val = torch.tanh(val)
+        return torch.sigmoid(gate) * val
+
+
+class GatedResidualNetwork(nn.Module):
+
+    def __init__(self, d_hidden: int, d_input: Optional[int]=None, d_output: Optional[int]=None, d_static: Optional[int]=None, dropout: float=0.0):
+        super().__init__()
+        d_input = d_input or d_hidden
+        d_static = d_static or 0
+        if d_output is None:
+            d_output = d_input
+            self.add_skip = False
+        elif d_output != d_input:
+            self.add_skip = True
+            self.skip_proj = nn.Linear(in_features=d_input, out_features=d_output)
+        else:
+            self.add_skip = False
+        self.mlp = nn.Sequential(nn.Linear(in_features=d_input + d_static, out_features=d_hidden), nn.ELU(), nn.Linear(in_features=d_hidden, out_features=d_hidden), nn.Dropout(p=dropout), nn.Linear(in_features=d_hidden, out_features=d_output * 2), GatedLinearUnit(nonlinear=False))
+        self.lnorm = nn.LayerNorm(d_output)
+
+    def forward(self, x: torch.Tensor, c: Optional[torch.Tensor]=None) ->torch.Tensor:
+        if self.add_skip:
+            skip = self.skip_proj(x)
+        else:
+            skip = x
+        if c is not None:
+            x = torch.cat((x, c), dim=-1)
+        x = self.mlp(x)
+        x = self.lnorm(x + skip)
+        return x
+
+
+class VariableSelectionNetwork(nn.Module):
+
+    def __init__(self, d_hidden: int, n_vars: int, dropout: float=0.0, add_static: bool=False):
+        super().__init__()
+        self.weight_network = GatedResidualNetwork(d_hidden=d_hidden, d_input=d_hidden * n_vars, d_output=n_vars, d_static=d_hidden if add_static else None, dropout=dropout)
+        self.variable_network = nn.ModuleList([GatedResidualNetwork(d_hidden=d_hidden, dropout=dropout) for _ in range(n_vars)])
+
+    def forward(self, variables: List[torch.Tensor], static: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+        flatten = torch.cat(variables, dim=-1)
+        if static is not None:
+            static = static.expand_as(variables[0])
+        weight = self.weight_network(flatten, static)
+        weight = torch.softmax(weight.unsqueeze(-2), dim=-1)
+        var_encodings = [net(var) for var, net in zip(variables, self.variable_network)]
+        var_encodings = torch.stack(var_encodings, dim=-1)
+        var_encodings = torch.sum(var_encodings * weight, dim=-1)
+        return var_encodings, weight
+
+
+class TemporalFusionEncoder(nn.Module):
+
+    def __init__(self, d_input: int, d_hidden: int):
+        super().__init__()
+        self.encoder_lstm = nn.LSTM(input_size=d_input, hidden_size=d_hidden, batch_first=True)
+        self.decoder_lstm = nn.LSTM(input_size=d_input, hidden_size=d_hidden, batch_first=True)
+        self.gate = nn.Sequential(nn.Linear(in_features=d_hidden, out_features=d_hidden * 2), GatedLinearUnit(nonlinear=False))
+        if d_input != d_hidden:
+            self.skip_proj = nn.Linear(in_features=d_input, out_features=d_hidden)
+            self.add_skip = True
+        else:
+            self.add_skip = False
+        self.lnorm = nn.LayerNorm(d_hidden)
+
+    def forward(self, ctx_input: torch.Tensor, tgt_input: torch.Tensor, states: List[torch.Tensor]):
+        ctx_encodings, states = self.encoder_lstm(ctx_input, states)
+        tgt_encodings, _ = self.decoder_lstm(tgt_input, states)
+        encodings = torch.cat((ctx_encodings, tgt_encodings), dim=1)
+        skip = torch.cat((ctx_input, tgt_input), dim=1)
+        if self.add_skip:
+            skip = self.skip_proj(skip)
+        encodings = self.gate(encodings)
+        encodings = self.lnorm(skip + encodings)
+        return encodings
+
+
+class TemporalFusionDecoder(nn.Module):
+
+    def __init__(self, context_length: int, prediction_length: int, d_hidden: int, d_var: int, n_head: int, dropout: float=0.0):
+        super().__init__()
+        self.context_length = context_length
+        self.prediction_length = prediction_length
+        self.enrich = GatedResidualNetwork(d_hidden=d_hidden, d_static=d_var, dropout=dropout)
+        self.attention = nn.MultiheadAttention(embed_dim=d_hidden, num_heads=n_head, dropout=dropout)
+        self.att_net = nn.Sequential(nn.Linear(in_features=d_hidden, out_features=d_hidden * 2), GatedLinearUnit(nonlinear=False))
+        self.att_lnorm = nn.LayerNorm(d_hidden)
+        self.ff_net = nn.Sequential(GatedResidualNetwork(d_hidden=d_hidden, dropout=dropout), nn.Linear(in_features=d_hidden, out_features=d_hidden * 2), GatedLinearUnit(nonlinear=False))
+        self.ff_lnorm = nn.LayerNorm(d_hidden)
+        self.register_buffer('attn_mask', self._generate_subsequent_mask(prediction_length, prediction_length + context_length))
+
+    @staticmethod
+    def _generate_subsequent_mask(target_length: int, source_length: int) ->torch.Tensor:
+        mask = (torch.triu(torch.ones(source_length, target_length)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def forward(self, x: torch.Tensor, static: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
+        static = static.repeat((1, self.context_length + self.prediction_length, 1))
+        skip = x[:, self.context_length:, ...]
+        x = self.enrich(x, static)
+        mask_pad = torch.ones_like(mask)[:, 0:1, ...]
+        mask_pad = mask_pad.repeat((1, self.prediction_length))
+        key_padding_mask = torch.cat((mask, mask_pad), dim=1).bool()
+        query_key_value = x.permute(1, 0, 2)
+        attn_output, _ = self.attention(query=query_key_value[-self.prediction_length:, ...], key=query_key_value, value=query_key_value, attn_mask=self.attn_mask)
+        att = self.att_net(attn_output.permute(1, 0, 2))
+        x = x[:, self.context_length:, ...]
+        x = self.att_lnorm(x + att)
+        x = self.ff_net(x)
+        x = self.ff_lnorm(x + skip)
+        return x
+
+
+class DiffusionEmbedding(nn.Module):
+
+    def __init__(self, dim, proj_dim, max_steps=500):
+        super().__init__()
+        self.register_buffer('embedding', self._build_embedding(dim, max_steps), persistent=False)
+        self.projection1 = nn.Linear(dim * 2, proj_dim)
+        self.projection2 = nn.Linear(proj_dim, proj_dim)
+
+    def forward(self, diffusion_step):
+        x = self.embedding[diffusion_step]
+        x = self.projection1(x)
+        x = F.silu(x)
+        x = self.projection2(x)
+        x = F.silu(x)
+        return x
+
+    def _build_embedding(self, dim, max_steps):
+        steps = torch.arange(max_steps).unsqueeze(1)
+        dims = torch.arange(dim).unsqueeze(0)
+        table = steps * 10.0 ** (dims * 4.0 / dim)
+        table = torch.cat([torch.sin(table), torch.cos(table)], dim=1)
+        return table
+
+
+class ResidualBlock(nn.Module):
+
+    def __init__(self, hidden_size, residual_channels, dilation):
+        super().__init__()
+        self.dilated_conv = nn.Conv1d(residual_channels, 2 * residual_channels, 3, padding=dilation, dilation=dilation, padding_mode='circular')
+        self.diffusion_projection = nn.Linear(hidden_size, residual_channels)
+        self.conditioner_projection = nn.Conv1d(1, 2 * residual_channels, 1, padding=2, padding_mode='circular')
+        self.output_projection = nn.Conv1d(residual_channels, 2 * residual_channels, 1)
+        nn.init.kaiming_normal_(self.conditioner_projection.weight)
+        nn.init.kaiming_normal_(self.output_projection.weight)
+
+    def forward(self, x, conditioner, diffusion_step):
+        diffusion_step = self.diffusion_projection(diffusion_step).unsqueeze(-1)
+        conditioner = self.conditioner_projection(conditioner)
+        y = x + diffusion_step
+        y = self.dilated_conv(y) + conditioner
+        gate, filter = torch.chunk(y, 2, dim=1)
+        y = torch.sigmoid(gate) * torch.tanh(filter)
+        y = self.output_projection(y)
+        y = F.leaky_relu(y, 0.4)
+        residual, skip = torch.chunk(y, 2, dim=1)
+        return (x + residual) / math.sqrt(2.0), skip
+
+
+class CondUpsampler(nn.Module):
+
+    def __init__(self, cond_length, target_dim):
+        super().__init__()
+        self.linear1 = nn.Linear(cond_length, target_dim // 2)
+        self.linear2 = nn.Linear(target_dim // 2, target_dim)
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = F.leaky_relu(x, 0.4)
+        x = self.linear2(x)
+        x = F.leaky_relu(x, 0.4)
+        return x
+
+
+class EpsilonTheta(nn.Module):
+
+    def __init__(self, target_dim, cond_length, time_emb_dim=16, residual_layers=8, residual_channels=8, dilation_cycle_length=2, residual_hidden=64):
+        super().__init__()
+        self.input_projection = nn.Conv1d(1, residual_channels, 1, padding=2, padding_mode='circular')
+        self.diffusion_embedding = DiffusionEmbedding(time_emb_dim, proj_dim=residual_hidden)
+        self.cond_upsampler = CondUpsampler(target_dim=target_dim, cond_length=cond_length)
+        self.residual_layers = nn.ModuleList([ResidualBlock(residual_channels=residual_channels, dilation=2 ** (i % dilation_cycle_length), hidden_size=residual_hidden) for i in range(residual_layers)])
+        self.skip_projection = nn.Conv1d(residual_channels, residual_channels, 3)
+        self.output_projection = nn.Conv1d(residual_channels, 1, 3)
+        nn.init.kaiming_normal_(self.input_projection.weight)
+        nn.init.kaiming_normal_(self.skip_projection.weight)
+        nn.init.zeros_(self.output_projection.weight)
+
+    def forward(self, inputs, time, cond):
+        x = self.input_projection(inputs)
+        x = F.leaky_relu(x, 0.4)
+        diffusion_step = self.diffusion_embedding(time)
+        cond_up = self.cond_upsampler(cond)
+        skip = []
+        for layer in self.residual_layers:
+            x, skip_connection = layer(x, cond_up, diffusion_step)
+            skip.append(skip_connection)
+        x = torch.sum(torch.stack(skip), dim=0) / math.sqrt(len(self.residual_layers))
+        x = self.skip_projection(x)
+        x = F.leaky_relu(x, 0.4)
+        x = self.output_projection(x)
+        return x
+
+
+def cosine_beta_schedule(timesteps, s=0.008):
+    """
+    cosine schedule
+    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
+    """
+    steps = timesteps + 1
+    x = np.linspace(0, timesteps, steps)
+    alphas_cumprod = np.cos((x / timesteps + s) / (1 + s) * np.pi * 0.5) ** 2
+    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+    betas = 1 - alphas_cumprod[1:] / alphas_cumprod[:-1]
+    return np.clip(betas, 0, 0.999)
+
+
+def default(val, d):
+    if val is not None:
+        return val
+    return d() if isfunction(d) else d
+
+
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
+
+def noise_like(shape, device, repeat=False):
+    repeat_noise = lambda : torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
+    noise = lambda : torch.randn(shape, device=device)
+    return repeat_noise() if repeat else noise()
+
+
+class GaussianDiffusion(nn.Module):
+
+    def __init__(self, denoise_fn, input_size, beta_end=0.1, diff_steps=100, loss_type='l2', betas=None, beta_schedule='linear'):
+        super().__init__()
+        self.denoise_fn = denoise_fn
+        self.input_size = input_size
+        self.__scale = None
+        if betas is not None:
+            betas = betas.detach().cpu().numpy() if isinstance(betas, torch.Tensor) else betas
+        elif beta_schedule == 'linear':
+            betas = np.linspace(0.0001, beta_end, diff_steps)
+        elif beta_schedule == 'quad':
+            betas = np.linspace(0.0001 ** 0.5, beta_end ** 0.5, diff_steps) ** 2
+        elif beta_schedule == 'const':
+            betas = beta_end * np.ones(diff_steps)
+        elif beta_schedule == 'jsd':
+            betas = 1.0 / np.linspace(diff_steps, 1, diff_steps)
+        elif beta_schedule == 'sigmoid':
+            betas = np.linspace(-6, 6, diff_steps)
+            betas = (beta_end - 0.0001) / (np.exp(-betas) + 1) + 0.0001
+        elif beta_schedule == 'cosine':
+            betas = cosine_beta_schedule(diff_steps)
+        else:
+            raise NotImplementedError(beta_schedule)
+        alphas = 1.0 - betas
+        alphas_cumprod = np.cumprod(alphas, axis=0)
+        alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
+        timesteps, = betas.shape
+        self.num_timesteps = int(timesteps)
+        self.loss_type = loss_type
+        to_torch = partial(torch.tensor, dtype=torch.float32)
+        self.register_buffer('betas', to_torch(betas))
+        self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
+        self.register_buffer('alphas_cumprod_prev', to_torch(alphas_cumprod_prev))
+        self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
+        self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1.0 - alphas_cumprod)))
+        self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1.0 - alphas_cumprod)))
+        self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1.0 / alphas_cumprod)))
+        self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1.0 / alphas_cumprod - 1)))
+        posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        self.register_buffer('posterior_variance', to_torch(posterior_variance))
+        self.register_buffer('posterior_log_variance_clipped', to_torch(np.log(np.maximum(posterior_variance, 1e-20))))
+        self.register_buffer('posterior_mean_coef1', to_torch(betas * np.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod)))
+        self.register_buffer('posterior_mean_coef2', to_torch((1.0 - alphas_cumprod_prev) * np.sqrt(alphas) / (1.0 - alphas_cumprod)))
+
+    @property
+    def scale(self):
+        return self.__scale
+
+    @scale.setter
+    def scale(self, scale):
+        self.__scale = scale
+
+    def q_mean_variance(self, x_start, t):
+        mean = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
+        variance = extract(1.0 - self.alphas_cumprod, t, x_start.shape)
+        log_variance = extract(self.log_one_minus_alphas_cumprod, t, x_start.shape)
+        return mean, variance, log_variance
+
+    def predict_start_from_noise(self, x_t, t, noise):
+        return extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+
+    def q_posterior(self, x_start, x_t, t):
+        posterior_mean = extract(self.posterior_mean_coef1, t, x_t.shape) * x_start + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+    def p_mean_variance(self, x, cond, t, clip_denoised: bool):
+        x_recon = self.predict_start_from_noise(x, t=t, noise=self.denoise_fn(x, t, cond=cond))
+        if clip_denoised:
+            x_recon.clamp_(-1.0, 1.0)
+        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon, x_t=x, t=t)
+        return model_mean, posterior_variance, posterior_log_variance
+
+    @torch.no_grad()
+    def p_sample(self, x, cond, t, clip_denoised=False, repeat_noise=False):
+        b, *_, device = *x.shape, x.device
+        model_mean, _, model_log_variance = self.p_mean_variance(x=x, cond=cond, t=t, clip_denoised=clip_denoised)
+        noise = noise_like(x.shape, device, repeat_noise)
+        nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
+        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+
+    @torch.no_grad()
+    def p_sample_loop(self, shape, cond):
+        device = self.betas.device
+        b = shape[0]
+        img = torch.randn(shape, device=device)
+        for i in reversed(range(0, self.num_timesteps)):
+            img = self.p_sample(img, cond, torch.full((b,), i, device=device, dtype=torch.long))
+        return img
+
+    @torch.no_grad()
+    def sample(self, sample_shape=torch.Size(), cond=None):
+        if cond is not None:
+            shape = cond.shape[:-1] + (self.input_size,)
+        else:
+            shape = sample_shape
+        x_hat = self.p_sample_loop(shape, cond)
+        if self.scale is not None:
+            x_hat *= self.scale
+        return x_hat
+
+    @torch.no_grad()
+    def interpolate(self, x1, x2, t=None, lam=0.5):
+        b, *_, device = *x1.shape, x1.device
+        t = default(t, self.num_timesteps - 1)
+        assert x1.shape == x2.shape
+        t_batched = torch.stack([torch.tensor(t, device=device)] * b)
+        xt1, xt2 = map(lambda x: self.q_sample(x, t=t_batched), (x1, x2))
+        img = (1 - lam) * xt1 + lam * xt2
+        for i in reversed(range(0, t)):
+            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long))
+        return img
+
+    def q_sample(self, x_start, t, noise=None):
+        noise = default(noise, lambda : torch.randn_like(x_start))
+        return extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+
+    def p_losses(self, x_start, cond, t, noise=None):
+        noise = default(noise, lambda : torch.randn_like(x_start))
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_recon = self.denoise_fn(x_noisy, t, cond=cond)
+        if self.loss_type == 'l1':
+            loss = F.l1_loss(x_recon, noise)
+        elif self.loss_type == 'l2':
+            loss = F.mse_loss(x_recon, noise)
+        elif self.loss_type == 'huber':
+            loss = F.smooth_l1_loss(x_recon, noise)
+        else:
+            raise NotImplementedError()
+        return loss
+
+    def log_prob(self, x, cond, *args, **kwargs):
+        if self.scale is not None:
+            x /= self.scale
+        B, T, _ = x.shape
+        time = torch.randint(0, self.num_timesteps, (B * T,), device=x.device).long()
+        loss = self.p_losses(x.reshape(B * T, 1, -1), cond.reshape(B * T, 1, -1), time, *args, **kwargs)
+        return loss
+
+
 class FeatureAssembler(nn.Module):
 
     def __init__(self, T: int, embed_static: Optional[FeatureEmbedder]=None, embed_dynamic: Optional[FeatureEmbedder]=None) ->None:
@@ -1170,6 +1335,46 @@ class FeatureAssembler(nn.Module):
         return feature
 
 
+class QuantileLayer(nn.Module):
+    """Define quantile embedding layer, i.e. phi in the IQN paper (arXiv: 1806.06923)."""
+
+    def __init__(self, num_output):
+        super(QuantileLayer, self).__init__()
+        self.n_cos_embedding = 64
+        self.num_output = num_output
+        self.output_layer = nn.Sequential(nn.Linear(self.n_cos_embedding, self.n_cos_embedding), nn.PReLU(), nn.Linear(self.n_cos_embedding, num_output))
+
+    def forward(self, tau):
+        cos_embedded_tau = self.cos_embed(tau)
+        final_output = self.output_layer(cos_embedded_tau)
+        return final_output
+
+    def cos_embed(self, tau):
+        integers = torch.repeat_interleave(torch.arange(0, self.n_cos_embedding).unsqueeze(dim=0), repeats=tau.shape[-1], dim=0)
+        return torch.cos(pi * tau.unsqueeze(dim=-1) * integers)
+
+
+class ImplicitQuantileModule(nn.Module):
+    """See arXiv: 1806.06923
+    This module, in combination with quantile loss,
+    learns how to generate the quantile of the distribution of the target.
+    A quantile value, tau, is randomly generated with a Uniform([0, 1])).
+    This quantile value is embedded in this module and also passed to the quantile loss:
+    this should force the model to learn the appropriate quantile.
+    """
+
+    def __init__(self, in_features, output_domain_cls):
+        super(ImplicitQuantileModule, self).__init__()
+        self.in_features = in_features
+        self.quantile_layer = QuantileLayer(in_features)
+        self.output_layer = nn.Sequential(nn.Linear(in_features, in_features), nn.Softplus(), nn.Linear(in_features, 1), output_domain_cls())
+
+    def forward(self, input_data, tau):
+        embedded_tau = self.quantile_layer(tau)
+        new_input_data = input_data * (torch.ones_like(embedded_tau) + embedded_tau)
+        return self.output_layer(new_input_data).squeeze(-1)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1181,34 +1386,42 @@ TESTCASES = [
      lambda: ([], {'input_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (CondUpsampler,
+     lambda: ([], {'cond_length': 4, 'target_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiffusionEmbedding,
+     lambda: ([], {'dim': 4, 'proj_dim': 4}),
+     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
+     True),
     (FeatureAssembler,
      lambda: ([], {'T': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-    (FeatureEmbedder,
-     lambda: ([], {'cardinalities': [4, 4], 'embedding_dims': [4, 4]}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
      False),
     (FlowSequential,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LambdaLayer,
-     lambda: ([], {'function': _mock_layer()}),
+    (GatedLinearUnit,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedResidualNetwork,
+     lambda: ([], {'d_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ImplicitQuantileModule,
+     lambda: ([], {'in_features': 4, 'output_domain_cls': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
     (MADE,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (MeanScaler,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (NOPScaler,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
+    (QuantileLayer,
+     lambda: ([], {'num_output': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_zalandoresearch_pytorch_ts(_paritybench_base):
@@ -1235,4 +1448,10 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

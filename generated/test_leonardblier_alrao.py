@@ -840,10 +840,6 @@ TESTCASES = [
      lambda: ([], {'task': 4, 'loss': MSELoss(), 'internal_nn': _mock_layer(), 'n_last_layers': 1, 'last_layer_gen': _mock_layer}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
-    (BasicBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 18}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (Block,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -879,10 +875,6 @@ TESTCASES = [
     (MobileNetV2,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (PreActBlock,
-     lambda: ([], {'in_planes': 4, 'planes': 18}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (RegModel,
      lambda: ([], {'input_dim': 4, 'pre_output_dim': 4}),
@@ -937,10 +929,4 @@ class Test_leonardblier_alrao(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

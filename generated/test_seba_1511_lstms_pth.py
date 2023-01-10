@@ -35,6 +35,15 @@ wraps = functools.wraps
 import math
 
 
+from typing import List
+
+
+from typing import Tuple
+
+
+from typing import Type
+
+
 import torch as th
 
 
@@ -44,10 +53,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch import Tensor as T
+from torch.nn import Parameter
 
 
-from torch.nn import Parameter as P
+from typing import Iterable
 
 
 from torch.autograd import Variable as V
@@ -62,118 +71,7 @@ from torch.optim import SGD
 from time import time
 
 
-class MultiLayerLSTM(nn.Module):
-    """
-    MultiLayer LSTM of any type.
-    
-    Note: Dropout is deactivated on the last layer.
-    """
-
-    def __init__(self, input_size, layer_type, layer_sizes=(64, 64), *args, **kwargs):
-        super(MultiLayerLSTM, self).__init__()
-        rnn = layer_type
-        layers = []
-        prev_size = input_size
-        for size in layer_sizes[:-1]:
-            layer = rnn(*args, input_size=prev_size, hidden_size=size, **kwargs)
-            layers.append(layer)
-            prev_size = size
-        if 'dropout' in kwargs:
-            del kwargs['dropout']
-        layer = rnn(*args, input_size=prev_size, hidden_size=layer_sizes[-1], dropout=0.0, **kwargs)
-        layers.append(layer)
-        self.layers = layers
-        self.layer_sizes = layer_sizes
-        self.input_size = input_size
-        self.params = nn.ModuleList(layers)
-
-    def reset_parameters(self):
-        for l in self.layers:
-            l.reset_parameters()
-
-    def create_hiddens(self, bsz=1):
-        hiddens = []
-        for l in self.layers:
-            std = math.sqrt(2.0 / (l.input_size + l.hidden_size))
-            hiddens.append([V(T(1, bsz, l.hidden_size).normal_(0, std)), V(T(1, bsz, l.hidden_size).normal_(0, std))])
-        return hiddens
-
-    def sample_mask(self):
-        for l in self.layers:
-            l.sample_mask()
-
-    def forward(self, x, hiddens):
-        new_hiddens = []
-        for l, h in zip(self.layers, hiddens):
-            None
-            x, new_h = l(x, h)
-            new_hiddens.append(new_h)
-        return x, new_hiddens
-
-
-class SlowLSTM(nn.Module):
-    """
-    A pedagogic implementation of Hochreiter & Schmidhuber:
-    'Long-Short Term Memory'
-    http://www.bioinf.jku.at/publications/older/2604.pdf
-    """
-
-    def __init__(self, input_size, hidden_size, bias=True, dropout=0.0):
-        super(SlowLSTM, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bias = bias
-        self.dropout = dropout
-        self.w_xi = P(T(hidden_size, input_size))
-        self.w_xf = P(T(hidden_size, input_size))
-        self.w_xo = P(T(hidden_size, input_size))
-        self.w_xc = P(T(hidden_size, input_size))
-        self.w_hi = P(T(hidden_size, hidden_size))
-        self.w_hf = P(T(hidden_size, hidden_size))
-        self.w_ho = P(T(hidden_size, hidden_size))
-        self.w_hc = P(T(hidden_size, hidden_size))
-        self.b_i = T(hidden_size).fill_(0)
-        self.b_f = T(hidden_size).fill_(0)
-        self.b_o = T(hidden_size).fill_(0)
-        self.b_c = T(hidden_size).fill_(0)
-        if bias:
-            W = P
-        else:
-            W = V
-        self.b_i = W(self.b_i)
-        self.b_f = W(self.b_f)
-        self.b_o = W(self.b_o)
-        self.b_c = W(self.b_c)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        std = 1.0 / math.sqrt(self.hidden_size)
-        for w in self.parameters():
-            w.data.uniform_(-std, std)
-
-    def forward(self, x, hidden):
-        h, c = hidden
-        h = h.view(h.size(0), -1)
-        c = c.view(h.size(0), -1)
-        x = x.view(x.size(0), -1)
-        i_t = th.mm(x, self.w_xi) + th.mm(h, self.w_hi) + self.b_i
-        f_t = th.mm(x, self.w_xf) + th.mm(h, self.w_hf) + self.b_f
-        o_t = th.mm(x, self.w_xo) + th.mm(h, self.w_ho) + self.b_o
-        i_t.sigmoid_()
-        f_t.sigmoid_()
-        o_t.sigmoid_()
-        c_t = th.mm(x, self.w_xc) + th.mm(h, self.w_hc) + self.b_c
-        c_t.tanh_()
-        c_t = th.mul(c, f_t) + th.mul(i_t, c_t)
-        h_t = th.mul(o_t, th.tanh(c_t))
-        h_t = h_t.view(h_t.size(0), 1, -1)
-        c_t = c_t.view(c_t.size(0), 1, -1)
-        if self.dropout > 0.0:
-            F.dropout(h_t, p=self.dropout, training=self.training, inplace=True)
-        return h_t, (h_t, c_t)
-
-    def sample_mask(self):
-        pass
+from torch import Tensor as T
 
 
 class LSTM(nn.Module):
@@ -183,7 +81,7 @@ class LSTM(nn.Module):
     http://www.bioinf.jku.at/publications/older/2604.pdf
 
     Special args:
-    
+
     dropout_method: one of
             * pytorch: default dropout implementation
             * gal: uses GalLSTM's dropout
@@ -191,7 +89,7 @@ class LSTM(nn.Module):
             * semeniuta: uses SemeniutaLSTM's dropout
     """
 
-    def __init__(self, input_size, hidden_size, bias=True, dropout=0.0, dropout_method='pytorch'):
+    def __init__(self, input_size: int, hidden_size: int, bias: bool=True, dropout: float=0.0, dropout_method: str='pytorch'):
         super(LSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -205,14 +103,14 @@ class LSTM(nn.Module):
 
     def sample_mask(self):
         keep = 1.0 - self.dropout
-        self.mask = V(th.bernoulli(T(1, self.hidden_size).fill_(keep)))
+        self.mask = th.bernoulli(th.empty(1, self.hidden_size).fill_(keep))
 
     def reset_parameters(self):
         std = 1.0 / math.sqrt(self.hidden_size)
         for w in self.parameters():
             w.data.uniform_(-std, std)
 
-    def forward(self, x, hidden):
+    def forward(self, x: th.Tensor, hidden: Tuple[th.Tensor, th.Tensor]) ->Tuple[th.Tensor, Tuple[th.Tensor, th.Tensor]]:
         do_dropout = self.training and self.dropout > 0.0
         h, c = hidden
         h = h.view(h.size(1), -1)
@@ -240,6 +138,116 @@ class LSTM(nn.Module):
         h_t = h_t.view(1, h_t.size(0), -1)
         c_t = c_t.view(1, c_t.size(0), -1)
         return h_t, (h_t, c_t)
+
+
+class MultiLayerLSTM(nn.Module):
+    """
+    MultiLayer LSTM of any type.
+
+    Note: Dropout is deactivated on the last layer.
+    """
+
+    def __init__(self, input_size: int, layer_type: Type[LSTM], layer_sizes: List[int]=(64, 64), *args, **kwargs):
+        super(MultiLayerLSTM, self).__init__()
+        rnn = layer_type
+        self.layers: List[LSTM] = []
+        prev_size = input_size
+        for size in layer_sizes[:-1]:
+            layer = rnn(*args, input_size=prev_size, hidden_size=size, **kwargs)
+            self.layers.append(layer)
+            prev_size = size
+        if 'dropout' in kwargs:
+            del kwargs['dropout']
+        if len(layer_sizes) > 0:
+            layer = rnn(*args, input_size=prev_size, hidden_size=layer_sizes[-1], dropout=0.0, **kwargs)
+            self.layers.append(layer)
+        self.layer_sizes = layer_sizes
+        self.input_size = input_size
+        self.params = nn.ModuleList(self.layers)
+
+    def reset_parameters(self):
+        for layer in self.layers:
+            layer.reset_parameters()
+
+    def create_hiddens(self, batch_size: int=1) ->List[Tuple[th.Tensor, th.Tensor]]:
+        hiddens: List[Tuple[th.Tensor, th.Tensor]] = []
+        for layer in self.layers:
+            std = math.sqrt(2.0 / (layer.input_size + layer.hidden_size))
+            hiddens.append((th.empty(1, batch_size, layer.hidden_size).normal_(0, std), th.empty(1, batch_size, layer.hidden_size).normal_(0, std)))
+        return hiddens
+
+    def sample_mask(self):
+        for layer in self.layers:
+            layer.sample_mask()
+
+    def forward(self, x: th.Tensor, hiddens: Tuple[th.Tensor, th.Tensor]) ->Tuple[th.Tensor, List[Tuple[th.Tensor, th.Tensor]]]:
+        new_hiddens: List[Tuple[th.Tensor, th.Tensor]] = []
+        for layer, h in zip(self.layers, hiddens):
+            x, new_h = layer(x, h)
+            new_hiddens.append(new_h)
+        return x, new_hiddens
+
+
+class SlowLSTM(nn.Module):
+    """
+    A pedagogic implementation of Hochreiter & Schmidhuber:
+    'Long-Short Term Memory'
+    http://www.bioinf.jku.at/publications/older/2604.pdf
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, bias: bool=True, dropout: float=0.0):
+        super(SlowLSTM, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.dropout = dropout
+        self.w_xi = Parameter(th.empty(hidden_size, input_size))
+        self.w_xf = Parameter(th.empty(hidden_size, input_size))
+        self.w_xo = Parameter(th.empty(hidden_size, input_size))
+        self.w_xc = Parameter(th.empty(hidden_size, input_size))
+        self.w_hi = Parameter(th.empty(hidden_size, hidden_size))
+        self.w_hf = Parameter(th.empty(hidden_size, hidden_size))
+        self.w_ho = Parameter(th.empty(hidden_size, hidden_size))
+        self.w_hc = Parameter(th.empty(hidden_size, hidden_size))
+        self.b_i = th.empty(hidden_size).fill_(0)
+        self.b_f = th.empty(hidden_size).fill_(0)
+        self.b_o = th.empty(hidden_size).fill_(0)
+        self.b_c = th.empty(hidden_size).fill_(0)
+        if bias:
+            self.b_i = Parameter(self.b_i)
+            self.b_f = Parameter(self.b_f)
+            self.b_o = Parameter(self.b_o)
+            self.b_c = Parameter(self.b_c)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        std = 1.0 / math.sqrt(self.hidden_size)
+        for w in self.parameters():
+            w.data.uniform_(-std, std)
+
+    def forward(self, x: th.Tensor, hidden: Tuple[th.Tensor, th.Tensor]) ->Tuple[th.Tensor, Tuple[th.Tensor, th.Tensor]]:
+        h, c = hidden
+        h = h.view(h.size(0), -1)
+        c = c.view(h.size(0), -1)
+        x = x.view(x.size(0), -1)
+        i_t = th.mm(x, self.w_xi) + th.mm(h, self.w_hi) + self.b_i
+        f_t = th.mm(x, self.w_xf) + th.mm(h, self.w_hf) + self.b_f
+        o_t = th.mm(x, self.w_xo) + th.mm(h, self.w_ho) + self.b_o
+        i_t.sigmoid_()
+        f_t.sigmoid_()
+        o_t.sigmoid_()
+        c_t = th.mm(x, self.w_xc) + th.mm(h, self.w_hc) + self.b_c
+        c_t.tanh_()
+        c_t = th.mul(c, f_t) + th.mul(i_t, c_t)
+        h_t = th.mul(o_t, th.tanh(c_t))
+        h_t = h_t.view(h_t.size(0), 1, -1)
+        c_t = c_t.view(c_t.size(0), 1, -1)
+        if self.dropout > 0.0:
+            F.dropout(h_t, p=self.dropout, training=self.training, inplace=True)
+        return h_t, (h_t, c_t)
+
+    def sample_mask(self):
+        pass
 
 
 class GalLSTM(LSTM):
@@ -287,19 +295,16 @@ class LayerNorm(nn.Module):
     https://arxiv.org/pdf/1607.06450.pdf
     """
 
-    def __init__(self, input_size, learnable=True, epsilon=1e-06):
+    def __init__(self, input_size: int, learnable: bool=True, epsilon: float=1e-06):
         super(LayerNorm, self).__init__()
         self.input_size = input_size
         self.learnable = learnable
-        self.alpha = T(1, input_size).fill_(0)
-        self.beta = T(1, input_size).fill_(0)
+        self.alpha = th.empty(1, input_size).fill_(0)
+        self.beta = th.empty(1, input_size).fill_(0)
         self.epsilon = epsilon
         if learnable:
-            W = P
-        else:
-            W = V
-        self.alpha = W(self.alpha)
-        self.beta = W(self.beta)
+            self.alpha = Parameter(self.alpha)
+            self.beta = Parameter(self.beta)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -307,10 +312,10 @@ class LayerNorm(nn.Module):
         for w in self.parameters():
             w.data.uniform_(-std, std)
 
-    def forward(self, x):
+    def forward(self, x: th.Tensor) ->th.Tensor:
         size = x.size()
         x = x.view(x.size(0), -1)
-        x = (x - th.mean(x, 1).expand_as(x)) / th.sqrt(th.var(x, 1).expand_as(x) + self.epsilon)
+        x = (x - th.mean(x, 1).unsqueeze(1)) / th.sqrt(th.var(x, 1).unsqueeze(1) + self.epsilon)
         if self.learnable:
             x = self.alpha.expand_as(x) * x + self.beta.expand_as(x)
         return x.view(size)
@@ -327,7 +332,7 @@ class LayerNormLSTM(LSTM):
         learnable: whether the LN alpha & gamma should be used.
     """
 
-    def __init__(self, input_size, hidden_size, bias=True, dropout=0.0, dropout_method='pytorch', ln_preact=True, learnable=True):
+    def __init__(self, input_size: int, hidden_size: int, bias: bool=True, dropout: float=0.0, dropout_method: str='pytorch', ln_preact: bool=True, learnable: bool=True):
         super(LayerNormLSTM, self).__init__(input_size=input_size, hidden_size=hidden_size, bias=bias, dropout=dropout, dropout_method=dropout_method)
         if ln_preact:
             self.ln_i2h = LayerNorm(4 * hidden_size, learnable=learnable)
@@ -335,7 +340,7 @@ class LayerNormLSTM(LSTM):
         self.ln_preact = ln_preact
         self.ln_cell = LayerNorm(hidden_size, learnable=learnable)
 
-    def forward(self, x, hidden):
+    def forward(self, x: th.Tensor, hidden: Tuple[th.Tensor, th.Tensor]) ->Tuple[th.Tensor, Tuple[th.Tensor, th.Tensor]]:
         do_dropout = self.training and self.dropout > 0.0
         h, c = hidden
         h = h.view(h.size(1), -1)
@@ -371,7 +376,7 @@ class LayerNormLSTM(LSTM):
         return h_t, (h_t, c_t)
 
 
-class LayerNormGalLSTM(LSTM):
+class LayerNormGalLSTM(LayerNormLSTM):
     """
     Mixes GalLSTM's Dropout with Layer Normalization
     """
@@ -382,7 +387,7 @@ class LayerNormGalLSTM(LSTM):
         self.sample_mask()
 
 
-class LayerNormMoonLSTM(LSTM):
+class LayerNormMoonLSTM(LayerNormLSTM):
     """
     Mixes MoonLSTM's Dropout with Layer Normalization
     """
@@ -393,7 +398,7 @@ class LayerNormMoonLSTM(LSTM):
         self.sample_mask()
 
 
-class LayerNormSemeniutaLSTM(LSTM):
+class LayerNormSemeniutaLSTM(LayerNormLSTM):
     """
     Mixes SemeniutaLSTM's Dropout with Layer Normalization
     """
@@ -409,13 +414,13 @@ class BradburyLayerNorm(nn.Module):
     https://github.com/pytorch/pytorch/issues/1959#issuecomment-312364139
     """
 
-    def __init__(self, features, eps=1e-06):
+    def __init__(self, features: Iterable[int], eps: float=1e-06):
         super(BradburyLayerNorm, self).__init__()
         self.gamma = nn.Parameter(th.ones(features))
         self.beta = nn.Parameter(th.zeros(features))
         self.eps = eps
 
-    def forward(self, x):
+    def forward(self, x: th.Tensor) ->th.Tensor:
         mean = x.mean(-1, keepdim=True)
         std = x.std(-1, keepdim=True)
         return self.gamma * (x - mean) / (std + self.eps) + self.beta
@@ -431,26 +436,23 @@ class BaLayerNorm(nn.Module):
     https://github.com/ryankiros/layer-norm/blob/master/torch_modules/LayerNormalization.lua
     """
 
-    def __init__(self, input_size, learnable=True, epsilon=1e-05):
+    def __init__(self, input_size: int, learnable: bool=True, epsilon: float=1e-05):
         super(BaLayerNorm, self).__init__()
         self.input_size = input_size
         self.learnable = learnable
         self.epsilon = epsilon
-        self.alpha = T(1, input_size).fill_(0)
-        self.beta = T(1, input_size).fill_(0)
+        self.alpha = th.empty(1, input_size).fill_(0)
+        self.beta = th.empty(1, input_size).fill_(0)
         if learnable:
-            W = P
-        else:
-            W = V
-        self.alpha = W(self.alpha)
-        self.beta = W(self.beta)
+            self.alpha = Parameter(self.alpha)
+            self.beta = Parameter(self.beta)
 
-    def forward(self, x):
+    def forward(self, x: th.Tensor) ->th.Tensor:
         size = x.size()
         x = x.view(x.size(0), -1)
-        mean = th.mean(x, 1).expand_as(x)
+        mean = th.mean(x, 1).unsqueeze(1)
         center = x - mean
-        std = th.sqrt(th.mean(th.square(center), 1)).expand_as(x)
+        std = th.sqrt(th.mean(th.square(center), 1)).unsqueeze(1)
         output = center / (std + self.epsilon)
         if self.learnable:
             output = self.alpha * output + self.beta

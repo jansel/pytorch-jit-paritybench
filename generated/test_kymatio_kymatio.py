@@ -1,8 +1,11 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-benchmarks = _module
-common = _module
+numpy_benchmark = _module
+scattering1d = _module
+scattering2d = _module
+scattering3d = _module
+torch_benchmark = _module
 scattering1d = _module
 scattering2d = _module
 scattering3d = _module
@@ -25,7 +28,7 @@ regularized_inverse_scattering_MNIST_torch = _module
 scattering3d_qm7_torch = _module
 kymatio = _module
 backend = _module
-base_backend = _module
+jax_backend = _module
 numpy_backend = _module
 tensorflow_backend = _module
 torch_backend = _module
@@ -35,17 +38,19 @@ datasets = _module
 frontend = _module
 base_frontend = _module
 entry = _module
+jax_frontend = _module
 keras_frontend = _module
 numpy_frontend = _module
 sklearn_frontend = _module
 tensorflow_frontend = _module
 torch_frontend = _module
+jax = _module
 keras = _module
 numpy = _module
 torch_backend = _module
 torch_skcuda_backend = _module
 core = _module
-scattering1d = _module
+timefrequency_scattering = _module
 filter_bank = _module
 base_frontend = _module
 torch_frontend = _module
@@ -63,18 +68,33 @@ sklearn = _module
 tensorflow = _module
 version = _module
 setup = _module
+test_jnp_vs_np = _module
+test_numpy_backend = _module
+test_tensorflow_backend = _module
 test_torch_backend = _module
+test_correctness = _module
 test_filters_scattering1d = _module
+test_jax_scattering1d = _module
+test_keras_scattering1d = _module
+test_numpy_backend_1d = _module
 test_numpy_scattering1d = _module
+test_tensorflow_backend_1d = _module
 test_tensorflow_scattering1d = _module
+test_timefrequency_scattering = _module
+test_torch_backend_1d = _module
 test_torch_scattering1d = _module
 test_utils_scattering1d = _module
 test_frontend_scattering2d = _module
+test_jax_scattering2d = _module
 test_keras_scattering2d = _module
+test_numpy_backend_2d = _module
 test_numpy_scattering2d = _module
 test_sklearn_2d = _module
+test_tensorflow_backend_2d = _module
 test_tensorflow_scattering2d = _module
+test_torch_backend_2d = _module
 test_torch_scattering2d = _module
+test_jax_scattering3d = _module
 test_numpy_scattering3d = _module
 test_tensorflow_scattering3d = _module
 test_torch_scattering3d = _module
@@ -202,22 +222,25 @@ from collections import namedtuple
 from string import Template
 
 
+from collections import Counter
+
+
 import numbers
 
 
+from warnings import warn
+
+
 from torch.nn import ReflectionPad2d
-
-
-from scipy.fftpack import fftn
-
-
-from scipy.fftpack import ifftn
 
 
 from scipy.special import sph_harm
 
 
 from scipy.special import factorial
+
+
+import tensorflow as tf
 
 
 from torch.autograd import gradcheck
@@ -378,13 +401,6 @@ class Generator(nn.Module):
         return self.main(input_tensor)
 
 
-def input_checks(x):
-    if x is None:
-        raise TypeError('The input should be not empty.')
-    if not x.is_contiguous():
-        raise RuntimeError('The input must be contiguous.')
-
-
 class ScatteringTorch(nn.Module):
 
     def __init__(self):
@@ -396,13 +412,9 @@ class ScatteringTorch(nn.Module):
         saving those arrays as module buffers. """
         raise NotImplementedError
 
-    def scattering(self, x):
-        """ This function should compute the scattering transform."""
-        raise NotImplementedError
-
     def forward(self, x):
         """This method is an alias for `scattering`."""
-        input_checks(x)
+        self.backend.input_checks(x)
         return self.scattering(x)
     _doc_array = 'torch.Tensor'
     _doc_array_n = ''
@@ -433,6 +445,13 @@ class ScatteringBase:
         self.filters = self.create_filters() """
         raise NotImplementedError
 
+    def _check_filterbanks(psi1s, psi2s):
+        assert all(psi1['xi'] < 0.5 / 2 ** psi1['j'] for psi1 in psi1s)
+        psi_generator = itertools.product(psi1s, psi2s)
+        condition = lambda psi1_or_2: psi1_or_2[0]['j'] < psi1_or_2[1]['j']
+        implication = lambda psi1_or_2: psi1_or_2[0]['xi'] > psi1_or_2[1]['xi']
+        assert all(map(implication, filter(condition, psi_generator)))
+
     def _instantiate_backend(self, import_string):
         """ This function should instantiate the backend to be used if not already
         specified"""
@@ -454,37 +473,8 @@ class ScatteringBase:
         raise NotImplementedError
 
 
-def compute_border_indices(J, i0, i1):
-    """
-    Computes border indices at all scales which correspond to the original
-    signal boundaries after padding.
-
-    At the finest resolution,
-    original_signal = padded_signal[..., i0:i1].
-    This function finds the integers i0, i1 for all temporal subsamplings
-    by 2**J, being conservative on the indices.
-
-    Parameters
-    ----------
-    J : int
-        maximal subsampling by 2**J
-    i0 : int
-        start index of the original signal at the finest resolution
-    i1 : int
-        end index (excluded) of the original signal at the finest resolution
-
-    Returns
-    -------
-    ind_start, ind_end: dictionaries with keys in [0, ..., J] such that the
-        original signal is in padded_signal[ind_start[j]:ind_end[j]]
-        after subsampling by 2**j
-    """
-    ind_start = {(0): i0}
-    ind_end = {(0): i1}
-    for j in range(1, J + 1):
-        ind_start[j] = ind_start[j - 1] // 2 + ind_start[j - 1] % 2
-        ind_end[j] = ind_end[j - 1] // 2 + ind_end[j - 1] % 2
-    return ind_start, ind_end
+    class _DryBackend:
+        __getattr__ = lambda self, attr: lambda *args, **kwargs: None
 
 
 def compute_sigma_psi(xi, Q, r=math.sqrt(0.5)):
@@ -542,299 +532,127 @@ def compute_xi_max(Q):
     return xi_max
 
 
-def get_max_dyadic_subsampling(xi, sigma, alpha=5.0):
+def anden_generator(J, Q, sigma0, r_psi, **unused_kwargs):
     """
-    Computes the maximal dyadic subsampling which is possible for a Gabor
-    filter of frequency xi and width sigma
+    Yields the center frequencies and bandwidths of a filterbank, in compliance
+    with the ScatNet package. Center frequencies follow a geometric progression
+    of common factor 2**(1/Q) above a certain "elbow frequency" xi_elbow and
+    an arithmetic progression of common difference (1/Q) below xi_elbow.
 
-    Finds the maximal integer j such that:
-    omega_0 < 2^{-(j + 1)}
-    where omega_0 is the boundary of the filter, defined as
-    omega_0 = xi + alpha * sigma
+    The corresponding bandwidth sigma is proportional to center frequencies
+    for xi>=xi_elbow and are constant (sigma=sigma_min) for xi<xi_elbow.
 
-    This ensures that the filter can be subsampled by a factor 2^j without
-    aliasing.
+    The formula for xi_elbow is quite complicated and involves four hyperparameters
+    J, Q, r_psi, and sigma0:
 
-    We use the same formula for Gabor and Morlet filters.
+    xi_elbow = compute_xi_max(Q) * (sigma0/2**J)/compute_sigma_psi(xi, Q, r_psi)
+
+    where compute_xi_max and compute_sigma_psi are defined elsewhere in this module.
+
+    Intuitively, the role of xi_elbow is to make the filterbank as "wavelet-like"
+    as possible (common xi/sigma ratio) while guaranteeing a lower bound on sigma
+    (hence an upper bound on time support) and full coverage of the Fourier
+    domain between pi/2**J and pi.
 
     Parameters
     ----------
-    xi : float
-        frequency of the filter in [0, 1]
-    sigma : float
-        frequential width of the filter
-    alpha : float, optional
-        parameter controlling the error done in the aliasing.
-        The larger alpha, the smaller the error. Defaults to 5.
+    J : int
+        log-scale of the scattering transform, such that wavelets of both
+        filterbanks have a maximal support that is proportional to 2**J.
 
-    Returns
-    -------
-    j : int
-        integer such that 2^j is the maximal subsampling accepted by the
-        Gabor filter without aliasing.
-    """
-    upper_bound = min(xi + alpha * sigma, 0.5)
-    j = math.floor(-math.log2(upper_bound)) - 1
-    j = int(j)
-    return j
-
-
-def move_one_dyadic_step(cv, Q, alpha=5.0):
-    """
-    Computes the parameters of the next wavelet on the low frequency side,
-    based on the parameters of the current wavelet.
-
-    This function is used in the loop defining all the filters, starting
-    at the wavelet frequency and then going to the low frequencies by
-    dyadic steps. This makes the loop in compute_params_filterbank much
-    simpler to read.
-
-    The steps are defined as:
-    xi_{n+1} = 2^{-1/Q} xi_n
-    sigma_{n+1} = 2^{-1/Q} sigma_n
-
-    Parameters
-    ----------
-    cv : dictionary
-        stands for current_value. Is a dictionary with keys:
-        *'key': a tuple (j, n) where n is a counter and j is the maximal
-            dyadic subsampling accepted by this wavelet.
-        *'xi': central frequency of the wavelet
-        *'sigma': width of the wavelet
     Q : int
-        number of wavelets per octave. Controls the relationship between
-        the frequency and width of the current wavelet and the next wavelet.
-    alpha : float, optional
-        tolerance parameter for the aliasing. The larger alpha,
-        the more conservative the algorithm is. Defaults to 5.
+        number of wavelets per octave in the geometric progression portion of
+        the filterbank.
 
-    Returns
-    -------
-    new_cv : dictionary
-        a dictionary with the same keys as the ones listed for cv,
-        whose values are updated
+    r_psi : float in (0, 1)
+        Should be >0 and <1. The higher the r_psi, the greater the sigmas.
+        Adjacent wavelets peak at 1 and meet at r_psi.
+
+    sigma0 : float
+        Should be >0. The minimum bandwidth is sigma0/2**J.
     """
-    factor = 1.0 / math.pow(2.0, 1.0 / Q)
-    n = cv['key']
-    new_cv = {'xi': cv['xi'] * factor, 'sigma': cv['sigma'] * factor}
-    new_cv['j'] = get_max_dyadic_subsampling(new_cv['xi'], new_cv['sigma'], alpha=alpha)
-    new_cv['key'] = n + 1
-    return new_cv
-
-
-def compute_params_filterbank(sigma_low, Q, r_psi=math.sqrt(0.5), alpha=5.0):
-    """
-    Computes the parameters of a Morlet wavelet filterbank.
-
-    This family is defined by constant ratios between the frequencies and
-    width of adjacent filters, up to a minimum frequency where the frequencies
-    are translated.
-    This ensures that the low-pass filter has the largest temporal support
-    among all filters, while preserving the coverage of the whole frequency
-    axis.
-
-    The keys of the dictionaries are tuples of integers (j, n) where n is a
-    counter (starting at 0 for the highest frequency filter) and j is the
-    maximal dyadic subsampling accepted by this filter.
-
-    Parameters
-    ----------
-    sigma_low : float
-        frequential width of the low-pass filter. This acts as a
-        lower-bound on the frequential widths of the band-pass filters,
-        so as to ensure that the low-pass filter has the largest temporal
-        support among all filters.
-    Q : int
-        number of wavelets per octave.
-    r_psi : float, optional
-        Should be >0 and <1. Controls the redundancy of the filters
-        (the larger r_psi, the larger the overlap between adjacent wavelets).
-        Defaults to sqrt(0.5).
-    alpha : float, optional
-        tolerance factor for the aliasing after subsampling.
-        The larger alpha, the more conservative the value of maximal
-        subsampling is. Defaults to 5.
-
-    Returns
-    -------
-    xi : dictionary
-        dictionary containing the central frequencies of the wavelets.
-    sigma : dictionary
-        dictionary containing the frequential widths of the wavelets.
-
-    Refs
-    ----
-    Convolutional operators in the time-frequency domain, 2.1.3, V. Lostanlen,
-    PhD Thesis, 2017
-    https://tel.archives-ouvertes.fr/tel-01559667
-    """
-    xi_max = compute_xi_max(Q)
-    sigma_max = compute_sigma_psi(xi_max, Q, r=r_psi)
-    xi = []
-    sigma = []
-    j = []
-    if sigma_max <= sigma_low:
-        last_xi = sigma_max
+    xi = compute_xi_max(Q)
+    sigma = compute_sigma_psi(xi, Q, r=r_psi)
+    sigma_min = sigma0 / 2 ** J
+    if sigma <= sigma_min:
+        xi = sigma
     else:
-        current = {'key': 0, 'j': 0, 'xi': xi_max, 'sigma': sigma_max}
-        while current['sigma'] > sigma_low:
-            xi.append(current['xi'])
-            sigma.append(current['sigma'])
-            j.append(current['j'])
-            current = move_one_dyadic_step(current, Q, alpha=alpha)
-        last_xi = xi[-1]
-    num_intermediate = Q - 1
-    for q in range(1, num_intermediate + 1):
-        factor = (num_intermediate + 1.0 - q) / (num_intermediate + 1.0)
-        new_xi = factor * last_xi
-        new_sigma = sigma_low
-        xi.append(new_xi)
-        sigma.append(new_sigma)
-        j.append(get_max_dyadic_subsampling(new_xi, new_sigma, alpha=alpha))
-    return xi, sigma, j
+        yield xi, sigma
+        while sigma > sigma_min * math.pow(2, 1 / Q):
+            xi /= math.pow(2, 1 / Q)
+            sigma /= math.pow(2, 1 / Q)
+            yield xi, sigma
+    elbow_xi = xi
+    for q in range(Q - 1):
+        xi -= 1 / Q * elbow_xi
+        yield xi, sigma_min
 
 
-def calibrate_scattering_filters(J, Q, r_psi=math.sqrt(0.5), sigma0=0.1, alpha=5.0):
+def compute_border_indices(log2_T, J, i0, i1):
     """
-    Calibrates the parameters of the filters used at the 1st and 2nd orders
-    of the scattering transform.
+    Computes border indices at all scales which correspond to the original
+    signal boundaries after padding.
 
-    These filterbanks share the same low-pass filterbank, but use a
-    different Q: Q_1 = Q and Q_2 = 1.
+    At the finest resolution,
+    original_signal = padded_signal[..., i0:i1].
+    This function finds the integers i0, i1 for all temporal subsamplings
+    by 2**J, being conservative on the indices.
 
-    The dictionaries for the band-pass filters have keys which are 2-tuples
-    of the type (j, n), where n is an integer >=0 counting the filters (for
-    identification purposes) and j is an integer >= 0 denoting the maximal
-    subsampling 2**j which can be performed on a signal convolved with this
-    filter without aliasing.
+    Maximal subsampling is by `2**log2_T` if `T=None`, else by
+    `2**max(log2_T, J)`. We compute indices up to latter to be sure.
 
     Parameters
     ----------
+    log2_T : int
+        Maximal subsampling by low-pass filtering is `2**log2_T`.
     J : int
-        maximal scale of the scattering (controls the number of wavelets)
-    Q : int
-        number of wavelets per octave for the first order
-    r_psi : float, optional
-        Should be >0 and <1. Controls the redundancy of the filters
-        (the larger r_psi, the larger the overlap between adjacent wavelets).
-        Defaults to sqrt(0.5)
-    sigma0 : float, optional
-        frequential width of the low-pass filter at scale J=0
-        (the subsequent widths are defined by sigma_J = sigma0 / 2^J).
-        Defaults to 1e-1
-    alpha : float, optional
-        tolerance factor for the aliasing after subsampling.
-        The larger alpha, the more conservative the value of maximal
-        subsampling is. Defaults to 5.
+        Maximal subsampling by band-pass filtering is `2**J`.
+    i0 : int
+        start index of the original signal at the finest resolution
+    i1 : int
+        end index (excluded) of the original signal at the finest resolution
 
     Returns
     -------
-    sigma_low : float
-        frequential width of the low-pass filter
-    xi1 : dictionary
-        dictionary containing the center frequencies of the first order
-        filters. See above for a decsription of the keys.
-    sigma1 : dictionary
-        dictionary containing the frequential width of the first order
-        filters. See above for a description of the keys.
-    xi2 : dictionary
-        dictionary containing the center frequencies of the second order
-        filters. See above for a decsription of the keys.
-    sigma2 : dictionary
-        dictionary containing the frequential width of the second order
-        filters. See above for a description of the keys.
+    ind_start, ind_end: dictionaries with keys in [0, ..., log2_T] such that the
+        original signal is in padded_signal[ind_start[j]:ind_end[j]]
+        after subsampling by 2**j
     """
-    if Q < 1:
-        raise ValueError('Q should always be >= 1, got {}'.format(Q))
-    sigma_low = sigma0 / math.pow(2, J)
-    xi1, sigma1, j1 = compute_params_filterbank(sigma_low, Q, r_psi=r_psi, alpha=alpha)
-    xi2, sigma2, j2 = compute_params_filterbank(sigma_low, 1, r_psi=r_psi, alpha=alpha)
-    return sigma_low, xi1, sigma1, j1, xi2, sigma2, j2
+    ind_start = {(0): i0}
+    ind_end = {(0): i1}
+    for j in range(1, max(log2_T, J) + 1):
+        ind_start[j] = ind_start[j - 1] // 2 + ind_start[j - 1] % 2
+        ind_end[j] = ind_end[j - 1] // 2 + ind_end[j - 1] % 2
+    return ind_start, ind_end
 
 
-def compute_meta_scattering(J, Q, max_order=2):
-    """Get metadata on the transform.
+def compute_padding(N, N_input):
+    """
+    Computes the padding to be added on the left and on the right
+    of the signal.
 
-    This information specifies the content of each scattering coefficient,
-    which order, which frequencies, which filters were used, and so on.
+    It should hold that N >= N_input
 
     Parameters
     ----------
-    J : int
-        The maximum log-scale of the scattering transform.
-        In other words, the maximum scale is given by `2**J`.
-    Q : int >= 1
-        The number of first-order wavelets per octave.
-        Second-order wavelets are fixed to one wavelet per octave.
-    max_order : int, optional
-        The maximum order of scattering coefficients to compute.
-        Must be either equal to `1` or `2`. Defaults to `2`.
+    N : int
+        support of the padded signal
+    N_input : int
+        support of the unpadded signal
 
     Returns
     -------
-    meta : dictionary
-        A dictionary with the following keys:
-
-        - `'order`' : tensor
-            A Tensor of length `C`, the total number of scattering
-            coefficients, specifying the scattering order.
-        - `'xi'` : tensor
-            A Tensor of size `(C, max_order)`, specifying the center
-            frequency of the filter used at each order (padded with NaNs).
-        - `'sigma'` : tensor
-            A Tensor of size `(C, max_order)`, specifying the frequency
-            bandwidth of the filter used at each order (padded with NaNs).
-        - `'j'` : tensor
-            A Tensor of size `(C, max_order)`, specifying the dyadic scale
-            of the filter used at each order (padded with NaNs).
-        - `'n'` : tensor
-            A Tensor of size `(C, max_order)`, specifying the indices of
-            the filters used at each order (padded with NaNs).
-        - `'key'` : list
-            The tuples indexing the corresponding scattering coefficient
-            in the non-vectorized output.
+    pad_left: amount to pad on the left ("beginning" of the support)
+    pad_right: amount to pad on the right ("end" of the support)
     """
-    sigma_low, xi1s, sigma1s, j1s, xi2s, sigma2s, j2s = calibrate_scattering_filters(J, Q)
-    meta = {}
-    meta['order'] = [[], [], []]
-    meta['xi'] = [[], [], []]
-    meta['sigma'] = [[], [], []]
-    meta['j'] = [[], [], []]
-    meta['n'] = [[], [], []]
-    meta['key'] = [[], [], []]
-    meta['order'][0].append(0)
-    meta['xi'][0].append(())
-    meta['sigma'][0].append(())
-    meta['j'][0].append(())
-    meta['n'][0].append(())
-    meta['key'][0].append(())
-    for n1, (xi1, sigma1, j1) in enumerate(zip(xi1s, sigma1s, j1s)):
-        meta['order'][1].append(1)
-        meta['xi'][1].append((xi1,))
-        meta['sigma'][1].append((sigma1,))
-        meta['j'][1].append((j1,))
-        meta['n'][1].append((n1,))
-        meta['key'][1].append((n1,))
-        if max_order < 2:
-            continue
-        for n2, (xi2, sigma2, j2) in enumerate(zip(xi2s, sigma2s, j2s)):
-            if j2 > j1:
-                meta['order'][2].append(2)
-                meta['xi'][2].append((xi1, xi2))
-                meta['sigma'][2].append((sigma1, sigma2))
-                meta['j'][2].append((j1, j2))
-                meta['n'][2].append((n1, n2))
-                meta['key'][2].append((n1, n2))
-    for field, value in meta.items():
-        meta[field] = value[0] + value[1] + value[2]
-    pad_fields = ['xi', 'sigma', 'j', 'n']
-    pad_len = max_order
-    for field in pad_fields:
-        meta[field] = [(x + (math.nan,) * (pad_len - len(x))) for x in meta[field]]
-    array_fields = ['order', 'xi', 'sigma', 'j', 'n']
-    for field in array_fields:
-        meta[field] = np.array(meta[field])
-    return meta
+    if N < N_input:
+        raise ValueError('Padding support should be larger than the original' + 'signal size!')
+    to_add = N - N_input
+    pad_left = to_add // 2
+    pad_right = to_add - pad_left
+    if max(pad_left, pad_right) >= N_input:
+        raise ValueError('Too large padding value, will lead to NaN errors')
+    return pad_left, pad_right
 
 
 def compute_temporal_support(h_f, criterion_amplitude=0.001):
@@ -842,20 +660,20 @@ def compute_temporal_support(h_f, criterion_amplitude=0.001):
     Computes the (half) temporal support of a family of centered,
     symmetric filters h provided in the Fourier domain
 
-    This function computes the support T which is the smallest integer
+    This function computes the support N which is the smallest integer
     such that for all signals x and all filters h,
 
-    \\| x \\conv h - x \\conv h_{[-T, T]} \\|_{\\infty} \\leq \\epsilon
+    \\| x \\conv h - x \\conv h_{[-N, N]} \\|_{\\infty} \\leq \\epsilon
         \\| x \\|_{\\infty}  (1)
 
-    where 0<\\epsilon<1 is an acceptable error, and h_{[-T, T]} denotes the
-    filter h whose support is restricted in the interval [-T, T]
+    where 0<\\epsilon<1 is an acceptable error, and h_{[-N, N]} denotes the
+    filter h whose support is restricted in the interval [-N, N]
 
-    The resulting value T used to pad the signals to avoid boundary effects
+    The resulting value N used to pad the signals to avoid boundary effects
     and numerical errors.
 
-    If the support is too small, no such T might exist.
-    In this case, T is defined as the half of the support of h, and a
+    If the support is too small, no such N might exist.
+    In this case, N is defined as the half of the support of h, and a
     UserWarning is raised.
 
     Parameters
@@ -879,11 +697,11 @@ def compute_temporal_support(h_f, criterion_amplitude=0.001):
     half_support = h.shape[1] // 2
     l1_residual = np.fliplr(np.cumsum(np.fliplr(np.abs(h)[:, :half_support]), axis=1))
     if np.any(np.max(l1_residual, axis=0) <= criterion_amplitude):
-        T = np.min(np.where(np.max(l1_residual, axis=0) <= criterion_amplitude)[0]) + 1
+        N = np.min(np.where(np.max(l1_residual, axis=0) <= criterion_amplitude)[0]) + 1
     else:
-        T = half_support
+        N = half_support
         warnings.warn('Signal support is too small to avoid border effects')
-    return T
+    return N
 
 
 def adaptive_choice_P(sigma, eps=1e-07):
@@ -931,448 +749,294 @@ def adaptive_choice_P(sigma, eps=1e-07):
     return P
 
 
-def get_normalizing_factor(h_f, normalize='l1'):
+def morlet_1d(N, xi, sigma):
     """
-    Computes the desired normalization factor for a filter defined in Fourier.
-
-    Parameters
-    ----------
-    h_f : array_like
-        numpy vector containing the Fourier transform of a filter
-    normalized : string, optional
-        desired normalization type, either 'l1' or 'l2'. Defaults to 'l1'.
-
-    Returns
-    -------
-    norm_factor : float
-        such that h_f * norm_factor is the adequately normalized vector.
-    """
-    h_real = ifft(h_f)
-    if np.abs(h_real).sum() < 1e-07:
-        raise ValueError('Zero division error is very likely to occur, ' + 'aborting computations now.')
-    if normalize == 'l1':
-        norm_factor = 1.0 / np.abs(h_real).sum()
-    elif normalize == 'l2':
-        norm_factor = 1.0 / np.sqrt((np.abs(h_real) ** 2).sum())
-    else:
-        raise ValueError("Supported normalizations only include 'l1' and 'l2'")
-    return norm_factor
-
-
-def periodize_filter_fourier(h_f, nperiods=1):
-    """
-    Computes a periodization of a filter provided in the Fourier domain.
-
-    Parameters
-    ----------
-    h_f : array_like
-        complex numpy array of shape (N*n_periods,)
-    n_periods: int, optional
-        Number of periods which should be used to periodize
-
-    Returns
-    -------
-    v_f : array_like
-        complex numpy array of size (N,), which is a periodization of
-        h_f as described in the formula:
-        v_f[k] = sum_{i=0}^{n_periods - 1} h_f[i * N + k]
-    """
-    N = h_f.shape[0] // nperiods
-    v_f = h_f.reshape(nperiods, N).mean(axis=0)
-    return v_f
-
-
-def gauss_1d(N, sigma, normalize='l1', P_max=5, eps=1e-07):
-    """
-    Computes the Fourier transform of a low pass gaussian window.
-
-    \\hat g_{\\sigma}(\\omega) = e^{-\\omega^2 / 2 \\sigma^2}
-
-    Parameters
-    ----------
-    N : int
-        size of the temporal support
-    sigma : float
-        bandwidth parameter
-    normalize : string, optional
-        normalization types for the filters. Defaults to 'l1'
-        Supported normalizations are 'l1' and 'l2' (understood in time domain).
-    P_max : int, optional
-        integer controlling the maximal number of periods to use to ensure
-        the periodicity of the Fourier transform. (At most 2*P_max - 1 periods
-        are used, to ensure an equal distribution around 0.5). Defaults to 5
-        Should be >= 1
-    eps : float, optional
-        required machine precision (to choose the adequate P)
-
-    Returns
-    -------
-    g_f : array_like
-        numpy array of size (N,) containing the Fourier transform of the
-        filter (with the frequencies in the np.fft.fftfreq convention).
-    """
-    if type(P_max) != int:
-        raise ValueError('P_max should be an int, got {}'.format(type(P_max)))
-    if P_max < 1:
-        raise ValueError('P_max should be non-negative, got {}'.format(P_max))
-    P = min(adaptive_choice_P(sigma, eps=eps), P_max)
-    assert P >= 1
-    if P == 1:
-        freqs_low = np.fft.fftfreq(N)
-    elif P > 1:
-        freqs_low = np.arange((1 - P) * N, P * N, dtype=float) / float(N)
-    g_f = np.exp(-freqs_low ** 2 / (2 * sigma ** 2))
-    g_f = periodize_filter_fourier(g_f, nperiods=2 * P - 1)
-    g_f *= get_normalizing_factor(g_f, normalize=normalize)
-    return g_f
-
-
-def morlet_1d(N, xi, sigma, normalize='l1', P_max=5, eps=1e-07):
-    """
-    Computes the Fourier transform of a Morlet filter.
-
+    Computes the Fourier transform of a Morlet or Gauss filter.
     A Morlet filter is the sum of a Gabor filter and a low-pass filter
     to ensure that the sum has exactly zero mean in the temporal domain.
     It is defined by the following formula in time:
-    psi(t) = g_{sigma}(t) (e^{i xi t} - beta)
-    where g_{sigma} is a Gaussian envelope, xi is a frequency and beta is
-    the cancelling parameter.
-
+    psi(t) = g_{sigma}(t) (e^{i xi t} - kappa)
+    where g_{sigma} is a Gaussian envelope, xi is a frequency and kappa is
+    a corrective term which ensures that psi has a null average.
+    If xi is None, the definition becomes: phi(t) = g_{sigma}(t)
     Parameters
     ----------
     N : int
         size of the temporal support
-    xi : float
-        central frequency (in [0, 1])
+    xi : float or None
+        center frequency in (0, 1]
     sigma : float
         bandwidth parameter
-    normalize : string, optional
-        normalization types for the filters. Defaults to 'l1'.
-        Supported normalizations are 'l1' and 'l2' (understood in time domain).
-    P_max: int, optional
-        integer controlling the maximal number of periods to use to ensure
-        the periodicity of the Fourier transform. (At most 2*P_max - 1 periods
-        are used, to ensure an equal distribution around 0.5). Defaults to 5
-        Should be >= 1
-    eps : float
-        required machine precision (to choose the adequate P)
-
     Returns
     -------
-    morlet_f : array_like
+    filter_f : array_like
         numpy array of size (N,) containing the Fourier transform of the Morlet
         filter at the frequencies given by np.fft.fftfreq(N).
     """
-    if type(P_max) != int:
-        raise ValueError('P_max should be an int, got {}'.format(type(P_max)))
-    if P_max < 1:
-        raise ValueError('P_max should be non-negative, got {}'.format(P_max))
-    P = min(adaptive_choice_P(sigma, eps=eps), P_max)
-    assert P >= 1
+    P = min(adaptive_choice_P(sigma), 5)
     freqs = np.arange((1 - P) * N, P * N, dtype=float) / float(N)
     if P == 1:
         freqs_low = np.fft.fftfreq(N)
     elif P > 1:
         freqs_low = freqs
-    gabor_f = np.exp(-(freqs - xi) ** 2 / (2 * sigma ** 2))
     low_pass_f = np.exp(-freqs_low ** 2 / (2 * sigma ** 2))
-    gabor_f = periodize_filter_fourier(gabor_f, nperiods=2 * P - 1)
-    low_pass_f = periodize_filter_fourier(low_pass_f, nperiods=2 * P - 1)
-    kappa = gabor_f[0] / low_pass_f[0]
-    morlet_f = gabor_f - kappa * low_pass_f
-    morlet_f *= get_normalizing_factor(morlet_f, normalize=normalize)
-    return morlet_f
+    low_pass_f = low_pass_f.reshape(2 * P - 1, -1).mean(axis=0)
+    if xi:
+        gabor_f = np.exp(-(freqs - xi) ** 2 / (2 * sigma ** 2))
+        gabor_f = gabor_f.reshape(2 * P - 1, -1).mean(axis=0)
+        kappa = gabor_f[0] / low_pass_f[0]
+        filter_f = gabor_f - kappa * low_pass_f
+    else:
+        filter_f = low_pass_f
+    filter_f /= np.abs(ifft(filter_f)).sum()
+    return filter_f
 
 
-def scattering_filter_factory(J_support, J_scattering, Q, r_psi=math.sqrt(0.5), criterion_amplitude=0.001, normalize='l1', max_subsampling=None, sigma0=0.1, alpha=5.0, P_max=5, eps=1e-07, **kwargs):
+def gauss_1d(N, sigma):
+    return morlet_1d(N, xi=None, sigma=sigma)
+
+
+def parse_T(T, J, N_input, T_alias='T'):
+    """
+    Parses T in Scattering1D base frontend.
+    Parses T and F in TimeFrequencyScattering base frontend.
+
+    Parameters
+    ----------
+    T : None, string, integer 0, or float >= 1
+        user-provided T value
+    J : int
+        user-provided J value
+    N_input : int
+        input size
+    T_alias : string
+        Used for printing error messages.
+        Typically 'T' (default) or 'F' (in TimeFrequencyScattering).
+
+    Returns
+    -------
+    T_parsed : int
+        (2**J) if T is None, zero, or 'global'; user-provided T otherwise
+    average : string
+        'global' if T is 'global'; False if T is zero; 'local' otherwise
+    """
+    if T is None:
+        return 2 ** J, 'local'
+    elif T == 'global':
+        return 2 ** J, 'global'
+    elif T > N_input:
+        raise ValueError("The support {} of the low-pass filter cannot exceed input length (got {} > {}). For large averaging size, consider passing {}='global'.".format(T_alias, T, N_input, T_alias))
+    elif T == 0:
+        return 2 ** J, False
+    elif T < 1:
+        raise ValueError('{} must be ==0 or >=1 (got {})'.format(T_alias, T))
+    else:
+        return T, 'local'
+
+
+def scattering1d(U_0, backend, filters, oversampling, average_local):
+    """
+    Main function implementing the 1-D scattering transform.
+
+    Parameters
+    ----------
+    U_0 : Tensor
+        an backend-compatible array of size `(B, 1, N)` where `B` is batch size
+        and `N` is the padded signal length.
+    backend : module
+        Kymatio module which matches the type of U_0.
+    psi1 : list
+        a list of dictionaries, expressing wavelet band-pass filters in the
+        Fourier domain for the first layer of the scattering transform.
+        Each `psi1[n1]` is a dictionary with keys:
+            * `j`: int, subsampling factor
+            * `xi`: float, center frequency
+            * `sigma`: float, bandwidth
+            * `levels`: list, values taken by the wavelet in the Fourier domain
+                        at different levels of detail.
+        Each psi1[n]['levels'][level] is an array with size N/2**level.
+    psi2 : dictionary
+        Same as psi1, but for the second layer of the scattering transform.
+    phi : dictionary
+        a dictionary expressing the low-pass filter in the Fourier domain.
+        Keys:
+        * `j`: int, subsampling factor (also known as log_T)
+        * `xi`: float, center frequency (=0 by convention)
+        * `sigma`: float, bandwidth
+        * 'levels': list, values taken by the lowpass in the Fourier domain
+                    at different levels of detail.
+    oversampling : int >=0
+        Yields scattering coefficients with a temporal stride equal to
+        max(1, 2**(log2_T-oversampling)). Hence, raising oversampling by
+        one unit halves the stride, until reaching a stride of 1.
+    average_local : boolean
+        whether to locally average the result by means of a low-pass filter phi.
+    """
+    U_0_hat = backend.rfft(U_0)
+    phi = filters[0]
+    log2_T = phi['j']
+    k0 = max(log2_T - oversampling, 0)
+    if average_local:
+        S_0_c = backend.cdgmm(U_0_hat, phi['levels'][0])
+        S_0_hat = backend.subsample_fourier(S_0_c, 2 ** k0)
+        S_0_r = backend.irfft(S_0_hat)
+        yield {'coef': S_0_r, 'j': (), 'n': ()}
+    else:
+        yield {'coef': U_0, 'j': (), 'n': ()}
+    psi1 = filters[1]
+    for n1 in range(len(psi1)):
+        j1 = psi1[n1]['j']
+        sub1_adj = min(j1, log2_T) if average_local else j1
+        k1 = max(sub1_adj - oversampling, 0)
+        U_1_c = backend.cdgmm(U_0_hat, psi1[n1]['levels'][0])
+        U_1_hat = backend.subsample_fourier(U_1_c, 2 ** k1)
+        U_1_c = backend.ifft(U_1_hat)
+        U_1_m = backend.modulus(U_1_c)
+        if average_local or len(filters) > 2:
+            U_1_hat = backend.rfft(U_1_m)
+        if average_local:
+            k1_J = max(log2_T - k1 - oversampling, 0)
+            S_1_c = backend.cdgmm(U_1_hat, phi['levels'][k1])
+            S_1_hat = backend.subsample_fourier(S_1_c, 2 ** k1_J)
+            S_1_r = backend.irfft(S_1_hat)
+            yield {'coef': S_1_r, 'j': (j1,), 'n': (n1,)}
+        else:
+            yield {'coef': U_1_m, 'j': (j1,), 'n': (n1,)}
+        if len(filters) > 2:
+            psi2 = filters[2]
+            for n2 in range(len(psi2)):
+                j2 = psi2[n2]['j']
+                if j2 > j1:
+                    sub2_adj = min(j2, log2_T) if average_local else j2
+                    k2 = max(sub2_adj - k1 - oversampling, 0)
+                    U_2_c = backend.cdgmm(U_1_hat, psi2[n2]['levels'][k1])
+                    U_2_hat = backend.subsample_fourier(U_2_c, 2 ** k2)
+                    U_2_c = backend.ifft(U_2_hat)
+                    U_2_m = backend.modulus(U_2_c)
+                    if average_local:
+                        U_2_hat = backend.rfft(U_2_m)
+                        k2_log2_T = max(log2_T - k2 - k1 - oversampling, 0)
+                        S_2_c = backend.cdgmm(U_2_hat, phi['levels'][k1 + k2])
+                        S_2_hat = backend.subsample_fourier(S_2_c, 2 ** k2_log2_T)
+                        S_2_r = backend.irfft(S_2_hat)
+                        yield {'coef': S_2_r, 'j': (j1, j2), 'n': (n1, n2)}
+                    else:
+                        yield {'coef': U_2_m, 'j': (j1, j2), 'n': (n1, n2)}
+
+
+def get_max_dyadic_subsampling(xi, sigma, alpha, **unused_kwargs):
+    """
+    Computes the maximal dyadic subsampling which is possible for a Gabor
+    filter of frequency xi and width sigma
+
+    Finds the maximal integer j such that:
+    omega_0 < 2^{-(j + 1)}
+    where omega_0 is the boundary of the filter, defined as
+    omega_0 = xi + alpha * sigma
+
+    This ensures that the filter can be subsampled by a factor 2^j without
+    aliasing.
+
+    We use the same formula for Gabor and Morlet filters.
+
+    Parameters
+    ----------
+    xi : float
+        frequency of the filter in [0, 1]
+    sigma : float
+        frequential width of the filter
+    alpha : float, optional
+        parameter controlling the error done in the aliasing.
+        The larger alpha, the smaller the error.
+
+    Returns
+    -------
+    j : int
+        integer such that 2^j is the maximal subsampling accepted by the
+        Gabor filter without aliasing.
+    """
+    upper_bound = min(xi + alpha * sigma, 0.5)
+    j = math.floor(-math.log2(upper_bound)) - 1
+    j = int(j)
+    return j
+
+
+def scattering_filter_factory(N, J, Q, T, filterbank):
     """
     Builds in Fourier the Morlet filters used for the scattering transform.
 
     Each single filter is provided as a dictionary with the following keys:
-    * 'xi': central frequency, defaults to 0 for low-pass filters.
-    * 'sigma': frequential width
-    * k where k is an integer bounded below by 0. The maximal value for k
-        depends on the type of filter, it is dynamically chosen depending
-        on max_subsampling and the characteristics of the filters.
-        Each value for k is an array (or tensor) of size 2**(J_support - k)
-        containing the Fourier transform of the filter after subsampling by
-        2**k
+    * 'xi': normalized center frequency, where 0.5 corresponds to Nyquist.
+    * 'sigma': normalized bandwidth in the Fourier.
+    * 'j': log2 of downsampling factor after filtering. j=0 means no downsampling,
+        j=1 means downsampling by one half, etc.
+    * 'levels': list of NumPy arrays containing the filter at various levels
+        of downsampling. levels[0] is at full resolution, levels[1] at half
+        resolution, etc.
 
     Parameters
     ----------
-    J_support : int
-        2**J_support is the desired support size of the filters
-    J_scattering : int
-        parameter for the scattering transform (2**J_scattering
-        corresponds to the averaging support of the low-pass filter)
-    Q : int
-        number of wavelets per octave at the first order. For audio signals,
-        a value Q >= 12 is recommended in order to separate partials.
-    r_psi : float, optional
-        Should be >0 and <1. Controls the redundancy of the filters
-        (the larger r_psi, the larger the overlap between adjacent wavelets).
-        Defaults to sqrt(0.5).
-    criterion_amplitude : float, optional
-        Represents the numerical error which is allowed to be lost after
-        convolution and padding. Defaults to 1e-3.
-    normalize : string, optional
-        Normalization convention for the filters (in the
-        temporal domain). Supported values include 'l1' and 'l2'; a ValueError
-        is raised otherwise. Defaults to 'l1'.
-    max_subsampling: int or None, optional
-        maximal dyadic subsampling to compute, in order
-        to save computation time if it is not required. Defaults to None, in
-        which case this value is dynamically adjusted depending on the filters.
-    sigma0 : float, optional
-        parameter controlling the frequential width of the
-        low-pass filter at J_scattering=0; at a an absolute J_scattering, it
-        is equal to sigma0 / 2**J_scattering. Defaults to 1e-1
-    alpha : float, optional
-        tolerance factor for the aliasing after subsampling.
-        The larger alpha, the more conservative the value of maximal
-        subsampling is. Defaults to 5.
-    P_max : int, optional
-        maximal number of periods to use to make sure that the Fourier
-        transform of the filters is periodic. P_max = 5 is more than enough for
-        double precision. Defaults to 5. Should be >= 1
-    eps : float, optional
-        required machine precision for the periodization (single
-        floating point is enough for deep learning applications).
-        Defaults to 1e-7
-
-    Returns
-    -------
-    phi_f : dictionary
-        a dictionary containing the low-pass filter at all possible
-        subsamplings. See above for a description of the dictionary structure.
-        The possible subsamplings are controlled by the inputs they can
-        receive, which correspond to the subsamplings performed on top of the
-        1st and 2nd order transforms.
-    psi1_f : dictionary
-        a dictionary containing the band-pass filters of the 1st order,
-        only for the base resolution as no subsampling is used in the
-        scattering tree.
-        Each value corresponds to a dictionary for a single filter, see above
-        for an exact description.
-        The keys of this dictionary are of the type (j, n) where n is an
-        integer counting the filters and j the maximal dyadic subsampling
-        which can be performed on top of the filter without aliasing.
-    psi2_f : dictionary
-        a dictionary containing the band-pass filters of the 2nd order
-        at all possible subsamplings. The subsamplings are determined by the
-        input they can receive, which depends on the scattering tree.
-        Each value corresponds to a dictionary for a single filter, see above
-        for an exact description.
-        The keys of this dictionary are of th etype (j, n) where n is an
-        integer counting the filters and j is the maximal dyadic subsampling
-        which can be performed on top of this filter without aliasing.
-    t_max_phi : int
-        temporal size to use to pad the signal on the right and on the
-        left by making at most criterion_amplitude error. Assumes that the
-        temporal support of the low-pass filter is larger than all filters.
-
-    Refs
-    ----
-    Convolutional operators in the time-frequency domain, V. Lostanlen,
-    PhD Thesis, 2017
-    https://tel.archives-ouvertes.fr/tel-01559667
-    """
-    sigma_low, xi1, sigma1, j1s, xi2, sigma2, j2s = calibrate_scattering_filters(J_scattering, Q, r_psi=r_psi, sigma0=sigma0, alpha=alpha)
-    phi_f = {}
-    psi1_f = []
-    psi2_f = []
-    for n2, j2 in enumerate(j2s):
-        if max_subsampling is None:
-            possible_subsamplings_after_order1 = [j1 for j1 in j1s if j2 > j1]
-            if len(possible_subsamplings_after_order1) > 0:
-                max_sub_psi2 = max(possible_subsamplings_after_order1)
-            else:
-                max_sub_psi2 = 0
-        else:
-            max_sub_psi2 = max_subsampling
-        T = 2 ** J_support
-        psi_f = {}
-        psi_f[0] = morlet_1d(T, xi2[n2], sigma2[n2], normalize=normalize, P_max=P_max, eps=eps)
-        for subsampling in range(1, max_sub_psi2 + 1):
-            factor_subsampling = 2 ** subsampling
-            psi_f[subsampling] = periodize_filter_fourier(psi_f[0], nperiods=factor_subsampling)
-        psi2_f.append(psi_f)
-    for n1, j1 in enumerate(j1s):
-        T = 2 ** J_support
-        psi1_f.append({(0): morlet_1d(T, xi1[n1], sigma1[n1], normalize=normalize, P_max=P_max, eps=eps)})
-    if max_subsampling is None:
-        max_subsampling_after_psi1 = max(j1s)
-        max_subsampling_after_psi2 = max(j2s)
-        max_sub_phi = max(max_subsampling_after_psi1, max_subsampling_after_psi2)
-    else:
-        max_sub_phi = max_subsampling
-    phi_f[0] = gauss_1d(T, sigma_low, P_max=P_max, eps=eps)
-    for subsampling in range(1, max_sub_phi + 1):
-        factor_subsampling = 2 ** subsampling
-        phi_f[subsampling] = periodize_filter_fourier(phi_f[0], nperiods=factor_subsampling)
-    for n1, j1 in enumerate(j1s):
-        psi1_f[n1]['xi'] = xi1[n1]
-        psi1_f[n1]['sigma'] = sigma1[n1]
-        psi1_f[n1]['j'] = j1
-    for n2, j2 in enumerate(j2s):
-        psi2_f[n2]['xi'] = xi2[n2]
-        psi2_f[n2]['sigma'] = sigma2[n2]
-        psi2_f[n2]['j'] = j2
-    phi_f['xi'] = 0.0
-    phi_f['sigma'] = sigma_low
-    phi_f['j'] = 0
-    t_max_phi = compute_temporal_support(phi_f[0].reshape(1, -1), criterion_amplitude=criterion_amplitude)
-    return phi_f, psi1_f, psi2_f, t_max_phi
-
-
-def compute_minimum_support_to_pad(T, J, Q, criterion_amplitude=0.001, normalize='l1', r_psi=math.sqrt(0.5), sigma0=0.1, alpha=5.0, P_max=5, eps=1e-07):
-    """
-    Computes the support to pad given the input size and the parameters of the
-    scattering transform.
-
-    Parameters
-    ----------
-    T : int
-        temporal size of the input signal
+    N : int
+        padded length of the input signal. Corresponds to self._N_padded for the
+        scattering object.
     J : int
-        scale of the scattering
-    Q : int
-        number of wavelets per octave
-    normalize : string, optional
-        normalization type for the wavelets.
-        Only `'l2'` or `'l1'` normalizations are supported.
-        Defaults to `'l1'`
-    criterion_amplitude: float `>0` and `<1`, optional
-        Represents the numerical error which is allowed to be lost after
-        convolution and padding.
-        The larger criterion_amplitude, the smaller the padding size is.
-        Defaults to `1e-3`
-    r_psi : float, optional
-        Should be `>0` and `<1`. Controls the redundancy of the filters
-        (the larger r_psi, the larger the overlap between adjacent
-        wavelets).
-        Defaults to `sqrt(0.5)`.
-    sigma0 : float, optional
-        parameter controlling the frequential width of the
-        low-pass filter at J_scattering=0; at a an absolute J_scattering,
-        it is equal to :math:`\\frac{\\sigma_0}{2^J}`.
-        Defaults to `1e-1`.
-    alpha : float, optional
-        tolerance factor for the aliasing after subsampling.
-        The larger the alpha, the more conservative the value of maximal
-        subsampling is.
-        Defaults to `5`.
-    P_max : int, optional
-        maximal number of periods to use to make sure that the Fourier
-        transform of the filters is periodic.
-        `P_max = 5` is more than enough for double precision.
-        Defaults to `5`.
-    eps : float, optional
-        required machine precision for the periodization (single
-        floating point is enough for deep learning applications).
-        Defaults to `1e-7`.
-
-    Returns
-    -------
-    min_to_pad: int
-        minimal value to pad the signal on one size to avoid any
-        boundary error.
-    """
-    J_tentative = int(np.ceil(np.log2(T)))
-    _, _, _, t_max_phi = scattering_filter_factory(J_tentative, J, Q, normalize=normalize, to_torch=False, max_subsampling=0, criterion_amplitude=criterion_amplitude, r_psi=r_psi, sigma0=sigma0, alpha=alpha, P_max=P_max, eps=eps)
-    min_to_pad = 3 * t_max_phi
-    return min_to_pad
-
-
-def compute_padding(J_pad, T):
-    """
-    Computes the padding to be added on the left and on the right
-    of the signal.
-
-    It should hold that 2**J_pad >= T
-
-    Parameters
-    ----------
-    J_pad : int
-        2**J_pad is the support of the padded signal
+        log-scale of the scattering transform, such that wavelets of both
+        filterbanks have a maximal support that is proportional to 2**J.
+    Q : tuple
+        number of wavelets per octave at the first and second order
+        Q = (Q1, Q2). Q1 and Q2 are both int >= 1.
     T : int
-        original signal support size
+        temporal support of low-pass filter, controlling amount of imposed
+        time-shift invariance and maximum subsampling
+    filterbank : tuple (callable filterbank_fn, dict filterbank_kwargs)
+        filterbank_fn should take J and Q as positional arguments and
+        **filterbank_kwargs as optional keyword arguments.
+        Corresponds to the self.filterbank property of the scattering object.
+        As of v0.3, only anden_generator is supported as filterbank_fn.
 
     Returns
     -------
-    pad_left: amount to pad on the left ("beginning" of the support)
-    pad_right: amount to pad on the right ("end" of the support)
+    phi_f, psi1_f, psi2_f ... : dictionaries
+        phi_f corresponds to the low-pass filter and psi1_f, psi2_f, to the
+        wavelet filterbanks at layers 1 and 2 respectively.
+        See above for a description of the dictionary structure.
     """
-    T_pad = 2 ** J_pad
-    if T_pad < T:
-        raise ValueError('Padding support should be larger than the original' + 'signal size!')
-    to_add = 2 ** J_pad - T
-    pad_left = to_add // 2
-    pad_right = to_add - pad_left
-    if max(pad_left, pad_right) >= T:
-        raise ValueError('Too large padding value, will lead to NaN errors')
-    return pad_left, pad_right
-
-
-def precompute_size_scattering(J, Q, max_order=2, detail=False):
-    """Get size of the scattering transform
-
-    The number of scattering coefficients depends on the filter
-    configuration and so can be calculated using a few of the scattering
-    transform parameters.
-
-    Parameters
-    ----------
-    J : int
-        The maximum log-scale of the scattering transform.
-        In other words, the maximum scale is given by `2**J`.
-    Q : int >= 1
-        The number of first-order wavelets per octave.
-        Second-order wavelets are fixed to one wavelet per octave.
-    max_order : int, optional
-        The maximum order of scattering coefficients to compute.
-        Must be either equal to `1` or `2`. Defaults to `2`.
-    detail : boolean, optional
-        Specifies whether to provide a detailed size (number of coefficient
-        per order) or an aggregate size (total number of coefficients).
-
-    Returns
-    -------
-    size : int or tuple
-        If `detail` is `False`, returns the number of coefficients as an
-        integer. If `True`, returns a tuple of size `max_order` containing
-        the number of coefficients in each order.
-    """
-    sigma_low, xi1, sigma1, j1, xi2, sigma2, j2 = calibrate_scattering_filters(J, Q)
-    size_order0 = 1
-    size_order1 = len(xi1)
-    size_order2 = 0
-    for n1 in range(len(xi1)):
-        for n2 in range(len(xi2)):
-            if j2[n2] > j1[n1]:
-                size_order2 += 1
-    if detail:
-        if max_order == 2:
-            return size_order0, size_order1, size_order2
-        else:
-            return size_order0, size_order1
-    elif max_order == 2:
-        return size_order0 + size_order1 + size_order2
-    else:
-        return size_order0 + size_order1
+    filterbank_fn, filterbank_kwargs = filterbank
+    max_j = 0
+    previous_J = 0
+    log2_T = math.floor(math.log2(T))
+    psis_f = []
+    for Q_layer in Q:
+        psi_f = []
+        for xi, sigma in filterbank_fn(J, Q_layer, **filterbank_kwargs):
+            psi_levels = [morlet_1d(N, xi, sigma)]
+            j = get_max_dyadic_subsampling(xi, sigma, **filterbank_kwargs)
+            for level in range(1, min(previous_J, j, log2_T)):
+                psi_level = psi_levels[0].reshape(2 ** level, -1).mean(axis=0)
+                psi_levels.append(psi_level)
+            psi_f.append({'levels': psi_levels, 'xi': xi, 'sigma': sigma, 'j': j})
+            max_j = max(j, max_j)
+        previous_J = max_j
+        psis_f.append(psi_f)
+    sigma_low = filterbank_kwargs['sigma0'] / T
+    phi_levels = [gauss_1d(N, sigma_low)]
+    for level in range(1, max(previous_J, 1 + log2_T)):
+        phi_level = phi_levels[0].reshape(2 ** level, -1).mean(axis=0)
+        phi_levels.append(phi_level)
+    phi_f = {'levels': phi_levels, 'xi': 0, 'sigma': sigma_low, 'j': log2_T, 'N': N}
+    return tuple([phi_f] + psis_f)
 
 
 class ScatteringBase1D(ScatteringBase):
 
-    def __init__(self, J, shape, Q=1, max_order=2, average=True, oversampling=0, vectorize=True, out_type='array', backend=None):
+    def __init__(self, J, shape, Q=1, T=None, max_order=2, oversampling=0, out_type='array', backend=None):
         super(ScatteringBase1D, self).__init__()
         self.J = J
         self.shape = shape
         self.Q = Q
+        self.T = T
         self.max_order = max_order
-        self.average = average
         self.oversampling = oversampling
-        self.vectorize = vectorize
         self.out_type = out_type
         self.backend = backend
 
@@ -1388,66 +1052,174 @@ class ScatteringBase1D(ScatteringBase):
         self.r_psi = math.sqrt(0.5)
         self.sigma0 = 0.1
         self.alpha = 5.0
-        self.P_max = 5
-        self.eps = 1e-07
-        self.criterion_amplitude = 0.001
-        self.normalize = 'l1'
+        if np.any(np.array(self.Q) < 1):
+            raise ValueError('Q must always be >= 1, got {}'.format(self.Q))
+        if isinstance(self.Q, int):
+            self.Q = self.Q, 1
+        elif isinstance(self.Q, tuple):
+            if len(self.Q) == 1:
+                self.Q = self.Q + (1,)
+            elif len(self.Q) < 1 or len(self.Q) > 2:
+                raise NotImplementedError('Q must be an integer, 1-tuple or 2-tuple. Scattering transforms beyond order 2 are not implemented.')
+        else:
+            raise ValueError('Q must be an integer or a tuple')
         if isinstance(self.shape, numbers.Integral):
-            self.T = self.shape
+            self.shape = self.shape,
         elif isinstance(self.shape, tuple):
-            self.T = self.shape[0]
             if len(self.shape) > 1:
                 raise ValueError('If shape is specified as a tuple, it must have exactly one element')
         else:
             raise ValueError('shape must be an integer or a 1-tuple')
-        min_to_pad = compute_minimum_support_to_pad(self.T, self.J, self.Q, r_psi=self.r_psi, sigma0=self.sigma0, alpha=self.alpha, P_max=self.P_max, eps=self.eps, criterion_amplitude=self.criterion_amplitude, normalize=self.normalize)
-        J_max_support = int(np.floor(np.log2(3 * self.T - 2)))
-        self.J_pad = min(int(np.ceil(np.log2(self.T + 2 * min_to_pad))), J_max_support)
-        self.pad_left, self.pad_right = compute_padding(self.J_pad, self.T)
-        self.ind_start, self.ind_end = compute_border_indices(self.J, self.pad_left, self.pad_left + self.T)
+        N_input = self.shape[0]
+        self.T, self.average = parse_T(self.T, self.J, N_input)
+        self.log2_T = math.floor(math.log2(self.T))
+        phi_f = gauss_1d(N_input, self.sigma0 / self.T)
+        min_to_pad = 3 * compute_temporal_support(phi_f.reshape(1, -1), criterion_amplitude=0.001)
+        J_max_support = int(np.floor(np.log2(3 * N_input - 2)))
+        J_pad = min(int(np.ceil(np.log2(N_input + 2 * min_to_pad))), J_max_support)
+        self._N_padded = 2 ** J_pad
+        self.pad_left, self.pad_right = compute_padding(self._N_padded, N_input)
+        self.ind_start, self.ind_end = compute_border_indices(self.log2_T, self.J, self.pad_left, self.pad_left + N_input)
 
     def create_filters(self):
-        self.phi_f, self.psi1_f, self.psi2_f, _ = scattering_filter_factory(self.J_pad, self.J, self.Q, normalize=self.normalize, criterion_amplitude=self.criterion_amplitude, r_psi=self.r_psi, sigma0=self.sigma0, alpha=self.alpha, P_max=self.P_max, eps=self.eps)
+        self.phi_f, self.psi1_f, self.psi2_f = scattering_filter_factory(self._N_padded, self.J, self.Q, self.T, self.filterbank)
+        ScatteringBase._check_filterbanks(self.psi1_f, self.psi2_f)
+
+    def scattering(self, x):
+        ScatteringBase1D._check_runtime_args(self)
+        ScatteringBase1D._check_input(self, x)
+        x_shape = self.backend.shape(x)
+        batch_shape, signal_shape = x_shape[:-1], x_shape[-1:]
+        x = self.backend.reshape_input(x, signal_shape)
+        U_0 = self.backend.pad(x, pad_left=self.pad_left, pad_right=self.pad_right)
+        filters = [self.phi_f, self.psi1_f, self.psi2_f][:1 + self.max_order]
+        S_gen = scattering1d(U_0, self.backend, filters, self.oversampling, self.average == 'local')
+        if self.out_type in ['array', 'list']:
+            S = list()
+        elif self.out_type == 'dict':
+            S = dict()
+        for path in S_gen:
+            path['order'] = len(path['n'])
+            if self.average == 'local':
+                res = max(self.log2_T - self.oversampling, 0)
+            elif path['order'] > 0:
+                res = max(path['j'][-1] - self.oversampling, 0)
+            else:
+                res = 0
+            if self.average == 'global':
+                path['coef'] = self.backend.average_global(path['coef'])
+            else:
+                path['coef'] = self.backend.unpad(path['coef'], self.ind_start[res], self.ind_end[res])
+            path['coef'] = self.backend.reshape_output(path['coef'], batch_shape, n_kept_dims=1)
+            if self.out_type in ['array', 'list']:
+                S.append(path)
+            elif self.out_type == 'dict':
+                S[path['n']] = path['coef']
+        if self.out_type == 'dict':
+            return S
+        S.sort(key=lambda path: (path['order'], path['n']))
+        if self.out_type == 'array':
+            S = self.backend.concatenate([path['coef'] for path in S], dim=-2)
+        return S
 
     def meta(self):
-        """Get meta information on the transform
+        """Get metadata on the transform.
 
-        Calls the static method `compute_meta_scattering()` with the
-        parameters of the transform object.
+        This information specifies the content of each scattering coefficient,
+        which order, which frequencies, which filters were used, and so on.
 
         Returns
-        ------
+        -------
         meta : dictionary
-            See the documentation for `compute_meta_scattering()`.
+            A dictionary with the following keys:
+
+            - `'order`' : tensor
+                A Tensor of length `C`, the total number of scattering
+                coefficients, specifying the scattering order.
+            - `'xi'` : tensor
+                A Tensor of size `(C, max_order)`, specifying the center
+                frequency of the filter used at each order (padded with NaNs).
+            - `'sigma'` : tensor
+                A Tensor of size `(C, max_order)`, specifying the frequency
+                bandwidth of the filter used at each order (padded with NaNs).
+            - `'j'` : tensor
+                A Tensor of size `(C, max_order)`, specifying the dyadic scale
+                of the filter used at each order (padded with NaNs).
+            - `'n'` : tensor
+                A Tensor of size `(C, max_order)`, specifying the indices of
+                the filters used at each order (padded with NaNs).
+            - `'key'` : list
+                The tuples indexing the corresponding scattering coefficient
+                in the non-vectorized output.
         """
-        return compute_meta_scattering(self.J, self.Q, max_order=self.max_order)
+        backend = self._DryBackend()
+        filters = [self.phi_f, self.psi1_f, self.psi2_f][:1 + self.max_order]
+        S_gen = scattering1d(None, backend, filters, self.oversampling, average_local=False)
+        S = sorted(list(S_gen), key=lambda path: (len(path['n']), path['n']))
+        meta = dict(order=np.array([len(path['n']) for path in S]))
+        meta['key'] = [path['n'] for path in S]
+        meta['n'] = np.stack([np.append(path['n'], (np.nan,) * (self.max_order - len(path['n']))) for path in S])
+        filterbanks = (self.psi1_f, self.psi2_f)[:self.max_order]
+        for key in ['xi', 'sigma', 'j']:
+            meta[key] = meta['n'] * np.nan
+            for order, filterbank in enumerate(filterbanks):
+                for n, psi in enumerate(filterbank):
+                    meta[key][meta['n'][:, order] == n, order] = psi[key]
+        return meta
 
     def output_size(self, detail=False):
-        """Get size of the scattering transform
-
-        Calls the static method `precompute_size_scattering()` with the
-        parameters of the transform object.
+        """Number of scattering coefficients.
 
         Parameters
         ----------
         detail : boolean, optional
-            Specifies whether to provide a detailed size (number of coefficient
-            per order) or an aggregate size (total number of coefficients).
+            Whether to aggregate the count (detail=False, default) across
+            orders or to break it down by scattering depth (layers 0, 1, and 2).
 
         Returns
         ------
         size : int or tuple
-            See the documentation for `precompute_size_scattering()`.
+            If `detail=False` (default), total number of scattering coefficients.
+            Else, number of coefficients at zeroth, first, and second order.
         """
-        return precompute_size_scattering(self.J, self.Q, max_order=self.max_order, detail=detail)
-    _doc_shape = 'T'
-    _doc_instantiation_shape = {(True): 'S = Scattering1D(J, T, Q)', (False): 'S = Scattering1D(J, Q)'}
+        if detail:
+            return tuple(Counter(self.meta()['order']).values())
+        return len(self.meta()['key'])
+
+    def _check_runtime_args(self):
+        if not self.out_type in ('array', 'dict', 'list'):
+            raise ValueError("out_type must be one of 'array', 'dict', or 'list'. Got: {}".format(self.out_type))
+        if not self.average and self.out_type == 'array':
+            raise ValueError("Cannot convert to out_type='array' with T=0. Please set out_type to 'dict' or 'list'.")
+        if self.oversampling < 0:
+            raise ValueError('oversampling must be nonnegative. Got: {}'.format(self.oversampling))
+        if not isinstance(self.oversampling, numbers.Integral):
+            raise ValueError('oversampling must be integer. Got: {}'.format(self.oversampling))
+
+    def _check_input(self, x):
+        if len(x.shape) < 1:
+            raise ValueError('Input tensor x should have at least one axis, got {}'.format(len(x.shape)))
+
+    @property
+    def J_pad(self):
+        warn('The attribute J_pad is deprecated and will be removed in v0.4. Measure len(self.phi_f[0]) for the padded length (previously 2**J_pad) or access shape[0] for the unpadded length (previously N).', DeprecationWarning)
+        return int(np.log2(self._N_padded))
+
+    @property
+    def N(self):
+        warn('The attribute N is deprecated and will be removed in v0.4. Measure len(self.phi_f[0]) for the padded length (previously 2**J_pad) or access shape[0] for the unpadded length (previously N).', DeprecationWarning)
+        return int(self.shape[0])
+
+    @property
+    def filterbank(self):
+        filterbank_kwargs = {'alpha': self.alpha, 'r_psi': self.r_psi, 'sigma0': self.sigma0}
+        return anden_generator, filterbank_kwargs
+    _doc_shape = 'N'
+    _doc_instantiation_shape = {(True): 'S = Scattering1D(J, N, Q)', (False): 'S = Scattering1D(J, Q)'}
     _doc_param_shape = """shape : int
             The length of the input signals.
         """
-    _doc_attrs_shape = """J_pad : int
-            The logarithm of the padded length of the signals.
-        pad_left : int
+    _doc_attrs_shape = """pad_left : int
             The amount of padding to the left of the signal.
         pad_right : int
             The amount of padding to the right of the signal.
@@ -1470,14 +1242,17 @@ class ScatteringBase1D(ScatteringBase):
             averaged output corresponds to the standard scattering transform,
             while the un-averaged output skips the last convolution by
             :math:`\\phi_J(t)`.  This parameter may be modified after object
-            creation. Defaults to `True`.
+            creation. Defaults to `True`. Deprecated in v0.3 in favour of `T`
+            and will  be removed in v0.4. Replace `average=False` by `T=0` and
+            set `T>1` or leave `T=None` for `average=True` (default).
         """
     _doc_attr_average = """average : boolean
             Controls whether the output should be averaged (the standard
             scattering transform) or not (resulting in wavelet modulus
             coefficients). Note that to obtain unaveraged output, the
             `vectorize` flag must be set to `False` or `out_type` must be set
-            to `'list'`.
+            to `'list'`. Deprecated in favor of `T`. For more details,
+            see the documentation for `scattering`.
      """
     _doc_param_vectorize = """vectorize : boolean, optional
             Determines wheter to return a vectorized scattering transform
@@ -1535,12 +1310,12 @@ class ScatteringBase1D(ScatteringBase):
         :math:`S_J^{{(0)}} x`, $S_J^{{(1)}} x$, and $S_J^{{(2)}} x$ or just
         $S_J^{{(0)}} x$ and $S_J^{{(1)}} x$.
         {frontend_paragraph}
-        Given an input `{array}` `x` of shape `(B, T)`, where `B` is the
-        number of signals to transform (the batch size) and `T` is the length
+        Given an input `{array}` `x` of shape `(B, N)`, where `B` is the
+        number of signals to transform (the batch size) and `N` is the length
         of the signal, we compute its scattering transform by passing it to
         the `scattering` method (or calling the alias `{alias_name}`). Note
         that `B` can be one, in which case it may be omitted, giving an input
-        of shape `(T,)`.
+        of shape `(N,)`.
 
         Example
         -------
@@ -1548,7 +1323,7 @@ class ScatteringBase1D(ScatteringBase):
 
             # Set the parameters of the scattering transform.
             J = 6
-            T = 2 ** 13
+            N = 2 ** 13
             Q = 8
 
             # Generate a sample signal.
@@ -1563,7 +1338,7 @@ class ScatteringBase1D(ScatteringBase):
             # Equivalently, use the alias.
             Sx = S{alias_call}(x)
 
-        Above, the length of the signal is :math:`T = 2^{{13}} = 8192`, while the
+        Above, the length of the signal is :math:`N = 2^{{13}} = 8192`, while the
         maximum scale of the scattering transform is set to :math:`2^J = 2^6 =
         64`. The time-frequency resolution of the first-order wavelets
         :math:`\\psi_\\lambda^{{(1)}}(t)` is set to `Q = 8` wavelets per octave.
@@ -1575,9 +1350,15 @@ class ScatteringBase1D(ScatteringBase):
         J : int
             The maximum log-scale of the scattering transform. In other words,
             the maximum scale is given by :math:`2^J`.
-        {param_shape}Q : int >= 1
-            The number of first-order wavelets per octave (second-order
-            wavelets are fixed to one wavelet per octave). Defaults to `1`.
+        {param_shape}Q : int or tuple
+            By default, Q (int) is the number of wavelets per octave for the first
+            order and that for the second order has one wavelet per octave. This
+            default value can be modified by passing Q as a tuple with two values,
+            i.e. Q = (Q1, Q2), where Q1 and Q2 are the number of wavelets per
+            octave for the first and second order, respectively.
+        T : int
+            temporal support of low-pass filter, controlling amount of imposed
+            time-shift invariance and maximum subsampling
         max_order : int, optional
             The maximum order of scattering coefficients to compute. Must be
             either `1` or `2`. Defaults to `2`.
@@ -1599,6 +1380,9 @@ class ScatteringBase1D(ScatteringBase):
         {param_shape}Q : int
             The number of first-order wavelets per octave (second-order
             wavelets are fixed to one wavelet per octave).
+        T : int
+            temporal support of low-pass filter, controlling amount of imposed
+            time-shift invariance and maximum subsampling
         {attrs_shape}max_order : int
             The maximum scattering order of the transform.
         {attr_average}oversampling : int
@@ -1607,12 +1391,12 @@ class ScatteringBase1D(ScatteringBase):
         {attr_vectorize}"""
     _doc_scattering = """Apply the scattering transform
 
-       Given an input `{array}` of size `(B, T)`, where `B` is the batch
-       size (it can be potentially an integer or a shape) and `T` is the length
+       Given an input `{array}` of size `(B, N)`, where `B` is the batch
+       size (it can be potentially an integer or a shape) and `N` is the length
        of the individual signals, this function computes its scattering
        transform. If the `vectorize` flag is set to `True` (or if it is not
        available in this frontend), the output is in the form of a `{array}`
-       or size `(B, C, T1)`, where `T1` is the signal length after subsampling
+       or size `(B, C, N1)`, where `N1` is the signal length after subsampling
        to the scale :math:`2^J` (with the appropriate oversampling factor to
        reduce aliasing), and `C` is the number of scattering coefficients. If
        `vectorize` is set `False`, however, the output is a dictionary
@@ -1638,7 +1422,7 @@ class ScatteringBase1D(ScatteringBase):
        Parameters
        ----------
        x : {array}
-           An input `{array}` of size `(B, T)`.
+           An input `{array}` of size `(B, N)`.
 
        Returns
        -------
@@ -1663,225 +1447,585 @@ class ScatteringBase1D(ScatteringBase):
         cls.scattering.__doc__ = ScatteringBase1D._doc_scattering.format(array=cls._doc_array, n=cls._doc_array_n)
 
 
-def scattering1d(x, pad, unpad, backend, J, psi1, psi2, phi, pad_left=0, pad_right=0, ind_start=None, ind_end=None, oversampling=0, max_order=2, average=True, size_scattering=(0, 0, 0), vectorize=False, out_type='array'):
-    """
-    Main function implementing the 1-D scattering transform.
-
-    Parameters
-    ----------
-    x : Tensor
-        a torch Tensor of size `(B, 1, T)` where `T` is the temporal size
-    psi1 : dictionary
-        a dictionary of filters (in the Fourier domain), with keys (`j`, `q`).
-        `j` corresponds to the downsampling factor for
-        :math:`x \\ast psi1[(j, q)]``, and `q` corresponds to a pitch class
-        (chroma).
-        * psi1[(j, n)] is itself a dictionary, with keys corresponding to the
-        dilation factors: psi1[(j, n)][j2] corresponds to a support of size
-        :math:`2^{J_\\text{max} - j_2}`, where :math:`J_\\text{max}` has been
-        defined a priori (`J_max = size` of the padding support of the input)
-        * psi1[(j, n)] only has real values;
-        the tensors are complex so that broadcasting applies
-    psi2 : dictionary
-        a dictionary of filters, with keys (j2, n2). Same remarks as for psi1
-    phi : dictionary
-        a dictionary of filters of scale :math:`2^J` with keys (`j`)
-        where :math:`2^j` is the downsampling factor.
-        The array `phi[j]` is a real-valued filter.
-    J : int
-        scale of the scattering
-    pad_left : int, optional
-        how much to pad the signal on the left. Defaults to `0`
-    pad_right : int, optional
-        how much to pad the signal on the right. Defaults to `0`
-    ind_start : dictionary of ints, optional
-        indices to truncate the signal to recover only the
-        parts which correspond to the actual signal after padding and
-        downsampling. Defaults to None
-    ind_end : dictionary of ints, optional
-        See description of ind_start
-    oversampling : int, optional
-        how much to oversample the scattering (with respect to :math:`2^J`):
-        the higher, the larger the resulting scattering
-        tensor along time. Defaults to `0`
-    order2 : boolean, optional
-        Whether to compute the 2nd order or not. Defaults to `False`.
-    average_U1 : boolean, optional
-        whether to average the first order vector. Defaults to `True`
-    size_scattering : tuple
-        Contains the number of channels of the scattering, precomputed for
-        speed-up. Defaults to `(0, 0, 0)`.
-    vectorize : boolean, optional
-        whether to return a dictionary or a tensor. Defaults to False.
-
-    """
-    subsample_fourier = backend.subsample_fourier
-    modulus_complex = backend.modulus_complex
-    real = backend.real
-    fft = backend.fft
-    cdgmm = backend.cdgmm
-    concatenate = backend.concatenate
-    batch_size = x.shape[0]
-    kJ = max(J - oversampling, 0)
-    temporal_size = ind_end[kJ] - ind_start[kJ]
-    out_S_0, out_S_1, out_S_2 = [], [], []
-    U_0 = pad(x, pad_left=pad_left, pad_right=pad_right)
-    U_0_hat = fft(U_0, 'C2C')
-    k0 = max(J - oversampling, 0)
-    if average:
-        S_0_c = cdgmm(U_0_hat, phi[0])
-        S_0_hat = subsample_fourier(S_0_c, 2 ** k0)
-        S_0_r = fft(S_0_hat, 'C2R', inverse=True)
-        S_0 = unpad(S_0_r, ind_start[k0], ind_end[k0])
-    else:
-        S_0 = x
-    out_S_0.append({'coef': S_0, 'j': (), 'n': ()})
-    for n1 in range(len(psi1)):
-        j1 = psi1[n1]['j']
-        k1 = max(j1 - oversampling, 0)
-        assert psi1[n1]['xi'] < 0.5 / 2 ** k1
-        U_1_c = cdgmm(U_0_hat, psi1[n1][0])
-        U_1_hat = subsample_fourier(U_1_c, 2 ** k1)
-        U_1_c = fft(U_1_hat, 'C2C', inverse=True)
-        U_1_m = modulus_complex(U_1_c)
-        if average or max_order > 1:
-            U_1_hat = fft(U_1_m, 'C2C')
-        if average:
-            k1_J = max(J - k1 - oversampling, 0)
-            S_1_c = cdgmm(U_1_hat, phi[k1])
-            S_1_hat = subsample_fourier(S_1_c, 2 ** k1_J)
-            S_1_r = fft(S_1_hat, 'C2R', inverse=True)
-            S_1 = unpad(S_1_r, ind_start[k1_J + k1], ind_end[k1_J + k1])
-        else:
-            U_1_r = real(U_1_m)
-            S_1 = unpad(U_1_r, ind_start[k1], ind_end[k1])
-        out_S_1.append({'coef': S_1, 'j': (j1,), 'n': (n1,)})
-        if max_order == 2:
-            for n2 in range(len(psi2)):
-                j2 = psi2[n2]['j']
-                if j2 > j1:
-                    assert psi2[n2]['xi'] < psi1[n1]['xi']
-                    k2 = max(j2 - k1 - oversampling, 0)
-                    U_2_c = cdgmm(U_1_hat, psi2[n2][k1])
-                    U_2_hat = subsample_fourier(U_2_c, 2 ** k2)
-                    U_2_c = fft(U_2_hat, 'C2C', inverse=True)
-                    U_2_m = modulus_complex(U_2_c)
-                    if average:
-                        U_2_hat = fft(U_2_m, 'C2C')
-                        k2_J = max(J - k2 - k1 - oversampling, 0)
-                        S_2_c = cdgmm(U_2_hat, phi[k1 + k2])
-                        S_2_hat = subsample_fourier(S_2_c, 2 ** k2_J)
-                        S_2_r = fft(S_2_hat, 'C2R', inverse=True)
-                        S_2 = unpad(S_2_r, ind_start[k1 + k2 + k2_J], ind_end[k1 + k2 + k2_J])
-                    else:
-                        U_2_r = real(U_2_m)
-                        S_2 = unpad(U_2_r, ind_start[k1 + k2], ind_end[k1 + k2])
-                    out_S_2.append({'coef': S_2, 'j': (j1, j2), 'n': (n1, n2)})
-    out_S = []
-    out_S.extend(out_S_0)
-    out_S.extend(out_S_1)
-    out_S.extend(out_S_2)
-    if out_type == 'array' and vectorize:
-        out_S = concatenate([x['coef'] for x in out_S])
-    elif out_type == 'array' and not vectorize:
-        out_S = {x['n']: x['coef'] for x in out_S}
-    elif out_type == 'list':
-        for x in out_S:
-            x.pop('n')
-    return out_S
-
-
 class ScatteringTorch1D(ScatteringTorch, ScatteringBase1D):
 
-    def __init__(self, J, shape, Q=1, max_order=2, average=True, oversampling=0, vectorize=True, out_type='array', backend='torch'):
+    def __init__(self, J, shape, Q=1, T=None, max_order=2, oversampling=0, out_type='array', backend='torch'):
         ScatteringTorch.__init__(self)
-        ScatteringBase1D.__init__(self, J, shape, Q, max_order, average, oversampling, vectorize, out_type, backend)
+        ScatteringBase1D.__init__(self, J, shape, Q, T, max_order, oversampling, out_type, backend)
         ScatteringBase1D._instantiate_backend(self, 'kymatio.scattering1d.backend.')
         ScatteringBase1D.build(self)
         ScatteringBase1D.create_filters(self)
         self.register_filters()
 
     def register_filters(self):
-        """ This function run the filterbank function that
+        """This function run the filterbank function that
         will create the filters as numpy array, and then, it
         saves those arrays as module's buffers."""
         n = 0
-        for k in self.phi_f.keys():
-            if type(k) != str:
-                self.phi_f[k] = torch.from_numpy(self.phi_f[k]).float().view(-1, 1)
-                self.register_buffer('tensor' + str(n), self.phi_f[k])
-                n += 1
+        for level in range(len(self.phi_f['levels'])):
+            self.phi_f['levels'][level] = torch.from_numpy(self.phi_f['levels'][level]).float().view(-1, 1)
+            self.register_buffer('tensor' + str(n), self.phi_f['levels'][level])
+            n += 1
         for psi_f in self.psi1_f:
-            for sub_k in psi_f.keys():
-                if type(sub_k) != str:
-                    psi_f[sub_k] = torch.from_numpy(psi_f[sub_k]).float().view(-1, 1)
-                    self.register_buffer('tensor' + str(n), psi_f[sub_k])
-                    n += 1
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = torch.from_numpy(psi_f['levels'][level]).float().view(-1, 1)
+                self.register_buffer('tensor' + str(n), psi_f['levels'][level])
+                n += 1
         for psi_f in self.psi2_f:
-            for sub_k in psi_f.keys():
-                if type(sub_k) != str:
-                    psi_f[sub_k] = torch.from_numpy(psi_f[sub_k]).float().view(-1, 1)
-                    self.register_buffer('tensor' + str(n), psi_f[sub_k])
-                    n += 1
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = torch.from_numpy(psi_f['levels'][level]).float().view(-1, 1)
+                self.register_buffer('tensor' + str(n), psi_f['levels'][level])
+                n += 1
+        return n
 
     def load_filters(self):
-        """This function loads filters from the module's buffer """
+        """This function loads filters from the module's buffer"""
         buffer_dict = dict(self.named_buffers())
         n = 0
-        for k in self.phi_f.keys():
-            if type(k) != str:
-                self.phi_f[k] = buffer_dict['tensor' + str(n)]
-                n += 1
+        for level in range(len(self.phi_f['levels'])):
+            self.phi_f['levels'][level] = buffer_dict['tensor' + str(n)]
+            n += 1
         for psi_f in self.psi1_f:
-            for sub_k in psi_f.keys():
-                if type(sub_k) != str:
-                    psi_f[sub_k] = buffer_dict['tensor' + str(n)]
-                    n += 1
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = buffer_dict['tensor' + str(n)]
+                n += 1
         for psi_f in self.psi2_f:
-            for sub_k in psi_f.keys():
-                if type(sub_k) != str:
-                    psi_f[sub_k] = buffer_dict['tensor' + str(n)]
-                    n += 1
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = buffer_dict['tensor' + str(n)]
+                n += 1
+        return n
 
     def scattering(self, x):
-        if len(x.shape) < 1:
-            raise ValueError('Input tensor x should have at least one axis, got {}'.format(len(x.shape)))
-        if not self.out_type in ('array', 'list'):
-            raise RuntimeError("The out_type must be one of 'array' or 'list'.")
-        if not self.average and self.out_type == 'array' and self.vectorize:
-            raise ValueError("Options average=False, out_type='array' and vectorize=True are mutually incompatible. Please set out_type to 'list' or vectorize to False.")
-        if not self.vectorize:
-            warnings.warn("The vectorize option is deprecated and will be removed in version 0.3. Please set out_type='list' for equivalent functionality.", DeprecationWarning)
-        batch_shape = x.shape[:-1]
-        signal_shape = x.shape[-1:]
-        x = x.reshape((-1, 1) + signal_shape)
         self.load_filters()
-        if self.vectorize:
-            size_scattering = precompute_size_scattering(self.J, self.Q, max_order=self.max_order, detail=True)
+        return super().scattering(x)
+
+
+def frequency_scattering(X, backend, filters_fr, oversampling_fr, average_local_fr, spinned):
+    """
+    Parameters
+    ----------
+    X : dictionary with keys 'coef' and 'n1_max'
+        if spinned, X['coef']=Y_2 is complex-valued and indexed by
+        (batch, n1, time[j2]), for some fixed n2 and variable n1 s.t. j1 < j2.
+        else, X['coef']=S_1 is real-valued and indexed by
+        (batch, n1, time[log2_T]) for variable n1 < len(psi1_f)
+    backend : module
+    filters_fr : [phi, psis] list where
+        * phi is a dictionary describing the low-pass filter of width F, used
+          to average S1 and S2 in frequency if and only if average_local_fr.
+        * psis is a list of dictionaries, each describing a low-pass or band-pass
+          filter indexed by n_fr. The first element, n_fr=0, corresponds
+          to a low-pass filter of width 2**J_fr and satisfies xi=0, i.e, spin=0.
+          Other elements, such that n_fr>0, correspond to "spinned" band-pass
+          filter, where spin denotes the sign of the center frequency xi.
+    oversampling_fr : int >=0
+        Yields joint time-frequency scattering coefficients with a frequential
+        stride max(1, 2**(log2_F-oversampling_fr)). Raising oversampling_fr
+        by one halves the stride, until reaching a stride of 1.
+    average_local_fr : boolean
+        whether the result will be locally averaged with phi after this function
+    spinned: boolean
+        if True (complex input), yields Y_fr for all n_fr
+        else (real input), yields Y_fr for only those n_fr s.t. spin>=0
+
+    Yields
+    ------
+    Y_2_fr{n2,n_fr}(t, n1) = (Y_2*psi_{n_fr})(t[j2], n1[j_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+
+    Definitions
+    -----------
+    U_0(t) = x(t)
+    S_0(t) = (x * phi)(t)
+    U_1{n1}(t) = |x * psi_{n1}|(t)
+    S_1(n1, t) = (U_1 * phi)(t), conv. over t, broadcast over n1
+    Y_1_fr{n_fr}(t, n1) = (S_1*psi_{n_fr})(t[log2_T], n1[n_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    Y_2{n2}(t, n1) = (U_1 * psi_{n2})(t[j2], n2),
+        conv. over t, broadcast over n1
+    Y_2_fr{n2,n_fr}(t, n1) = (Y_2*psi_{n_fr})(t[j2], n1[j_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    """
+    phi, psis = filters_fr
+    log2_F = phi['j']
+    X_T = backend.swap_time_frequency(X['coef'])
+    pad_right = phi['N'] - X['n1_max']
+    X_pad = backend.pad_frequency(X_T, pad_right)
+    if spinned:
+        X_hat = backend.cfft(X_pad)
+    else:
+        X_hat = backend.rfft(X_pad)
+        psis = filter(lambda psi: psi['xi'] >= 0, psis)
+    for n_fr, psi in enumerate(psis):
+        j_fr = psi['j']
+        spin = np.sign(psi['xi'])
+        sub_fr_adj = min(j_fr, log2_F) if average_local_fr else j_fr
+        k_fr = max(sub_fr_adj - oversampling_fr, 0)
+        Y_fr_hat = backend.cdgmm(X_hat, psi['levels'][0])
+        Y_fr_sub = backend.subsample_fourier(Y_fr_hat, 2 ** k_fr)
+        Y_fr = backend.ifft(Y_fr_sub)
+        Y_fr = backend.swap_time_frequency(Y_fr)
+        yield {**X, 'coef': Y_fr, 'n': X['n'][1:] + (n_fr,), 'j_fr': (j_fr,), 'n_fr': (n_fr,), 'n1_stride': 2 ** j_fr, 'spin': spin}
+
+
+def time_scattering_widthfirst(U_0, backend, filters, oversampling, average_local):
+    """
+    Parameters
+    ----------
+    U_0 : array indexed by (batch, time)
+    backend : module
+    filters : [phi, psi1, psi2] list of dictionaries. same as scattering1d
+    oversampling : int >=0
+        Yields scattering coefficients with a temporal stride equal to
+        max(1, 2**(log2_T-oversampling)). Hence, raising oversampling by
+        one unit halves the stride, until reaching a stride of 1.
+    average_local : boolean
+        whether to locally average the result by means of a low-pass filter phi.
+
+    Yields
+    ------
+    if average_local:
+        * S_0 indexed by (batch, time[log2_T])
+    else:
+        * U_0 indexed by (batch, time)
+    * S_1 indexed by (batch, n1, time[log2_T])
+    for n2 < len(psi2):
+        * Y_2{n2} indexed by (batch, n1, time[j1]) and n1 s.t. j1 < j2
+
+    Definitions
+    -----------
+    U_0(t) = x(t)
+    S_0(t) = (x * phi)(t)
+    U_1{n1}(t) = |x * psi_{n1}|(t)
+    S_1(n1, t) = (|x * psi_{n1}| * phi)(t), conv. over t, broadcast over n1
+    Y_2{n2}(n1, t) = (U_1 * psi_{n2})(n1, t), conv. over t, broadcast over n1
+    """
+    U_0_hat = backend.rfft(U_0)
+    phi = filters[0]
+    log2_T = phi['j']
+    if average_local:
+        k0 = max(log2_T - oversampling, 0)
+        S_0_c = backend.cdgmm(U_0_hat, phi['levels'][0])
+        S_0_hat = backend.subsample_fourier(S_0_c, 2 ** k0)
+        S_0_r = backend.irfft(S_0_hat)
+        yield {'coef': S_0_r, 'j': (), 'n': ()}
+    else:
+        yield {'coef': U_0, 'j': (), 'n': ()}
+    psi1 = filters[1]
+    U_1_hats = []
+    S_1_list = []
+    for n1 in range(len(psi1)):
+        j1 = psi1[n1]['j']
+        sub1_adj = min(j1, log2_T) if average_local else j1
+        k1 = max(sub1_adj - oversampling, 0)
+        U_1_c = backend.cdgmm(U_0_hat, psi1[n1]['levels'][0])
+        U_1_hat = backend.subsample_fourier(U_1_c, 2 ** k1)
+        U_1_c = backend.ifft(U_1_hat)
+        U_1_m = backend.modulus(U_1_c)
+        U_1_hat = backend.rfft(U_1_m)
+        U_1_hats.append({'coef': U_1_hat, 'j': (j1,), 'n': (n1,)})
+        k1_J = max(log2_T - k1 - oversampling, 0)
+        S_1_c = backend.cdgmm(U_1_hat, phi['levels'][k1])
+        S_1_hat = backend.subsample_fourier(S_1_c, 2 ** k1_J)
+        S_1_r = backend.irfft(S_1_hat)
+        S_1_list.append(S_1_r)
+    S_1 = backend.concatenate(S_1_list)
+    yield {'coef': S_1, 'j': (-1,), 'n': (-1,), 'n1_max': len(S_1_list)}
+    psi2 = filters[2]
+    for n2 in range(len(psi2)):
+        j2 = psi2[n2]['j']
+        Y_2_list = []
+        for U_1_hat in U_1_hats:
+            j1 = U_1_hat['j'][0]
+            sub1_adj = min(j1, log2_T) if average_local else j1
+            k1 = max(sub1_adj - oversampling, 0)
+            if j2 > j1:
+                sub2_adj = min(j2, log2_T) if average_local else j2
+                k2 = max(sub2_adj - k1 - oversampling, 0)
+                U_2_c = backend.cdgmm(U_1_hat['coef'], psi2[n2]['levels'][k1])
+                U_2_hat = backend.subsample_fourier(U_2_c, 2 ** k2)
+                U_2_c = backend.ifft(U_2_hat)
+                Y_2_list.append(U_2_c)
+        if len(Y_2_list) > 0:
+            Y_2 = backend.concatenate(Y_2_list)
+            yield {'coef': Y_2, 'j': (-1, j2), 'n': (-1, n2), 'n1_max': len(Y_2_list)}
+
+
+def joint_timefrequency_scattering(U_0, backend, filters, oversampling, average_local, filters_fr, oversampling_fr, average_local_fr):
+    """
+    Parameters
+    ----------
+    U_0 : array indexed by (batch, time)
+    backend : module
+    filters : [phi, psi1, psi2] list of dictionaries. same as scattering1d
+    oversampling : int >=0
+     Yields scattering coefficients with a temporal stride equal to
+     max(1, 2**(log2_T-oversampling)). Hence, raising oversampling by
+     one unit halves the stride, until reaching a stride of 1.
+
+    average_local : boolean
+     whether to locally average the result by means of a low-pass filter phi.
+    filters_fr : [phi, psis] list where
+     * phi is a dictionary describing the low-pass filter of width F, used
+       to average S1 and S2 in frequency if and only if average_local_fr.
+     * psis is a list of dictionaries, each describing a low-pass or band-pass
+       filter indexed by n_fr. The first element, n_fr=0, corresponds
+       to a low-pass filter of width 2**J_fr and satisfies xi=0, i.e, spin=0.
+       Other elements, such that n_fr>0, correspond to "spinned" band-pass
+       filter, where spin denotes the sign of the center frequency xi.
+    oversampling_fr : int >=0
+     Yields joint time-frequency scattering coefficients with a frequential
+     stride of max(1, 2**(log2_F-oversampling_fr)). Raising oversampling_fr
+     by one halves the stride, until reaching a stride of 1.
+    average_local_fr : boolean
+     whether the result will be locally averaged with phi after this function
+
+    Yields
+    ------
+    # Zeroth order
+    if average_local:
+     * S_0 indexed by (batch, time[log2_T])
+    else:
+     * U_0 indexed by (batch, time)
+
+    # First order
+    for n_fr < len(filters_fr):
+     * Y_1_fr indexed by (batch, n1[n_fr], time[log2_T]), complex-valued,
+         where n1 has been zero-padded to size N_fr before convolution
+
+    # Second order
+    for n2 < len(psi2):
+     for n_fr < len(filters_fr):
+         * Y_2_fr indexed by (batch, n1[n_fr], time[n2]), complex-valued,
+             where n1 has been zero-padded to size N_fr before convolution
+
+    Definitions
+    -----------
+    U_0(t) = x(t)
+    S_0(t) = (x * phi)(t)
+    U_1{n1}(t) = |x * psi_{n1}|(t)
+    S_1(n1, t) = (U_1 * phi)(t), conv. over t, broadcast over n1
+    Y_1_fr{n_fr}(t, n1) = (S_1*psi_{n_fr})(t[log2_T], n1[n_fr]),
+     conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    Y_2{n2}(t, n1) = (U_1 * psi_{n2})(t[j2], n2),
+     conv. over t, broadcast over n1
+    Y_2_fr{n2,n_fr}(t, n1) = (Y_2*psi_{n_fr})(t[j2], n1[j_fr]),
+     conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    """
+    time_gen = time_scattering_widthfirst(U_0, backend, filters, oversampling, average_local)
+    yield next(time_gen)
+    S_1 = next(time_gen)
+    yield from frequency_scattering(S_1, backend, filters_fr, oversampling_fr, average_local_fr, spinned=False)
+    for Y_2 in time_gen:
+        yield from frequency_scattering(Y_2, backend, filters_fr, oversampling_fr, average_local_fr, spinned=True)
+
+
+def frequency_averaging(U_2, backend, phi_fr_f, oversampling_fr, average_fr):
+    """
+    Parameters
+    ----------
+    U_2 : dictionary with keys 'coef' and 'j_fr', typically returned by
+        frequency_scattering or time_averaging
+    backend : module
+    phi_fr_f : dictionary. Frequential low-pass filter in Fourier domain.
+    oversampling_fr : int >=0
+        Yields joint time-frequency scattering coefficients with a frequential
+        stride max(1, 2**(log2_F-oversampling_fr)). Raising oversampling_fr
+        by one halves the stride, until reaching a stride of 1.
+    average_fr : string
+        Either 'local', 'global', or False.
+
+    Returns
+    -------
+    if average_fr == 'local':
+        * S_2{n2,n_fr} indexed by (batch, n1[log2_F], time[j2])
+    if average_fr == 'global':
+        * S_2{n2,n_fr} indexed by (batch, 1, time[j2])
+    if average_fr == False:
+        * S_2{n2,n_fr} indexed by (batch, n1[j_fr], time[j2])
+
+    Definitions
+    -----------
+    U_0(t) = x(t)
+    S_0(t) = (x * phi)(t)
+    U_1{n1}(t) = |x * psi_{n1}|(t)
+    S_1(n1, t) = (U_1 * phi)(t), conv. over t, broadcast over n1
+    Y_1_fr{n_fr}(t, n1) = (S_1*psi_{n_fr})(t[log2_T], n1[n_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    Y_2{n2}(t, n1) = (U_1 * psi_{n2})(t[j2], n2),
+        conv. over t, broadcast over n1
+    Y_2_fr{n2,n_fr}(t, n1) = (Y_2*psi_{n_fr})(t[j2], n1[j_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    U_2{n2,n_fr}(t, n1) = |Y_2_fr{n2,n_fr}|(t[j2], n1[j_fr])
+    """
+    if average_fr:
+        log2_F = phi_fr_f['j']
+        U_2_T = backend.swap_time_frequency(U_2['coef'])
+        if average_fr == 'global':
+            S_2_T = backend.average_global(U_2_T)
+            n1_stride = U_2['n1_max']
+        elif average_fr == 'local':
+            k_in = min(U_2['j_fr'][-1], log2_F)
+            k_J = max(log2_F - k_in - oversampling_fr, 0)
+            U_hat = backend.rfft(U_2_T)
+            S_c = backend.cdgmm(U_hat, phi_fr_f['levels'][k_in])
+            S_hat = backend.subsample_fourier(S_c, 2 ** k_J)
+            S_2_T = backend.irfft(S_hat)
+            n1_stride = 2 ** max(log2_F - oversampling_fr, 0)
+        S_2 = backend.swap_time_frequency(S_2_T)
+        return {**U_2, 'coef': S_2, 'n1_stride': n1_stride}
+    elif not average_fr:
+        n1_stride = 2 ** max(U_2['j_fr'][-1] - oversampling_fr, 0)
+        return {**U_2, 'n1_stride': n1_stride}
+
+
+def time_averaging(U_2, backend, phi_f, oversampling):
+    """
+    Parameters
+    ----------
+    U_2 : dictionary with keys 'coef' and 'j', typically returned by
+        frequency_scattering
+    backend : module
+    phi_f : dictionary. Temporal low-pass filter in Fourier domain,
+        same as scattering1d
+    oversampling : int >=0
+        Yields scattering coefficients with a temporal stride equal to
+        max(1, 2**(log2_T-oversampling)). Hence, raising oversampling by
+        one unit halves the stride, until reaching a stride of 1.
+
+    Returns
+    -------
+    S_2{n2,n_fr} indexed by (batch, n1[n_fr], time[log2_T])
+
+    Definitions
+    -----------
+    U_0(t) = x(t)
+    S_0(t) = (x * phi)(t)
+    U_1{n1}(t) = |x * psi_{n1}|(t)
+    S_1(n1, t) = (U_1 * phi)(t), conv. over t, broadcast over n1
+    Y_1_fr{n_fr}(t, n1) = (S_1*psi_{n_fr})(t[log2_T], n1[n_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    Y_2{n2}(t, n1) = (U_1 * psi_{n2})(t[j2], n2),
+        conv. over t, broadcast over n1
+    Y_2_fr{n2,n_fr}(t, n1) = (Y_2*psi_{n_fr})(t[j2], n1[j_fr]),
+        conv. over n1, broadcast over t, n1 zero-padded up to N_fr
+    U_2{n2,n_fr}(t, n1) = |Y_2_fr{n2,n_fr}|(t, n1)
+    """
+    log2_T = phi_f['j']
+    k_in = U_2['j'][-1]
+    k_J = max(log2_T - k_in - oversampling, 0)
+    U_hat = backend.rfft(U_2['coef'])
+    S_c = backend.cdgmm(U_hat, phi_f['levels'][k_in])
+    S_hat = backend.subsample_fourier(S_c, 2 ** k_J)
+    S_2 = backend.irfft(S_hat)
+    return {**U_2, 'coef': S_2}
+
+
+def time_formatting(path, backend):
+    if path['coef'] is None:
+        coef_list = [None] * (1 + path['n1_max'] // path['n1_stride'])
+    else:
+        coef_list = backend.split_frequency_axis(path['coef'])
+    for i, n1 in enumerate(range(0, path['n1_max'], path['n1_stride'])):
+        split_path = {**path, 'coef': coef_list[i], 'order': len(path['n']) - 1}
+        split_path['n'] = (n1,) + split_path['n']
+        del split_path['n1_max']
+        del split_path['n1_stride']
+        yield split_path
+
+
+def jtfs_average_and_format(U_gen, backend, phi_f, oversampling, average, phi_fr_f, oversampling_fr, average_fr, out_type, format):
+    path = next(U_gen)
+    log2_T = phi_f['j']
+    if average == 'global':
+        path['coef'] = backend.average_global(path['coef'])
+    yield {**path, 'order': 0}
+    for path in U_gen:
+        path['coef'] = backend.modulus(path['coef'])
+        if average == 'global':
+            path['coef'] = backend.average_global(path['coef'])
+        elif average == 'local' and len(path['n']) > 1:
+            path = time_averaging(path, backend, phi_f, oversampling)
+        if average_fr and not path['spin'] == 0:
+            path = frequency_averaging(path, backend, phi_fr_f, oversampling_fr, average_fr)
+        if not (out_type == 'array' and format == 'joint'):
+            path['coef'] = backend.unpad_frequency(path['coef'], path['n1_max'], path['n1_stride'])
+        if format == 'joint':
+            yield {**path, 'order': len(path['n'])}
+        elif format == 'time':
+            yield from time_formatting(path, backend)
+
+
+def spin(filterbank_fn, filterbank_kwargs):
+
+    def spinned_fn(J, Q, **kwargs):
+        yield from filterbank_fn(J, Q, **kwargs)
+        for xi, sigma in filterbank_fn(J, Q, **kwargs):
+            yield -xi, sigma
+    return spinned_fn, filterbank_kwargs
+
+
+class TimeFrequencyScatteringBase(ScatteringBase1D):
+
+    def __init__(self, *, J, J_fr, shape, Q, T=None, oversampling=0, Q_fr=1, F=None, oversampling_fr=0, out_type='array', format='joint', backend=None):
+        max_order = 2
+        super(TimeFrequencyScatteringBase, self).__init__(J, shape, Q, T, max_order, oversampling, out_type, backend)
+        self.J_fr = J_fr
+        self.Q_fr = Q_fr
+        self.F = F
+        self.oversampling_fr = oversampling_fr
+        self.format = format
+
+    def build(self):
+        super(TimeFrequencyScatteringBase, self).build()
+        super(TimeFrequencyScatteringBase, self).create_filters()
+        if np.any(np.array(self.Q_fr) < 1):
+            raise ValueError('Q_fr must be >= 1, got {}'.format(self.Q_fr))
+        if isinstance(self.Q_fr, int):
+            self.Q_fr = self.Q_fr,
+        elif isinstance(self.Q_fr, tuple):
+            if len(self.Q_fr) != 1:
+                raise NotImplementedError('Q_fr must be an integer or 1-tuple. Time-frequency scattering beyond order 2 is not implemented.')
         else:
-            size_scattering = 0
-        S = scattering1d(x, self.backend.pad, self.backend.unpad, self.backend, self.J, self.psi1_f, self.psi2_f, self.phi_f, max_order=self.max_order, average=self.average, pad_left=self.pad_left, pad_right=self.pad_right, ind_start=self.ind_start, ind_end=self.ind_end, oversampling=self.oversampling, vectorize=self.vectorize, size_scattering=size_scattering, out_type=self.out_type)
-        if self.out_type == 'array' and self.vectorize:
-            scattering_shape = S.shape[-2:]
-            new_shape = batch_shape + scattering_shape
-            S = S.reshape(new_shape)
-        elif self.out_type == 'array' and not self.vectorize:
-            for k, v in S.items():
-                scattering_shape = v.shape[-2:]
-                new_shape = batch_shape + scattering_shape
-                S[k] = v.reshape(new_shape)
+            raise ValueError('Q_fr must be an integer or 1-tuple.')
+        N_input_fr = len(self.psi1_f)
+        self.F, self.average_fr = parse_T(self.F, self.J_fr, N_input_fr, T_alias='F')
+        self.log2_F = math.floor(math.log2(self.F))
+        min_to_pad_fr = 8 * min(self.F, 2 ** self.J_fr)
+        K_fr = max(self.J_fr - self.oversampling_fr, 0)
+        N_padded_fr_subsampled = (N_input_fr + min_to_pad_fr) // 2 ** K_fr
+        self._N_padded_fr = N_padded_fr_subsampled * 2 ** K_fr
+
+    def create_filters(self):
+        phi0_fr_f, = scattering_filter_factory(self._N_padded_fr, self.J_fr, (), self.F, self.filterbank_fr)
+        phi1_fr_f, psis_fr_f = scattering_filter_factory(self._N_padded_fr, self.J_fr, self.Q_fr, 2 ** self.J_fr, self.filterbank_fr)
+        self.filters_fr = phi0_fr_f, [phi1_fr_f] + psis_fr_f
+        assert all(abs(psi1['xi']) < 0.5 / 2 ** psi1['j'] for psi1 in psis_fr_f)
+
+    def scattering(self, x):
+        TimeFrequencyScatteringBase._check_runtime_args(self)
+        TimeFrequencyScatteringBase._check_input(self, x)
+        x_shape = self.backend.shape(x)
+        batch_shape, signal_shape = x_shape[:-1], x_shape[-1:]
+        x = self.backend.reshape_input(x, signal_shape)
+        U_0 = self.backend.pad(x, pad_left=self.pad_left, pad_right=self.pad_right)
+        filters = [self.phi_f, self.psi1_f, self.psi2_f]
+        U_gen = joint_timefrequency_scattering(U_0, self.backend, filters, self.oversampling, self.average == 'local', self.filters_fr, self.oversampling_fr, self.average_fr == 'local')
+        S_gen = jtfs_average_and_format(U_gen, self.backend, self.phi_f, self.oversampling, self.average, self.filters_fr[0], self.oversampling_fr, self.average_fr, self.out_type, self.format)
+        path = next(S_gen)
+        if not self.average == 'global':
+            res = self.log2_T if self.average else 0
+            path['coef'] = self.backend.unpad(path['coef'], self.ind_start[res], self.ind_end[res])
+        path['coef'] = self.backend.reshape_output(path['coef'], batch_shape, n_kept_dims=1)
+        S = [path]
+        for path in S_gen:
+            if not self.average == 'global':
+                if not self.average and len(path['n']) > 1:
+                    res = max(path['j'][-1] - self.oversampling, 0)
+                else:
+                    res = max(self.log2_T - self.oversampling, 0)
+                path['coef'] = self.backend.unpad(path['coef'], self.ind_start[res], self.ind_end[res])
+            path['coef'] = self.backend.reshape_output(path['coef'], batch_shape, n_kept_dims=1 + (self.format == 'joint'))
+            S.append(path)
+        if self.format == 'joint' and self.out_type == 'array':
+            S = S[1:]
+            return self.backend.concatenate([path['coef'] for path in S], dim=-3)
+        elif self.format == 'time' and self.out_type == 'array':
+            return self.backend.concatenate([path['coef'] for path in S], dim=-2)
+        elif self.out_type == 'dict':
+            return {path['n']: path['coef'] for path in S}
         elif self.out_type == 'list':
-            for x in S:
-                scattering_shape = x['coef'].shape[-1:]
-                new_shape = batch_shape + scattering_shape
-                x['coef'] = x['coef'].reshape(new_shape)
-        return S
+            return S
+
+    def meta(self):
+        filters = [self.phi_f, self.psi1_f, self.psi2_f]
+        U_gen = joint_timefrequency_scattering(None, self._DryBackend(), filters, self.oversampling, self.average == 'local', self.filters_fr, self.oversampling_fr, self.average_fr == 'local')
+        S_gen = jtfs_average_and_format(U_gen, self._DryBackend(), self.phi_f, self.oversampling, self.average, self.filters_fr[0], self.oversampling_fr, self.average_fr, self.out_type, self.format)
+        S = sorted(list(S_gen), key=lambda path: (len(path['n']), path['n']))
+        meta = dict(key=[path['n'] for path in S], n=[], n_fr=[], order=[])
+        for path in S:
+            if len(path['n']) == 0:
+                if not (self.format == 'joint' and self.out_type == 'array'):
+                    meta['n'].append([np.nan, np.nan])
+                    meta['n_fr'].append(np.nan)
+                    meta['order'].append(0)
+            else:
+                if len(path['n']) == 1:
+                    n1_range = range(0, path['n1_max'], path['n1_stride'])
+                    meta['n'].append([n1_range, np.nan])
+                elif len(path['n']) == 2 and self.format == 'joint':
+                    n1_range = range(0, path['n1_max'], path['n1_stride'])
+                    meta['n'].append([n1_range, path['n'][0]])
+                elif len(path['n']) == 2 and self.format == 'time':
+                    meta['n'].append([path['n'][0], np.nan])
+                elif len(path['n']) == 3 and self.format == 'time':
+                    meta['n'].append(path['n'][:2])
+                meta['n_fr'].append(path['n_fr'][0])
+                meta['order'].append(len(path['n']) - (self.format == 'time'))
+        meta['n'] = np.array(meta['n'], dtype=object)
+        meta['n_fr'] = np.array(meta['n_fr'])
+        meta['order'] = np.array(meta['order'])
+        for key in ['xi', 'sigma', 'j']:
+            meta[key] = np.zeros((meta['n_fr'].shape[0], 2)) * np.nan
+            for order, filterbank in enumerate(filters[1:]):
+                for n, psi in enumerate(filterbank):
+                    meta[key][meta['n'][:, order] == n, order] = psi[key]
+            meta[key + '_fr'] = meta['n_fr'] * np.nan
+            for n_fr, psi_fr in enumerate(self.filters_fr[1]):
+                meta[key + '_fr'][meta['n_fr'] == n_fr] = psi_fr[key]
+        meta['spin'] = np.sign(meta['xi_fr'])
+        return meta
+
+    def _check_runtime_args(self):
+        super(TimeFrequencyScatteringBase, self)._check_runtime_args()
+        if self.format == 'joint':
+            if not self.average_fr and self.out_type == 'array':
+                raise ValueError("Cannot convert to format='joint' with out_type='array' and F=0. Either set format='time', out_type='dict', or out_type='list'.")
+        if self.oversampling_fr < 0:
+            raise ValueError('oversampling_fr must be nonnegative. Got: {}'.format(self.oversampling_fr))
+        if not isinstance(self.oversampling_fr, numbers.Integral):
+            raise ValueError('oversampling_fr must be integer. Got: {}'.format(self.oversampling_fr))
+        if self.format not in ['time', 'joint']:
+            raise ValueError("format must be 'time' or 'joint'. Got: {}".format(self.format))
+
+    @property
+    def filterbank_fr(self):
+        filterbank_kwargs = {'alpha': self.alpha, 'r_psi': self.r_psi, 'sigma0': self.sigma0}
+        return spin(anden_generator, filterbank_kwargs)
 
 
-def fft2(x):
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', FutureWarning)
-        return scipy.fftpack.fft2(x)
+class TimeFrequencyScatteringTorch(ScatteringTorch1D, TimeFrequencyScatteringBase):
+
+    def __init__(self, *, J, J_fr, shape, Q, T=None, oversampling=0, Q_fr=1, F=None, oversampling_fr=0, out_type='array', format='joint', backend='torch'):
+        ScatteringTorch.__init__(self)
+        TimeFrequencyScatteringBase.__init__(self, J=J, J_fr=J_fr, shape=shape, Q=Q, T=T, oversampling=oversampling, Q_fr=Q_fr, F=F, oversampling_fr=oversampling_fr, out_type=out_type, format=format, backend=backend)
+        ScatteringBase1D._instantiate_backend(self, 'kymatio.scattering1d.backend.')
+        TimeFrequencyScatteringBase.build(self)
+        TimeFrequencyScatteringBase.create_filters(self)
+        self.register_filters()
+
+    def register_filters(self):
+        n = super(TimeFrequencyScatteringTorch, self).register_filters()
+        for level in range(len(self.filters_fr[0]['levels'])):
+            self.filters_fr[0]['levels'][level] = torch.from_numpy(self.filters_fr[0]['levels'][level]).float().view(-1, 1)
+            self.register_buffer('tensor' + str(n), self.filters_fr[0]['levels'][level])
+            n += 1
+        for psi_f in self.filters_fr[1]:
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = torch.from_numpy(psi_f['levels'][level]).float().view(-1, 1)
+                self.register_buffer('tensor' + str(n), psi_f['levels'][level])
+                n += 1
+
+    def load_filters(self):
+        buffer_dict = dict(self.named_buffers())
+        n = super(TimeFrequencyScatteringTorch, self).load_filters()
+        for level in range(len(self.filters_fr[0]['levels'])):
+            self.filters_fr[0]['levels'][level] = buffer_dict['tensor' + str(n)]
+            n += 1
+        for psi_f in self.filters_fr[1]:
+            for level in range(len(psi_f['levels'])):
+                psi_f['levels'][level] = buffer_dict['tensor' + str(n)]
+                n += 1
 
 
 def gabor_2d(M, N, sigma, theta, xi, slant=1.0, offset=0):
@@ -2024,24 +2168,19 @@ def filter_bank(M, N, J, L=8):
     filters['psi'] = []
     for j in range(J):
         for theta in range(L):
-            psi = {}
-            psi['j'] = j
-            psi['theta'] = theta
+            psi = {'levels': [], 'j': j, 'theta': theta}
             psi_signal = morlet_2d(M, N, 0.8 * 2 ** j, (int(L - L / 2 - 1) - theta) * np.pi / L, 3.0 / 4.0 * np.pi / 2 ** j, 4.0 / L)
-            psi_signal_fourier = fft2(psi_signal)
-            psi_signal_fourier = np.real(psi_signal_fourier)
+            psi_signal_fourier = np.real(fft2(psi_signal))
+            psi_levels = []
             for res in range(min(j + 1, max(J - 1, 1))):
-                psi_signal_fourier_res = periodize_filter_fft(psi_signal_fourier, res)
-                psi[res] = psi_signal_fourier_res
+                psi_levels.append(periodize_filter_fft(psi_signal_fourier, res))
+            psi['levels'] = psi_levels
             filters['psi'].append(psi)
-    filters['phi'] = {}
     phi_signal = gabor_2d(M, N, 0.8 * 2 ** (J - 1), 0, 0)
-    phi_signal_fourier = fft2(phi_signal)
-    phi_signal_fourier = np.real(phi_signal_fourier)
-    filters['phi']['j'] = J
+    phi_signal_fourier = np.real(fft2(phi_signal))
+    filters['phi'] = {'levels': [], 'j': J}
     for res in range(J):
-        phi_signal_fourier_res = periodize_filter_fft(phi_signal_fourier, res)
-        filters['phi'][res] = phi_signal_fourier_res
+        filters['phi']['levels'].append(periodize_filter_fft(phi_signal_fourier, res))
     return filters
 
 
@@ -2058,16 +2197,33 @@ class ScatteringBase2D(ScatteringBase):
         self.out_type = out_type
 
     def build(self):
-        self.M, self.N = self.shape
-        if 2 ** self.J > self.M or 2 ** self.J > self.N:
+        M, N = self.shape
+        if 2 ** self.J > M or 2 ** self.J > N:
             raise RuntimeError('The smallest dimension should be larger than 2^J.')
-        self.M_padded, self.N_padded = compute_padding(self.M, self.N, self.J)
-        self.pad = self.backend.Pad([(self.M_padded - self.M) // 2, (self.M_padded - self.M + 1) // 2, (self.N_padded - self.N) // 2, (self.N_padded - self.N + 1) // 2], [self.M, self.N], pre_pad=self.pre_pad)
+        self._M_padded, self._N_padded = compute_padding(M, N, self.J)
+        if not self.pre_pad:
+            self.pad = self.backend.Pad([(self._M_padded - M) // 2, (self._M_padded - M + 1) // 2, (self._N_padded - N) // 2, (self._N_padded - N + 1) // 2], [M, N])
+        else:
+            self.pad = lambda x: x
         self.unpad = self.backend.unpad
 
     def create_filters(self):
-        filters = filter_bank(self.M_padded, self.N_padded, self.J, self.L)
+        filters = filter_bank(self._M_padded, self._N_padded, self.J, self.L)
         self.phi, self.psi = filters['phi'], filters['psi']
+
+    def scattering(self, x):
+        """ This function should call the functional scattering."""
+        raise NotImplementedError
+
+    @property
+    def M(self):
+        warn('The attribute M is deprecated and will be removed in v0.4. Replace by shape[0].', DeprecationWarning)
+        return int(self.shape[0])
+
+    @property
+    def N(self):
+        warn('The attribute N is deprecated and will be removed in v0.4. Replace by shape[1].', DeprecationWarning)
+        return int(self.shape[1])
     _doc_shape = 'M, N'
     _doc_instantiation_shape = {(True): 'S = Scattering2D(J, (M, N))', (False): 'S = Scattering2D(J)'}
     _doc_param_shape = """shape : tuple of ints
@@ -2218,31 +2374,33 @@ class ScatteringBase2D(ScatteringBase):
 def scattering2d(x, pad, unpad, backend, J, L, phi, psi, max_order, out_type='array'):
     subsample_fourier = backend.subsample_fourier
     modulus = backend.modulus
-    fft = backend.fft
+    rfft = backend.rfft
+    ifft = backend.ifft
+    irfft = backend.irfft
     cdgmm = backend.cdgmm
     concatenate = backend.concatenate
     out_S_0, out_S_1, out_S_2 = [], [], []
     U_r = pad(x)
-    U_0_c = fft(U_r, 'C2C')
-    U_1_c = cdgmm(U_0_c, phi[0])
+    U_0_c = rfft(U_r)
+    U_1_c = cdgmm(U_0_c, phi['levels'][0])
     U_1_c = subsample_fourier(U_1_c, k=2 ** J)
-    S_0 = fft(U_1_c, 'C2R', inverse=True)
+    S_0 = irfft(U_1_c)
     S_0 = unpad(S_0)
-    out_S_0.append({'coef': S_0, 'j': (), 'theta': ()})
+    out_S_0.append({'coef': S_0, 'j': (), 'n': (), 'theta': ()})
     for n1 in range(len(psi)):
         j1 = psi[n1]['j']
         theta1 = psi[n1]['theta']
-        U_1_c = cdgmm(U_0_c, psi[n1][0])
+        U_1_c = cdgmm(U_0_c, psi[n1]['levels'][0])
         if j1 > 0:
             U_1_c = subsample_fourier(U_1_c, k=2 ** j1)
-        U_1_c = fft(U_1_c, 'C2C', inverse=True)
+        U_1_c = ifft(U_1_c)
         U_1_c = modulus(U_1_c)
-        U_1_c = fft(U_1_c, 'C2C')
-        S_1_c = cdgmm(U_1_c, phi[j1])
+        U_1_c = rfft(U_1_c)
+        S_1_c = cdgmm(U_1_c, phi['levels'][j1])
         S_1_c = subsample_fourier(S_1_c, k=2 ** (J - j1))
-        S_1_r = fft(S_1_c, 'C2R', inverse=True)
+        S_1_r = irfft(S_1_c)
         S_1_r = unpad(S_1_r)
-        out_S_1.append({'coef': S_1_r, 'j': (j1,), 'theta': (theta1,)})
+        out_S_1.append({'coef': S_1_r, 'j': (j1,), 'n': (n1,), 'theta': (theta1,)})
         if max_order < 2:
             continue
         for n2 in range(len(psi)):
@@ -2250,16 +2408,16 @@ def scattering2d(x, pad, unpad, backend, J, L, phi, psi, max_order, out_type='ar
             theta2 = psi[n2]['theta']
             if j2 <= j1:
                 continue
-            U_2_c = cdgmm(U_1_c, psi[n2][j1])
+            U_2_c = cdgmm(U_1_c, psi[n2]['levels'][j1])
             U_2_c = subsample_fourier(U_2_c, k=2 ** (j2 - j1))
-            U_2_c = fft(U_2_c, 'C2C', inverse=True)
+            U_2_c = ifft(U_2_c)
             U_2_c = modulus(U_2_c)
-            U_2_c = fft(U_2_c, 'C2C')
-            S_2_c = cdgmm(U_2_c, phi[j2])
+            U_2_c = rfft(U_2_c)
+            S_2_c = cdgmm(U_2_c, phi['levels'][j2])
             S_2_c = subsample_fourier(S_2_c, k=2 ** (J - j2))
-            S_2_r = fft(S_2_c, 'C2R', inverse=True)
+            S_2_r = irfft(S_2_c)
             S_2_r = unpad(S_2_r)
-            out_S_2.append({'coef': S_2_r, 'j': (j1, j2), 'theta': (theta1, theta2)})
+            out_S_2.append({'coef': S_2_r, 'j': (j1, j2), 'n': (n1, n2), 'theta': (theta1, theta2)})
     out_S = []
     out_S.extend(out_S_0)
     out_S.extend(out_S_1)
@@ -2277,6 +2435,8 @@ class ScatteringTorch2D(ScatteringTorch, ScatteringBase2D):
         ScatteringBase2D._instantiate_backend(self, 'kymatio.scattering2d.backend.')
         ScatteringBase2D.build(self)
         ScatteringBase2D.create_filters(self)
+        if pre_pad:
+            self.pad = lambda x: x.reshape(x.shape + (1,))
         self.register_filters()
 
     def register_single_filter(self, v, n):
@@ -2289,16 +2449,12 @@ class ScatteringTorch2D(ScatteringTorch, ScatteringBase2D):
             will create the filters as numpy array, and then, it
             saves those arrays as module's buffers."""
         n = 0
-        for c, phi in self.phi.items():
-            if not isinstance(c, int):
-                continue
-            self.phi[c] = self.register_single_filter(phi, n)
+        for phi_level in self.phi['levels']:
+            self.register_single_filter(phi_level, n)
             n = n + 1
-        for j in range(len(self.psi)):
-            for k, v in self.psi[j].items():
-                if not isinstance(k, int):
-                    continue
-                self.psi[j][k] = self.register_single_filter(v, n)
+        for psi in self.psi:
+            for psi_level in psi['levels']:
+                self.register_single_filter(psi_level, n)
                 n = n + 1
 
     def load_single_filter(self, n, buffer_dict):
@@ -2308,18 +2464,17 @@ class ScatteringTorch2D(ScatteringTorch, ScatteringBase2D):
         """ This function loads filters from the module's buffers """
         buffer_dict = dict(self.named_buffers())
         n = 0
-        phis = self.phi
-        for c, phi in phis.items():
-            if not isinstance(c, int):
-                continue
-            phis[c] = self.load_single_filter(n, buffer_dict)
+        phis = {k: v for k, v in self.phi.items() if k != 'levels'}
+        phis['levels'] = []
+        for phi_level in self.phi['levels']:
+            phis['levels'].append(self.load_single_filter(n, buffer_dict))
             n = n + 1
-        psis = self.psi
-        for j in range(len(psis)):
-            for k, v in psis[j].items():
-                if not isinstance(k, int):
-                    continue
-                psis[j][k] = self.load_single_filter(n, buffer_dict)
+        psis = [{} for _ in range(len(self.psi))]
+        for j in range(len(self.psi)):
+            psis[j] = {k: v for k, v in self.psi[j].items() if k != 'levels'}
+            psis[j]['levels'] = []
+            for psi_level in self.psi[j]['levels']:
+                psis[j]['levels'].append(self.load_single_filter(n, buffer_dict))
                 n = n + 1
         return phis, psis
 
@@ -2330,10 +2485,10 @@ class ScatteringTorch2D(ScatteringTorch, ScatteringBase2D):
             raise RuntimeError('Input tensor must have at least two dimensions.')
         if not input.is_contiguous():
             raise RuntimeError('Tensor must be contiguous.')
-        if (input.shape[-1] != self.N or input.shape[-2] != self.M) and not self.pre_pad:
-            raise RuntimeError('Tensor must be of spatial size (%i,%i).' % (self.M, self.N))
-        if (input.shape[-1] != self.N_padded or input.shape[-2] != self.M_padded) and self.pre_pad:
-            raise RuntimeError('Padded tensor must be of spatial size (%i,%i).' % (self.M_padded, self.N_padded))
+        if (input.shape[-1] != self.shape[-1] or input.shape[-2] != self.shape[-2]) and not self.pre_pad:
+            raise RuntimeError('Tensor must be of spatial size (%i,%i).' % (self.shape[0], self.shape[1]))
+        if (input.shape[-1] != self._N_padded or input.shape[-2] != self._M_padded) and self.pre_pad:
+            raise RuntimeError('Padded tensor must be of spatial size (%i,%i).' % (self._M_padded, self._N_padded))
         if not self.out_type in ('array', 'list'):
             raise RuntimeError("The out_type must be one of 'array' or 'list'.")
         phi, psi = self.load_filters()
@@ -2580,6 +2735,10 @@ class ScatteringBase3D(ScatteringBase):
     def create_filters(self):
         self.filters = solid_harmonic_filter_bank(self.M, self.N, self.O, self.J, self.L, self.sigma_0)
         self.gaussian_filters = gaussian_filter_bank(self.M, self.N, self.O, self.J + 1, self.sigma_0)
+
+    def scattering(self, x):
+        """ This function should call the functional scattering."""
+        raise NotImplementedError
     _doc_shape = 'M, N, O'
     _doc_class = """The 3D solid harmonic scattering transform
 
@@ -2675,12 +2834,13 @@ def scattering3d(x, filters, rotation_covariant, L, J, max_order, backend, avera
         first and second order scattering coefficients,
         concatenated along the feature axis
     """
-    fft = backend.fft
+    rfft = backend.rfft
+    ifft = backend.ifft
     cdgmm3d = backend.cdgmm3d
     modulus = backend.modulus
     modulus_rotation = backend.modulus_rotation
     concatenate = backend.concatenate
-    U_0_c = fft(x)
+    U_0_c = rfft(x)
     s_order_1, s_order_2 = [], []
     for l in range(L + 1):
         s_order_1_l, s_order_2_l = [], []
@@ -2689,26 +2849,26 @@ def scattering3d(x, filters, rotation_covariant, L, J, max_order, backend, avera
             if rotation_covariant:
                 for m in range(len(filters[l][j_1])):
                     U_1_c = cdgmm3d(U_0_c, filters[l][j_1][m])
-                    U_1_c = fft(U_1_c, inverse=True)
+                    U_1_c = ifft(U_1_c)
                     U_1_m = modulus_rotation(U_1_c, U_1_m)
             else:
                 U_1_c = cdgmm3d(U_0_c, filters[l][j_1][0])
-                U_1_c = fft(U_1_c, inverse=True)
+                U_1_c = ifft(U_1_c)
                 U_1_m = modulus(U_1_c)
             S_1_l = averaging(U_1_m)
             s_order_1_l.append(S_1_l)
             if max_order > 1:
-                U_1_c = fft(U_1_m)
+                U_1_c = rfft(U_1_m)
                 for j_2 in range(j_1 + 1, J + 1):
                     U_2_m = None
                     if rotation_covariant:
                         for m in range(len(filters[l][j_2])):
                             U_2_c = cdgmm3d(U_1_c, filters[l][j_2][m])
-                            U_2_c = fft(U_2_c, inverse=True)
+                            U_2_c = ifft(U_2_c)
                             U_2_m = modulus_rotation(U_2_c, U_2_m)
                     else:
                         U_2_c = cdgmm3d(U_1_c, filters[l][j_2][0])
-                        U_2_c = fft(U_2_c, inverse=True)
+                        U_2_c = ifft(U_2_c)
                         U_2_m = modulus(U_2_c)
                     S_2_l = averaging(U_2_m)
                     s_order_2_l.append(S_2_l)
@@ -2758,9 +2918,7 @@ class HarmonicScatteringTorch3D(ScatteringTorch, ScatteringBase3D):
         input_array = input_array.contiguous()
         batch_shape = input_array.shape[:-3]
         signal_shape = input_array.shape[-3:]
-        input_array = input_array.reshape((-1,) + signal_shape)
-        x = input_array.new(input_array.shape + (2,)).fill_(0)
-        x[..., 0] = input_array
+        input_array = input_array.reshape((-1,) + signal_shape + (1,))
         buffer_dict = dict(self.named_buffers())
         for k in range(len(self.filters)):
             self.filters[k] = buffer_dict['tensor' + str(k)]
@@ -2769,7 +2927,7 @@ class HarmonicScatteringTorch3D(ScatteringTorch, ScatteringBase3D):
             raise ValueError('method must be in {}'.format(methods))
         if self.method == 'integral':
             self.averaging = lambda x: self.backend.compute_integrals(x, self.integral_powers)
-        S = scattering3d(x, filters=self.filters, rotation_covariant=self.rotation_covariant, L=self.L, J=self.J, max_order=self.max_order, backend=self.backend, averaging=self.averaging)
+        S = scattering3d(input_array, filters=self.filters, rotation_covariant=self.rotation_covariant, L=self.L, J=self.J, max_order=self.max_order, backend=self.backend, averaging=self.averaging)
         scattering_shape = S.shape[1:]
         S = S.reshape(batch_shape + scattering_shape)
         return S

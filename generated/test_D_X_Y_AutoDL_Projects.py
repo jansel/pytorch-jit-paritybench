@@ -1,13 +1,6 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-GDAS = _module
-check = _module
-functions = _module
-main = _module
-statistics = _module
-visualize = _module
-xshapes = _module
 BOHB = _module
 ENAS = _module
 GDAS = _module
@@ -15,14 +8,46 @@ RANDOM = _module
 R_EA = _module
 SETN = _module
 reinforce = _module
+check = _module
+functions = _module
+main = _module
+statistics = _module
+visualize = _module
+bohb = _module
+random_wo_share = _module
+regularized_ea = _module
+reinforce = _module
 prepare = _module
-test = _module
+xmain = _module
+main = _module
+meta_model = _module
+meta_model_ablation = _module
+baselines = _module
+organize_results = _module
+workflow_tt = _module
+setup = _module
+test_basic_space = _module
+test_import = _module
+test_loader = _module
+test_math_static = _module
+test_misc_scheduler = _module
+test_super_att = _module
+test_super_container = _module
+test_super_mlp = _module
+test_super_norm = _module
+test_super_rearrange = _module
+test_super_vit = _module
+test_synthetic_env = _module
+test_synthetic_utils = _module
+test_tas = _module
+test_torch_gpu_bugs = _module
+xautodl = _module
 config_utils = _module
+args_utils = _module
 attention_args = _module
 basic_args = _module
 cls_init_args = _module
 cls_kd_args = _module
-configure_utils = _module
 pruning_args = _module
 random_baseline = _module
 search_args = _module
@@ -35,10 +60,19 @@ datasets = _module
 get_dataset_with_transform = _module
 landmark_utils = _module
 point_meta = _module
+math_base_funcs = _module
+math_core = _module
+math_dynamic_funcs = _module
+math_dynamic_generator = _module
+math_static_funcs = _module
+synthetic_core = _module
+synthetic_env = _module
+synthetic_utils = _module
 test_utils = _module
 log_utils = _module
 logger = _module
 meter = _module
+pickle_wrap = _module
 time_utils = _module
 CifarDenseNet = _module
 CifarResNet = _module
@@ -54,6 +88,7 @@ tiny_network = _module
 cell_operations = _module
 cell_searchs = _module
 _test_module = _module
+generic_model = _module
 genotypes = _module
 search_cells = _module
 search_model_darts = _module
@@ -61,6 +96,7 @@ search_model_darts_nasnet = _module
 search_model_enas = _module
 search_model_enas_utils = _module
 search_model_gdas = _module
+search_model_gdas_frc_nasnet = _module
 search_model_gdas_nasnet = _module
 search_model_random = _module
 search_model_setn = _module
@@ -82,9 +118,7 @@ SearchImagenetResNet = _module
 SearchSimResNet_width = _module
 SoftSelect = _module
 shape_searchs = _module
-test = _module
-nas_201_api = _module
-api = _module
+generic_size_tiny_cell_model = _module
 CifarNet = _module
 ImageNet = _module
 DXYs = _module
@@ -94,25 +128,65 @@ head_utils = _module
 nas_infer_model = _module
 operations = _module
 procedures = _module
+advanced_main = _module
 basic_main = _module
+eval_funcs = _module
 funcs_nasbench = _module
+metric_utils = _module
 optimizers = _module
+q_exps = _module
 search_main = _module
 search_main_v2 = _module
 simple_KD_main = _module
 starts = _module
-tf_models = _module
-search_model_darts = _module
-search_model_gdas = _module
-tf_optimizers = _module
-weight_decay_optimizers = _module
+spaces = _module
+basic_op = _module
+basic_space = _module
+trade_models = _module
+naive_v1_model = _module
+naive_v2_model = _module
+quant_transformer = _module
+transformers = _module
 utils = _module
 affine_utils = _module
 evaluation_utils = _module
 flop_benchmark = _module
 gpu_manager = _module
+hash_utils = _module
 nas_utils = _module
+qlib_utils = _module
+str_utils = _module
+temp_sync = _module
 weight_watcher = _module
+xlayers = _module
+misc_utils = _module
+super_activations = _module
+super_attention = _module
+super_attention_v2 = _module
+super_container = _module
+super_core = _module
+super_dropout = _module
+super_linear = _module
+super_module = _module
+super_norm = _module
+super_positional_embedding = _module
+super_rearrange = _module
+super_trade_stem = _module
+super_transformer = _module
+super_utils = _module
+weight_init = _module
+xmisc = _module
+logger_utils = _module
+meter_utils = _module
+module_utils = _module
+sampler_utils = _module
+scheduler_utils = _module
+torch_utils = _module
+yaml_utils = _module
+xmodels = _module
+core = _module
+transformers = _module
+transformers_quantum = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -137,22 +211,28 @@ wraps = functools.wraps
 import time
 
 
-import torch
-
-
 import random
 
 
 from copy import deepcopy
 
 
-import collections
-
-
-from collections import defaultdict
+import torch
 
 
 import numpy as np
+
+
+import torch.nn as nn
+
+
+import collections
+
+
+from torch.distributions import Categorical
+
+
+from collections import defaultdict
 
 
 from collections import OrderedDict
@@ -170,25 +250,43 @@ from typing import Text
 from typing import List
 
 
-import math
-
-
 import matplotlib
 
 
 import matplotlib.pyplot as plt
 
 
-import torch.nn as nn
+import scipy
 
 
-from torch.distributions import Categorical
+import matplotlib.ticker as ticker
+
+
+import re
 
 
 import torchvision
 
 
 import torchvision.datasets as dset
+
+
+import copy
+
+
+from torch.nn import functional as F
+
+
+import torch.nn.functional as F
+
+
+from matplotlib import cm
+
+
+import math
+
+
+import pandas as pd
 
 
 import torch.utils.data as data
@@ -200,13 +298,13 @@ from copy import deepcopy as copy
 import warnings
 
 
-import copy
-
-
 import torchvision.transforms as transforms
 
 
-import torch.nn.functional as F
+import abc
+
+
+from typing import Optional
 
 
 from torch import nn
@@ -215,16 +313,49 @@ from torch import nn
 from torch.distributions.categorical import Categorical
 
 
-from typing import Union
+from typing import Callable
 
 
 from torch.optim import Optimizer
 
 
-import tensorflow as tf
+from typing import Union
+
+
+from functools import partial
+
+
+import torch.optim as optim
+
+
+import torch.utils.data as th_data
 
 
 from sklearn.decomposition import TruncatedSVD
+
+
+from itertools import islice
+
+
+from typing import TypeVar
+
+
+from typing import Iterator
+
+
+from typing import Tuple
+
+
+from enum import Enum
+
+
+import itertools
+
+
+import functools
+
+
+from typing import Sequence
 
 
 class Policy(nn.Module):
@@ -263,6 +394,72 @@ class Policy(nn.Module):
                 xlist.append((op_name, j))
             genotypes.append(tuple(xlist))
         return CellStructure(genotypes)
+
+    def forward(self):
+        alphas = nn.functional.softmax(self.arch_parameters, dim=-1)
+        return alphas
+
+
+class PolicyTopology(nn.Module):
+
+    def __init__(self, search_space, max_nodes=4):
+        super(PolicyTopology, self).__init__()
+        self.max_nodes = max_nodes
+        self.search_space = deepcopy(search_space)
+        self.edge2index = {}
+        for i in range(1, max_nodes):
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                self.edge2index[node_str] = len(self.edge2index)
+        self.arch_parameters = nn.Parameter(0.001 * torch.randn(len(self.edge2index), len(search_space)))
+
+    def generate_arch(self, actions):
+        genotypes = []
+        for i in range(1, self.max_nodes):
+            xlist = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                op_name = self.search_space[actions[self.edge2index[node_str]]]
+                xlist.append((op_name, j))
+            genotypes.append(tuple(xlist))
+        return CellStructure(genotypes)
+
+    def genotype(self):
+        genotypes = []
+        for i in range(1, self.max_nodes):
+            xlist = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                with torch.no_grad():
+                    weights = self.arch_parameters[self.edge2index[node_str]]
+                    op_name = self.search_space[weights.argmax().item()]
+                xlist.append((op_name, j))
+            genotypes.append(tuple(xlist))
+        return CellStructure(genotypes)
+
+    def forward(self):
+        alphas = nn.functional.softmax(self.arch_parameters, dim=-1)
+        return alphas
+
+
+class PolicySize(nn.Module):
+
+    def __init__(self, search_space):
+        super(PolicySize, self).__init__()
+        self.candidates = search_space['candidates']
+        self.numbers = search_space['numbers']
+        self.arch_parameters = nn.Parameter(0.001 * torch.randn(self.numbers, len(self.candidates)))
+
+    def generate_arch(self, actions):
+        channels = [str(self.candidates[i]) for i in actions]
+        return ':'.join(channels)
+
+    def genotype(self):
+        channels = []
+        for i in range(self.numbers):
+            index = self.arch_parameters[i].argmax().item()
+            channels.append(str(self.candidates[index]))
+        return ':'.join(channels)
 
     def forward(self):
         alphas = nn.functional.softmax(self.arch_parameters, dim=-1)
@@ -432,7 +629,7 @@ def ChannelWiseInterV1(inputs, oC):
     for ot in range(oC):
         istartT, iendT = start_index(ot, oC, iC), end_index(ot, oC, iC)
         values = inputs[:, istartT:iendT].mean(dim=1)
-        outputs[:, (ot), :, :] = values
+        outputs[:, ot, :, :] = values
     return outputs
 
 
@@ -792,9 +989,9 @@ class WideBasicblock(nn.Module):
 
 class CifarWideResNet(nn.Module):
     """
-  ResNet optimized for the Cifar dataset, as specified in
-  https://arxiv.org/abs/1512.03385.pdf
-  """
+    ResNet optimized for the Cifar dataset, as specified in
+    https://arxiv.org/abs/1512.03385.pdf
+    """
 
     def __init__(self, depth, widen_factor, num_classes, dropout):
         super(CifarWideResNet, self).__init__()
@@ -1417,17 +1614,20 @@ class PartAwareOp(nn.Module):
 
 class GDAS_Reduction_Cell(nn.Module):
 
-    def __init__(self, C_prev_prev, C_prev, C, reduction_prev, multiplier, affine, track_running_stats):
+    def __init__(self, C_prev_prev, C_prev, C, reduction_prev, affine, track_running_stats):
         super(GDAS_Reduction_Cell, self).__init__()
         if reduction_prev:
             self.preprocess0 = FactorizedReduce(C_prev_prev, C, 2, affine, track_running_stats)
         else:
             self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0, 1, affine, track_running_stats)
         self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, 1, affine, track_running_stats)
-        self.multiplier = multiplier
         self.reduction = True
-        self.ops1 = nn.ModuleList([nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 3), stride=(1, 2), padding=(0, 1), groups=8, bias=False), nn.Conv2d(C, C, (3, 1), stride=(2, 1), padding=(1, 0), groups=8, bias=False), nn.BatchNorm2d(C, affine=True), nn.ReLU(inplace=False), nn.Conv2d(C, C, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C, affine=True)), nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 3), stride=(1, 2), padding=(0, 1), groups=8, bias=False), nn.Conv2d(C, C, (3, 1), stride=(2, 1), padding=(1, 0), groups=8, bias=False), nn.BatchNorm2d(C, affine=True), nn.ReLU(inplace=False), nn.Conv2d(C, C, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C, affine=True))])
-        self.ops2 = nn.ModuleList([nn.Sequential(nn.MaxPool2d(3, stride=1, padding=1), nn.BatchNorm2d(C, affine=True)), nn.Sequential(nn.MaxPool2d(3, stride=2, padding=1), nn.BatchNorm2d(C, affine=True))])
+        self.ops1 = nn.ModuleList([nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 3), stride=(1, 2), padding=(0, 1), groups=8, bias=not affine), nn.Conv2d(C, C, (3, 1), stride=(2, 1), padding=(1, 0), groups=8, bias=not affine), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats), nn.ReLU(inplace=False), nn.Conv2d(C, C, 1, stride=1, padding=0, bias=not affine), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats)), nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 3), stride=(1, 2), padding=(0, 1), groups=8, bias=not affine), nn.Conv2d(C, C, (3, 1), stride=(2, 1), padding=(1, 0), groups=8, bias=not affine), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats), nn.ReLU(inplace=False), nn.Conv2d(C, C, 1, stride=1, padding=0, bias=not affine), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats))])
+        self.ops2 = nn.ModuleList([nn.Sequential(nn.MaxPool2d(3, stride=2, padding=1), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats)), nn.Sequential(nn.MaxPool2d(3, stride=2, padding=1), nn.BatchNorm2d(C, affine=affine, track_running_stats=track_running_stats))])
+
+    @property
+    def multiplier(self):
+        return 4
 
     def forward(self, s0, s1, drop_prob=-1):
         s0 = self.preprocess0(s0)
@@ -1443,109 +1643,43 @@ class GDAS_Reduction_Cell(nn.Module):
         return torch.cat([X0, X1, X2, X3], dim=1)
 
 
-class NAS201SearchCell(nn.Module):
+class Controller(nn.Module):
 
-    def __init__(self, C_in, C_out, stride, max_nodes, op_names, affine=False, track_running_stats=True):
-        super(NAS201SearchCell, self).__init__()
-        self.op_names = deepcopy(op_names)
-        self.edges = nn.ModuleDict()
-        self.max_nodes = max_nodes
-        self.in_dim = C_in
-        self.out_dim = C_out
-        for i in range(1, max_nodes):
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                if j == 0:
-                    xlists = [OPS[op_name](C_in, C_out, stride, affine, track_running_stats) for op_name in op_names]
-                else:
-                    xlists = [OPS[op_name](C_in, C_out, 1, affine, track_running_stats) for op_name in op_names]
-                self.edges[node_str] = nn.ModuleList(xlists)
-        self.edge_keys = sorted(list(self.edges.keys()))
-        self.edge2index = {key: i for i, key in enumerate(self.edge_keys)}
-        self.num_edges = len(self.edges)
+    def __init__(self, num_edge, num_ops, lstm_size=32, lstm_num_layers=2, tanh_constant=2.5, temperature=5.0):
+        super(Controller, self).__init__()
+        self.num_edge = num_edge
+        self.num_ops = num_ops
+        self.lstm_size = lstm_size
+        self.lstm_N = lstm_num_layers
+        self.tanh_constant = tanh_constant
+        self.temperature = temperature
+        self.register_parameter('input_vars', nn.Parameter(torch.Tensor(1, 1, lstm_size)))
+        self.w_lstm = nn.LSTM(input_size=self.lstm_size, hidden_size=self.lstm_size, num_layers=self.lstm_N)
+        self.w_embd = nn.Embedding(self.num_ops, self.lstm_size)
+        self.w_pred = nn.Linear(self.lstm_size, self.num_ops)
+        nn.init.uniform_(self.input_vars, -0.1, 0.1)
+        nn.init.uniform_(self.w_lstm.weight_hh_l0, -0.1, 0.1)
+        nn.init.uniform_(self.w_lstm.weight_ih_l0, -0.1, 0.1)
+        nn.init.uniform_(self.w_embd.weight, -0.1, 0.1)
+        nn.init.uniform_(self.w_pred.weight, -0.1, 0.1)
 
-    def extra_repr(self):
-        string = 'info :: {max_nodes} nodes, inC={in_dim}, outC={out_dim}'.format(**self.__dict__)
-        return string
-
-    def forward(self, inputs, weightss):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            inter_nodes = []
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                weights = weightss[self.edge2index[node_str]]
-                inter_nodes.append(sum(layer(nodes[j]) * w for layer, w in zip(self.edges[node_str], weights)))
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
-
-    def forward_gdas(self, inputs, hardwts, index):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            inter_nodes = []
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                weights = hardwts[self.edge2index[node_str]]
-                argmaxs = index[self.edge2index[node_str]].item()
-                weigsum = sum(weights[_ie] * edge(nodes[j]) if _ie == argmaxs else weights[_ie] for _ie, edge in enumerate(self.edges[node_str]))
-                inter_nodes.append(weigsum)
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
-
-    def forward_joint(self, inputs, weightss):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            inter_nodes = []
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                weights = weightss[self.edge2index[node_str]]
-                aggregation = sum(layer(nodes[j]) * w for layer, w in zip(self.edges[node_str], weights))
-                inter_nodes.append(aggregation)
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
-
-    def forward_urs(self, inputs):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            while True:
-                sops, has_non_zero = [], False
-                for j in range(i):
-                    node_str = '{:}<-{:}'.format(i, j)
-                    candidates = self.edges[node_str]
-                    select_op = random.choice(candidates)
-                    sops.append(select_op)
-                    if not hasattr(select_op, 'is_zero') or select_op.is_zero is False:
-                        has_non_zero = True
-                if has_non_zero:
-                    break
-            inter_nodes = []
-            for j, select_op in enumerate(sops):
-                inter_nodes.append(select_op(nodes[j]))
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
-
-    def forward_select(self, inputs, weightss):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            inter_nodes = []
-            for j in range(i):
-                node_str = '{:}<-{:}'.format(i, j)
-                weights = weightss[self.edge2index[node_str]]
-                inter_nodes.append(self.edges[node_str][weights.argmax().item()](nodes[j]))
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
-
-    def forward_dynamic(self, inputs, structure):
-        nodes = [inputs]
-        for i in range(1, self.max_nodes):
-            cur_op_node = structure.nodes[i - 1]
-            inter_nodes = []
-            for op_name, j in cur_op_node:
-                node_str = '{:}<-{:}'.format(i, j)
-                op_index = self.op_names.index(op_name)
-                inter_nodes.append(self.edges[node_str][op_index](nodes[j]))
-            nodes.append(sum(inter_nodes))
-        return nodes[-1]
+    def forward(self):
+        inputs, h0 = self.input_vars, None
+        log_probs, entropys, sampled_arch = [], [], []
+        for iedge in range(self.num_edge):
+            outputs, h0 = self.w_lstm(inputs, h0)
+            logits = self.w_pred(outputs)
+            logits = logits / self.temperature
+            logits = self.tanh_constant * torch.tanh(logits)
+            op_distribution = Categorical(logits=logits)
+            op_index = op_distribution.sample()
+            sampled_arch.append(op_index.item())
+            op_log_prob = op_distribution.log_prob(op_index)
+            log_probs.append(op_log_prob.view(-1))
+            op_entropy = op_distribution.entropy()
+            entropys.append(op_entropy.view(-1))
+            inputs = self.w_embd(op_index)
+        return torch.sum(torch.cat(log_probs)), torch.sum(torch.cat(entropys)), sampled_arch
 
 
 class MixedOp(nn.Module):
@@ -1569,61 +1703,6 @@ class MixedOp(nn.Module):
         else:
             op_index = self.name2idx[op_name]
             return self._ops[op_index](x)
-
-
-class NASNetSearchCell(nn.Module):
-
-    def __init__(self, space, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, affine, track_running_stats):
-        super(NASNetSearchCell, self).__init__()
-        self.reduction = reduction
-        self.op_names = deepcopy(space)
-        if reduction_prev:
-            self.preprocess0 = OPS['skip_connect'](C_prev_prev, C, 2, affine, track_running_stats)
-        else:
-            self.preprocess0 = OPS['nor_conv_1x1'](C_prev_prev, C, 1, affine, track_running_stats)
-        self.preprocess1 = OPS['nor_conv_1x1'](C_prev, C, 1, affine, track_running_stats)
-        self._steps = steps
-        self._multiplier = multiplier
-        self._ops = nn.ModuleList()
-        self.edges = nn.ModuleDict()
-        for i in range(self._steps):
-            for j in range(2 + i):
-                node_str = '{:}<-{:}'.format(i, j)
-                stride = 2 if reduction and j < 2 else 1
-                op = MixedOp(space, C, stride, affine, track_running_stats)
-                self.edges[node_str] = op
-        self.edge_keys = sorted(list(self.edges.keys()))
-        self.edge2index = {key: i for i, key in enumerate(self.edge_keys)}
-        self.num_edges = len(self.edges)
-
-    def forward_gdas(self, s0, s1, weightss, indexs):
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
-        states = [s0, s1]
-        for i in range(self._steps):
-            clist = []
-            for j, h in enumerate(states):
-                node_str = '{:}<-{:}'.format(i, j)
-                op = self.edges[node_str]
-                weights = weightss[self.edge2index[node_str]]
-                index = indexs[self.edge2index[node_str]].item()
-                clist.append(op.forward_gdas(h, weights, index))
-            states.append(sum(clist))
-        return torch.cat(states[-self._multiplier:], dim=1)
-
-    def forward_darts(self, s0, s1, weightss):
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
-        states = [s0, s1]
-        for i in range(self._steps):
-            clist = []
-            for j, h in enumerate(states):
-                node_str = '{:}<-{:}'.format(i, j)
-                op = self.edges[node_str]
-                weights = weightss[self.edge2index[node_str]]
-                clist.append(op.forward_darts(h, weights))
-            states.append(sum(clist))
-        return torch.cat(states[-self._multiplier:], dim=1)
 
 
 class SearchCell(nn.Module):
@@ -1819,6 +1898,8 @@ class Structure:
 
     @staticmethod
     def str2structure(xstr):
+        if isinstance(xstr, Structure):
+            return xstr
         assert isinstance(xstr, str), 'must take string (not {:}) as input'.format(type(xstr))
         nodestrs = xstr.split('+')
         genotypes = []
@@ -1868,6 +1949,417 @@ class Structure:
             return all_archs
         else:
             return [Structure(x) for x in all_archs]
+
+
+class GenericNAS201Model(nn.Module):
+
+    def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
+        super(GenericNAS201Model, self).__init__()
+        self._C = C
+        self._layerN = N
+        self._max_nodes = max_nodes
+        self._stem = nn.Sequential(nn.Conv2d(3, C, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(C))
+        layer_channels = [C] * N + [C * 2] + [C * 2] * N + [C * 4] + [C * 4] * N
+        layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
+        C_prev, num_edge, edge2index = C, None, None
+        self._cells = nn.ModuleList()
+        for index, (C_curr, reduction) in enumerate(zip(layer_channels, layer_reductions)):
+            if reduction:
+                cell = ResNetBasicblock(C_prev, C_curr, 2)
+            else:
+                cell = SearchCell(C_prev, C_curr, 1, max_nodes, search_space, affine, track_running_stats)
+                if num_edge is None:
+                    num_edge, edge2index = cell.num_edges, cell.edge2index
+                else:
+                    assert num_edge == cell.num_edges and edge2index == cell.edge2index, 'invalid {:} vs. {:}.'.format(num_edge, cell.num_edges)
+            self._cells.append(cell)
+            C_prev = cell.out_dim
+        self._op_names = deepcopy(search_space)
+        self._Layer = len(self._cells)
+        self.edge2index = edge2index
+        self.lastact = nn.Sequential(nn.BatchNorm2d(C_prev, affine=affine, track_running_stats=track_running_stats), nn.ReLU(inplace=True))
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(C_prev, num_classes)
+        self._num_edge = num_edge
+        self.arch_parameters = nn.Parameter(0.001 * torch.randn(num_edge, len(search_space)))
+        self._mode = None
+        self.dynamic_cell = None
+        self._tau = None
+        self._algo = None
+        self._drop_path = None
+        self.verbose = False
+
+    def set_algo(self, algo: Text):
+        assert self._algo is None, 'This functioin can only be called once.'
+        self._algo = algo
+        if algo == 'enas':
+            self.controller = Controller(self.edge2index, self._op_names, self._max_nodes)
+        else:
+            self.arch_parameters = nn.Parameter(0.001 * torch.randn(self._num_edge, len(self._op_names)))
+            if algo == 'gdas':
+                self._tau = 10
+
+    def set_cal_mode(self, mode, dynamic_cell=None):
+        assert mode in ['gdas', 'enas', 'urs', 'joint', 'select', 'dynamic']
+        self._mode = mode
+        if mode == 'dynamic':
+            self.dynamic_cell = deepcopy(dynamic_cell)
+        else:
+            self.dynamic_cell = None
+
+    def set_drop_path(self, progress, drop_path_rate):
+        if drop_path_rate is None:
+            self._drop_path = None
+        elif progress is None:
+            self._drop_path = drop_path_rate
+        else:
+            self._drop_path = progress * drop_path_rate
+
+    @property
+    def mode(self):
+        return self._mode
+
+    @property
+    def drop_path(self):
+        return self._drop_path
+
+    @property
+    def weights(self):
+        xlist = list(self._stem.parameters())
+        xlist += list(self._cells.parameters())
+        xlist += list(self.lastact.parameters())
+        xlist += list(self.global_pooling.parameters())
+        xlist += list(self.classifier.parameters())
+        return xlist
+
+    def set_tau(self, tau):
+        self._tau = tau
+
+    @property
+    def tau(self):
+        return self._tau
+
+    @property
+    def alphas(self):
+        if self._algo == 'enas':
+            return list(self.controller.parameters())
+        else:
+            return [self.arch_parameters]
+
+    @property
+    def message(self):
+        string = self.extra_repr()
+        for i, cell in enumerate(self._cells):
+            string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self._cells), cell.extra_repr())
+        return string
+
+    def show_alphas(self):
+        with torch.no_grad():
+            if self._algo == 'enas':
+                return 'w_pred :\n{:}'.format(self.controller.w_pred.weight)
+            else:
+                return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
+
+    def extra_repr(self):
+        return '{name}(C={_C}, Max-Nodes={_max_nodes}, N={_layerN}, L={_Layer}, alg={_algo})'.format(name=self.__class__.__name__, **self.__dict__)
+
+    @property
+    def genotype(self):
+        genotypes = []
+        for i in range(1, self._max_nodes):
+            xlist = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                with torch.no_grad():
+                    weights = self.arch_parameters[self.edge2index[node_str]]
+                    op_name = self._op_names[weights.argmax().item()]
+                xlist.append((op_name, j))
+            genotypes.append(tuple(xlist))
+        return Structure(genotypes)
+
+    def dync_genotype(self, use_random=False):
+        genotypes = []
+        with torch.no_grad():
+            alphas_cpu = nn.functional.softmax(self.arch_parameters, dim=-1)
+        for i in range(1, self._max_nodes):
+            xlist = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                if use_random:
+                    op_name = random.choice(self._op_names)
+                else:
+                    weights = alphas_cpu[self.edge2index[node_str]]
+                    op_index = torch.multinomial(weights, 1).item()
+                    op_name = self._op_names[op_index]
+                xlist.append((op_name, j))
+            genotypes.append(tuple(xlist))
+        return Structure(genotypes)
+
+    def get_log_prob(self, arch):
+        with torch.no_grad():
+            logits = nn.functional.log_softmax(self.arch_parameters, dim=-1)
+        select_logits = []
+        for i, node_info in enumerate(arch.nodes):
+            for op, xin in node_info:
+                node_str = '{:}<-{:}'.format(i + 1, xin)
+                op_index = self._op_names.index(op)
+                select_logits.append(logits[self.edge2index[node_str], op_index])
+        return sum(select_logits).item()
+
+    def return_topK(self, K, use_random=False):
+        archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+        pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+        if K < 0 or K >= len(archs):
+            K = len(archs)
+        if use_random:
+            return random.sample(archs, K)
+        else:
+            sorted_pairs = sorted(pairs, key=lambda x: -x[0])
+            return_pairs = [sorted_pairs[_][1] for _ in range(K)]
+            return return_pairs
+
+    def normalize_archp(self):
+        if self.mode == 'gdas':
+            while True:
+                gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
+                logits = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
+                probs = nn.functional.softmax(logits, dim=1)
+                index = probs.max(-1, keepdim=True)[1]
+                one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
+                hardwts = one_h - probs.detach() + probs
+                if torch.isinf(gumbels).any() or torch.isinf(probs).any() or torch.isnan(probs).any():
+                    continue
+                else:
+                    break
+            with torch.no_grad():
+                hardwts_cpu = hardwts.detach().cpu()
+            return hardwts, hardwts_cpu, index, 'GUMBEL'
+        else:
+            alphas = nn.functional.softmax(self.arch_parameters, dim=-1)
+            index = alphas.max(-1, keepdim=True)[1]
+            with torch.no_grad():
+                alphas_cpu = alphas.detach().cpu()
+            return alphas, alphas_cpu, index, 'SOFTMAX'
+
+    def forward(self, inputs):
+        alphas, alphas_cpu, index, verbose_str = self.normalize_archp()
+        feature = self._stem(inputs)
+        for i, cell in enumerate(self._cells):
+            if isinstance(cell, SearchCell):
+                if self.mode == 'urs':
+                    feature = cell.forward_urs(feature)
+                    if self.verbose:
+                        verbose_str += '-forward_urs'
+                elif self.mode == 'select':
+                    feature = cell.forward_select(feature, alphas_cpu)
+                    if self.verbose:
+                        verbose_str += '-forward_select'
+                elif self.mode == 'joint':
+                    feature = cell.forward_joint(feature, alphas)
+                    if self.verbose:
+                        verbose_str += '-forward_joint'
+                elif self.mode == 'dynamic':
+                    feature = cell.forward_dynamic(feature, self.dynamic_cell)
+                    if self.verbose:
+                        verbose_str += '-forward_dynamic'
+                elif self.mode == 'gdas':
+                    feature = cell.forward_gdas(feature, alphas, index)
+                    if self.verbose:
+                        verbose_str += '-forward_gdas'
+                elif self.mode == 'gdas_v1':
+                    feature = cell.forward_gdas_v1(feature, alphas, index)
+                    if self.verbose:
+                        verbose_str += '-forward_gdas_v1'
+                else:
+                    raise ValueError('invalid mode={:}'.format(self.mode))
+            else:
+                feature = cell(feature)
+            if self.drop_path is not None:
+                feature = drop_path(feature, self.drop_path)
+        if self.verbose and random.random() < 0.001:
+            None
+        out = self.lastact(feature)
+        out = self.global_pooling(out)
+        out = out.view(out.size(0), -1)
+        logits = self.classifier(out)
+        return out, logits
+
+
+class NAS201SearchCell(nn.Module):
+
+    def __init__(self, C_in, C_out, stride, max_nodes, op_names, affine=False, track_running_stats=True):
+        super(NAS201SearchCell, self).__init__()
+        self.op_names = deepcopy(op_names)
+        self.edges = nn.ModuleDict()
+        self.max_nodes = max_nodes
+        self.in_dim = C_in
+        self.out_dim = C_out
+        for i in range(1, max_nodes):
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                if j == 0:
+                    xlists = [OPS[op_name](C_in, C_out, stride, affine, track_running_stats) for op_name in op_names]
+                else:
+                    xlists = [OPS[op_name](C_in, C_out, 1, affine, track_running_stats) for op_name in op_names]
+                self.edges[node_str] = nn.ModuleList(xlists)
+        self.edge_keys = sorted(list(self.edges.keys()))
+        self.edge2index = {key: i for i, key in enumerate(self.edge_keys)}
+        self.num_edges = len(self.edges)
+
+    def extra_repr(self):
+        string = 'info :: {max_nodes} nodes, inC={in_dim}, outC={out_dim}'.format(**self.__dict__)
+        return string
+
+    def forward(self, inputs, weightss):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            inter_nodes = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                weights = weightss[self.edge2index[node_str]]
+                inter_nodes.append(sum(layer(nodes[j]) * w for layer, w in zip(self.edges[node_str], weights)))
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_gdas(self, inputs, hardwts, index):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            inter_nodes = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                weights = hardwts[self.edge2index[node_str]]
+                argmaxs = index[self.edge2index[node_str]].item()
+                weigsum = sum(weights[_ie] * edge(nodes[j]) if _ie == argmaxs else weights[_ie] for _ie, edge in enumerate(self.edges[node_str]))
+                inter_nodes.append(weigsum)
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_gdas_v1(self, inputs, hardwts, index):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            inter_nodes = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                weights = hardwts[self.edge2index[node_str]]
+                argmaxs = index[self.edge2index[node_str]].item()
+                weigsum = weights[argmaxs] * self.edges[node_str](nodes[j])
+                inter_nodes.append(weigsum)
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_joint(self, inputs, weightss):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            inter_nodes = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                weights = weightss[self.edge2index[node_str]]
+                aggregation = sum(layer(nodes[j]) * w for layer, w in zip(self.edges[node_str], weights))
+                inter_nodes.append(aggregation)
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_urs(self, inputs):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            while True:
+                sops, has_non_zero = [], False
+                for j in range(i):
+                    node_str = '{:}<-{:}'.format(i, j)
+                    candidates = self.edges[node_str]
+                    select_op = random.choice(candidates)
+                    sops.append(select_op)
+                    if not hasattr(select_op, 'is_zero') or select_op.is_zero is False:
+                        has_non_zero = True
+                if has_non_zero:
+                    break
+            inter_nodes = []
+            for j, select_op in enumerate(sops):
+                inter_nodes.append(select_op(nodes[j]))
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_select(self, inputs, weightss):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            inter_nodes = []
+            for j in range(i):
+                node_str = '{:}<-{:}'.format(i, j)
+                weights = weightss[self.edge2index[node_str]]
+                inter_nodes.append(self.edges[node_str][weights.argmax().item()](nodes[j]))
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+    def forward_dynamic(self, inputs, structure):
+        nodes = [inputs]
+        for i in range(1, self.max_nodes):
+            cur_op_node = structure.nodes[i - 1]
+            inter_nodes = []
+            for op_name, j in cur_op_node:
+                node_str = '{:}<-{:}'.format(i, j)
+                op_index = self.op_names.index(op_name)
+                inter_nodes.append(self.edges[node_str][op_index](nodes[j]))
+            nodes.append(sum(inter_nodes))
+        return nodes[-1]
+
+
+class NASNetSearchCell(nn.Module):
+
+    def __init__(self, space, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, affine, track_running_stats):
+        super(NASNetSearchCell, self).__init__()
+        self.reduction = reduction
+        self.op_names = deepcopy(space)
+        if reduction_prev:
+            self.preprocess0 = OPS['skip_connect'](C_prev_prev, C, 2, affine, track_running_stats)
+        else:
+            self.preprocess0 = OPS['nor_conv_1x1'](C_prev_prev, C, 1, affine, track_running_stats)
+        self.preprocess1 = OPS['nor_conv_1x1'](C_prev, C, 1, affine, track_running_stats)
+        self._steps = steps
+        self._multiplier = multiplier
+        self._ops = nn.ModuleList()
+        self.edges = nn.ModuleDict()
+        for i in range(self._steps):
+            for j in range(2 + i):
+                node_str = '{:}<-{:}'.format(i, j)
+                stride = 2 if reduction and j < 2 else 1
+                op = MixedOp(space, C, stride, affine, track_running_stats)
+                self.edges[node_str] = op
+        self.edge_keys = sorted(list(self.edges.keys()))
+        self.edge2index = {key: i for i, key in enumerate(self.edge_keys)}
+        self.num_edges = len(self.edges)
+
+    @property
+    def multiplier(self):
+        return self._multiplier
+
+    def forward_gdas(self, s0, s1, weightss, indexs):
+        s0 = self.preprocess0(s0)
+        s1 = self.preprocess1(s1)
+        states = [s0, s1]
+        for i in range(self._steps):
+            clist = []
+            for j, h in enumerate(states):
+                node_str = '{:}<-{:}'.format(i, j)
+                op = self.edges[node_str]
+                weights = weightss[self.edge2index[node_str]]
+                index = indexs[self.edge2index[node_str]].item()
+                clist.append(op.forward_gdas(h, weights, index))
+            states.append(sum(clist))
+        return torch.cat(states[-self._multiplier:], dim=1)
+
+    def forward_darts(self, s0, s1, weightss):
+        s0 = self.preprocess0(s0)
+        s1 = self.preprocess1(s1)
+        states = [s0, s1]
+        for i in range(self._steps):
+            clist = []
+            for j, h in enumerate(states):
+                node_str = '{:}<-{:}'.format(i, j)
+                op = self.edges[node_str]
+                weights = weightss[self.edge2index[node_str]]
+                clist.append(op.forward_darts(h, weights))
+            states.append(sum(clist))
+        return torch.cat(states[-self._multiplier:], dim=1)
 
 
 class TinyNetworkDarts(nn.Module):
@@ -2045,45 +2537,6 @@ class NASNetworkDARTS(nn.Module):
         return out, logits
 
 
-class Controller(nn.Module):
-
-    def __init__(self, num_edge, num_ops, lstm_size=32, lstm_num_layers=2, tanh_constant=2.5, temperature=5.0):
-        super(Controller, self).__init__()
-        self.num_edge = num_edge
-        self.num_ops = num_ops
-        self.lstm_size = lstm_size
-        self.lstm_N = lstm_num_layers
-        self.tanh_constant = tanh_constant
-        self.temperature = temperature
-        self.register_parameter('input_vars', nn.Parameter(torch.Tensor(1, 1, lstm_size)))
-        self.w_lstm = nn.LSTM(input_size=self.lstm_size, hidden_size=self.lstm_size, num_layers=self.lstm_N)
-        self.w_embd = nn.Embedding(self.num_ops, self.lstm_size)
-        self.w_pred = nn.Linear(self.lstm_size, self.num_ops)
-        nn.init.uniform_(self.input_vars, -0.1, 0.1)
-        nn.init.uniform_(self.w_lstm.weight_hh_l0, -0.1, 0.1)
-        nn.init.uniform_(self.w_lstm.weight_ih_l0, -0.1, 0.1)
-        nn.init.uniform_(self.w_embd.weight, -0.1, 0.1)
-        nn.init.uniform_(self.w_pred.weight, -0.1, 0.1)
-
-    def forward(self):
-        inputs, h0 = self.input_vars, None
-        log_probs, entropys, sampled_arch = [], [], []
-        for iedge in range(self.num_edge):
-            outputs, h0 = self.w_lstm(inputs, h0)
-            logits = self.w_pred(outputs)
-            logits = logits / self.temperature
-            logits = self.tanh_constant * torch.tanh(logits)
-            op_distribution = Categorical(logits=logits)
-            op_index = op_distribution.sample()
-            sampled_arch.append(op_index.item())
-            op_log_prob = op_distribution.log_prob(op_index)
-            log_probs.append(op_log_prob.view(-1))
-            op_entropy = op_distribution.entropy()
-            entropys.append(op_entropy.view(-1))
-            inputs = self.w_embd(op_index)
-        return torch.sum(torch.cat(log_probs)), torch.sum(torch.cat(entropys)), sampled_arch
-
-
 class TinyNetworkENAS(nn.Module):
 
     def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
@@ -2161,84 +2614,218 @@ class TinyNetworkENAS(nn.Module):
         return out, logits
 
 
-def sample_gumbel(shape, eps=1e-20):
-    U = tf.random.uniform(shape, minval=0, maxval=1)
-    return -tf.math.log(-tf.math.log(U + eps) + eps)
+class TinyNetworkGDAS(nn.Module):
 
-
-def gumbel_softmax(logits, temperature):
-    gumbel_softmax_sample = logits + sample_gumbel(tf.shape(logits))
-    y = tf.nn.softmax(gumbel_softmax_sample / temperature)
-    return y
-
-
-class TinyNetworkGDAS(tf.keras.Model):
-
-    def __init__(self, C, N, max_nodes, num_classes, search_space, affine):
+    def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
         super(TinyNetworkGDAS, self).__init__()
         self._C = C
         self._layerN = N
         self.max_nodes = max_nodes
-        self.stem = tf.keras.Sequential([tf.keras.layers.Conv2D(16, 3, 1, padding='same', use_bias=False), tf.keras.layers.BatchNormalization()], name='stem')
+        self.stem = nn.Sequential(nn.Conv2d(3, C, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(C))
         layer_channels = [C] * N + [C * 2] + [C * 2] * N + [C * 4] + [C * 4] * N
         layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
         C_prev, num_edge, edge2index = C, None, None
+        self.cells = nn.ModuleList()
         for index, (C_curr, reduction) in enumerate(zip(layer_channels, layer_reductions)):
-            cell_prefix = 'cell-{:03d}'.format(index)
             if reduction:
                 cell = ResNetBasicblock(C_prev, C_curr, 2)
             else:
-                cell = SearchCell(C_prev, C_curr, 1, max_nodes, search_space, affine)
+                cell = SearchCell(C_prev, C_curr, 1, max_nodes, search_space, affine, track_running_stats)
                 if num_edge is None:
                     num_edge, edge2index = cell.num_edges, cell.edge2index
                 else:
                     assert num_edge == cell.num_edges and edge2index == cell.edge2index, 'invalid {:} vs. {:}.'.format(num_edge, cell.num_edges)
+            self.cells.append(cell)
             C_prev = cell.out_dim
-            setattr(self, cell_prefix, cell)
-        self.num_layers = len(layer_reductions)
         self.op_names = deepcopy(search_space)
+        self._Layer = len(self.cells)
         self.edge2index = edge2index
-        self.num_edge = num_edge
-        self.lastact = tf.keras.Sequential([tf.keras.layers.BatchNormalization(), tf.keras.layers.ReLU(), tf.keras.layers.GlobalAvgPool2D(), tf.keras.layers.Flatten(), tf.keras.layers.Dense(num_classes, activation='softmax')], name='lastact')
-        arch_init = tf.random_normal_initializer(mean=0, stddev=0.001)
-        self.arch_parameters = tf.Variable(initial_value=arch_init(shape=(num_edge, len(search_space)), dtype='float32'), trainable=True, name='arch-encoding')
-
-    def get_alphas(self):
-        xlist = self.trainable_variables
-        return [x for x in xlist if 'arch-encoding' in x.name]
+        self.lastact = nn.Sequential(nn.BatchNorm2d(C_prev), nn.ReLU(inplace=True))
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(C_prev, num_classes)
+        self.arch_parameters = nn.Parameter(0.001 * torch.randn(num_edge, len(search_space)))
+        self.tau = 10
 
     def get_weights(self):
-        xlist = self.trainable_variables
-        return [x for x in xlist if 'arch-encoding' not in x.name]
+        xlist = list(self.stem.parameters()) + list(self.cells.parameters())
+        xlist += list(self.lastact.parameters()) + list(self.global_pooling.parameters())
+        xlist += list(self.classifier.parameters())
+        return xlist
 
-    def get_np_alphas(self):
-        arch_nps = self.arch_parameters.numpy()
-        arch_ops = np.exp(arch_nps) / np.sum(np.exp(arch_nps), axis=-1, keepdims=True)
-        return arch_ops
+    def set_tau(self, tau):
+        self.tau = tau
+
+    def get_tau(self):
+        return self.tau
+
+    def get_alphas(self):
+        return [self.arch_parameters]
+
+    def show_alphas(self):
+        with torch.no_grad():
+            return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
+
+    def get_message(self):
+        string = self.extra_repr()
+        for i, cell in enumerate(self.cells):
+            string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self.cells), cell.extra_repr())
+        return string
+
+    def extra_repr(self):
+        return '{name}(C={_C}, Max-Nodes={max_nodes}, N={_layerN}, L={_Layer})'.format(name=self.__class__.__name__, **self.__dict__)
 
     def genotype(self):
-        genotypes, arch_nps = [], self.arch_parameters.numpy()
+        genotypes = []
         for i in range(1, self.max_nodes):
             xlist = []
             for j in range(i):
                 node_str = '{:}<-{:}'.format(i, j)
-                weights = arch_nps[self.edge2index[node_str]]
-                op_name = self.op_names[weights.argmax().item()]
+                with torch.no_grad():
+                    weights = self.arch_parameters[self.edge2index[node_str]]
+                    op_name = self.op_names[weights.argmax().item()]
                 xlist.append((op_name, j))
             genotypes.append(tuple(xlist))
-        return genotypes
+        return Structure(genotypes)
 
-    def call(self, inputs, tau, training):
-        weightss = tf.cond(tau < 0, lambda : tf.nn.softmax(self.arch_parameters, axis=1), lambda : gumbel_softmax(tf.math.log_softmax(self.arch_parameters, axis=1), tau))
-        feature = self.stem(inputs, training)
-        for idx in range(self.num_layers):
-            cell = getattr(self, 'cell-{:03d}'.format(idx))
-            if isinstance(cell, SearchCell):
-                feature = cell.call(feature, weightss, training)
+    def forward(self, inputs):
+        while True:
+            gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
+            logits = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
+            probs = nn.functional.softmax(logits, dim=1)
+            index = probs.max(-1, keepdim=True)[1]
+            one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
+            hardwts = one_h - probs.detach() + probs
+            if torch.isinf(gumbels).any() or torch.isinf(probs).any() or torch.isnan(probs).any():
+                continue
             else:
-                feature = cell(feature, training)
-        logits = self.lastact(feature, training)
-        return logits
+                break
+        feature = self.stem(inputs)
+        for i, cell in enumerate(self.cells):
+            if isinstance(cell, SearchCell):
+                feature = cell.forward_gdas(feature, hardwts, index)
+            else:
+                feature = cell(feature)
+        out = self.lastact(feature)
+        out = self.global_pooling(out)
+        out = out.view(out.size(0), -1)
+        logits = self.classifier(out)
+        return out, logits
+
+
+RAW_OP_CLASSES = {'gdas_reduction': GDAS_Reduction_Cell}
+
+
+class NASNetworkGDAS_FRC(nn.Module):
+
+    def __init__(self, C, N, steps, multiplier, stem_multiplier, num_classes, search_space, affine, track_running_stats):
+        super(NASNetworkGDAS_FRC, self).__init__()
+        self._C = C
+        self._layerN = N
+        self._steps = steps
+        self._multiplier = multiplier
+        self.stem = nn.Sequential(nn.Conv2d(3, C * stem_multiplier, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(C * stem_multiplier))
+        layer_channels = [C] * N + [C * 2] + [C * 2] * (N - 1) + [C * 4] + [C * 4] * (N - 1)
+        layer_reductions = [False] * N + [True] + [False] * (N - 1) + [True] + [False] * (N - 1)
+        num_edge, edge2index = None, None
+        C_prev_prev, C_prev, C_curr, reduction_prev = C * stem_multiplier, C * stem_multiplier, C, False
+        self.cells = nn.ModuleList()
+        for index, (C_curr, reduction) in enumerate(zip(layer_channels, layer_reductions)):
+            if reduction:
+                cell = RAW_OP_CLASSES['gdas_reduction'](C_prev_prev, C_prev, C_curr, reduction_prev, affine, track_running_stats)
+            else:
+                cell = SearchCell(search_space, steps, multiplier, C_prev_prev, C_prev, C_curr, reduction, reduction_prev, affine, track_running_stats)
+            if num_edge is None:
+                num_edge, edge2index = cell.num_edges, cell.edge2index
+            else:
+                assert reduction or num_edge == cell.num_edges and edge2index == cell.edge2index, 'invalid {:} vs. {:}.'.format(num_edge, cell.num_edges)
+            self.cells.append(cell)
+            C_prev_prev, C_prev, reduction_prev = C_prev, cell.multiplier * C_curr, reduction
+        self.op_names = deepcopy(search_space)
+        self._Layer = len(self.cells)
+        self.edge2index = edge2index
+        self.lastact = nn.Sequential(nn.BatchNorm2d(C_prev), nn.ReLU(inplace=True))
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(C_prev, num_classes)
+        self.arch_parameters = nn.Parameter(0.001 * torch.randn(num_edge, len(search_space)))
+        self.tau = 10
+
+    def get_weights(self):
+        xlist = list(self.stem.parameters()) + list(self.cells.parameters())
+        xlist += list(self.lastact.parameters()) + list(self.global_pooling.parameters())
+        xlist += list(self.classifier.parameters())
+        return xlist
+
+    def set_tau(self, tau):
+        self.tau = tau
+
+    def get_tau(self):
+        return self.tau
+
+    def get_alphas(self):
+        return [self.arch_parameters]
+
+    def show_alphas(self):
+        with torch.no_grad():
+            A = 'arch-normal-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
+        return '{:}'.format(A)
+
+    def get_message(self):
+        string = self.extra_repr()
+        for i, cell in enumerate(self.cells):
+            string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self.cells), cell.extra_repr())
+        return string
+
+    def extra_repr(self):
+        return '{name}(C={_C}, N={_layerN}, steps={_steps}, multiplier={_multiplier}, L={_Layer})'.format(name=self.__class__.__name__, **self.__dict__)
+
+    def genotype(self):
+
+        def _parse(weights):
+            gene = []
+            for i in range(self._steps):
+                edges = []
+                for j in range(2 + i):
+                    node_str = '{:}<-{:}'.format(i, j)
+                    ws = weights[self.edge2index[node_str]]
+                    for k, op_name in enumerate(self.op_names):
+                        if op_name == 'none':
+                            continue
+                        edges.append((op_name, j, ws[k]))
+                edges = sorted(edges, key=lambda x: -x[-1])
+                selected_edges = edges[:2]
+                gene.append(tuple(selected_edges))
+            return gene
+        with torch.no_grad():
+            gene_normal = _parse(torch.softmax(self.arch_parameters, dim=-1).cpu().numpy())
+        return {'normal': gene_normal, 'normal_concat': list(range(2 + self._steps - self._multiplier, self._steps + 2))}
+
+    def forward(self, inputs):
+
+        def get_gumbel_prob(xins):
+            while True:
+                gumbels = -torch.empty_like(xins).exponential_().log()
+                logits = (xins.log_softmax(dim=1) + gumbels) / self.tau
+                probs = nn.functional.softmax(logits, dim=1)
+                index = probs.max(-1, keepdim=True)[1]
+                one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
+                hardwts = one_h - probs.detach() + probs
+                if torch.isinf(gumbels).any() or torch.isinf(probs).any() or torch.isnan(probs).any():
+                    continue
+                else:
+                    break
+            return hardwts, index
+        hardwts, index = get_gumbel_prob(self.arch_parameters)
+        s0 = s1 = self.stem(inputs)
+        for i, cell in enumerate(self.cells):
+            if cell.reduction:
+                s0, s1 = s1, cell(s0, s1)
+            else:
+                s0, s1 = s1, cell.forward_gdas(s0, s1, hardwts, index)
+        out = self.lastact(s1)
+        out = self.global_pooling(out)
+        out = out.view(out.size(0), -1)
+        logits = self.classifier(out)
+        return out, logits
 
 
 class NASNetworkGDAS(nn.Module):
@@ -4064,6 +4651,147 @@ class SearchWidthSimResNet(nn.Module):
         return features, logits
 
 
+class GenericNAS301Model(nn.Module):
+
+    def __init__(self, candidate_Cs: List[int], max_num_Cs: int, genotype: Any, num_classes: int, affine: bool, track_running_stats: bool):
+        super(GenericNAS301Model, self).__init__()
+        self._max_num_Cs = max_num_Cs
+        self._candidate_Cs = candidate_Cs
+        if max_num_Cs % 3 != 2:
+            raise ValueError('invalid number of layers : {:}'.format(max_num_Cs))
+        self._num_stage = N = max_num_Cs // 3
+        self._max_C = max(candidate_Cs)
+        stem = nn.Sequential(nn.Conv2d(3, self._max_C, kernel_size=3, padding=1, bias=not affine), nn.BatchNorm2d(self._max_C, affine=affine, track_running_stats=track_running_stats))
+        layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
+        c_prev = self._max_C
+        self._cells = nn.ModuleList()
+        self._cells.append(stem)
+        for index, reduction in enumerate(layer_reductions):
+            if reduction:
+                cell = ResNetBasicblock(c_prev, self._max_C, 2, True)
+            else:
+                cell = InferCell(genotype, c_prev, self._max_C, 1, affine, track_running_stats)
+            self._cells.append(cell)
+            c_prev = cell.out_dim
+        self._num_layer = len(self._cells)
+        self.lastact = nn.Sequential(nn.BatchNorm2d(c_prev, affine=affine, track_running_stats=track_running_stats), nn.ReLU(inplace=True))
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(c_prev, num_classes)
+        self.register_buffer('_tau', torch.zeros(1))
+        self._algo = None
+        self._warmup_ratio = None
+
+    def set_algo(self, algo: Text):
+        assert self._algo is None, 'This functioin can only be called once.'
+        assert algo in ['mask_gumbel', 'mask_rl', 'tas'], 'invalid algo : {:}'.format(algo)
+        self._algo = algo
+        self._arch_parameters = nn.Parameter(0.001 * torch.randn(self._max_num_Cs, len(self._candidate_Cs)))
+        self.register_buffer('_masks', torch.zeros(len(self._candidate_Cs), max(self._candidate_Cs)))
+        for i in range(len(self._candidate_Cs)):
+            self._masks.data[i, :self._candidate_Cs[i]] = 1
+
+    @property
+    def tau(self):
+        return self._tau
+
+    def set_tau(self, tau):
+        self._tau.data[:] = tau
+
+    @property
+    def warmup_ratio(self):
+        return self._warmup_ratio
+
+    def set_warmup_ratio(self, ratio: float):
+        self._warmup_ratio = ratio
+
+    @property
+    def weights(self):
+        xlist = list(self._cells.parameters())
+        xlist += list(self.lastact.parameters())
+        xlist += list(self.global_pooling.parameters())
+        xlist += list(self.classifier.parameters())
+        return xlist
+
+    @property
+    def alphas(self):
+        return [self._arch_parameters]
+
+    def show_alphas(self):
+        with torch.no_grad():
+            return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self._arch_parameters, dim=-1).cpu())
+
+    @property
+    def random(self):
+        cs = []
+        for i in range(self._max_num_Cs):
+            index = random.randint(0, len(self._candidate_Cs) - 1)
+            cs.append(str(self._candidate_Cs[index]))
+        return ':'.join(cs)
+
+    @property
+    def genotype(self):
+        cs = []
+        for i in range(self._max_num_Cs):
+            with torch.no_grad():
+                index = self._arch_parameters[i].argmax().item()
+                cs.append(str(self._candidate_Cs[index]))
+        return ':'.join(cs)
+
+    def get_message(self) ->Text:
+        string = self.extra_repr()
+        for i, cell in enumerate(self._cells):
+            string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self._cells), cell.extra_repr())
+        return string
+
+    def extra_repr(self):
+        return '{name}(candidates={_candidate_Cs}, num={_max_num_Cs}, N={_num_stage}, L={_num_layer})'.format(name=self.__class__.__name__, **self.__dict__)
+
+    def forward(self, inputs):
+        feature = inputs
+        log_probs = []
+        for i, cell in enumerate(self._cells):
+            feature = cell(feature)
+            idx = max(0, i - 1)
+            if self._warmup_ratio is not None:
+                if random.random() < self._warmup_ratio:
+                    mask = self._masks[-1]
+                else:
+                    mask = self._masks[random.randint(0, len(self._masks) - 1)]
+                feature = feature * mask.view(1, -1, 1, 1)
+            elif self._algo == 'mask_gumbel':
+                weights = nn.functional.gumbel_softmax(self._arch_parameters[idx:idx + 1], tau=self.tau, dim=-1)
+                mask = torch.matmul(weights, self._masks).view(1, -1, 1, 1)
+                feature = feature * mask
+            elif self._algo == 'tas':
+                selected_cs, selected_probs = select2withP(self._arch_parameters[idx:idx + 1], self.tau, num=2)
+                with torch.no_grad():
+                    i1, i2 = selected_cs.cpu().view(-1).tolist()
+                c1, c2 = self._candidate_Cs[i1], self._candidate_Cs[i2]
+                out_channel = max(c1, c2)
+                out1 = ChannelWiseInter(feature[:, :c1], out_channel)
+                out2 = ChannelWiseInter(feature[:, :c2], out_channel)
+                out = out1 * selected_probs[0, 0] + out2 * selected_probs[0, 1]
+                if feature.shape[1] == out.shape[1]:
+                    feature = out
+                else:
+                    miss = torch.zeros(feature.shape[0], feature.shape[1] - out.shape[1], feature.shape[2], feature.shape[3], device=feature.device)
+                    feature = torch.cat((out, miss), dim=1)
+            elif self._algo == 'mask_rl':
+                prob = nn.functional.softmax(self._arch_parameters[idx:idx + 1], dim=-1)
+                dist = torch.distributions.Categorical(prob)
+                action = dist.sample()
+                log_probs.append(dist.log_prob(action))
+                mask = self._masks[action.item()].view(1, -1, 1, 1)
+                feature = feature * mask
+            else:
+                raise ValueError('invalid algorithm : {:}'.format(self._algo))
+        out = self.lastact(feature)
+        out = self.global_pooling(out)
+        out = out.view(out.size(0), -1)
+        logits = self.classifier(out)
+        return out, logits, log_probs
+
+
 class CifarHEAD(nn.Sequential):
 
     def __init__(self, C):
@@ -4241,6 +4969,798 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
+BEST_DIR_KEY = 'best_model_dir'
+
+
+BEST_NAME_KEY = 'best_model_name'
+
+
+BEST_SCORE_KEY = 'best_model_score'
+
+
+DISABLE_CANDIDATE = 1
+
+
+ENABLE_CANDIDATE = 0
+
+
+class SuperRunMode(Enum):
+    """This class defines the enumerations for Super Model Running Mode."""
+    FullModel = 'fullmodel'
+    Candidate = 'candidate'
+    Default = 'fullmodel'
+
+
+class ShapeContainer:
+    """A class to maintain the shape of each weight tensor for a model."""
+
+    def __init__(self):
+        self._names = []
+        self._shapes = []
+        self._name2index = dict()
+        self._param_or_buffers = []
+
+    @property
+    def shapes(self):
+        return self._shapes
+
+    def __getitem__(self, index):
+        return self._shapes[index]
+
+    def translate(self, tensors, all_none_match=True):
+        result = TensorContainer()
+        for index, name in enumerate(self._names):
+            cur_num = tensors[index].numel()
+            expected_num = self._shapes[index].numel()
+            if cur_num < expected_num or cur_num > expected_num and not all_none_match:
+                raise ValueError('Invalid {:} vs {:}'.format(cur_num, expected_num))
+            cur_tensor = tensors[index].view(-1)[:expected_num]
+            new_tensor = torch.reshape(cur_tensor, self._shapes[index])
+            result.append(name, new_tensor, self._param_or_buffers[index])
+        return result
+
+    def append(self, name, shape, param_or_buffer):
+        if not isinstance(shape, torch.Size):
+            raise TypeError('The input tensor must be torch.Size instead of {:}'.format(type(shape)))
+        self._names.append(name)
+        self._shapes.append(shape)
+        self._param_or_buffers.append(param_or_buffer)
+        assert name not in self._name2index, 'The [{:}] has already been added.'.format(name)
+        self._name2index[name] = len(self._names) - 1
+
+    def query(self, name):
+        if not self.has(name):
+            raise ValueError('The {:} is not in {:}'.format(name, list(self._name2index.keys())))
+        index = self._name2index[name]
+        return self._shapes[index]
+
+    def has(self, name):
+        return name in self._name2index
+
+    def has_prefix(self, prefix):
+        for name, idx in self._name2index.items():
+            if name.startswith(prefix):
+                return name
+        return False
+
+    def numel(self, index=None):
+        if index is None:
+            shapes = self._shapes
+        else:
+            shapes = [self._shapes[index]]
+        total = 0
+        for shape in shapes:
+            total += shape.numel()
+        return total
+
+    def __len__(self):
+        return len(self._names)
+
+    def __repr__(self):
+        return '{name}({num} tensors)'.format(name=self.__class__.__name__, num=len(self))
+
+
+class TensorContainer:
+    """A class to maintain both parameters and buffers for a model."""
+
+    def __init__(self):
+        self._names = []
+        self._tensors = []
+        self._param_or_buffers = []
+        self._name2index = dict()
+
+    def additive(self, tensors):
+        result = TensorContainer()
+        for index, name in enumerate(self._names):
+            new_tensor = self._tensors[index] + tensors[index]
+            result.append(name, new_tensor, self._param_or_buffers[index])
+        return result
+
+    def create_container(self, tensors):
+        result = TensorContainer()
+        for index, name in enumerate(self._names):
+            new_tensor = tensors[index]
+            result.append(name, new_tensor, self._param_or_buffers[index])
+        return result
+
+    def no_grad_clone(self):
+        result = TensorContainer()
+        with torch.no_grad():
+            for index, name in enumerate(self._names):
+                result.append(name, self._tensors[index].clone(), self._param_or_buffers[index])
+        return result
+
+    def to_shape_container(self):
+        result = ShapeContainer()
+        for index, name in enumerate(self._names):
+            result.append(name, self._tensors[index].shape, self._param_or_buffers[index])
+        return result
+
+    def requires_grad_(self, requires_grad=True):
+        for tensor in self._tensors:
+            tensor.requires_grad_(requires_grad)
+
+    def parameters(self):
+        return self._tensors
+
+    @property
+    def tensors(self):
+        return self._tensors
+
+    def flatten(self, tensors=None):
+        if tensors is None:
+            tensors = self._tensors
+        tensors = [tensor.view(-1) for tensor in tensors]
+        return torch.cat(tensors)
+
+    def unflatten(self, tensor):
+        tensors, s = [], 0
+        for raw_tensor in self._tensors:
+            length = raw_tensor.numel()
+            x = torch.reshape(tensor[s:s + length], shape=raw_tensor.shape)
+            tensors.append(x)
+            s += length
+        return tensors
+
+    def append(self, name, tensor, param_or_buffer):
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError('The input tensor must be torch.Tensor instead of {:}'.format(type(tensor)))
+        self._names.append(name)
+        self._tensors.append(tensor)
+        self._param_or_buffers.append(param_or_buffer)
+        assert name not in self._name2index, 'The [{:}] has already been added.'.format(name)
+        self._name2index[name] = len(self._names) - 1
+
+    def query(self, name):
+        if not self.has(name):
+            raise ValueError('The {:} is not in {:}'.format(name, list(self._name2index.keys())))
+        index = self._name2index[name]
+        return self._tensors[index]
+
+    def has(self, name):
+        return name in self._name2index
+
+    def has_prefix(self, prefix):
+        for name, idx in self._name2index.items():
+            if name.startswith(prefix):
+                return name
+        return False
+
+    def numel(self):
+        total = 0
+        for tensor in self._tensors:
+            total += tensor.numel()
+        return total
+
+    def __len__(self):
+        return len(self._names)
+
+    def __repr__(self):
+        return '{name}({num} tensors)'.format(name=self.__class__.__name__, num=len(self))
+
+
+class SuperModule(abc.ABC, nn.Module):
+    """This class equips the nn.Module class with the ability to apply AutoDL."""
+
+    def __init__(self):
+        super(SuperModule, self).__init__()
+        self._super_run_type = SuperRunMode.Default
+        self._abstract_child = None
+        self._verbose = False
+        self._meta_info = {}
+        self._candidate_mode = DISABLE_CANDIDATE
+
+    def set_super_run_type(self, super_run_type):
+
+        def _reset_super_run(m):
+            if isinstance(m, SuperModule):
+                m._super_run_type = super_run_type
+        self.apply(_reset_super_run)
+
+    def add_module(self, name: str, module: Optional[torch.nn.Module]) ->None:
+        if not isinstance(module, SuperModule):
+            warnings.warn('Add {:}:{:} module, which is not SuperModule, into {:}'.format(name, module.__class__.__name__, self.__class__.__name__) + '\n' + 'It may cause some functions invalid.')
+        super(SuperModule, self).add_module(name, module)
+
+    def apply_verbose(self, verbose):
+
+        def _reset_verbose(m):
+            if isinstance(m, SuperModule):
+                m._verbose = verbose
+        self.apply(_reset_verbose)
+
+    def apply_candidate(self, abstract_child):
+        if not isinstance(abstract_child, spaces.VirtualNode):
+            raise ValueError('Invalid abstract child program: {:}'.format(abstract_child))
+        self._abstract_child = abstract_child
+
+    def enable_candidate(self):
+
+        def _enable_candidate(m):
+            if isinstance(m, SuperModule):
+                m._candidate_mode = ENABLE_CANDIDATE
+        self.apply(_enable_candidate)
+
+    def disable_candidate(self):
+
+        def _disable_candidate(m):
+            if isinstance(m, SuperModule):
+                m._candidate_mode = DISABLE_CANDIDATE
+        self.apply(_disable_candidate)
+
+    def get_w_container(self):
+        container = TensorContainer()
+        for name, param in self.named_parameters():
+            container.append(name, param, True)
+        for name, buf in self.named_buffers():
+            container.append(name, buf, False)
+        return container
+
+    def analyze_weights(self):
+        with torch.no_grad():
+            for name, param in self.named_parameters():
+                shapestr = '[{:10s}] shape={:}'.format(name, list(param.shape))
+                finalstr = shapestr + '{:.2f} +- {:.2f}'.format(param.mean(), param.std())
+                None
+
+    def numel(self, buffer=True):
+        total = 0
+        for name, param in self.named_parameters():
+            total += param.numel()
+        if buffer:
+            for name, buf in self.named_buffers():
+                total += buf.numel()
+        return total
+
+    def set_best_dir(self, xdir):
+        self._meta_info[BEST_DIR_KEY] = str(xdir)
+        Path(xdir).mkdir(parents=True, exist_ok=True)
+
+    def set_best_name(self, xname):
+        self._meta_info[BEST_NAME_KEY] = str(xname)
+
+    def save_best(self, score):
+        if BEST_DIR_KEY not in self._meta_info:
+            tempdir = tempfile.mkdtemp('-xlayers')
+            self._meta_info[BEST_DIR_KEY] = tempdir
+        if BEST_SCORE_KEY not in self._meta_info:
+            self._meta_info[BEST_SCORE_KEY] = None
+        best_score = self._meta_info[BEST_SCORE_KEY]
+        if best_score is None or best_score <= score:
+            best_save_name = self._meta_info.get(BEST_NAME_KEY, 'best-{:}.pth'.format(self.__class__.__name__))
+            best_save_path = os.path.join(self._meta_info[BEST_DIR_KEY], best_save_name)
+            self._meta_info[BEST_SCORE_KEY] = score
+            torch.save(self.state_dict(), best_save_path)
+            return True, self._meta_info[BEST_SCORE_KEY]
+        else:
+            return False, self._meta_info[BEST_SCORE_KEY]
+
+    def load_best(self, best_save_name=None):
+        if BEST_DIR_KEY not in self._meta_info:
+            raise ValueError('Please set BEST_DIR_KEY at first')
+        if best_save_name is None:
+            best_save_name = self._meta_info.get(BEST_NAME_KEY, 'best-{:}.pth'.format(self.__class__.__name__))
+        best_save_path = os.path.join(self._meta_info[BEST_DIR_KEY], best_save_name)
+        state_dict = torch.load(best_save_path)
+        self.load_state_dict(state_dict)
+
+    def has_best(self, best_name=None):
+        if BEST_DIR_KEY not in self._meta_info:
+            raise ValueError('Please set BEST_DIR_KEY at first')
+        if best_name is None:
+            best_save_name = self._meta_info.get(BEST_NAME_KEY, 'best-{:}.pth'.format(self.__class__.__name__))
+        else:
+            best_save_name = best_name
+        best_save_path = os.path.join(self._meta_info[BEST_DIR_KEY], best_save_name)
+        return os.path.exists(best_save_path)
+
+    @property
+    def abstract_search_space(self):
+        raise NotImplementedError
+
+    @property
+    def super_run_type(self):
+        return self._super_run_type
+
+    @property
+    def abstract_child(self):
+        return self._abstract_child
+
+    @property
+    def verbose(self):
+        return self._verbose
+
+    @abc.abstractmethod
+    def forward_raw(self, *inputs):
+        """Use the largest candidate for forward. Similar to the original PyTorch model."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def forward_candidate(self, *inputs):
+        raise NotImplementedError
+
+    @property
+    def name_with_id(self):
+        return 'name={:}, id={:}'.format(self.__class__.__name__, id(self))
+
+    def get_shape_str(self, tensors):
+        if isinstance(tensors, (list, tuple)):
+            shapes = [self.get_shape_str(tensor) for tensor in tensors]
+            if len(shapes) == 1:
+                return shapes[0]
+            else:
+                return ', '.join(shapes)
+        elif isinstance(tensors, (torch.Tensor, nn.Parameter)):
+            return str(tuple(tensors.shape))
+        else:
+            raise TypeError('Invalid input type: {:}.'.format(type(tensors)))
+
+    def forward(self, *inputs):
+        if self.verbose:
+            None
+        if self.super_run_type == SuperRunMode.FullModel:
+            outputs = self.forward_raw(*inputs)
+        elif self.super_run_type == SuperRunMode.Candidate:
+            if self._candidate_mode == DISABLE_CANDIDATE:
+                raise ValueError('candidate mode is disabled')
+            outputs = self.forward_candidate(*inputs)
+        else:
+            raise ValueError('Unknown Super Model Run Mode: {:}'.format(self.super_run_type))
+        if self.verbose:
+            None
+        return outputs
+
+    def forward_with_container(self, inputs, container, prefix=[]):
+        raise NotImplementedError
+
+
+class SuperSimpleNorm(SuperModule):
+    """Super simple normalization."""
+
+    def __init__(self, mean, std, inplace=False) ->None:
+        super(SuperSimpleNorm, self).__init__()
+        self.register_buffer('_mean', torch.tensor(mean, dtype=torch.float))
+        self.register_buffer('_std', torch.tensor(std, dtype=torch.float))
+        self._inplace = inplace
+
+    @property
+    def abstract_search_space(self):
+        return spaces.VirtualNode(id(self))
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        if not self._inplace:
+            tensor = input.clone()
+        else:
+            tensor = input
+        mean = torch.as_tensor(self._mean, dtype=tensor.dtype, device=tensor.device)
+        std = torch.as_tensor(self._std, dtype=tensor.dtype, device=tensor.device)
+        if (std == 0).any():
+            raise ValueError('std evaluated to zero after conversion to {}, leading to division by zero.'.format(tensor.dtype))
+        while mean.ndim < tensor.ndim:
+            mean, std = torch.unsqueeze(mean, dim=0), torch.unsqueeze(std, dim=0)
+        return tensor.sub_(mean).div_(std)
+
+    def extra_repr(self) ->str:
+        return 'mean={mean}, std={std}, inplace={inplace}'.format(mean=self._mean.item(), std=self._std.item(), inplace=self._inplace)
+
+
+class SuperSimpleLearnableNorm(SuperModule):
+    """Super simple normalization."""
+
+    def __init__(self, mean=0, std=1, eps=1e-06, inplace=False) ->None:
+        super(SuperSimpleLearnableNorm, self).__init__()
+        self.register_parameter('_mean', nn.Parameter(torch.tensor(mean, dtype=torch.float)))
+        self.register_parameter('_std', nn.Parameter(torch.tensor(std, dtype=torch.float)))
+        self._eps = eps
+        self._inplace = inplace
+
+    @property
+    def abstract_search_space(self):
+        return spaces.VirtualNode(id(self))
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        if not self._inplace:
+            tensor = input.clone()
+        else:
+            tensor = input
+        mean, std = self._mean, torch.abs(self._std) + self._eps
+        if (std == 0).any():
+            raise ValueError('std leads to division by zero.')
+        while mean.ndim < tensor.ndim:
+            mean, std = torch.unsqueeze(mean, dim=0), torch.unsqueeze(std, dim=0)
+        return tensor.sub_(mean).div_(std)
+
+    def forward_with_container(self, input, container, prefix=[]):
+        if not self._inplace:
+            tensor = input.clone()
+        else:
+            tensor = input
+        mean_name = '.'.join(prefix + ['_mean'])
+        std_name = '.'.join(prefix + ['_std'])
+        mean, std = container.query(mean_name), torch.abs(container.query(std_name)) + self._eps
+        while mean.ndim < tensor.ndim:
+            mean, std = torch.unsqueeze(mean, dim=0), torch.unsqueeze(std, dim=0)
+        return tensor.sub_(mean).div_(std)
+
+    def extra_repr(self) ->str:
+        return 'mean={mean}, std={std}, inplace={inplace}'.format(mean=self._mean.item(), std=self._std.item(), inplace=self._inplace)
+
+
+class SuperIdentity(SuperModule):
+    """Super identity mapping layer."""
+
+    def __init__(self, inplace=False, **kwargs) ->None:
+        super(SuperIdentity, self).__init__()
+        self._inplace = inplace
+
+    @property
+    def abstract_search_space(self):
+        return spaces.VirtualNode(id(self))
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        if not self._inplace:
+            tensor = input.clone()
+        else:
+            tensor = input
+        return tensor
+
+    def extra_repr(self) ->str:
+        return 'inplace={inplace}'.format(inplace=self._inplace)
+
+    def forward_with_container(self, input, container, prefix=[]):
+        return self.forward_raw(input)
+
+
+class SuperDynamicPositionE(SuperModule):
+    """Applies a positional encoding to the input positions."""
+
+    def __init__(self, dimension: int, scale: float=1.0) ->None:
+        super(SuperDynamicPositionE, self).__init__()
+        self._scale = scale
+        self._dimension = dimension
+        self.register_buffer('_div_term', torch.exp(torch.arange(0, dimension, 2).float() * (-math.log(10000.0) / dimension)))
+
+    @property
+    def abstract_search_space(self):
+        root_node = spaces.VirtualNode(id(self))
+        return root_node
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        positions = torch.unsqueeze(input * self._scale, dim=-1)
+        divisions = torch.reshape(self._div_term, [1] * input.ndim + [self._div_term.numel()])
+        values = positions / divisions
+        embeds = torch.cat((torch.sin(values), torch.cos(values)), dim=-1)
+        return embeds
+
+    def extra_repr(self) ->str:
+        return 'scale={:}, dim={:}'.format(self._scale, self._dimension)
+
+
+class AnonymousAxis:
+    """Important thing: all instances of this class are not equal to each other"""
+
+    def __init__(self, value: str):
+        self.value = int(value)
+        if self.value <= 1:
+            if self.value == 1:
+                raise EinopsError('No need to create anonymous axis of length 1. Report this as an issue')
+            else:
+                raise EinopsError('Anonymous axis should have positive length, not {}'.format(self.value))
+
+    def __repr__(self):
+        return '{}-axis'.format(str(self.value))
+
+
+class ParsedExpression:
+    """
+    non-mutable structure that contains information about one side of expression (e.g. 'b c (h w)')
+    and keeps some information important for downstream
+    """
+
+    def __init__(self, expression):
+        self.identifiers = set()
+        self.has_non_unitary_anonymous_axes = False
+        self.composition = []
+        if '.' in expression:
+            raise ValueError('Does not support . in the expression.')
+        bracket_group = None
+
+        def add_axis_name(x):
+            if x is not None:
+                if x in self.identifiers:
+                    raise ValueError('Indexing expression contains duplicate dimension "{}"'.format(x))
+                is_number = str.isdecimal(x)
+                if is_number and int(x) == 1:
+                    if bracket_group is None:
+                        self.composition.append([])
+                    else:
+                        pass
+                    return
+                is_axis_name, reason = self.check_axis_name(x, return_reason=True)
+                if not (is_number or is_axis_name):
+                    raise ValueError('Invalid axis identifier: {}\n{}'.format(x, reason))
+                if is_number:
+                    x = AnonymousAxis(x)
+                self.identifiers.add(x)
+                if is_number:
+                    self.has_non_unitary_anonymous_axes = True
+                if bracket_group is None:
+                    self.composition.append([x])
+                else:
+                    bracket_group.append(x)
+        current_identifier = None
+        for char in expression:
+            if char in '() ':
+                add_axis_name(current_identifier)
+                current_identifier = None
+                if char == '(':
+                    if bracket_group is not None:
+                        raise ValueError('Axis composition is one-level (brackets inside brackets not allowed)')
+                    bracket_group = []
+                elif char == ')':
+                    if bracket_group is None:
+                        raise ValueError('Brackets are not balanced')
+                    self.composition.append(bracket_group)
+                    bracket_group = None
+            elif str.isalnum(char) or char == '_':
+                if current_identifier is None:
+                    current_identifier = char
+                else:
+                    current_identifier += char
+            else:
+                raise ValueError("Unknown character '{}'".format(char))
+        if bracket_group is not None:
+            raise ValueError('Imbalanced parentheses in expression: "{}"'.format(expression))
+        add_axis_name(current_identifier)
+
+    def flat_axes_order(self) ->List:
+        result = []
+        for composed_axis in self.composition:
+            assert isinstance(composed_axis, list), 'does not work with ellipsis'
+            for axis in composed_axis:
+                result.append(axis)
+        return result
+
+    def has_composed_axes(self) ->bool:
+        for axes in self.composition:
+            if isinstance(axes, list) and len(axes) > 1:
+                return True
+        return False
+
+    @staticmethod
+    def check_axis_name(name: str, return_reason=False):
+        """
+        Valid axes names are python identifiers except keywords,
+        and additionally should not start or end with underscore
+        """
+        if not str.isidentifier(name):
+            result = False, 'not a valid python identifier'
+        elif name[0] == '_' or name[-1] == '_':
+            result = False, 'axis name should should not start or end with underscore'
+        else:
+            if keyword.iskeyword(name):
+                warnings.warn('It is discouraged to use axes names that are keywords: {}'.format(name), RuntimeWarning)
+            if name in ['axis']:
+                warnings.warn("It is discouraged to use 'axis' as an axis name and will raise an error in future", FutureWarning)
+            result = True, None
+        if return_reason:
+            return result
+        else:
+            return result[0]
+
+    def __repr__(self) ->str:
+        return '{name}({composition})'.format(name=self.__class__.__name__, composition=self.composition)
+
+
+class SuperReArrange(SuperModule):
+    """Applies the rearrange operation."""
+
+    def __init__(self, pattern, **axes_lengths):
+        super(SuperReArrange, self).__init__()
+        self._pattern = pattern
+        self._axes_lengths = axes_lengths
+        axes_lengths = tuple(sorted(self._axes_lengths.items()))
+        left, right = pattern.split('->')
+        left = ParsedExpression(left)
+        right = ParsedExpression(right)
+        difference = set.symmetric_difference(left.identifiers, right.identifiers)
+        if difference:
+            raise ValueError('Identifiers only on one side of expression (should be on both): {}'.format(difference))
+        axis_name2known_length = OrderedDict()
+        for composite_axis in left.composition:
+            for axis_name in composite_axis:
+                if isinstance(axis_name, AnonymousAxis):
+                    axis_name2known_length[axis_name] = axis_name.value
+                else:
+                    axis_name2known_length[axis_name] = None
+        for axis_name in right.identifiers:
+            if axis_name not in axis_name2known_length:
+                if isinstance(axis_name, AnonymousAxis):
+                    axis_name2known_length[axis_name] = axis_name.value
+                else:
+                    axis_name2known_length[axis_name] = None
+        axis_name2position = {name: position for position, name in enumerate(axis_name2known_length)}
+        for elementary_axis, axis_length in axes_lengths:
+            if not ParsedExpression.check_axis_name(elementary_axis):
+                raise ValueError('Invalid name for an axis', elementary_axis)
+            if elementary_axis not in axis_name2known_length:
+                raise ValueError('Axis {} is not used in transform'.format(elementary_axis))
+            axis_name2known_length[elementary_axis] = axis_length
+        input_composite_axes = []
+        for composite_axis in left.composition:
+            known = {axis for axis in composite_axis if axis_name2known_length[axis] is not None}
+            unknown = {axis for axis in composite_axis if axis_name2known_length[axis] is None}
+            if len(unknown) > 1:
+                raise ValueError('Could not infer sizes for {}'.format(unknown))
+            assert len(unknown) + len(known) == len(composite_axis)
+            input_composite_axes.append(([axis_name2position[axis] for axis in known], [axis_name2position[axis] for axis in unknown]))
+        axis_position_after_reduction = {}
+        for axis_name in itertools.chain(*left.composition):
+            if axis_name in right.identifiers:
+                axis_position_after_reduction[axis_name] = len(axis_position_after_reduction)
+        result_axes_grouping = []
+        for composite_axis in right.composition:
+            result_axes_grouping.append([axis_name2position[axis] for axis in composite_axis])
+        ordered_axis_right = list(itertools.chain(*right.composition))
+        axes_permutation = tuple(axis_position_after_reduction[axis] for axis in ordered_axis_right if axis in left.identifiers)
+        self.input_composite_axes = input_composite_axes
+        self.output_composite_axes = result_axes_grouping
+        self.elementary_axes_lengths = list(axis_name2known_length.values())
+        self.axes_permutation = axes_permutation
+
+    @functools.lru_cache(maxsize=1024)
+    def reconstruct_from_shape(self, shape):
+        if len(shape) != len(self.input_composite_axes):
+            raise ValueError('Expected {} dimensions, got {}'.format(len(self.input_composite_axes), len(shape)))
+        axes_lengths = list(self.elementary_axes_lengths)
+        for input_axis, (known_axes, unknown_axes) in enumerate(self.input_composite_axes):
+            length = shape[input_axis]
+            known_product = 1
+            for axis in known_axes:
+                known_product *= axes_lengths[axis]
+            if len(unknown_axes) == 0:
+                if isinstance(length, int) and isinstance(known_product, int) and length != known_product:
+                    raise ValueError('Shape mismatch, {} != {}'.format(length, known_product))
+            else:
+                if isinstance(length, int) and isinstance(known_product, int) and length % known_product != 0:
+                    raise ValueError("Shape mismatch, can't divide axis of length {} in chunks of {}".format(length, known_product))
+                unknown_axis, = unknown_axes
+                axes_lengths[unknown_axis] = length // known_product
+        final_shape = []
+        for output_axis, grouping in enumerate(self.output_composite_axes):
+            lengths = [axes_lengths[elementary_axis] for elementary_axis in grouping]
+            final_shape.append(int(np.prod(lengths)))
+        axes_reordering = self.axes_permutation
+        return axes_lengths, axes_reordering, final_shape
+
+    @property
+    def abstract_search_space(self):
+        root_node = spaces.VirtualNode(id(self))
+        return root_node
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        init_shape, axes_reordering, final_shape = self.reconstruct_from_shape(tuple(input.shape))
+        tensor = torch.reshape(input, init_shape)
+        tensor = tensor.permute(axes_reordering)
+        tensor = torch.reshape(tensor, final_shape)
+        return tensor
+
+    def extra_repr(self) ->str:
+        params = repr(self._pattern)
+        for axis, length in self._axes_lengths.items():
+            params += ', {}={}'.format(axis, length)
+        return '{:}'.format(params)
+
+
+BoolSpaceType = Union[bool, spaces.Categorical]
+
+
+class LayerOrder(Enum):
+    """This class defines the enumerations for order of operation in a residual or normalization-based layer."""
+    PreNorm = 'pre-norm'
+    PostNorm = 'post-norm'
+
+
+class SuperDrop(SuperModule):
+    """Applies a the drop-path function element-wise."""
+
+    def __init__(self, p: float, dims: Tuple[int], recover: bool=True) ->None:
+        super(SuperDrop, self).__init__()
+        self._p = p
+        self._dims = dims
+        self._recover = recover
+
+    @property
+    def abstract_search_space(self):
+        return spaces.VirtualNode(id(self))
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        if not self.training or self._p <= 0:
+            return input
+        keep_prob = 1 - self._p
+        shape = [input.shape[0]] + [(x if y == -1 else y) for x, y in zip(input.shape[1:], self._dims)]
+        random_tensor = keep_prob + torch.rand(shape, dtype=input.dtype, device=input.device)
+        random_tensor.floor_()
+        if self._recover:
+            return input.div(keep_prob) * random_tensor
+        else:
+            return input * random_tensor
+
+    def forward_with_container(self, input, container, prefix=[]):
+        return self.forward_raw(input)
+
+    def extra_repr(self) ->str:
+        return 'p={:}'.format(self._p) + ', dims={:}'.format(self._dims) + ', recover={:}'.format(self._recover)
+
+
+class SuperDropout(SuperModule):
+    """Applies a the dropout function element-wise."""
+
+    def __init__(self, p: float=0.5, inplace: bool=False) ->None:
+        super(SuperDropout, self).__init__()
+        self._p = p
+        self._inplace = inplace
+
+    @property
+    def abstract_search_space(self):
+        return spaces.VirtualNode(id(self))
+
+    def forward_candidate(self, input: torch.Tensor) ->torch.Tensor:
+        return self.forward_raw(input)
+
+    def forward_raw(self, input: torch.Tensor) ->torch.Tensor:
+        return F.dropout(input, self._p, self.training, self._inplace)
+
+    def forward_with_container(self, input, container, prefix=[]):
+        return self.forward_raw(input)
+
+    def extra_repr(self) ->str:
+        xstr = 'inplace=True' if self._inplace else ''
+        return 'p={:}'.format(self._p) + ', ' + xstr
+
+
+def pair(t):
+    return t if isinstance(t, tuple) else (t, t)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -4268,10 +5788,6 @@ TESTCASES = [
      lambda: ([], {'C_in': 4, 'C_out': 4, 'stride': 1, 'affine': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (CrossEntropyLabelSmooth,
-     lambda: ([], {'num_classes': 4, 'epsilon': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
-     True),
     (DilConv,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4290,6 +5806,10 @@ TESTCASES = [
      False),
     (Policy,
      lambda: ([], {'max_nodes': 4, 'search_space': [4, 4]}),
+     lambda: ([], {}),
+     True),
+    (PolicyTopology,
+     lambda: ([], {'search_space': [4, 4]}),
      lambda: ([], {}),
      True),
     (ReLUConvBN,

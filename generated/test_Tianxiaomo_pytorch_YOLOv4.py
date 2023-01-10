@@ -4,10 +4,13 @@ del sys
 cfg = _module
 dataset = _module
 demo = _module
-demo_onnx = _module
+demo_darknet2onnx = _module
+demo_pytorch2onnx = _module
 demo_tensorflow = _module
+demo_trt = _module
 evaluate_on_coco = _module
 models = _module
+tool = _module
 camera = _module
 coco_annotation = _module
 config = _module
@@ -15,7 +18,16 @@ darknet2onnx = _module
 darknet2pytorch = _module
 onnx2tensorflow = _module
 region_loss = _module
+torch_utils = _module
+coco_eval = _module
+coco_utils = _module
+engine = _module
+group_by_aspect_ratio = _module
+train = _module
+transforms = _module
 utils = _module
+utils_iou = _module
+utils_iou_test = _module
 yolo_layer = _module
 train = _module
 
@@ -39,16 +51,16 @@ xrange = range
 wraps = functools.wraps
 
 
-from torch.utils.data.dataset import Dataset
-
-
 import random
 
 
 import numpy as np
 
 
-import matplotlib.pyplot as plt
+import torch
+
+
+from torch.utils.data.dataset import Dataset
 
 
 import logging
@@ -57,7 +69,7 @@ import logging
 import time
 
 
-import torch
+from collections import defaultdict
 
 
 from torch import nn
@@ -78,13 +90,55 @@ from torch.autograd import Variable
 import itertools
 
 
+import copy
+
+
+import torch._six
+
+
+import torch.utils.data
+
+
+import torchvision
+
+
+import torchvision.models.detection.mask_rcnn
+
+
+from itertools import repeat
+
+
+from itertools import chain
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torch.utils.model_zoo import tqdm
+
+
+import torchvision.models.detection
+
+
+from torchvision.transforms import functional as F
+
+
+from collections import deque
+
+
+import torch.distributed as dist
+
+
+from torch.nn import functional as F
+
+
 from torch.utils.data import DataLoader
 
 
 from torch import optim
-
-
-from torch.nn import functional as F
 
 
 class Mish(torch.nn.Module):
@@ -99,21 +153,15 @@ class Mish(torch.nn.Module):
 
 class Upsample(nn.Module):
 
-    def __init__(self, stride=2):
+    def __init__(self):
         super(Upsample, self).__init__()
-        self.stride = stride
 
-    def forward(self, x):
-        stride = self.stride
+    def forward(self, x, target_size, inference=False):
         assert x.data.dim() == 4
-        B = x.data.size(0)
-        C = x.data.size(1)
-        H = x.data.size(2)
-        W = x.data.size(3)
-        ws = stride
-        hs = stride
-        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, stride, W, stride).contiguous().view(B, C, H * stride, W * stride)
-        return x
+        if inference:
+            return x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1).expand(x.size(0), x.size(1), x.size(2), target_size[2] // x.size(2), x.size(3), target_size[3] // x.size(3)).contiguous().view(x.size(0), x.size(1), target_size[2], target_size[3])
+        else:
+            return F.interpolate(x, size=(target_size[2], target_size[3]), mode='nearest')
 
 
 class Conv_Bn_Activation(nn.Module):
@@ -290,8 +338,9 @@ class DownSample5(nn.Module):
 
 class Neck(nn.Module):
 
-    def __init__(self):
+    def __init__(self, inference=False):
         super().__init__()
+        self.inference = inference
         self.conv1 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv2 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
         self.conv3 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
@@ -318,7 +367,7 @@ class Neck(nn.Module):
         self.conv19 = Conv_Bn_Activation(128, 256, 3, 1, 'leaky')
         self.conv20 = Conv_Bn_Activation(256, 128, 1, 1, 'leaky')
 
-    def forward(self, input, downsample4, downsample3):
+    def forward(self, input, downsample4, downsample3, inference=False):
         x1 = self.conv1(input)
         x2 = self.conv2(x1)
         x3 = self.conv3(x2)
@@ -330,7 +379,7 @@ class Neck(nn.Module):
         x5 = self.conv5(x4)
         x6 = self.conv6(x5)
         x7 = self.conv7(x6)
-        up = self.upsample1(x7, downsample4.size())
+        up = self.upsample1(x7, downsample4.size(), self.inference)
         x8 = self.conv8(downsample4)
         x8 = torch.cat([x8, up], dim=1)
         x9 = self.conv9(x8)
@@ -339,7 +388,7 @@ class Neck(nn.Module):
         x12 = self.conv12(x11)
         x13 = self.conv13(x12)
         x14 = self.conv14(x13)
-        up = self.upsample2(x14, downsample3.size())
+        up = self.upsample2(x14, downsample3.size(), self.inference)
         x15 = self.conv15(downsample3)
         x15 = torch.cat([x15, up], dim=1)
         x16 = self.conv16(x15)
@@ -350,12 +399,128 @@ class Neck(nn.Module):
         return x20, x13, x6
 
 
+def yolo_forward_dynamic(output, conf_thresh, num_classes, anchors, num_anchors, scale_x_y, only_objectness=1, validation=False):
+    bxy_list = []
+    bwh_list = []
+    det_confs_list = []
+    cls_confs_list = []
+    for i in range(num_anchors):
+        begin = i * (5 + num_classes)
+        end = (i + 1) * (5 + num_classes)
+        bxy_list.append(output[:, begin:begin + 2])
+        bwh_list.append(output[:, begin + 2:begin + 4])
+        det_confs_list.append(output[:, begin + 4:begin + 5])
+        cls_confs_list.append(output[:, begin + 5:end])
+    bxy = torch.cat(bxy_list, dim=1)
+    bwh = torch.cat(bwh_list, dim=1)
+    det_confs = torch.cat(det_confs_list, dim=1)
+    det_confs = det_confs.view(output.size(0), num_anchors * output.size(2) * output.size(3))
+    cls_confs = torch.cat(cls_confs_list, dim=1)
+    cls_confs = cls_confs.view(output.size(0), num_anchors, num_classes, output.size(2) * output.size(3))
+    cls_confs = cls_confs.permute(0, 1, 3, 2).reshape(output.size(0), num_anchors * output.size(2) * output.size(3), num_classes)
+    bxy = torch.sigmoid(bxy) * scale_x_y - 0.5 * (scale_x_y - 1)
+    bwh = torch.exp(bwh)
+    det_confs = torch.sigmoid(det_confs)
+    cls_confs = torch.sigmoid(cls_confs)
+    grid_x = np.expand_dims(np.expand_dims(np.expand_dims(np.linspace(0, output.size(3) - 1, output.size(3)), axis=0).repeat(output.size(2), 0), axis=0), axis=0)
+    grid_y = np.expand_dims(np.expand_dims(np.expand_dims(np.linspace(0, output.size(2) - 1, output.size(2)), axis=1).repeat(output.size(3), 1), axis=0), axis=0)
+    anchor_w = []
+    anchor_h = []
+    for i in range(num_anchors):
+        anchor_w.append(anchors[i * 2])
+        anchor_h.append(anchors[i * 2 + 1])
+    device = None
+    cuda_check = output.is_cuda
+    if cuda_check:
+        device = output.get_device()
+    bx_list = []
+    by_list = []
+    bw_list = []
+    bh_list = []
+    for i in range(num_anchors):
+        ii = i * 2
+        bx = bxy[:, ii:ii + 1] + torch.tensor(grid_x, device=device, dtype=torch.float32)
+        by = bxy[:, ii + 1:ii + 2] + torch.tensor(grid_y, device=device, dtype=torch.float32)
+        bw = bwh[:, ii:ii + 1] * anchor_w[i]
+        bh = bwh[:, ii + 1:ii + 2] * anchor_h[i]
+        bx_list.append(bx)
+        by_list.append(by)
+        bw_list.append(bw)
+        bh_list.append(bh)
+    bx = torch.cat(bx_list, dim=1)
+    by = torch.cat(by_list, dim=1)
+    bw = torch.cat(bw_list, dim=1)
+    bh = torch.cat(bh_list, dim=1)
+    bx_bw = torch.cat((bx, bw), dim=1)
+    by_bh = torch.cat((by, bh), dim=1)
+    bx_bw /= output.size(3)
+    by_bh /= output.size(2)
+    bx = bx_bw[:, :num_anchors].view(output.size(0), num_anchors * output.size(2) * output.size(3), 1)
+    by = by_bh[:, :num_anchors].view(output.size(0), num_anchors * output.size(2) * output.size(3), 1)
+    bw = bx_bw[:, num_anchors:].view(output.size(0), num_anchors * output.size(2) * output.size(3), 1)
+    bh = by_bh[:, num_anchors:].view(output.size(0), num_anchors * output.size(2) * output.size(3), 1)
+    bx1 = bx - bw * 0.5
+    by1 = by - bh * 0.5
+    bx2 = bx1 + bw
+    by2 = by1 + bh
+    boxes = torch.cat((bx1, by1, bx2, by2), dim=2).view(output.size(0), num_anchors * output.size(2) * output.size(3), 1, 4)
+    det_confs = det_confs.view(output.size(0), num_anchors * output.size(2) * output.size(3), 1)
+    confs = cls_confs * det_confs
+    return boxes, confs
+
+
+class YoloLayer(nn.Module):
+    """ Yolo layer
+    model_out: while inference,is post-processing inside or outside the model
+        true:outside
+    """
+
+    def __init__(self, anchor_mask=[], num_classes=0, anchors=[], num_anchors=1, stride=32, model_out=False):
+        super(YoloLayer, self).__init__()
+        self.anchor_mask = anchor_mask
+        self.num_classes = num_classes
+        self.anchors = anchors
+        self.num_anchors = num_anchors
+        self.anchor_step = len(anchors) // num_anchors
+        self.coord_scale = 1
+        self.noobject_scale = 1
+        self.object_scale = 5
+        self.class_scale = 1
+        self.thresh = 0.6
+        self.stride = stride
+        self.seen = 0
+        self.scale_x_y = 1
+        self.model_out = model_out
+
+    def forward(self, output, target=None):
+        if self.training:
+            return output
+        masked_anchors = []
+        for m in self.anchor_mask:
+            masked_anchors += self.anchors[m * self.anchor_step:(m + 1) * self.anchor_step]
+        masked_anchors = [(anchor / self.stride) for anchor in masked_anchors]
+        return yolo_forward_dynamic(output, self.thresh, self.num_classes, masked_anchors, len(self.anchor_mask), scale_x_y=self.scale_x_y)
+
+
+def get_region_boxes(boxes_and_confs):
+    boxes_list = []
+    confs_list = []
+    for item in boxes_and_confs:
+        boxes_list.append(item[0])
+        confs_list.append(item[1])
+    boxes = torch.cat(boxes_list, dim=1)
+    confs = torch.cat(confs_list, dim=1)
+    return [boxes, confs]
+
+
 class Yolov4Head(nn.Module):
 
-    def __init__(self, output_ch):
+    def __init__(self, output_ch, n_classes, inference=False):
         super().__init__()
+        self.inference = inference
         self.conv1 = Conv_Bn_Activation(128, 256, 3, 1, 'leaky')
         self.conv2 = Conv_Bn_Activation(256, output_ch, 1, 1, 'linear', bn=False, bias=True)
+        self.yolo1 = YoloLayer(anchor_mask=[0, 1, 2], num_classes=n_classes, anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401], num_anchors=9, stride=8)
         self.conv3 = Conv_Bn_Activation(128, 256, 3, 2, 'leaky')
         self.conv4 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         self.conv5 = Conv_Bn_Activation(256, 512, 3, 1, 'leaky')
@@ -364,6 +529,7 @@ class Yolov4Head(nn.Module):
         self.conv8 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         self.conv9 = Conv_Bn_Activation(256, 512, 3, 1, 'leaky')
         self.conv10 = Conv_Bn_Activation(512, output_ch, 1, 1, 'linear', bn=False, bias=True)
+        self.yolo2 = YoloLayer(anchor_mask=[3, 4, 5], num_classes=n_classes, anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401], num_anchors=9, stride=16)
         self.conv11 = Conv_Bn_Activation(256, 512, 3, 2, 'leaky')
         self.conv12 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv13 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
@@ -372,6 +538,7 @@ class Yolov4Head(nn.Module):
         self.conv16 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv17 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
         self.conv18 = Conv_Bn_Activation(1024, output_ch, 1, 1, 'linear', bn=False, bias=True)
+        self.yolo3 = YoloLayer(anchor_mask=[6, 7, 8], num_classes=n_classes, anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401], num_anchors=9, stride=32)
 
     def forward(self, input1, input2, input3):
         x1 = self.conv1(input1)
@@ -394,12 +561,18 @@ class Yolov4Head(nn.Module):
         x16 = self.conv16(x15)
         x17 = self.conv17(x16)
         x18 = self.conv18(x17)
-        return [x2, x10, x18]
+        if self.inference:
+            y1 = self.yolo1(x2)
+            y2 = self.yolo2(x10)
+            y3 = self.yolo3(x18)
+            return get_region_boxes([y1, y2, y3])
+        else:
+            return [x2, x10, x18]
 
 
 class Yolov4(nn.Module):
 
-    def __init__(self, yolov4conv137weight=None, n_classes=80):
+    def __init__(self, yolov4conv137weight=None, n_classes=80, inference=False):
         super().__init__()
         output_ch = (4 + 1 + n_classes) * 3
         self.down1 = DownSample1()
@@ -407,7 +580,7 @@ class Yolov4(nn.Module):
         self.down3 = DownSample3()
         self.down4 = DownSample4()
         self.down5 = DownSample5()
-        self.neck = Neck()
+        self.neck = Neck(inference)
         if yolov4conv137weight:
             _model = nn.Sequential(self.down1, self.down2, self.down3, self.down4, self.down5, self.neck)
             pretrained_dict = torch.load(yolov4conv137weight)
@@ -415,7 +588,7 @@ class Yolov4(nn.Module):
             pretrained_dict = {k1: v for (k, v), k1 in zip(pretrained_dict.items(), model_dict)}
             model_dict.update(pretrained_dict)
             _model.load_state_dict(model_dict)
-        self.head = Yolov4Head(output_ch)
+        self.head = Yolov4Head(output_ch, n_classes, inference)
 
     def forward(self, input):
         d1 = self.down1(input)
@@ -428,21 +601,61 @@ class Yolov4(nn.Module):
         return output
 
 
-class MaxPoolStride1(nn.Module):
+class MaxPoolDark(nn.Module):
 
-    def __init__(self, size=2):
-        super(MaxPoolStride1, self).__init__()
+    def __init__(self, size=2, stride=1):
+        super(MaxPoolDark, self).__init__()
         self.size = size
-        if (self.size - 1) % 2 == 0:
-            self.padding1 = (self.size - 1) // 2
-            self.padding2 = self.padding1
-        else:
-            self.padding1 = (self.size - 1) // 2
-            self.padding2 = self.padding1 + 1
+        self.stride = stride
 
     def forward(self, x):
-        x = F.max_pool2d(F.pad(x, (self.padding1, self.padding2, self.padding1, self.padding2), mode='replicate'), self.size, stride=1)
+        """
+        darknet output_size = (input_size + p - k) / s +1
+        p : padding = k - 1
+        k : size
+        s : stride
+        torch output_size = (input_size + 2*p -k) / s +1
+        p : padding = k//2
+        """
+        p = self.size // 2
+        if (x.shape[2] - 1) // self.stride != (x.shape[2] + 2 * p - self.size) // self.stride:
+            padding1 = (self.size - 1) // 2
+            padding2 = padding1 + 1
+        else:
+            padding1 = (self.size - 1) // 2
+            padding2 = padding1
+        if (x.shape[3] - 1) // self.stride != (x.shape[3] + 2 * p - self.size) // self.stride:
+            padding3 = (self.size - 1) // 2
+            padding4 = padding3 + 1
+        else:
+            padding3 = (self.size - 1) // 2
+            padding4 = padding3
+        x = F.max_pool2d(F.pad(x, (padding3, padding4, padding1, padding2), mode='replicate'), self.size, stride=self.stride)
         return x
+
+
+class Upsample_expand(nn.Module):
+
+    def __init__(self, stride=2):
+        super(Upsample_expand, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        assert x.data.dim() == 4
+        x = x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1).expand(x.size(0), x.size(1), x.size(2), self.stride, x.size(3), self.stride).contiguous().view(x.size(0), x.size(1), x.size(2) * self.stride, x.size(3) * self.stride)
+        return x
+
+
+class Upsample_interpolate(nn.Module):
+
+    def __init__(self, stride):
+        super(Upsample_interpolate, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        assert x.data.dim() == 4
+        out = F.interpolate(x, size=(x.size(2) * self.stride, x.size(3) * self.stride), mode='nearest')
+        return out
 
 
 class Reorg(nn.Module):
@@ -504,14 +717,14 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
         w2 = box2[2] - box2[0]
         h2 = box2[3] - box2[1]
     else:
-        mx = min(box1[0] - box1[2] / 2.0, box2[0] - box2[2] / 2.0)
-        Mx = max(box1[0] + box1[2] / 2.0, box2[0] + box2[2] / 2.0)
-        my = min(box1[1] - box1[3] / 2.0, box2[1] - box2[3] / 2.0)
-        My = max(box1[1] + box1[3] / 2.0, box2[1] + box2[3] / 2.0)
         w1 = box1[2]
         h1 = box1[3]
         w2 = box2[2]
         h2 = box2[3]
+        mx = min(box1[0], box2[0])
+        Mx = max(box1[0] + w1, box2[0] + w2)
+        my = min(box1[1], box2[1])
+        My = max(box1[1] + h1, box2[1] + h2)
     uw = Mx - mx
     uh = My - my
     cw = w1 + w2 - uw
@@ -709,12 +922,12 @@ class RegionLoss(nn.Module):
         cls_mask = Variable(cls_mask.view(-1, 1).repeat(1, nC))
         cls = cls[cls_mask].view(-1, nC)
         t3 = time.time()
-        loss_x = self.coord_scale * nn.MSELoss(size_average=False)(x * coord_mask, tx * coord_mask) / 2.0
-        loss_y = self.coord_scale * nn.MSELoss(size_average=False)(y * coord_mask, ty * coord_mask) / 2.0
-        loss_w = self.coord_scale * nn.MSELoss(size_average=False)(w * coord_mask, tw * coord_mask) / 2.0
-        loss_h = self.coord_scale * nn.MSELoss(size_average=False)(h * coord_mask, th * coord_mask) / 2.0
-        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask) / 2.0
-        loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(cls, tcls)
+        loss_x = self.coord_scale * nn.MSELoss(reduction='sum')(x * coord_mask, tx * coord_mask) / 2.0
+        loss_y = self.coord_scale * nn.MSELoss(reduction='sum')(y * coord_mask, ty * coord_mask) / 2.0
+        loss_w = self.coord_scale * nn.MSELoss(reduction='sum')(w * coord_mask, tw * coord_mask) / 2.0
+        loss_h = self.coord_scale * nn.MSELoss(reduction='sum')(h * coord_mask, th * coord_mask) / 2.0
+        loss_conf = nn.MSELoss(reduction='sum')(conf * conf_mask, tconf * conf_mask) / 2.0
+        loss_cls = self.class_scale * nn.CrossEntropyLoss(reduction='sum')(cls, tcls)
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
         t4 = time.time()
         if False:
@@ -726,180 +939,6 @@ class RegionLoss(nn.Module):
             None
         None
         return loss
-
-
-def convert2cpu_long(gpu_matrix):
-    return torch.LongTensor(gpu_matrix.size()).copy_(gpu_matrix)
-
-
-def get_region_boxes_in_model(output, conf_thresh, num_classes, anchors, num_anchors, only_objectness=1, validation=False):
-    anchor_step = len(anchors) // num_anchors
-    if output.dim() == 3:
-        output = output.unsqueeze(0)
-    batch = output.size(0)
-    assert output.size(1) == (5 + num_classes) * num_anchors
-    h = output.size(2)
-    w = output.size(3)
-    t0 = time.time()
-    all_boxes = []
-    output = output.view(batch * num_anchors, 5 + num_classes, h * w).transpose(0, 1).contiguous().view(5 + num_classes, batch * num_anchors * h * w)
-    grid_x = torch.linspace(0, w - 1, w).repeat(h, 1).repeat(batch * num_anchors, 1, 1).view(batch * num_anchors * h * w).type_as(output)
-    grid_y = torch.linspace(0, h - 1, h).repeat(w, 1).t().repeat(batch * num_anchors, 1, 1).view(batch * num_anchors * h * w).type_as(output)
-    xs = torch.sigmoid(output[0]) + grid_x
-    ys = torch.sigmoid(output[1]) + grid_y
-    anchor_w = torch.Tensor(anchors).view(num_anchors, anchor_step).index_select(1, torch.LongTensor([0]))
-    anchor_h = torch.Tensor(anchors).view(num_anchors, anchor_step).index_select(1, torch.LongTensor([1]))
-    anchor_w = anchor_w.repeat(batch, 1).repeat(1, 1, h * w).view(batch * num_anchors * h * w).type_as(output)
-    anchor_h = anchor_h.repeat(batch, 1).repeat(1, 1, h * w).view(batch * num_anchors * h * w).type_as(output)
-    ws = torch.exp(output[2]) * anchor_w
-    hs = torch.exp(output[3]) * anchor_h
-    det_confs = torch.sigmoid(output[4])
-    cls_confs = torch.nn.Softmax()(Variable(output[5:5 + num_classes].transpose(0, 1))).data
-    cls_max_confs, cls_max_ids = torch.max(cls_confs, 1)
-    cls_max_confs = cls_max_confs.view(-1)
-    cls_max_ids = cls_max_ids.view(-1)
-    t1 = time.time()
-    sz_hw = h * w
-    sz_hwa = sz_hw * num_anchors
-    det_confs = convert2cpu(det_confs)
-    cls_max_confs = convert2cpu(cls_max_confs)
-    cls_max_ids = convert2cpu_long(cls_max_ids)
-    xs = convert2cpu(xs)
-    ys = convert2cpu(ys)
-    ws = convert2cpu(ws)
-    hs = convert2cpu(hs)
-    if validation:
-        cls_confs = convert2cpu(cls_confs.view(-1, num_classes))
-    t2 = time.time()
-    for b in range(batch):
-        boxes = []
-        for cy in range(h):
-            for cx in range(w):
-                for i in range(num_anchors):
-                    ind = b * sz_hwa + i * sz_hw + cy * w + cx
-                    det_conf = det_confs[ind]
-                    if only_objectness:
-                        conf = det_confs[ind]
-                    else:
-                        conf = det_confs[ind] * cls_max_confs[ind]
-                    if conf > conf_thresh:
-                        bcx = xs[ind]
-                        bcy = ys[ind]
-                        bw = ws[ind]
-                        bh = hs[ind]
-                        cls_max_conf = cls_max_confs[ind]
-                        cls_max_id = cls_max_ids[ind]
-                        box = [bcx / w, bcy / h, bw / w, bh / h, det_conf, cls_max_conf, cls_max_id]
-                        if not only_objectness and validation:
-                            for c in range(num_classes):
-                                tmp_conf = cls_confs[ind][c]
-                                if c != cls_max_id and det_confs[ind] * tmp_conf > conf_thresh:
-                                    box.append(tmp_conf)
-                                    box.append(c)
-                        boxes.append(box)
-        all_boxes.append(boxes)
-    t3 = time.time()
-    if False:
-        None
-        None
-        None
-        None
-        None
-    return all_boxes
-
-
-class YoloLayer(nn.Module):
-    """ Yolo layer
-    model_out: while inference,is post-processing inside or outside the model
-        true:outside
-    """
-
-    def __init__(self, anchor_mask=[], num_classes=0, anchors=[], num_anchors=1, stride=32, model_out=True):
-        super(YoloLayer, self).__init__()
-        self.anchor_mask = anchor_mask
-        self.num_classes = num_classes
-        self.anchors = anchors
-        self.num_anchors = num_anchors
-        self.anchor_step = len(anchors) // num_anchors
-        self.coord_scale = 1
-        self.noobject_scale = 1
-        self.object_scale = 5
-        self.class_scale = 1
-        self.thresh = 0.6
-        self.stride = stride
-        self.seen = 0
-        self.model_out = model_out
-
-    def forward(self, output, target=None):
-        if self.training:
-            t0 = time.time()
-            nB = output.data.size(0)
-            nA = self.num_anchors
-            nC = self.num_classes
-            nH = output.data.size(2)
-            nW = output.data.size(3)
-            output = output.view(nB, nA, 5 + nC, nH, nW)
-            x = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([0]))).view(nB, nA, nH, nW))
-            y = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([1]))).view(nB, nA, nH, nW))
-            w = output.index_select(2, Variable(torch.LongTensor([2]))).view(nB, nA, nH, nW)
-            h = output.index_select(2, Variable(torch.LongTensor([3]))).view(nB, nA, nH, nW)
-            conf = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([4]))).view(nB, nA, nH, nW))
-            cls = output.index_select(2, Variable(torch.linspace(5, 5 + nC - 1, nC).long()))
-            cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(nB * nA * nH * nW, nC)
-            t1 = time.time()
-            pred_boxes = torch.FloatTensor(4, nB * nA * nH * nW)
-            grid_x = torch.linspace(0, nW - 1, nW).repeat(nH, 1).repeat(nB * nA, 1, 1).view(nB * nA * nH * nW)
-            grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB * nA, 1, 1).view(nB * nA * nH * nW)
-            anchor_w = torch.Tensor(self.anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([0]))
-            anchor_h = torch.Tensor(self.anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([1]))
-            anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB * nA * nH * nW)
-            anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB * nA * nH * nW)
-            pred_boxes[0] = x.data + grid_x
-            pred_boxes[1] = y.data + grid_y
-            pred_boxes[2] = torch.exp(w.data) * anchor_w
-            pred_boxes[3] = torch.exp(h.data) * anchor_h
-            pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 4))
-            t2 = time.time()
-            nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th, tconf, tcls = build_targets(pred_boxes, target.data, self.anchors, nA, nC, nH, nW, self.noobject_scale, self.object_scale, self.thresh, self.seen)
-            cls_mask = cls_mask == 1
-            nProposals = int((conf > 0.25).sum().data[0])
-            tx = Variable(tx)
-            ty = Variable(ty)
-            tw = Variable(tw)
-            th = Variable(th)
-            tconf = Variable(tconf)
-            tcls = Variable(tcls.view(-1)[cls_mask].long())
-            coord_mask = Variable(coord_mask)
-            conf_mask = Variable(conf_mask.sqrt())
-            cls_mask = Variable(cls_mask.view(-1, 1).repeat(1, nC))
-            cls = cls[cls_mask].view(-1, nC)
-            t3 = time.time()
-            loss_x = self.coord_scale * nn.MSELoss(size_average=False)(x * coord_mask, tx * coord_mask) / 2.0
-            loss_y = self.coord_scale * nn.MSELoss(size_average=False)(y * coord_mask, ty * coord_mask) / 2.0
-            loss_w = self.coord_scale * nn.MSELoss(size_average=False)(w * coord_mask, tw * coord_mask) / 2.0
-            loss_h = self.coord_scale * nn.MSELoss(size_average=False)(h * coord_mask, th * coord_mask) / 2.0
-            loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask) / 2.0
-            loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(cls, tcls)
-            loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-            t4 = time.time()
-            if False:
-                None
-                None
-                None
-                None
-                None
-                None
-            None
-            return loss
-        elif self.model_out:
-            return output
-        else:
-            masked_anchors = []
-            for m in self.anchor_mask:
-                masked_anchors += self.anchors[m * self.anchor_step:(m + 1) * self.anchor_step]
-            masked_anchors = [(anchor / self.stride) for anchor in masked_anchors]
-            boxes = get_region_boxes_in_model(output.data, self.thresh, self.num_classes, masked_anchors, len(self.anchor_mask))
-            return boxes
 
 
 def load_conv(buf, start, conv_model):
@@ -1097,6 +1136,16 @@ def print_cfg(blocks):
             out_widths.append(prev_width)
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
+        elif block['type'] == 'sam':
+            from_id = int(block['from'])
+            from_id = from_id if from_id > 0 else from_id + ind
+            None
+            prev_width = out_widths[from_id]
+            prev_height = out_heights[from_id]
+            prev_filters = out_filters[from_id]
+            out_widths.append(prev_width)
+            out_heights.append(prev_height)
+            out_filters.append(prev_filters)
         elif block['type'] == 'connected':
             filters = int(block['output'])
             None
@@ -1110,13 +1159,15 @@ def print_cfg(blocks):
 
 class Darknet(nn.Module):
 
-    def __init__(self, cfgfile):
+    def __init__(self, cfgfile, inference=False):
         super(Darknet, self).__init__()
+        self.inference = inference
+        self.training = not self.inference
         self.blocks = parse_cfg(cfgfile)
-        self.models = self.create_network(self.blocks)
-        self.loss = self.models[len(self.models) - 1]
         self.width = int(self.blocks[0]['width'])
         self.height = int(self.blocks[0]['height'])
+        self.models = self.create_network(self.blocks)
+        self.loss = self.models[len(self.models) - 1]
         if self.blocks[len(self.blocks) - 1]['type'] == 'region':
             self.anchors = self.loss.anchors
             self.num_anchors = self.loss.num_anchors
@@ -1141,8 +1192,15 @@ class Darknet(nn.Module):
                 layers = block['layers'].split(',')
                 layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
-                    x = outputs[layers[0]]
-                    outputs[ind] = x
+                    if 'groups' not in block.keys() or int(block['groups']) == 1:
+                        x = outputs[layers[0]]
+                        outputs[ind] = x
+                    else:
+                        groups = int(block['groups'])
+                        group_id = int(block['group_id'])
+                        _, b, _, _ = outputs[layers[0]].shape
+                        x = outputs[layers[0]][:, b // groups * group_id:b // groups * (group_id + 1)]
+                        outputs[ind] = x
                 elif len(layers) == 2:
                     x1 = outputs[layers[0]]
                     x2 = outputs[layers[1]]
@@ -1169,6 +1227,13 @@ class Darknet(nn.Module):
                 elif activation == 'relu':
                     x = F.relu(x, inplace=True)
                 outputs[ind] = x
+            elif block['type'] == 'sam':
+                from_layer = int(block['from'])
+                from_layer = from_layer if from_layer > 0 else from_layer + ind
+                x1 = outputs[from_layer]
+                x2 = outputs[ind - 1]
+                x = x1 * x2
+                outputs[ind] = x
             elif block['type'] == 'region':
                 continue
                 if self.loss:
@@ -1177,19 +1242,16 @@ class Darknet(nn.Module):
                     self.loss = self.models[ind](x)
                 outputs[ind] = None
             elif block['type'] == 'yolo':
-                if self.training:
-                    pass
-                else:
-                    boxes = self.models[ind](x)
-                    out_boxes.append(boxes)
+                boxes = self.models[ind](x)
+                out_boxes.append(boxes)
             elif block['type'] == 'cost':
                 continue
             else:
                 None
         if self.training:
-            return loss
-        else:
             return out_boxes
+        else:
+            return get_region_boxes(out_boxes)
 
     def print_network(self):
         print_cfg(self.blocks)
@@ -1226,6 +1288,10 @@ class Darknet(nn.Module):
                     model.add_module('relu{0}'.format(conv_id), nn.ReLU(inplace=True))
                 elif activation == 'mish':
                     model.add_module('mish{0}'.format(conv_id), Mish())
+                elif activation == 'linear':
+                    model.add_module('linear{0}'.format(conv_id), nn.Identity())
+                elif activation == 'logistic':
+                    model.add_module('sigmoid{0}'.format(conv_id), nn.Sigmoid())
                 else:
                     None
                 prev_filters = filters
@@ -1236,13 +1302,12 @@ class Darknet(nn.Module):
             elif block['type'] == 'maxpool':
                 pool_size = int(block['size'])
                 stride = int(block['stride'])
-                padding = 0
-                if 'pad' in block.keys() and int(block['pad']) == 1:
-                    padding = int((pool_size - 1) / 2)
-                if stride > 1:
-                    model = nn.MaxPool2d(pool_size, stride, padding=padding)
+                if stride == 1 and pool_size % 2:
+                    model = nn.MaxPool2d(kernel_size=pool_size, stride=stride, padding=pool_size // 2)
+                elif stride == pool_size:
+                    model = nn.MaxPool2d(kernel_size=pool_size, stride=stride, padding=0)
                 else:
-                    model = MaxPoolStride1()
+                    model = MaxPoolDark(pool_size, stride)
                 out_filters.append(prev_filters)
                 prev_stride = stride * prev_stride
                 out_strides.append(prev_stride)
@@ -1258,11 +1323,11 @@ class Darknet(nn.Module):
                 models.append(model)
             elif block['type'] == 'cost':
                 if block['_type'] == 'sse':
-                    model = nn.MSELoss(size_average=True)
+                    model = nn.MSELoss(reduction='mean')
                 elif block['_type'] == 'L1':
-                    model = nn.L1Loss(size_average=True)
+                    model = nn.L1Loss(reduction='mean')
                 elif block['_type'] == 'smooth':
-                    model = nn.SmoothL1Loss(size_average=True)
+                    model = nn.SmoothL1Loss(reduction='mean')
                 out_filters.append(1)
                 out_strides.append(prev_stride)
                 models.append(model)
@@ -1278,16 +1343,20 @@ class Darknet(nn.Module):
                 out_filters.append(prev_filters)
                 prev_stride = prev_stride // stride
                 out_strides.append(prev_stride)
-                models.append(Upsample(stride))
+                models.append(Upsample_expand(stride))
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
                 ind = len(models)
                 layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
-                    prev_filters = out_filters[layers[0]]
-                    prev_stride = out_strides[layers[0]]
+                    if 'groups' not in block.keys() or int(block['groups']) == 1:
+                        prev_filters = out_filters[layers[0]]
+                        prev_stride = out_strides[layers[0]]
+                    else:
+                        prev_filters = out_filters[layers[0]] // int(block['groups'])
+                        prev_stride = out_strides[layers[0]] // int(block['groups'])
                 elif len(layers) == 2:
-                    assert layers[0] == ind - 1
+                    assert layers[0] == ind - 1 or layers[1] == ind - 1
                     prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
                     prev_stride = out_strides[layers[0]]
                 elif len(layers) == 4:
@@ -1300,6 +1369,13 @@ class Darknet(nn.Module):
                 out_strides.append(prev_stride)
                 models.append(EmptyModule())
             elif block['type'] == 'shortcut':
+                ind = len(models)
+                prev_filters = out_filters[ind - 1]
+                out_filters.append(prev_filters)
+                prev_stride = out_strides[ind - 1]
+                out_strides.append(prev_stride)
+                models.append(EmptyModule())
+            elif block['type'] == 'sam':
                 ind = len(models)
                 prev_filters = out_filters[ind - 1]
                 out_filters.append(prev_filters)
@@ -1339,9 +1415,11 @@ class Darknet(nn.Module):
                 yolo_layer.anchor_mask = [int(i) for i in anchor_mask]
                 yolo_layer.anchors = [float(i) for i in anchors]
                 yolo_layer.num_classes = int(block['classes'])
+                self.num_classes = yolo_layer.num_classes
                 yolo_layer.num_anchors = int(block['num'])
                 yolo_layer.anchor_step = len(yolo_layer.anchors) // yolo_layer.num_anchors
                 yolo_layer.stride = prev_stride
+                yolo_layer.scale_x_y = float(block['scale_x_y'])
                 out_filters.append(prev_filters)
                 out_strides.append(prev_stride)
                 models.append(yolo_layer)
@@ -1387,6 +1465,8 @@ class Darknet(nn.Module):
                 pass
             elif block['type'] == 'shortcut':
                 pass
+            elif block['type'] == 'sam':
+                pass
             elif block['type'] == 'region':
                 pass
             elif block['type'] == 'yolo':
@@ -1401,7 +1481,7 @@ class Darknet(nn.Module):
                 None
 
 
-def bboxes_iou(bboxes_a, bboxes_b, xyxy=True):
+def bboxes_iou(bboxes_a, bboxes_b, xyxy=True, GIoU=False, DIoU=False, CIoU=False):
     """Calculate the Intersection of Unions (IoUs) between bounding boxes.
     IoU is calculated as a ratio of area of the intersection
     and area of the union.
@@ -1418,22 +1498,52 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True):
         An array whose shape is :math:`(N, K)`.         An element at index :math:`(n, k)` contains IoUs between         :math:`n` th bounding box in :obj:`bbox_a` and :math:`k` th bounding         box in :obj:`bbox_b`.
 
     from: https://github.com/chainer/chainercv
+    https://github.com/ultralytics/yolov3/blob/eca5b9c1d36e4f73bf2f94e141d864f1c2739e23/utils/utils.py#L262-L282
     """
     if bboxes_a.shape[1] != 4 or bboxes_b.shape[1] != 4:
         raise IndexError
     if xyxy:
-        tl = torch.max(bboxes_a[:, (None), :2], bboxes_b[:, :2])
-        br = torch.min(bboxes_a[:, (None), 2:], bboxes_b[:, 2:])
+        tl = torch.max(bboxes_a[:, None, :2], bboxes_b[:, :2])
+        br = torch.min(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
+        con_tl = torch.min(bboxes_a[:, None, :2], bboxes_b[:, :2])
+        con_br = torch.max(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
+        rho2 = (bboxes_a[:, None, 0] + bboxes_a[:, None, 2] - (bboxes_b[:, 0] + bboxes_b[:, 2])) ** 2 / 4 + (bboxes_a[:, None, 1] + bboxes_a[:, None, 3] - (bboxes_b[:, 1] + bboxes_b[:, 3])) ** 2 / 4
+        w1 = bboxes_a[:, 2] - bboxes_a[:, 0]
+        h1 = bboxes_a[:, 3] - bboxes_a[:, 1]
+        w2 = bboxes_b[:, 2] - bboxes_b[:, 0]
+        h2 = bboxes_b[:, 3] - bboxes_b[:, 1]
         area_a = torch.prod(bboxes_a[:, 2:] - bboxes_a[:, :2], 1)
         area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
     else:
-        tl = torch.max(bboxes_a[:, (None), :2] - bboxes_a[:, (None), 2:] / 2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
-        br = torch.min(bboxes_a[:, (None), :2] + bboxes_a[:, (None), 2:] / 2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        tl = torch.max(bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        br = torch.min(bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        con_tl = torch.min(bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        con_br = torch.max(bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        rho2 = ((bboxes_a[:, None, :2] - bboxes_b[:, :2]) ** 2 / 4).sum(dim=-1)
+        w1 = bboxes_a[:, 2]
+        h1 = bboxes_a[:, 3]
+        w2 = bboxes_b[:, 2]
+        h2 = bboxes_b[:, 3]
         area_a = torch.prod(bboxes_a[:, 2:], 1)
         area_b = torch.prod(bboxes_b[:, 2:], 1)
     en = (tl < br).type(tl.type()).prod(dim=2)
     area_i = torch.prod(br - tl, 2) * en
-    return area_i / (area_a[:, (None)] + area_b - area_i)
+    area_u = area_a[:, None] + area_b - area_i
+    iou = area_i / area_u
+    if GIoU or DIoU or CIoU:
+        if GIoU:
+            area_c = torch.prod(con_br - con_tl, 2)
+            return iou - (area_c - area_u) / area_c
+        if DIoU or CIoU:
+            c2 = torch.pow(con_br - con_tl, 2).sum(dim=2) + 1e-16
+            if DIoU:
+                return iou - rho2 / c2
+            elif CIoU:
+                v = 4 / math.pi ** 2 * torch.pow(torch.atan(w1 / h1).unsqueeze(1) - torch.atan(w2 / h2), 2)
+                with torch.no_grad():
+                    alpha = v / (1 - iou + v)
+                return iou - (rho2 / c2 + v * alpha)
+    return iou
 
 
 class Yolo_loss(nn.Module):
@@ -1458,8 +1568,8 @@ class Yolo_loss(nn.Module):
             fsize = image_size // self.strides[i]
             grid_x = torch.arange(fsize, dtype=torch.float).repeat(batch, 3, fsize, 1)
             grid_y = torch.arange(fsize, dtype=torch.float).repeat(batch, 3, fsize, 1).permute(0, 1, 3, 2)
-            anchor_w = torch.from_numpy(masked_anchors[:, (0)]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2)
-            anchor_h = torch.from_numpy(masked_anchors[:, (1)]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2)
+            anchor_w = torch.from_numpy(masked_anchors[:, 0]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2)
+            anchor_h = torch.from_numpy(masked_anchors[:, 1]).repeat(batch, fsize, fsize, 1).permute(0, 3, 1, 2)
             self.masked_anchors.append(masked_anchors)
             self.ref_anchors.append(ref_anchors)
             self.grid_x.append(grid_x)
@@ -1473,10 +1583,10 @@ class Yolo_loss(nn.Module):
         tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2)
         target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch)
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)
-        truth_x_all = (labels[:, :, (2)] + labels[:, :, (0)]) / (self.strides[output_id] * 2)
-        truth_y_all = (labels[:, :, (3)] + labels[:, :, (1)]) / (self.strides[output_id] * 2)
-        truth_w_all = (labels[:, :, (2)] - labels[:, :, (0)]) / self.strides[output_id]
-        truth_h_all = (labels[:, :, (3)] - labels[:, :, (1)]) / self.strides[output_id]
+        truth_x_all = (labels[:, :, 2] + labels[:, :, 0]) / (self.strides[output_id] * 2)
+        truth_y_all = (labels[:, :, 3] + labels[:, :, 1]) / (self.strides[output_id] * 2)
+        truth_w_all = (labels[:, :, 2] - labels[:, :, 0]) / self.strides[output_id]
+        truth_h_all = (labels[:, :, 3] - labels[:, :, 1]) / self.strides[output_id]
         truth_i_all = truth_x_all.cpu().numpy()
         truth_j_all = truth_y_all.cpu().numpy()
         for b in range(batchsize):
@@ -1484,18 +1594,18 @@ class Yolo_loss(nn.Module):
             if n == 0:
                 continue
             truth_box = torch.zeros(n, 4)
-            truth_box[:n, (2)] = truth_w_all[(b), :n]
-            truth_box[:n, (3)] = truth_h_all[(b), :n]
-            truth_i = truth_i_all[(b), :n]
-            truth_j = truth_j_all[(b), :n]
-            anchor_ious_all = bboxes_iou(truth_box.cpu(), self.ref_anchors[output_id])
+            truth_box[:n, 2] = truth_w_all[b, :n]
+            truth_box[:n, 3] = truth_h_all[b, :n]
+            truth_i = truth_i_all[b, :n]
+            truth_j = truth_j_all[b, :n]
+            anchor_ious_all = bboxes_iou(truth_box.cpu(), self.ref_anchors[output_id], CIoU=True)
             best_n_all = anchor_ious_all.argmax(dim=1)
             best_n = best_n_all % 3
             best_n_mask = (best_n_all == self.anch_masks[output_id][0]) | (best_n_all == self.anch_masks[output_id][1]) | (best_n_all == self.anch_masks[output_id][2])
             if sum(best_n_mask) == 0:
                 continue
-            truth_box[:n, (0)] = truth_x_all[(b), :n]
-            truth_box[:n, (1)] = truth_y_all[(b), :n]
+            truth_box[:n, 0] = truth_x_all[b, :n]
+            truth_box[:n, 1] = truth_y_all[b, :n]
             pred_ious = bboxes_iou(pred[b].view(-1, 4), truth_box, xyxy=False)
             pred_best_iou, _ = pred_ious.max(dim=1)
             pred_best_iou = pred_best_iou > self.ignore_thre
@@ -1506,14 +1616,14 @@ class Yolo_loss(nn.Module):
                     i, j = truth_i[ti], truth_j[ti]
                     a = best_n[ti]
                     obj_mask[b, a, j, i] = 1
-                    tgt_mask[(b), (a), (j), (i), :] = 1
+                    tgt_mask[b, a, j, i, :] = 1
                     target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[b, ti].to(torch.int16)
                     target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[b, ti].to(torch.int16)
                     target[b, a, j, i, 2] = torch.log(truth_w_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 0] + 1e-16)
                     target[b, a, j, i, 3] = torch.log(truth_h_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 1] + 1e-16)
                     target[b, a, j, i, 4] = 1
                     target[b, a, j, i, 5 + labels[b, ti, 4].cpu().numpy()] = 1
-                    tgt_scale[(b), (a), (j), (i), :] = torch.sqrt(2 - truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize)
+                    tgt_scale[b, a, j, i, :] = torch.sqrt(2 - truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize)
         return obj_mask, tgt_mask, tgt_scale, target
 
     def forward(self, xin, labels=None):
@@ -1525,7 +1635,7 @@ class Yolo_loss(nn.Module):
             output = output.view(batchsize, self.n_anchors, n_ch, fsize, fsize)
             output = output.permute(0, 1, 3, 4, 2)
             output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(output[..., np.r_[:2, 4:n_ch]])
-            pred = output[(...), :4].clone()
+            pred = output[..., :4].clone()
             pred[..., 0] += self.grid_x[output_id]
             pred[..., 1] += self.grid_y[output_id]
             pred[..., 2] = torch.exp(pred[..., 2]) * self.anchor_w[output_id]
@@ -1533,15 +1643,15 @@ class Yolo_loss(nn.Module):
             obj_mask, tgt_mask, tgt_scale, target = self.build_target(pred, labels, batchsize, fsize, n_ch, output_id)
             output[..., 4] *= obj_mask
             output[..., np.r_[0:4, 5:n_ch]] *= tgt_mask
-            output[(...), 2:4] *= tgt_scale
+            output[..., 2:4] *= tgt_scale
             target[..., 4] *= obj_mask
             target[..., np.r_[0:4, 5:n_ch]] *= tgt_mask
-            target[(...), 2:4] *= tgt_scale
-            loss_xy += F.binary_cross_entropy(input=output[(...), :2], target=target[(...), :2], weight=tgt_scale * tgt_scale, size_average=False)
-            loss_wh += F.mse_loss(input=output[(...), 2:4], target=target[(...), 2:4], size_average=False) / 2
-            loss_obj += F.binary_cross_entropy(input=output[..., 4], target=target[..., 4], size_average=False)
-            loss_cls += F.binary_cross_entropy(input=output[(...), 5:], target=target[(...), 5:], size_average=False)
-            loss_l2 += F.mse_loss(input=output, target=target, size_average=False)
+            target[..., 2:4] *= tgt_scale
+            loss_xy += F.binary_cross_entropy(input=output[..., :2], target=target[..., :2], weight=tgt_scale * tgt_scale, reduction='sum')
+            loss_wh += F.mse_loss(input=output[..., 2:4], target=target[..., 2:4], reduction='sum') / 2
+            loss_obj += F.binary_cross_entropy(input=output[..., 4], target=target[..., 4], reduction='sum')
+            loss_cls += F.binary_cross_entropy(input=output[..., 5:], target=target[..., 5:], reduction='sum')
+            loss_l2 += F.mse_loss(input=output, target=target, reduction='sum')
         loss = loss_xy + loss_wh + loss_obj + loss_cls
         return loss, loss_xy, loss_wh, loss_obj, loss_cls, loss_l2
 
@@ -1585,7 +1695,7 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MaxPoolStride1,
+    (MaxPoolDark,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
@@ -1597,13 +1707,17 @@ TESTCASES = [
      lambda: ([], {'ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Upsample,
+    (Upsample_expand,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (YoloLayer,
-     lambda: ([], {}),
+    (Upsample_interpolate,
+     lambda: ([], {'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Yolov4,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
 ]
 
@@ -1646,4 +1760,7 @@ class Test_Tianxiaomo_pytorch_YOLOv4(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

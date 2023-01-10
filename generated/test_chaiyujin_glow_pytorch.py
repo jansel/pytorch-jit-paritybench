@@ -238,7 +238,7 @@ class Glow(nn.Module):
     def normal_flow(self, x, y_onehot):
         pixels = thops.pixels(x)
         z = x + torch.normal(mean=torch.zeros_like(x), std=torch.ones_like(x) * (1.0 / 256.0))
-        logdet = torch.zeros_like(x[:, (0), (0), (0)])
+        logdet = torch.zeros_like(x[:, 0, 0, 0])
         logdet += float(-np.log(256.0) * pixels)
         z, objective = self.flow(z, logdet=logdet, reverse=False)
         mean, logs = self.prior(y_onehot)
@@ -490,9 +490,9 @@ class Permute2d(nn.Module):
     def forward(self, input, reverse=False):
         assert len(input.size()) == 4
         if not reverse:
-            return input[:, (self.indices), :, :]
+            return input[:, self.indices, :, :]
         else:
-            return input[:, (self.indices_inverse), :, :]
+            return input[:, self.indices_inverse, :, :]
 
 
 class InvertibleConv1x1(nn.Module):

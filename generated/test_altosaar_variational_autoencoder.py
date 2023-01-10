@@ -3,6 +3,8 @@ _module = sys.modules[__name__]
 del sys
 data = _module
 flow = _module
+masks = _module
+train_variational_autoencoder_jax = _module
 train_variational_autoencoder_pytorch = _module
 train_variational_autoencoder_tensorflow = _module
 
@@ -38,6 +40,12 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
+import random
+
+
+import time
+
+
 import torch.utils
 
 
@@ -45,12 +53,6 @@ import torch.utils.data
 
 
 from torch import nn
-
-
-import logging
-
-
-import random
 
 
 class MaskedLinear(nn.Module):
@@ -74,56 +76,21 @@ class MaskedLinear(nn.Module):
 class MADE(nn.Module):
     """Implements MADE: Masked Autoencoder for Distribution Estimation.
 
-  Follows https://arxiv.org/abs/1502.03509
+    Follows https://arxiv.org/abs/1502.03509
 
-  This is used to build MAF: Masked Autoregressive Flow (https://arxiv.org/abs/1705.07057).
-  """
+    This is used to build MAF: Masked Autoregressive Flow (https://arxiv.org/abs/1705.07057).
+    """
 
-    def __init__(self, num_input, num_output, num_hidden, num_context):
+    def __init__(self, num_input, num_outputs_per_input, num_hidden, num_context):
         super().__init__()
         self._m = []
-        self._masks = []
-        self._build_masks(num_input, num_output, num_hidden, num_layers=3)
-        self._check_masks()
+        degrees = masks.create_degrees(input_size=num_input, hidden_units=[num_hidden] * 2, input_order='left-to-right', hidden_degrees='equal')
+        self._masks = masks.create_masks(degrees)
+        self._masks[-1] = np.hstack([self._masks[-1] for _ in range(num_outputs_per_input)])
+        self._masks = [torch.from_numpy(m.T) for m in self._masks]
         modules = []
         self.input_context_net = MaskedLinear(num_input, num_hidden, self._masks[0], num_context)
-        modules.append(nn.ReLU())
-        modules.append(MaskedLinear(num_hidden, num_hidden, self._masks[1], context_features=None))
-        modules.append(nn.ReLU())
-        modules.append(MaskedLinear(num_hidden, num_output, self._masks[2], context_features=None))
-        self.net = nn.Sequential(*modules)
-
-    def _build_masks(self, num_input, num_output, num_hidden, num_layers):
-        """Build the masks according to Eq 12 and 13 in the MADE paper."""
-        rng = np.random.RandomState(0)
-        self._m.append(np.arange(1, num_input + 1))
-        for i in range(1, num_layers + 1):
-            if i == num_layers:
-                m = np.arange(1, num_input + 1)
-                assert num_output % num_input == 0, 'num_output must be multiple of num_input'
-                self._m.append(np.hstack([m for _ in range(num_output // num_input)]))
-            else:
-                self._m.append(rng.randint(1, num_input, size=num_hidden))
-            if i == num_layers:
-                mask = self._m[i][(None), :] > self._m[i - 1][:, (None)]
-            else:
-                mask = self._m[i][(None), :] >= self._m[i - 1][:, (None)]
-            self._masks.append(torch.from_numpy(mask.astype(np.float32).T))
-
-    def _check_masks(self):
-        """Check that the connectivity matrix between layers is lower triangular."""
-        prev = self._masks[0].t()
-        for i in range(1, len(self._masks)):
-            prev = prev @ self._masks[i].t()
-        final = prev.numpy()
-        num_input = self._masks[0].shape[1]
-        num_output = self._masks[-1].shape[0]
-        assert final.shape == (num_input, num_output)
-        if num_output == num_input:
-            assert np.triu(final).all() == 0
-        else:
-            for submat in np.split(final, indices_or_sections=num_output // num_input, axis=1):
-                assert np.triu(submat).all() == 0
+        self.net = nn.Sequential(nn.ReLU(), MaskedLinear(num_hidden, num_hidden, self._masks[1], context_features=None), nn.ReLU(), MaskedLinear(num_hidden, num_outputs_per_input * num_input, self._masks[2], context_features=None))
 
     def forward(self, input, context=None):
         hidden = self.input_context_net(input, context)
@@ -132,13 +99,13 @@ class MADE(nn.Module):
 
 class InverseAutoregressiveFlow(nn.Module):
     """Inverse Autoregressive Flows with LSTM-type update. One block.
-  
-  Eq 11-14 of https://arxiv.org/abs/1606.04934
-  """
+
+    Eq 11-14 of https://arxiv.org/abs/1606.04934
+    """
 
     def __init__(self, num_input, num_hidden, num_context):
         super().__init__()
-        self.made = MADE(num_input=num_input, num_output=num_input * 2, num_hidden=num_hidden, num_context=num_context)
+        self.made = MADE(num_input=num_input, num_outputs_per_input=2, num_hidden=num_hidden, num_context=num_context)
         self.sigmoid_arg_bias = nn.Parameter(torch.ones(num_input) * 2)
         self.sigmoid = nn.Sigmoid()
         self.log_sigmoid = nn.LogSigmoid()
@@ -163,12 +130,12 @@ class FlowSequential(nn.Sequential):
 
 
 class Reverse(nn.Module):
-    """ An implementation of a reversing layer from
-  Density estimation using Real NVP
-  (https://arxiv.org/abs/1605.08803).
+    """An implementation of a reversing layer from
+    Density estimation using Real NVP
+    (https://arxiv.org/abs/1605.08803).
 
-  From https://github.com/ikostrikov/pytorch-flows/blob/master/main.py
-  """
+    From https://github.com/ikostrikov/pytorch-flows/blob/master/main.py
+    """
 
     def __init__(self, num_input):
         super(Reverse, self).__init__()
@@ -177,9 +144,9 @@ class Reverse(nn.Module):
 
     def forward(self, inputs, context=None, mode='forward'):
         if mode == 'forward':
-            return inputs[:, :, (self.perm)], torch.zeros_like(inputs, device=inputs.device)
+            return inputs[:, :, self.perm], torch.zeros_like(inputs, device=inputs.device)
         elif mode == 'inverse':
-            return inputs[:, :, (self.inv_perm)], torch.zeros_like(inputs, device=inputs.device)
+            return inputs[:, :, self.inv_perm], torch.zeros_like(inputs, device=inputs.device)
         else:
             raise ValueError('Mode must be one of {forward, inverse}.')
 
@@ -216,7 +183,7 @@ class NormalLogProb(nn.Module):
 
 
 class Model(nn.Module):
-    """Bernoulli model parameterized by a generative network with Gaussian latents for MNIST."""
+    """Variational autoencoder, parameterized by a generative network."""
 
     def __init__(self, latent_size, data_size):
         super().__init__()
@@ -296,14 +263,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (InverseAutoregressiveFlow,
-     lambda: ([], {'num_input': 4, 'num_hidden': 4, 'num_context': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (MADE,
-     lambda: ([], {'num_input': 4, 'num_output': 4, 'num_hidden': 4, 'num_context': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (Model,
      lambda: ([], {'latent_size': 4, 'data_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -318,10 +277,6 @@ TESTCASES = [
      True),
     (Reverse,
      lambda: ([], {'num_input': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (VariationalFlow,
-     lambda: ([], {'latent_size': 4, 'data_size': 4, 'flow_depth': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (VariationalMeanField,
@@ -351,13 +306,4 @@ class Test_altosaar_variational_autoencoder(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

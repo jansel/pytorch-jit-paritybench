@@ -223,7 +223,7 @@ class _AbstractDiceLoss(nn.Module):
         Assuming dim 1 is the classes dim , it skips all the indexes after the desired class
         """
         assert index >= 2
-        return target[:, 0:index, (...)]
+        return target[:, 0:index, ...]
 
     def forward(self, input, target):
         """
@@ -450,7 +450,7 @@ class SkipLastTargetChannelWrapper(nn.Module):
 
     def forward(self, input, target):
         assert target.size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
-        target = target[:, :-1, (...)]
+        target = target[:, :-1, ...]
         if self.squeeze_channel:
             target = torch.squeeze(target, dim=1)
         return self.loss(input, target)
@@ -719,10 +719,10 @@ class Flatten(nn.Module):
         return input.view(input.size(0), -1)
 
 
-class PEXP(nn.Module):
+class PEPX(nn.Module):
 
     def __init__(self, n_input, n_out):
-        super(PEXP, self).__init__()
+        super(PEPX, self).__init__()
         """
         • First-stage Projection: 1×1 convolutions for projecting input features to a lower dimension,
 
@@ -751,13 +751,13 @@ class CovidNet(nn.Module):
 
     def __init__(self, model='large', n_classes=3):
         super(CovidNet, self).__init__()
-        filters = {'pexp1_1': [64, 256], 'pexp1_2': [256, 256], 'pexp1_3': [256, 256], 'pexp2_1': [256, 512], 'pexp2_2': [512, 512], 'pexp2_3': [512, 512], 'pexp2_4': [512, 512], 'pexp3_1': [512, 1024], 'pexp3_2': [1024, 1024], 'pexp3_3': [1024, 1024], 'pexp3_4': [1024, 1024], 'pexp3_5': [1024, 1024], 'pexp3_6': [1024, 1024], 'pexp4_1': [1024, 2048], 'pexp4_2': [2048, 2048], 'pexp4_3': [2048, 2048]}
+        filters = {'pepx1_1': [64, 256], 'pepx1_2': [256, 256], 'pepx1_3': [256, 256], 'pepx2_1': [256, 512], 'pepx2_2': [512, 512], 'pepx2_3': [512, 512], 'pepx2_4': [512, 512], 'pepx3_1': [512, 1024], 'pepx3_2': [1024, 1024], 'pepx3_3': [1024, 1024], 'pepx3_4': [1024, 1024], 'pepx3_5': [1024, 1024], 'pepx3_6': [1024, 1024], 'pepx4_1': [1024, 2048], 'pepx4_2': [2048, 2048], 'pepx4_3': [2048, 2048]}
         self.add_module('conv1', nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3))
         for key in filters:
             if 'pool' in key:
                 self.add_module(key, nn.MaxPool2d(filters[key][0], filters[key][1]))
             else:
-                self.add_module(key, PEXP(filters[key][0], filters[key][1]))
+                self.add_module(key, pepx(filters[key][0], filters[key][1]))
         if model == 'large':
             self.add_module('conv1_1x1', nn.Conv2d(in_channels=64, out_channels=256, kernel_size=1))
             self.add_module('conv2_1x1', nn.Conv2d(in_channels=256, out_channels=512, kernel_size=1))
@@ -777,25 +777,25 @@ class CovidNet(nn.Module):
     def forward_large_net(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)
         out_conv1_1x1 = self.conv1_1x1(x)
-        pepx11 = self.pexp1_1(x)
-        pepx12 = self.pexp1_2(pepx11 + out_conv1_1x1)
-        pepx13 = self.pexp1_3(pepx12 + pepx11 + out_conv1_1x1)
+        pepx11 = self.pepx1_1(x)
+        pepx12 = self.pepx1_2(pepx11 + out_conv1_1x1)
+        pepx13 = self.pepx1_3(pepx12 + pepx11 + out_conv1_1x1)
         out_conv2_1x1 = F.max_pool2d(self.conv2_1x1(pepx12 + pepx11 + pepx13 + out_conv1_1x1), 2)
-        pepx21 = self.pexp2_1(F.max_pool2d(pepx13, 2) + F.max_pool2d(pepx11, 2) + F.max_pool2d(pepx12, 2) + F.max_pool2d(out_conv1_1x1, 2))
-        pepx22 = self.pexp2_2(pepx21 + out_conv2_1x1)
-        pepx23 = self.pexp2_3(pepx22 + pepx21 + out_conv2_1x1)
-        pepx24 = self.pexp2_4(pepx23 + pepx21 + pepx22 + out_conv2_1x1)
+        pepx21 = self.pepx2_1(F.max_pool2d(pepx13, 2) + F.max_pool2d(pepx11, 2) + F.max_pool2d(pepx12, 2) + F.max_pool2d(out_conv1_1x1, 2))
+        pepx22 = self.pepx2_2(pepx21 + out_conv2_1x1)
+        pepx23 = self.pepx2_3(pepx22 + pepx21 + out_conv2_1x1)
+        pepx24 = self.pepx2_4(pepx23 + pepx21 + pepx22 + out_conv2_1x1)
         out_conv3_1x1 = F.max_pool2d(self.conv3_1x1(pepx22 + pepx21 + pepx23 + pepx24 + out_conv2_1x1), 2)
-        pepx31 = self.pexp3_1(F.max_pool2d(pepx24, 2) + F.max_pool2d(pepx21, 2) + F.max_pool2d(pepx22, 2) + F.max_pool2d(pepx23, 2) + F.max_pool2d(out_conv2_1x1, 2))
-        pepx32 = self.pexp3_2(pepx31 + out_conv3_1x1)
-        pepx33 = self.pexp3_3(pepx31 + pepx32 + out_conv3_1x1)
-        pepx34 = self.pexp3_4(pepx31 + pepx32 + pepx33 + out_conv3_1x1)
-        pepx35 = self.pexp3_5(pepx31 + pepx32 + pepx33 + pepx34 + out_conv3_1x1)
-        pepx36 = self.pexp3_6(pepx31 + pepx32 + pepx33 + pepx34 + pepx35 + out_conv3_1x1)
+        pepx31 = self.pepx3_1(F.max_pool2d(pepx24, 2) + F.max_pool2d(pepx21, 2) + F.max_pool2d(pepx22, 2) + F.max_pool2d(pepx23, 2) + F.max_pool2d(out_conv2_1x1, 2))
+        pepx32 = self.pepx3_2(pepx31 + out_conv3_1x1)
+        pepx33 = self.pepx3_3(pepx31 + pepx32 + out_conv3_1x1)
+        pepx34 = self.pepx3_4(pepx31 + pepx32 + pepx33 + out_conv3_1x1)
+        pepx35 = self.pepx3_5(pepx31 + pepx32 + pepx33 + pepx34 + out_conv3_1x1)
+        pepx36 = self.pepx3_6(pepx31 + pepx32 + pepx33 + pepx34 + pepx35 + out_conv3_1x1)
         out_conv4_1x1 = F.max_pool2d(self.conv4_1x1(pepx31 + pepx32 + pepx33 + pepx34 + pepx35 + pepx36 + out_conv3_1x1), 2)
-        pepx41 = self.pexp4_1(F.max_pool2d(pepx31, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx34, 2) + F.max_pool2d(pepx35, 2) + F.max_pool2d(pepx36, 2) + F.max_pool2d(out_conv3_1x1, 2))
-        pepx42 = self.pexp4_2(pepx41 + out_conv4_1x1)
-        pepx43 = self.pexp4_3(pepx41 + pepx42 + out_conv4_1x1)
+        pepx41 = self.pepx4_1(F.max_pool2d(pepx31, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx34, 2) + F.max_pool2d(pepx35, 2) + F.max_pool2d(pepx36, 2) + F.max_pool2d(out_conv3_1x1, 2))
+        pepx42 = self.pepx4_2(pepx41 + out_conv4_1x1)
+        pepx43 = self.pepx4_3(pepx41 + pepx42 + out_conv4_1x1)
         flattened = self.flatten(pepx41 + pepx42 + pepx43 + out_conv4_1x1)
         fc1out = F.relu(self.fc1(flattened))
         fc2out = F.relu(self.fc2(fc1out))
@@ -804,22 +804,22 @@ class CovidNet(nn.Module):
 
     def forward_small_net(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)
-        pepx11 = self.pexp1_1(x)
-        pepx12 = self.pexp1_2(pepx11)
-        pepx13 = self.pexp1_3(pepx12 + pepx11)
-        pepx21 = self.pexp2_1(F.max_pool2d(pepx13, 2) + F.max_pool2d(pepx11, 2) + F.max_pool2d(pepx12, 2))
-        pepx22 = self.pexp2_2(pepx21)
-        pepx23 = self.pexp2_3(pepx22 + pepx21)
-        pepx24 = self.pexp2_4(pepx23 + pepx21 + pepx22)
-        pepx31 = self.pexp3_1(F.max_pool2d(pepx24, 2) + F.max_pool2d(pepx21, 2) + F.max_pool2d(pepx22, 2) + F.max_pool2d(pepx23, 2))
-        pepx32 = self.pexp3_2(pepx31)
-        pepx33 = self.pexp3_3(pepx31 + pepx32)
-        pepx34 = self.pexp3_4(pepx31 + pepx32 + pepx33)
-        pepx35 = self.pexp3_5(pepx31 + pepx32 + pepx33 + pepx34)
-        pepx36 = self.pexp3_6(pepx31 + pepx32 + pepx33 + pepx34 + pepx35)
-        pepx41 = self.pexp4_1(F.max_pool2d(pepx31, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx34, 2) + F.max_pool2d(pepx35, 2) + F.max_pool2d(pepx36, 2))
-        pepx42 = self.pexp4_2(pepx41)
-        pepx43 = self.pexp4_3(pepx41 + pepx42)
+        pepx11 = self.pepx1_1(x)
+        pepx12 = self.pepx1_2(pepx11)
+        pepx13 = self.pepx1_3(pepx12 + pepx11)
+        pepx21 = self.pepx2_1(F.max_pool2d(pepx13, 2) + F.max_pool2d(pepx11, 2) + F.max_pool2d(pepx12, 2))
+        pepx22 = self.pepx2_2(pepx21)
+        pepx23 = self.pepx2_3(pepx22 + pepx21)
+        pepx24 = self.pepx2_4(pepx23 + pepx21 + pepx22)
+        pepx31 = self.pepx3_1(F.max_pool2d(pepx24, 2) + F.max_pool2d(pepx21, 2) + F.max_pool2d(pepx22, 2) + F.max_pool2d(pepx23, 2))
+        pepx32 = self.pepx3_2(pepx31)
+        pepx33 = self.pepx3_3(pepx31 + pepx32)
+        pepx34 = self.pepx3_4(pepx31 + pepx32 + pepx33)
+        pepx35 = self.pepx3_5(pepx31 + pepx32 + pepx33 + pepx34)
+        pepx36 = self.pepx3_6(pepx31 + pepx32 + pepx33 + pepx34 + pepx35)
+        pepx41 = self.pepx4_1(F.max_pool2d(pepx31, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx32, 2) + F.max_pool2d(pepx34, 2) + F.max_pool2d(pepx35, 2) + F.max_pool2d(pepx36, 2))
+        pepx42 = self.pepx4_2(pepx41)
+        pepx43 = self.pepx4_3(pepx41 + pepx42)
         flattened = self.flatten(pepx41 + pepx42 + pepx43)
         fc1out = F.relu(self.fc1(flattened))
         fc2out = F.relu(self.fc2(fc1out))
@@ -1090,8 +1090,8 @@ class DualPathDenseNet(BaseModel):
             None
             return None
         elif self.input_channels == 2:
-            in_stream_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
-            in_stream_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            in_stream_1 = multi_channel_medical_img[:, 0, ...].unsqueeze(dim=1)
+            in_stream_2 = multi_channel_medical_img[:, 1, ...].unsqueeze(dim=1)
             output_features_t1 = self.stream_1(in_stream_1)
             output_features_t2 = self.stream_2(in_stream_2)
             if self.fusion == 'concat':
@@ -1101,9 +1101,9 @@ class DualPathDenseNet(BaseModel):
                 features = output_features_t1 + output_features_t2
                 return self.classifier(features)
         elif self.input_channels == 3:
-            in_stream_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
-            in_stream_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
-            in_stream_3 = multi_channel_medical_img[:, (2), (...)].unsqueeze(dim=1)
+            in_stream_1 = multi_channel_medical_img[:, 0, ...].unsqueeze(dim=1)
+            in_stream_2 = multi_channel_medical_img[:, 1, ...].unsqueeze(dim=1)
+            in_stream_3 = multi_channel_medical_img[:, 2, ...].unsqueeze(dim=1)
             output_features_t1 = self.stream_1(in_stream_1)
             output_features_t2 = self.stream_2(in_stream_2)
             output_features_t3 = self.stream_3(in_stream_3)
@@ -1165,8 +1165,8 @@ class DualSingleDenseNet(BaseModel):
             None
             return None
         elif self.input_channels == 2:
-            in_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
-            in_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            in_1 = multi_channel_medical_img[:, 0, ...].unsqueeze(dim=1)
+            in_2 = multi_channel_medical_img[:, 1, ...].unsqueeze(dim=1)
             y1 = self.early_conv_1(in_1)
             y2 = self.early_conv_1(in_2)
             None
@@ -1175,9 +1175,9 @@ class DualSingleDenseNet(BaseModel):
             logits = self.stream_1(in_stream)
             return logits
         elif self.input_channels == 3:
-            in_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
-            in_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
-            in_3 = multi_channel_medical_img[:, (2), (...)].unsqueeze(dim=1)
+            in_1 = multi_channel_medical_img[:, 0, ...].unsqueeze(dim=1)
+            in_2 = multi_channel_medical_img[:, 1, ...].unsqueeze(dim=1)
+            in_3 = multi_channel_medical_img[:, 2, ...].unsqueeze(dim=1)
             y1 = self.early_conv_1(in_1)
             y2 = self.early_conv_2(in_2)
             y3 = self.early_conv_3(in_3)
@@ -2012,7 +2012,7 @@ class VAE(nn.Module):
         x = x.view(-1, self.linear_in_dim)
         x = self.linear_1(x)
         mu = x[:, :self.split_dim]
-        logvar = torch.log(x[:, self.split_dim:])
+        logvar = x[:, self.split_dim:]
         y = reparametrize(mu, logvar)
         y = self.linear_vu(y)
         y = y.view(-1, self.encoder_channels, self.reshape_dim[0], self.reshape_dim[1], self.reshape_dim[2])
@@ -2032,7 +2032,7 @@ class ResNet3dVAE(BaseModel):
     def __init__(self, in_channels=2, classes=4, max_conv_channels=256, dim=(64, 64, 64)):
         super(ResNet3dVAE, self).__init__()
         self.dim = dim
-        vae_in_dim = int(dim[0] >> 3), int(dim[1] >> 3), int(dim[0] >> 3)
+        vae_in_dim = int(dim[0] >> 3), int(dim[1] >> 3), int(dim[2] >> 3)
         vae_out_dim = in_channels, dim[0], dim[1], dim[2]
         self.classes = classes
         self.modalities = in_channels
@@ -2578,11 +2578,11 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BasicBlock,
      lambda: ([], {'in_planes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (BlueBlock,
      lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (CNN,
      lambda: ([], {'classes': 4}),
@@ -2598,7 +2598,7 @@ TESTCASES = [
      True),
     (ConvInit,
      lambda: ([], {'in_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (ConvRed,
      lambda: ([], {'in_channels': 4}),
@@ -2626,11 +2626,11 @@ TESTCASES = [
      True),
     (DownBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (DownTransition,
      lambda: ([], {'inChans': 4, 'nConvs': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      False),
     (DualPathDenseNet,
      lambda: ([], {'in_channels': 4}),
@@ -2648,17 +2648,21 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (HighResNet3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     False),
     (InConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (InputTransition,
      lambda: ([], {'in_channels': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (LUConv,
      lambda: ([], {'nchan': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (OutConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
@@ -2666,40 +2670,64 @@ TESTCASES = [
      True),
     (OutputTransition,
      lambda: ([], {'in_channels': 4, 'classes': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
-    (PEXP,
+    (PEPX,
      lambda: ([], {'n_input': 4, 'n_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResNet3dVAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 64, 64, 64])], {}),
+     False),
     (ResNetMed3D,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 16, 16])], {}),
-     True),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
     (ResidualConv,
      lambda: ([], {'nin': 4, 'nout': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SkipDenseNet3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 64, 64, 64])], {}),
+     False),
     (SkipLastTargetChannelWrapper,
      lambda: ([], {'loss': MSELoss()}),
      lambda: ([torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (TranspConvNet,
+     lambda: ([], {'in_channels': 4, 'classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
     (Unet,
      lambda: ([], {'in_channels': 4, 'classes': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
+     False),
     (Up,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
      True),
     (UpBlock1,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (UpBlock2,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (VNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     False),
+    (VNetLight,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     False),
+    (WeightedCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (_DenseBlock,
      lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
@@ -2851,4 +2879,25 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
 
     def test_038(self):
         self._check(*TESTCASES[38])
+
+    def test_039(self):
+        self._check(*TESTCASES[39])
+
+    def test_040(self):
+        self._check(*TESTCASES[40])
+
+    def test_041(self):
+        self._check(*TESTCASES[41])
+
+    def test_042(self):
+        self._check(*TESTCASES[42])
+
+    def test_043(self):
+        self._check(*TESTCASES[43])
+
+    def test_044(self):
+        self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
 

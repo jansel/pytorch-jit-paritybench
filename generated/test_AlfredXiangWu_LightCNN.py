@@ -3,6 +3,7 @@ _module = sys.modules[__name__]
 del sys
 extract_features = _module
 light_cnn = _module
+light_cnn_v4 = _module
 load_imglist = _module
 train = _module
 
@@ -216,6 +217,62 @@ class network_29layers_v2(nn.Module):
         return out, fc
 
 
+class resblock_v1(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(resblock_v1, self).__init__()
+        self.conv1 = mfm(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = mfm(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+    def forward(self, x):
+        res = x
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = out + res
+        return out
+
+
+class network(nn.Module):
+
+    def __init__(self, block, layers):
+        super(network, self).__init__()
+        self.conv1 = mfm(3, 48, 3, 1, 1)
+        self.block1 = self._make_layer(block, layers[0], 48, 48)
+        self.conv2 = mfm(48, 96, 3, 1, 1)
+        self.block2 = self._make_layer(block, layers[1], 96, 96)
+        self.conv3 = mfm(96, 192, 3, 1, 1)
+        self.block3 = self._make_layer(block, layers[2], 192, 192)
+        self.conv4 = mfm(192, 128, 3, 1, 1)
+        self.block4 = self._make_layer(block, layers[3], 128, 128)
+        self.conv5 = mfm(128, 128, 3, 1, 1)
+        self.fc = nn.Linear(8 * 8 * 128, 256)
+        nn.init.normal_(self.fc.weight, std=0.001)
+
+    def _make_layer(self, block, num_blocks, in_channels, out_channels):
+        layers = []
+        for i in range(0, num_blocks):
+            layers.append(block(in_channels, out_channels))
+        return nn.Sequential(*layers)
+
+    def forward(self, x, label=None):
+        x = self.conv1(x)
+        x = F.max_pool2d(x, 2) + F.avg_pool2d(x, 2)
+        x = self.block1(x)
+        x = self.conv2(x)
+        x = F.max_pool2d(x, 2) + F.avg_pool2d(x, 2)
+        x = self.block2(x)
+        x = self.conv3(x)
+        x = F.max_pool2d(x, 2) + F.avg_pool2d(x, 2)
+        x = self.block3(x)
+        x = self.conv4(x)
+        x = self.block4(x)
+        x = self.conv5(x)
+        x = F.max_pool2d(x, 2) + F.avg_pool2d(x, 2)
+        x = torch.flatten(x, 1)
+        fc = self.fc(x)
+        return fc
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -235,6 +292,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (resblock_v1,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_AlfredXiangWu_LightCNN(_paritybench_base):
@@ -246,4 +307,7 @@ class Test_AlfredXiangWu_LightCNN(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

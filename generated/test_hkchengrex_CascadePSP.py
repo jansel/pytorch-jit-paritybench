@@ -5,6 +5,7 @@ dataset = _module
 make_bb_trans = _module
 offline_dataset = _module
 online_dataset = _module
+reseed = _module
 split_dataset = _module
 eval = _module
 eval_helper = _module
@@ -115,15 +116,6 @@ import math
 
 
 from torch.utils import model_zoo
-
-
-from torchvision.models.densenet import densenet121
-
-
-from torchvision.models.densenet import densenet161
-
-
-from torchvision.models.squeezenet import squeezenet1_1
 
 
 from torch import nn
@@ -581,7 +573,7 @@ class PSPNet(nn.Module):
         else:
             r_inter_tanh_s8 = inter_s8
         """
-        Second iteration, s8 output
+        Second iteration, s4 output
         """
         if inter_s4 is None:
             p = torch.cat((x, seg, r_inter_tanh_s8, r_inter_tanh_s8), 1)
@@ -889,10 +881,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (PSPModule,
      lambda: ([], {'features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -940,7 +928,4 @@ class Test_hkchengrex_CascadePSP(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

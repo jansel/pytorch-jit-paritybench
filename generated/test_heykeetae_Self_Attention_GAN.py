@@ -271,10 +271,6 @@ TESTCASES = [
      lambda: ([], {'batch_size': 4}),
      lambda: ([torch.rand([4, 100, 1, 1])], {}),
      False),
-    (Self_Attn,
-     lambda: ([], {'in_dim': 18, 'activation': 4}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
 ]
 
 class Test_heykeetae_Self_Attention_GAN(_paritybench_base):
@@ -283,7 +279,4 @@ class Test_heykeetae_Self_Attention_GAN(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

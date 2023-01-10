@@ -66,26 +66,30 @@ class GraphAttentionLayer(nn.Module):
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
-        self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
+        self.W = nn.Parameter(torch.empty(size=(in_features, out_features)))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
-        self.a = nn.Parameter(torch.zeros(size=(2 * out_features, 1)))
+        self.a = nn.Parameter(torch.empty(size=(2 * out_features, 1)))
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
-    def forward(self, input, adj):
-        h = torch.mm(input, self.W)
-        N = h.size()[0]
-        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
-        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
+    def forward(self, h, adj):
+        Wh = torch.mm(h, self.W)
+        e = self._prepare_attentional_mechanism_input(Wh)
         zero_vec = -9000000000000000.0 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)
         attention = F.softmax(attention, dim=1)
         attention = F.dropout(attention, self.dropout, training=self.training)
-        h_prime = torch.matmul(attention, h)
+        h_prime = torch.matmul(attention, Wh)
         if self.concat:
             return F.elu(h_prime)
         else:
             return h_prime
+
+    def _prepare_attentional_mechanism_input(self, Wh):
+        Wh1 = torch.matmul(Wh, self.a[:self.out_features, :])
+        Wh2 = torch.matmul(Wh, self.a[self.out_features:, :])
+        e = Wh1 + Wh2.T
+        return self.leakyrelu(e)
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
@@ -108,7 +112,7 @@ class SpecialSpmmFunction(torch.autograd.Function):
         grad_values = grad_b = None
         if ctx.needs_input_grad[1]:
             grad_a_dense = grad_output.matmul(b.t())
-            edge_idx = a._indices()[(0), :] * ctx.N + a._indices()[(1), :]
+            edge_idx = a._indices()[0, :] * ctx.N + a._indices()[1, :]
             grad_values = grad_a_dense.view(-1)[edge_idx]
         if ctx.needs_input_grad[3]:
             grad_b = a.t().matmul(grad_output)
@@ -146,7 +150,7 @@ class SpGraphAttentionLayer(nn.Module):
         edge = adj.nonzero().t()
         h = torch.mm(input, self.W)
         assert not torch.isnan(h).any()
-        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1).t()
+        edge_h = torch.cat((h[edge[0, :], :], h[edge[1, :], :]), dim=1).t()
         edge_e = torch.exp(-self.leakyrelu(self.a.mm(edge_h).squeeze()))
         assert not torch.isnan(edge_e).any()
         e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]), torch.ones(size=(N, 1), device=dv))

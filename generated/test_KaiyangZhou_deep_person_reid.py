@@ -19,6 +19,8 @@ osnet = _module
 main = _module
 setup = _module
 compute_mean_std = _module
+export = _module
+parse_test_res = _module
 visualize_actmap = _module
 torchreid = _module
 data = _module
@@ -28,6 +30,7 @@ image = _module
 cuhk01 = _module
 cuhk02 = _module
 cuhk03 = _module
+cuhksysu = _module
 dukemtmcreid = _module
 grid = _module
 ilids = _module
@@ -35,6 +38,7 @@ market1501 = _module
 msmt17 = _module
 prid = _module
 sensereid = _module
+university1652 = _module
 viper = _module
 video = _module
 dukemtmcvidreid = _module
@@ -83,6 +87,10 @@ optim = _module
 lr_scheduler = _module
 optimizer = _module
 radam = _module
+setup = _module
+setup = _module
+gnn_reranking = _module
+main = _module
 utils = _module
 avgmeter = _module
 feature_extractor = _module
@@ -135,6 +143,9 @@ import numpy as np
 
 
 import warnings
+
+
+import pandas as pd
 
 
 import random
@@ -195,6 +206,15 @@ import torch.nn.functional as F
 
 
 from torch.optim.optimizer import Optimizer
+
+
+from torch.autograd import Function
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.cpp_extension import BuildExtension
 
 
 import torchvision.transforms as T
@@ -494,7 +514,7 @@ class OSNet(nn.Module):
     Reference:
         - Zhou et al. Omni-Scale Feature Learning for Person Re-Identification. ICCV, 2019.
         - Zhou et al. Learning Generalisable Omni-Scale Representations
-          for Person Re-Identification. arXiv preprint, 2019.
+          for Person Re-Identification. TPAMI, 2021.
     """
 
     def __init__(self, num_classes, blocks, layers, channels, feature_dim=512, loss='softmax', conv1_IN=False, **kwargs):
@@ -769,7 +789,7 @@ class TripletLoss(nn.Module):
         n = inputs.size(0)
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist.addmm_(1, -2, inputs, inputs.t())
+        dist.addmm_(inputs, inputs.t(), beta=1, alpha=-2)
         dist = dist.clamp(min=1e-12).sqrt()
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
         dist_ap, dist_an = [], []
@@ -1114,7 +1134,7 @@ class HACNN(nn.Module):
         scale_factors = self.scale_factors[region_idx]
         theta = torch.zeros(theta_i.size(0), 2, 3)
         theta[:, :, :2] = scale_factors
-        theta[:, :, (-1)] = theta_i
+        theta[:, :, -1] = theta_i
         if self.use_gpu:
             theta = theta
         return theta
@@ -1128,7 +1148,7 @@ class HACNN(nn.Module):
         if self.learn_region:
             x1_local_list = []
             for region_idx in range(4):
-                x1_theta_i = x1_theta[:, (region_idx), :]
+                x1_theta_i = x1_theta[:, region_idx, :]
                 x1_theta_i = self.transform_theta(x1_theta_i, region_idx)
                 x1_trans_i = self.stn(x, x1_theta_i)
                 x1_trans_i = F.upsample(x1_trans_i, (24, 28), mode='bilinear', align_corners=True)
@@ -1140,7 +1160,7 @@ class HACNN(nn.Module):
         if self.learn_region:
             x2_local_list = []
             for region_idx in range(4):
-                x2_theta_i = x2_theta[:, (region_idx), :]
+                x2_theta_i = x2_theta[:, region_idx, :]
                 x2_theta_i = self.transform_theta(x2_theta_i, region_idx)
                 x2_trans_i = self.stn(x1_out, x2_theta_i)
                 x2_trans_i = F.upsample(x2_trans_i, (12, 14), mode='bilinear', align_corners=True)
@@ -1153,7 +1173,7 @@ class HACNN(nn.Module):
         if self.learn_region:
             x3_local_list = []
             for region_idx in range(4):
-                x3_theta_i = x3_theta[:, (region_idx), :]
+                x3_theta_i = x3_theta[:, region_idx, :]
                 x3_theta_i = self.transform_theta(x3_theta_i, region_idx)
                 x3_trans_i = self.stn(x2_out, x3_theta_i)
                 x3_trans_i = F.upsample(x3_trans_i, (6, 7), mode='bilinear', align_corners=True)
@@ -1965,6 +1985,8 @@ class MuDeep(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         y = self.classifier(x)
+        if not self.training:
+            return x
         if self.loss == 'softmax':
             return y
         elif self.loss == 'triplet':
@@ -2615,7 +2637,7 @@ class PCB(nn.Module):
         v_h = self.conv5(v_g)
         y = []
         for i in range(self.parts):
-            v_h_i = v_h[:, :, (i), :]
+            v_h_i = v_h[:, :, i, :]
             v_h_i = v_h_i.view(v_h_i.size(0), -1)
             y_i = self.classifier[i](v_h_i)
             y.append(y_i)
@@ -3526,10 +3548,6 @@ TESTCASES = [
      lambda: ([], {'stem_filters': 4, 'num_filters': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {}),
      False),
-    (ChannelGate,
-     lambda: ([], {'in_channels': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
     (ChannelShuffle,
      lambda: ([], {'num_groups': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3557,10 +3575,6 @@ TESTCASES = [
     (ConvLayers,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (CrossEntropyLoss,
-     lambda: ([], {'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4, 4, 4], dtype=torch.int64)], {}),
      True),
     (DenseNet,
      lambda: ([], {'num_classes': 4, 'loss': MSELoss()}),
@@ -3705,7 +3719,7 @@ TESTCASES = [
     (TripletLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
-     False),
+     True),
     (Xception,
      lambda: ([], {'num_classes': 4, 'loss': MSELoss()}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3904,10 +3918,4 @@ class Test_KaiyangZhou_deep_person_reid(_paritybench_base):
 
     def test_059(self):
         self._check(*TESTCASES[59])
-
-    def test_060(self):
-        self._check(*TESTCASES[60])
-
-    def test_061(self):
-        self._check(*TESTCASES[61])
 

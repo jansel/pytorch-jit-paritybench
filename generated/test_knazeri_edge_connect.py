@@ -147,9 +147,9 @@ class InceptionV3(nn.Module):
             x = F.upsample(x, size=(299, 299), mode='bilinear')
         if self.normalize_input:
             x = x.clone()
-            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+            x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
         for idx, block in enumerate(self.blocks):
             x = block(x)
             if idx in self.output_blocks:
@@ -650,26 +650,10 @@ TESTCASES = [
     (Discriminator,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
-    (EdgeGenerator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     True),
-    (InpaintGenerator,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
-    (PerceptualLoss,
-     lambda: ([], {}),
-     lambda: ([], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])}),
-     True),
+     False),
     (ResnetBlock,
      lambda: ([], {'dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (StyleLoss,
-     lambda: ([], {}),
-     lambda: ([], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])}),
      True),
     (VGG19,
      lambda: ([], {}),
@@ -689,16 +673,4 @@ class Test_knazeri_edge_connect(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

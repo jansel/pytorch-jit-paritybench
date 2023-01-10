@@ -1552,10 +1552,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (InvertedResidual,
      lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'dilation': 1, 'expand_ratio': 4, 'BatchNorm': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1613,7 +1609,4 @@ class Test_jfzhang95_pytorch_deeplab_xception(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

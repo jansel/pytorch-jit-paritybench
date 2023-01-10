@@ -498,14 +498,14 @@ class Normalize(torch.nn.Module):
         super(Normalize, self).__init__()
         if mode == 'conv3d':
             if isinstance(mean, list):
-                self.register_buffer('mean', torch.tensor(mean, dtype=torch.float32)[(None), :, (None), (None), (None)])
-                self.register_buffer('std', torch.tensor(std, dtype=torch.float32)[(None), :, (None), (None), (None)])
+                self.register_buffer('mean', torch.tensor(mean, dtype=torch.float32)[None, :, None, None, None])
+                self.register_buffer('std', torch.tensor(std, dtype=torch.float32)[None, :, None, None, None])
             else:
-                self.register_buffer('mean', torch.tensor([mean], dtype=torch.float32)[(None), :, (None), (None), (None)])
-                self.register_buffer('std', torch.tensor([std], dtype=torch.float32)[(None), :, (None), (None), (None)])
+                self.register_buffer('mean', torch.tensor([mean], dtype=torch.float32)[None, :, None, None, None])
+                self.register_buffer('std', torch.tensor([std], dtype=torch.float32)[None, :, None, None, None])
         else:
-            self.register_buffer('mean', torch.tensor([mean], dtype=torch.float32)[(None), :, (None), (None)])
-            self.register_buffer('std', torch.tensor([std], dtype=torch.float32)[(None), :, (None), (None)])
+            self.register_buffer('mean', torch.tensor([mean], dtype=torch.float32)[None, :, None, None])
+            self.register_buffer('std', torch.tensor([std], dtype=torch.float32)[None, :, None, None])
         self.inplace = inplace
 
     def forward(self, x):
@@ -571,7 +571,7 @@ class Cutout(torch.nn.Module):
             y2s = np.clip(y + h // 2, 0, height)
             mask = torch.ones_like(input)
             for idx, (x1, x2, y1, y2) in enumerate(zip(x1s, x2s, y1s, y2s)):
-                mask[(idx), :, y1:y2, x1:x2] = 0.0
+                mask[idx, :, y1:y2, x1:x2] = 0.0
             input = input * mask
         return input
 
@@ -750,7 +750,7 @@ class TabularModel(nn.Module):
 
     def forward(self, x_cat, x_cont):
         if self.n_emb != 0:
-            x = [e(x_cat[:, (i)]) for i, e in enumerate(self.embeds)]
+            x = [e(x_cat[:, i]) for i, e in enumerate(self.embeds)]
             x = torch.cat(x, 1)
             x = self.emb_drop(x)
         if self.n_cont != 0:
@@ -1023,15 +1023,15 @@ TESTCASES = [
      False),
     (Conv2Plus1D,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'midplanes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (Conv3DNoTemporal,
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Conv3DSimple,
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (CopyChannels,
      lambda: ([], {}),

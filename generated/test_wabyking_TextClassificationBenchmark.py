@@ -655,7 +655,7 @@ class CapsuleLayer(nn.Module):
 
     def forward(self, x):
         if self.num_route_nodes != -1:
-            priors = torch.matmul(x[(None), :, :, (None), :], self.route_weights[:, (None), :, :, :])
+            priors = torch.matmul(x[None, :, :, None, :], self.route_weights[:, None, :, :, :])
             if torch.cuda.is_available():
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
             else:
@@ -712,7 +712,7 @@ class CapsuleNet(BaseModel):
                 y = Variable(torch.sparse.torch.eye(self.label_size)).index_select(dim=0, index=max_length_indices.data)
             else:
                 y = Variable(torch.sparse.torch.eye(self.label_size)).index_select(dim=0, index=max_length_indices.data)
-        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
+        reconstructions = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
         return classes, reconstructions
 
 
@@ -878,7 +878,7 @@ def position_encoding(sentence_size, embedding_dim):
         for j in range(1, ls):
             encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (sentence_size + 1) / 2)
     encoding = 1 + 4 * encoding / embedding_dim / sentence_size
-    encoding[:, (-1)] = 1.0
+    encoding[:, -1] = 1.0
     return np.transpose(encoding)
 
 
@@ -1388,14 +1388,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (BaseModel,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (BasicCNN1D,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
     (BottleLayerNormalization,
      lambda: ([], {'d_hid': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -1408,34 +1400,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (CNNText,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
     (CapsuleLayer,
      lambda: ([], {'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (CapsuleNet,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     False),
-    (Encoder,
-     lambda: ([], {'n_src_vocab': 4, 'n_max_seq': 4}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4], dtype=torch.int64)], {}),
-     False),
-    (FastText,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, linear_hidden_size=4)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
-    (KIMCNN1D,
-     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, embedding_type=4, max_seq_len=4, kernel_sizes=[4, 4], kernel_nums=[4, 4])}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
-    (KIMCNN2D,
-     lambda: ([], {'opt': _mock_config(embedding_type=4, batch_size=4, max_seq_len=4, embedding_dim=4, vocab_size=4, label_size=4, kernel_sizes=[4, 4], kernel_nums=[4, 4], keep_dropout=0.5)}),
-     lambda: ([torch.ones([4, 4], dtype=torch.int64)], {}),
-     True),
     (LayerNormalization,
      lambda: ([], {'d_hid': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1478,28 +1446,4 @@ class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

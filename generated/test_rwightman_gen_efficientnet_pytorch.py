@@ -11,8 +11,8 @@ transforms = _module
 geffnet = _module
 activations = _module
 activations = _module
-activations_autofn = _module
 activations_jit = _module
+activations_me = _module
 config = _module
 conv2d_layers = _module
 efficientnet_builder = _module
@@ -25,6 +25,7 @@ hubconf = _module
 onnx_export = _module
 onnx_optimize = _module
 onnx_to_caffe = _module
+onnx_validate = _module
 setup = _module
 utils = _module
 validate = _module
@@ -76,34 +77,28 @@ from torch import nn as nn
 from torch.nn import functional as F
 
 
-import torch.nn as nn
-
-
-import torch.nn.functional as F
-
-
-from torch._six import container_abcs
-
-
-from itertools import repeat
-
-
-from functools import partial
-
-
-from typing import Union
-
-
-from typing import List
-
-
-from typing import Tuple
+from typing import Any
 
 
 from typing import Optional
 
 
-from typing import Callable
+import collections.abc
+
+
+from functools import partial
+
+
+from itertools import repeat
+
+
+from typing import Tuple
+
+
+import torch.nn as nn
+
+
+import torch.nn.functional as F
 
 
 from copy import deepcopy
@@ -119,7 +114,10 @@ import torch.nn.parallel
 
 
 def swish(x, inplace: bool=False):
-    """Swish - Described in: https://arxiv.org/abs/1710.05941
+    """Swish - Described originally as SiLU (https://arxiv.org/abs/1702.03118v3)
+    and also as Swish (https://arxiv.org/abs/1710.05941).
+
+    TODO Rename to SiLU with addition to PyTorch
     """
     return x.mul_(x.sigmoid()) if inplace else x.mul(x.sigmoid())
 
@@ -202,62 +200,67 @@ class HardSigmoid(nn.Module):
         return hard_sigmoid(x, self.inplace)
 
 
-class SwishAutoFn(torch.autograd.Function):
-    """Swish - Described in: https://arxiv.org/abs/1710.05941
-    Memory efficient variant from:
-     https://medium.com/the-artificial-impostor/more-memory-efficient-swish-activation-function-e07c22c12a76
+@torch.jit.script
+def swish_jit(x, inplace: bool=False):
+    """Swish - Described originally as SiLU (https://arxiv.org/abs/1702.03118v3)
+    and also as Swish (https://arxiv.org/abs/1710.05941).
+
+    TODO Rename to SiLU with addition to PyTorch
     """
-
-    @staticmethod
-    def forward(ctx, x):
-        result = x.mul(torch.sigmoid(x))
-        ctx.save_for_backward(x)
-        return result
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        x = ctx.saved_tensors[0]
-        x_sigmoid = torch.sigmoid(x)
-        return grad_output.mul(x_sigmoid * (1 + x * (1 - x_sigmoid)))
+    return x.mul(x.sigmoid())
 
 
-class SwishAuto(nn.Module):
+class SwishJit(nn.Module):
 
     def __init__(self, inplace: bool=False):
-        super(SwishAuto, self).__init__()
-        self.inplace = inplace
+        super(SwishJit, self).__init__()
 
     def forward(self, x):
-        return SwishAutoFn.apply(x)
+        return swish_jit(x)
 
 
-class MishAutoFn(torch.autograd.Function):
+@torch.jit.script
+def mish_jit(x, _inplace: bool=False):
     """Mish: A Self Regularized Non-Monotonic Neural Activation Function - https://arxiv.org/abs/1908.08681
-    Experimental memory-efficient variant
     """
-
-    @staticmethod
-    def forward(ctx, x):
-        ctx.save_for_backward(x)
-        y = x.mul(torch.tanh(F.softplus(x)))
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        x = ctx.saved_tensors[0]
-        x_sigmoid = torch.sigmoid(x)
-        x_tanh_sp = F.softplus(x).tanh()
-        return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp * x_tanh_sp))
+    return x.mul(F.softplus(x).tanh())
 
 
-class MishAuto(nn.Module):
+class MishJit(nn.Module):
 
     def __init__(self, inplace: bool=False):
-        super(MishAuto, self).__init__()
-        self.inplace = inplace
+        super(MishJit, self).__init__()
 
     def forward(self, x):
-        return MishAutoFn.apply(x)
+        return mish_jit(x)
+
+
+@torch.jit.script
+def hard_sigmoid_jit(x, inplace: bool=False):
+    return (x + 3).clamp(min=0, max=6).div(6.0)
+
+
+class HardSigmoidJit(nn.Module):
+
+    def __init__(self, inplace: bool=False):
+        super(HardSigmoidJit, self).__init__()
+
+    def forward(self, x):
+        return hard_sigmoid_jit(x)
+
+
+@torch.jit.script
+def hard_swish_jit(x, inplace: bool=False):
+    return x * (x + 3).clamp(min=0, max=6).div(6.0)
+
+
+class HardSwishJit(nn.Module):
+
+    def __init__(self, inplace: bool=False):
+        super(HardSwishJit, self).__init__()
+
+    def forward(self, x):
+        return hard_swish_jit(x)
 
 
 @torch.jit.script
@@ -272,9 +275,14 @@ def swish_jit_fwd(x):
 
 
 class SwishJitAutoFn(torch.autograd.Function):
-    """ torch.jit.script optimised Swish
+    """ torch.jit.script optimised Swish w/ memory-efficient checkpoint
     Inspired by conversation btw Jeremy Howard & Adam Pazske
     https://twitter.com/jeremyphoward/status/1188251041835315200
+
+    Swish - Described originally as SiLU (https://arxiv.org/abs/1702.03118v3)
+    and also as Swish (https://arxiv.org/abs/1710.05941).
+
+    TODO Rename to SiLU with addition to PyTorch
     """
 
     @staticmethod
@@ -288,11 +296,10 @@ class SwishJitAutoFn(torch.autograd.Function):
         return swish_jit_bwd(x, grad_output)
 
 
-class SwishJit(nn.Module):
+class SwishMe(nn.Module):
 
     def __init__(self, inplace: bool=False):
-        super(SwishJit, self).__init__()
-        self.inplace = inplace
+        super(SwishMe, self).__init__()
 
     def forward(self, x):
         return SwishJitAutoFn.apply(x)
@@ -311,6 +318,9 @@ def mish_jit_fwd(x):
 
 
 class MishJitAutoFn(torch.autograd.Function):
+    """ Mish: A Self Regularized Non-Monotonic Neural Activation Function - https://arxiv.org/abs/1908.08681
+    A memory efficient, jit scripted variant of Mish
+    """
 
     @staticmethod
     def forward(ctx, x):
@@ -323,18 +333,85 @@ class MishJitAutoFn(torch.autograd.Function):
         return mish_jit_bwd(x, grad_output)
 
 
-class MishJit(nn.Module):
+class MishMe(nn.Module):
 
     def __init__(self, inplace: bool=False):
-        super(MishJit, self).__init__()
-        self.inplace = inplace
+        super(MishMe, self).__init__()
 
     def forward(self, x):
         return MishJitAutoFn.apply(x)
 
 
+@torch.jit.script
+def hard_sigmoid_jit_bwd(x, grad_output):
+    m = torch.ones_like(x) * ((x >= -3.0) & (x <= 3.0)) / 6.0
+    return grad_output * m
+
+
+@torch.jit.script
+def hard_sigmoid_jit_fwd(x, inplace: bool=False):
+    return (x + 3).clamp(min=0, max=6).div(6.0)
+
+
+class HardSigmoidJitAutoFn(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return hard_sigmoid_jit_fwd(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.saved_tensors[0]
+        return hard_sigmoid_jit_bwd(x, grad_output)
+
+
+class HardSigmoidMe(nn.Module):
+
+    def __init__(self, inplace: bool=False):
+        super(HardSigmoidMe, self).__init__()
+
+    def forward(self, x):
+        return HardSigmoidJitAutoFn.apply(x)
+
+
+@torch.jit.script
+def hard_swish_jit_bwd(x, grad_output):
+    m = torch.ones_like(x) * (x >= 3.0)
+    m = torch.where((x >= -3.0) & (x <= 3.0), x / 3.0 + 0.5, m)
+    return grad_output * m
+
+
+@torch.jit.script
+def hard_swish_jit_fwd(x):
+    return x * (x + 3).clamp(min=0, max=6).div(6.0)
+
+
+class HardSwishJitAutoFn(torch.autograd.Function):
+    """A memory efficient, jit-scripted HardSwish activation"""
+
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return hard_swish_jit_fwd(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.saved_tensors[0]
+        return hard_swish_jit_bwd(x, grad_output)
+
+
+class HardSwishMe(nn.Module):
+
+    def __init__(self, inplace: bool=False):
+        super(HardSwishMe, self).__init__()
+
+    def forward(self, x):
+        return HardSwishJitAutoFn.apply(x)
+
+
 def _calc_same_pad(i: int, k: int, s: int, d: int):
-    return max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0)
+    return max((-(i // -s) - 1) * s + (k - 1) * d + 1 - i, 0)
 
 
 def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None, stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0), dilation: Tuple[int, int]=(1, 1), groups: int=1):
@@ -342,8 +419,7 @@ def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None, stri
     kh, kw = weight.size()[-2:]
     pad_h = _calc_same_pad(ih, kh, stride[0], dilation[0])
     pad_w = _calc_same_pad(iw, kw, stride[1], dilation[1])
-    if pad_h > 0 or pad_w > 0:
-        x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+    x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
     return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
 
 
@@ -383,9 +459,8 @@ class Conv2dSameExport(nn.Conv2d):
             pad_arg = _same_pad_arg(input_size, self.weight.size()[-2:], self.stride, self.dilation)
             self.pad = nn.ZeroPad2d(pad_arg)
             self.pad_input_size = input_size
-        else:
-            assert self.pad_input_size == input_size
-        x = self.pad(x)
+        if self.pad is not None:
+            x = self.pad(x)
         return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
@@ -478,7 +553,7 @@ class MixedConv2d(nn.ModuleDict):
 def _ntuple(n):
 
     def parse(x):
-        if isinstance(x, container_abcs.Iterable):
+        if isinstance(x, collections.abc.Iterable):
             return x
         return tuple(repeat(x, n))
     return parse
@@ -575,15 +650,14 @@ class SqueezeExcite(nn.Module):
 
     def __init__(self, in_chs, se_ratio=0.25, reduced_base_chs=None, act_layer=nn.ReLU, gate_fn=sigmoid, divisor=1):
         super(SqueezeExcite, self).__init__()
-        self.gate_fn = gate_fn
         reduced_chs = make_divisible((reduced_base_chs or in_chs) * se_ratio, divisor)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.conv_reduce = nn.Conv2d(in_chs, reduced_chs, 1, bias=True)
         self.act1 = act_layer(inplace=True)
         self.conv_expand = nn.Conv2d(reduced_chs, in_chs, 1, bias=True)
+        self.gate_fn = gate_fn
 
     def forward(self, x):
-        x_se = self.avg_pool(x)
+        x_se = x.mean((2, 3), keepdim=True)
         x_se = self.conv_reduce(x_se)
         x_se = self.act1(x_se)
         x_se = self.conv_expand(x_se)
@@ -1083,10 +1157,26 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (HardSigmoidJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSigmoidMe,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (HardSwish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (HardSwishJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSwishMe,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (InvertedResidual,
      lambda: ([], {'in_chs': 4, 'out_chs': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1095,11 +1185,11 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MishAuto,
+    (MishJit,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (MishJit,
+     True),
+    (MishMe,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
@@ -1119,11 +1209,11 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (SwishAuto,
+    (SwishJit,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (SwishJit,
+     True),
+    (SwishMe,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
@@ -1190,4 +1280,16 @@ class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
 

@@ -1063,7 +1063,7 @@ class Shift(nn.Module):
                     num_ch = C // ksq + C % ksq
                 else:
                     num_ch = C // ksq
-                kernel[ch_idx:ch_idx + num_ch, (0), (i), (j)] = 1
+                kernel[ch_idx:ch_idx + num_ch, 0, i, j] = 1
                 ch_idx += num_ch
         self.register_parameter('bias', None)
         self.kernel = nn.Parameter(kernel, requires_grad=False)
@@ -1682,14 +1682,14 @@ class BoxCoder(object):
             proposals (Tensor): boxes to be encoded
         """
         TO_REMOVE = 1
-        ex_widths = proposals[:, (2)] - proposals[:, (0)] + TO_REMOVE
-        ex_heights = proposals[:, (3)] - proposals[:, (1)] + TO_REMOVE
-        ex_ctr_x = proposals[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = proposals[:, (1)] + 0.5 * ex_heights
-        gt_widths = reference_boxes[:, (2)] - reference_boxes[:, (0)] + TO_REMOVE
-        gt_heights = reference_boxes[:, (3)] - reference_boxes[:, (1)] + TO_REMOVE
-        gt_ctr_x = reference_boxes[:, (0)] + 0.5 * gt_widths
-        gt_ctr_y = reference_boxes[:, (1)] + 0.5 * gt_heights
+        ex_widths = proposals[:, 2] - proposals[:, 0] + TO_REMOVE
+        ex_heights = proposals[:, 3] - proposals[:, 1] + TO_REMOVE
+        ex_ctr_x = proposals[:, 0] + 0.5 * ex_widths
+        ex_ctr_y = proposals[:, 1] + 0.5 * ex_heights
+        gt_widths = reference_boxes[:, 2] - reference_boxes[:, 0] + TO_REMOVE
+        gt_heights = reference_boxes[:, 3] - reference_boxes[:, 1] + TO_REMOVE
+        gt_ctr_x = reference_boxes[:, 0] + 0.5 * gt_widths
+        gt_ctr_y = reference_boxes[:, 1] + 0.5 * gt_heights
         wx, wy, ww, wh = self.weights
         targets_dx = wx * (gt_ctr_x - ex_ctr_x) / ex_widths
         targets_dy = wy * (gt_ctr_y - ex_ctr_y) / ex_heights
@@ -1709,10 +1709,10 @@ class BoxCoder(object):
         """
         boxes = boxes
         TO_REMOVE = 1
-        widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
-        heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
-        ctr_x = boxes[:, (0)] + 0.5 * widths
-        ctr_y = boxes[:, (1)] + 0.5 * heights
+        widths = boxes[:, 2] - boxes[:, 0] + TO_REMOVE
+        heights = boxes[:, 3] - boxes[:, 1] + TO_REMOVE
+        ctr_x = boxes[:, 0] + 0.5 * widths
+        ctr_y = boxes[:, 1] + 0.5 * heights
         wx, wy, ww, wh = self.weights
         dx = rel_codes[:, 0::4] / wx
         dy = rel_codes[:, 1::4] / wy
@@ -1720,10 +1720,10 @@ class BoxCoder(object):
         dh = rel_codes[:, 3::4] / wh
         dw = torch.clamp(dw, max=self.bbox_xform_clip)
         dh = torch.clamp(dh, max=self.bbox_xform_clip)
-        pred_ctr_x = dx * widths[:, (None)] + ctr_x[:, (None)]
-        pred_ctr_y = dy * heights[:, (None)] + ctr_y[:, (None)]
-        pred_w = torch.exp(dw) * widths[:, (None)]
-        pred_h = torch.exp(dh) * heights[:, (None)]
+        pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
+        pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
+        pred_w = torch.exp(dw) * widths[:, None]
+        pred_h = torch.exp(dh) * heights[:, None]
         pred_boxes = torch.zeros_like(rel_codes)
         pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w
         pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
@@ -1804,8 +1804,8 @@ class Matcher(object):
         quality value.
         """
         highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, None])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, 1]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
@@ -1832,12 +1832,12 @@ def boxlist_iou(boxlist1, boxlist2):
     area1 = boxlist1.area()
     area2 = boxlist2.area()
     box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    lt = torch.max(box1[:, None, :2], box2[:, :2])
+    rb = torch.min(box1[:, None, 2:], box2[:, 2:])
     TO_REMOVE = 1
     wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+    iou = inter / (area1[:, None] + area2 - inter)
     return iou
 
 
@@ -1974,8 +1974,8 @@ class FastRCNNLossComputation(object):
         if self.cls_agnostic_bbox_reg:
             map_inds = torch.tensor([4, 5, 6, 7], device=device)
         else:
-            map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3], device=device)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, (None)], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
+            map_inds = 4 * labels_pos[:, None] + torch.tensor([0, 1, 2, 3], device=device)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, None], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
         box_loss = box_loss / labels.numel()
         return classification_loss, box_loss
 
@@ -2166,13 +2166,13 @@ class BoxList(object):
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
         if remove_empty:
             box = self.bbox
-            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
+            keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])
             return self[keep]
         return self
 
@@ -2180,9 +2180,9 @@ class BoxList(object):
         box = self.bbox
         if self.mode == 'xyxy':
             TO_REMOVE = 1
-            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
+            area = (box[:, 2] - box[:, 0] + TO_REMOVE) * (box[:, 3] - box[:, 1] + TO_REMOVE)
         elif self.mode == 'xywh':
-            area = box[:, (2)] * box[:, (3)]
+            area = box[:, 2] * box[:, 3]
         else:
             raise RuntimeError('Should not be here')
         return area
@@ -2384,10 +2384,10 @@ class PostProcessor(nn.Module):
         result = []
         inds_all = scores > self.score_thresh
         for j in range(1, num_classes):
-            inds = inds_all[:, (j)].nonzero().squeeze(1)
+            inds = inds_all[:, j].nonzero().squeeze(1)
             scores_j = scores[inds, j]
             features_j = features[inds]
-            boxes_j = boxes[(inds), j * 4:(j + 1) * 4]
+            boxes_j = boxes[inds, j * 4:(j + 1) * 4]
             boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
             boxlist_for_class.add_field('scores', scores_j)
             boxlist_for_class.add_field('features', features_j)
@@ -2420,13 +2420,13 @@ class PostProcessor(nn.Module):
         result = []
         inds_all = scores > self.score_thresh
         for j in valid_cls.view(-1).cpu():
-            scores_j = scores[:, (j)]
+            scores_j = scores[:, j]
             boxes_j = boxes[:, j * 4:(j + 1) * 4]
             boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
             boxlist_for_class.add_field('scores', scores_j)
             boxlist_for_class.add_field('idxs', torch.arange(0, scores.shape[0]).long())
             boxlist_for_class = boxlist_nms(boxlist_for_class, 0.3)
-            nms_mask[:, (j)][boxlist_for_class.get_field('idxs')] = 1
+            nms_mask[:, j][boxlist_for_class.get_field('idxs')] = 1
             num_labels = len(boxlist_for_class)
             boxlist_for_class.add_field('labels', torch.full((num_labels,), j, dtype=torch.int64, device=device))
             result.append(boxlist_for_class)
@@ -2569,8 +2569,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
     """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -2610,7 +2610,7 @@ def _generate_anchors(base_size, scales, aspect_ratios):
     """
     anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
     anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(anchors[i, :], scales) for i in range(anchors.shape[0])])
     return torch.from_numpy(anchors)
 
 
@@ -2877,7 +2877,7 @@ class RPNPostProcessor(torch.nn.Module):
         num_anchors = A * H * W
         pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
         objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
-        batch_idx = torch.arange(N, device=device)[:, (None)]
+        batch_idx = torch.arange(N, device=device)[:, None]
         box_regression = box_regression[batch_idx, topk_idx]
         image_shapes = [box.size for box in anchors]
         concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
@@ -3193,11 +3193,11 @@ class RetinaNetPostProcessor(RPNPostProcessor):
         for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
             per_box_cls = per_box_cls[per_candidate_inds]
             per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[(top_k_indices), :]
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
+            per_candidate_nonzeros = per_candidate_inds.nonzero()[top_k_indices, :]
+            per_box_loc = per_candidate_nonzeros[:, 0]
+            per_class = per_candidate_nonzeros[:, 1]
             per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
+            detections = self.box_coder.decode(per_box_regression[per_box_loc, :].view(-1, 4), per_anchors.bbox[per_box_loc, :].view(-1, 4))
             boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
             boxlist.add_field('labels', per_class)
             boxlist.add_field('scores', per_box_cls)
@@ -3218,7 +3218,7 @@ class RetinaNetPostProcessor(RPNPostProcessor):
             for j in range(1, self.num_classes):
                 inds = (labels == j).nonzero().view(-1)
                 scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxes_j = boxes[inds, :].view(-1, 4)
                 boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
                 boxlist_for_class.add_field('scores', scores_j)
                 boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms_thresh, score_field='scores')
@@ -3691,8 +3691,8 @@ class GRCNN(nn.Module):
         rel_inds = torch.cat(rel_inds, 0)
         subj_pred_map = rel_inds.new(obj_num, rel_inds.shape[0]).fill_(0).float().detach()
         obj_pred_map = rel_inds.new(obj_num, rel_inds.shape[0]).fill_(0).float().detach()
-        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
-        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
+        subj_pred_map.scatter_(0, rel_inds[:, 0].contiguous().view(1, -1), 1)
+        obj_pred_map.scatter_(0, rel_inds[:, 1].contiguous().view(1, -1), 1)
         obj_obj_map = obj_obj_map.type_as(obj_pred_map)
         return rel_inds, obj_obj_map, subj_pred_map, obj_pred_map
 
@@ -3779,8 +3779,8 @@ class IMP(nn.Module):
         rel_inds = torch.cat(rel_inds, 0)
         subj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
         obj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
-        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
-        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
+        subj_pred_map.scatter_(0, rel_inds[:, 0].contiguous().view(1, -1), 1)
+        obj_pred_map.scatter_(0, rel_inds[:, 1].contiguous().view(1, -1), 1)
         return rel_inds, subj_pred_map, obj_pred_map
 
     def forward(self, features, proposals, proposal_pairs):
@@ -3795,8 +3795,8 @@ class IMP(nn.Module):
         hx_obj = [x_obj]
         hx_edge = [x_pred]
         for t in range(self.update_step):
-            sub_vert = hx_obj[t][rel_inds[:, (0)]]
-            obj_vert = hx_obj[t][rel_inds[:, (1)]]
+            sub_vert = hx_obj[t][rel_inds[:, 0]]
+            obj_vert = hx_obj[t][rel_inds[:, 1]]
             """update object features"""
             message_pred_to_subj = self.subj_node_gate(torch.cat([sub_vert, hx_edge[t]], 1)) * hx_edge[t]
             message_pred_to_obj = self.obj_node_gate(torch.cat([obj_vert, hx_edge[t]], 1)) * hx_edge[t]
@@ -3897,14 +3897,14 @@ class MSDN_BASE(nn.Module):
             feature_data.append(temp)
         else:
             transfer_list = (select_mat.data > 0).nonzero()
-            source_indices = Variable(transfer_list[:, (1)])
-            target_indices = Variable(transfer_list[:, (0)])
+            source_indices = Variable(transfer_list[:, 1])
+            target_indices = Variable(transfer_list[:, 0])
             source_f = torch.index_select(source_features, 0, source_indices)
             target_f = torch.index_select(target_features, 0, target_indices)
             transferred_features = gate_module(target_f, source_f)
             for f_id in range(target_features.size()[0]):
-                if select_mat[(f_id), :].data.sum() > 0:
-                    feature_indices = (transfer_list[:, (0)] == f_id).nonzero()[0]
+                if select_mat[f_id, :].data.sum() > 0:
+                    feature_indices = (transfer_list[:, 0] == f_id).nonzero()[0]
                     indices = Variable(feature_indices)
                     features = torch.index_select(transferred_features, 0, indices).mean(0).view(-1)
                     feature_data.append(features)
@@ -4084,13 +4084,13 @@ class BoxPairList(object):
 
     def clip_to_image(self, remove_empty=True):
         TO_REMOVE = 1
-        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 0].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 1].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, 2].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, 3].clamp_(min=0, max=self.size[1] - TO_REMOVE)
         if remove_empty:
             box = self.bbox
-            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
+            keep = (box[:, 3] > box[:, 1]) & (box[:, 2] > box[:, 0])
             return self[keep]
         return self
 
@@ -4098,9 +4098,9 @@ class BoxPairList(object):
         box = self.bbox
         if self.mode == 'xyxy':
             TO_REMOVE = 1
-            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
+            area = (box[:, 2] - box[:, 0] + TO_REMOVE) * (box[:, 3] - box[:, 1] + TO_REMOVE)
         elif self.mode == 'xywh':
-            area = box[:, (2)] * box[:, (3)]
+            area = box[:, 2] * box[:, 3]
         else:
             raise RuntimeError('Should not be here')
         return area
@@ -4159,7 +4159,7 @@ class FrequencyBias(nn.Module):
         :param labels: [batch_size, 2]
         :return:
         """
-        return self.obj_baseline(labels[:, (0)] * self.num_objs + labels[:, (1)])
+        return self.obj_baseline(labels[:, 0] * self.num_objs + labels[:, 1])
 
     def forward(self, obj_cands0, obj_cands1):
         """
@@ -4168,14 +4168,14 @@ class FrequencyBias(nn.Module):
         :return: [batch_size, #predicates] array, which contains potentials for
         each possibility
         """
-        joint_cands = obj_cands0[:, :, (None)] * obj_cands1[:, (None)]
+        joint_cands = obj_cands0[:, :, None] * obj_cands1[:, None]
         baseline = joint_cands.view(joint_cands.size(0), -1) @ self.obj_baseline.weight
         return baseline
 
 
 def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
-    rel_ind_sub = proposal_idx_pairs[:, (0)]
-    rel_ind_obj = proposal_idx_pairs[:, (1)]
+    rel_ind_sub = proposal_idx_pairs[:, 0]
+    rel_ind_obj = proposal_idx_pairs[:, 1]
     num_obj_im = torch.unique(im_inds)
     num_obj_im = torch.cumsum(num_obj_im, dim=0)
     rel_ind_offset_im = num_obj_im[im_inds_pairs - 1]
@@ -4184,7 +4184,7 @@ def _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs):
     rel_ind_offset_im = torch.squeeze(rel_ind_offset_im)
     rel_ind_sub += rel_ind_offset_im
     rel_ind_obj += rel_ind_offset_im
-    return torch.cat((rel_ind_sub[:, (None)], rel_ind_obj[:, (None)]), 1)
+    return torch.cat((rel_ind_sub[:, None], rel_ind_obj[:, None]), 1)
 
 
 def _get_tensor_from_boxlist(proposals, field='labels'):
@@ -4241,8 +4241,8 @@ class MSDN(MSDN_BASE):
         rel_inds = torch.cat(rel_inds, 0)
         subj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
         obj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
-        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
-        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
+        subj_pred_map.scatter_(0, rel_inds[:, 0].contiguous().view(1, -1), 1)
+        obj_pred_map.scatter_(0, rel_inds[:, 1].contiguous().view(1, -1), 1)
         return rel_inds, subj_pred_map, obj_pred_map
 
     def forward(self, features, proposals, proposal_pairs):
@@ -4263,8 +4263,8 @@ class MSDN(MSDN_BASE):
             GRU_input_feature_object = (object_sub + object_obj) / 2.0
             x_obj.append(x_obj[t] + self.GRU_object(GRU_input_feature_object, x_obj[t]))
             """update predicate features"""
-            indices_sub = rel_inds[:, (0)]
-            indices_obj = rel_inds[:, (1)]
+            indices_sub = rel_inds[:, 0]
+            indices_obj = rel_inds[:, 1]
             feat_sub2pred = torch.index_select(x_obj[t], 0, indices_sub)
             feat_obj2pred = torch.index_select(x_obj[t], 0, indices_obj)
             phrase_sub = self.gate_sub2pred(x_pred[t], feat_sub2pred)
@@ -4299,14 +4299,14 @@ def bbox_transform_inv(boxes, gt_boxes, weights=(1.0, 1.0, 1.0, 1.0)):
     approximately the weights one would get from COCO using the previous unit
     stdev heuristic.
     """
-    ex_widths = boxes[:, (2)] - boxes[:, (0)] + 1.0
-    ex_heights = boxes[:, (3)] - boxes[:, (1)] + 1.0
-    ex_ctr_x = boxes[:, (0)] + 0.5 * ex_widths
-    ex_ctr_y = boxes[:, (1)] + 0.5 * ex_heights
-    gt_widths = gt_boxes[:, (2)] - gt_boxes[:, (0)] + 1.0
-    gt_heights = gt_boxes[:, (3)] - gt_boxes[:, (1)] + 1.0
-    gt_ctr_x = gt_boxes[:, (0)] + 0.5 * gt_widths
-    gt_ctr_y = gt_boxes[:, (1)] + 0.5 * gt_heights
+    ex_widths = boxes[:, 2] - boxes[:, 0] + 1.0
+    ex_heights = boxes[:, 3] - boxes[:, 1] + 1.0
+    ex_ctr_x = boxes[:, 0] + 0.5 * ex_widths
+    ex_ctr_y = boxes[:, 1] + 0.5 * ex_heights
+    gt_widths = gt_boxes[:, 2] - gt_boxes[:, 0] + 1.0
+    gt_heights = gt_boxes[:, 3] - gt_boxes[:, 1] + 1.0
+    gt_ctr_x = gt_boxes[:, 0] + 0.5 * gt_widths
+    gt_ctr_y = gt_boxes[:, 1] + 0.5 * gt_heights
     wx, wy, ww, wh = weights
     targets_dx = wx * (gt_ctr_x - ex_ctr_x) / ex_widths
     targets_dy = wy * (gt_ctr_y - ex_ctr_y) / ex_heights
@@ -4318,10 +4318,10 @@ def bbox_transform_inv(boxes, gt_boxes, weights=(1.0, 1.0, 1.0, 1.0)):
 
 def boxes_union(boxes1, boxes2):
     assert boxes1.shape == boxes2.shape
-    xmin = np.minimum(boxes1[:, (0)], boxes2[:, (0)])
-    ymin = np.minimum(boxes1[:, (1)], boxes2[:, (1)])
-    xmax = np.maximum(boxes1[:, (2)], boxes2[:, (2)])
-    ymax = np.maximum(boxes1[:, (3)], boxes2[:, (3)])
+    xmin = np.minimum(boxes1[:, 0], boxes2[:, 0])
+    ymin = np.minimum(boxes1[:, 1], boxes2[:, 1])
+    xmax = np.maximum(boxes1[:, 2], boxes2[:, 2])
+    ymax = np.maximum(boxes1[:, 3], boxes2[:, 3])
     return np.vstack((xmin, ymin, xmax, ymax)).transpose()
 
 
@@ -4338,11 +4338,11 @@ class SpatialFeature(nn.Module):
         return spt_feat
 
     def _get_box_feature(self, boxes, width, height):
-        f1 = boxes[:, (0)] / width
-        f2 = boxes[:, (1)] / height
-        f3 = boxes[:, (2)] / width
-        f4 = boxes[:, (3)] / height
-        f5 = (boxes[:, (2)] - boxes[:, (0)] + 1) * (boxes[:, (3)] - boxes[:, (1)] + 1) / (width * height)
+        f1 = boxes[:, 0] / width
+        f2 = boxes[:, 1] / height
+        f3 = boxes[:, 2] / width
+        f4 = boxes[:, 3] / height
+        f5 = (boxes[:, 2] - boxes[:, 0] + 1) * (boxes[:, 3] - boxes[:, 1] + 1) / (width * height)
         return np.vstack((f1, f2, f3, f4, f5)).transpose()
 
     def _get_spt_features(self, boxes1, boxes2, width, height):
@@ -4405,8 +4405,8 @@ class RelDN(nn.Module):
         rel_inds = torch.cat(rel_inds, 0)
         subj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
         obj_pred_map = rel_inds.new(sum([len(proposal) for proposal in proposals]), rel_inds.shape[0]).fill_(0).float().detach()
-        subj_pred_map.scatter_(0, rel_inds[:, (0)].contiguous().view(1, -1), 1)
-        obj_pred_map.scatter_(0, rel_inds[:, (1)].contiguous().view(1, -1), 1)
+        subj_pred_map.scatter_(0, rel_inds[:, 0].contiguous().view(1, -1), 1)
+        obj_pred_map.scatter_(0, rel_inds[:, 1].contiguous().view(1, -1), 1)
         return rel_inds, subj_pred_map, obj_pred_map
 
     def forward(self, features, proposals, proposal_pairs):
@@ -4419,8 +4419,8 @@ class RelDN(nn.Module):
         x_pred = x_pred.view(x_pred.size(0), -1)
         x_obj = self.obj_embedding(x_obj)
         x_pred = self.pred_embedding(x_pred)
-        sub_vert = x_obj[rel_inds[:, (0)]]
-        obj_vert = x_obj[rel_inds[:, (1)]]
+        sub_vert = x_obj[rel_inds[:, 0]]
+        obj_vert = x_obj[rel_inds[:, 1]]
         """compute visual scores"""
         rel_subj_class_logits = self.rel_subj_predictor(sub_vert.unsqueeze(2).unsqueeze(3))
         rel_obj_class_logits = self.rel_obj_predictor(obj_vert.unsqueeze(2).unsqueeze(3))
@@ -4436,8 +4436,8 @@ class RelDN(nn.Module):
         for proposal_per_image, proposal_pairs_per_image in zip(proposals, proposal_pairs):
             obj_labels = proposal_per_image.get_field('labels').detach()
             rel_ind_i = proposal_pairs_per_image.get_field('idx_pairs').detach()
-            subj_vert_labels = obj_labels[rel_ind_i[:, (0)]]
-            obj_vert_labels = obj_labels[rel_ind_i[:, (1)]]
+            subj_vert_labels = obj_labels[rel_ind_i[:, 0]]
+            obj_vert_labels = obj_labels[rel_ind_i[:, 1]]
             class_logits_per_image = self.pred_dist[subj_vert_labels * self.num_objs + obj_vert_labels]
             rel_sem_class_logits.append(class_logits_per_image)
         rel_sem_class_logits = torch.cat(rel_sem_class_logits, 0)
@@ -4578,8 +4578,8 @@ class PairMatcher(object):
         quality value.
         """
         highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, None])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, 1]
         matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
@@ -4588,12 +4588,12 @@ def box_pos_encoder(bboxes, width, height):
     bounding box encoding
     """
     bboxes_enc = bboxes.clone()
-    dim0 = bboxes_enc[:, (0)] / width
-    dim1 = bboxes_enc[:, (1)] / height
-    dim2 = bboxes_enc[:, (2)] / width
-    dim3 = bboxes_enc[:, (3)] / height
-    dim4 = (bboxes_enc[:, (2)] - bboxes_enc[:, (0)]) * (bboxes_enc[:, (3)] - bboxes_enc[:, (1)]) / height / width
-    dim5 = (bboxes_enc[:, (3)] - bboxes_enc[:, (1)]) / (bboxes_enc[:, (2)] - bboxes_enc[:, (0)] + 1)
+    dim0 = bboxes_enc[:, 0] / width
+    dim1 = bboxes_enc[:, 1] / height
+    dim2 = bboxes_enc[:, 2] / width
+    dim3 = bboxes_enc[:, 3] / height
+    dim4 = (bboxes_enc[:, 2] - bboxes_enc[:, 0]) * (bboxes_enc[:, 3] - bboxes_enc[:, 1]) / height / width
+    dim5 = (bboxes_enc[:, 3] - bboxes_enc[:, 1]) / (bboxes_enc[:, 2] - bboxes_enc[:, 0] + 1)
     return torch.stack((dim0, dim1, dim2, dim3, dim4, dim5), 1)
 
 
@@ -4732,7 +4732,7 @@ class RelPN(nn.Module):
             idx_subj = torch.arange(box_subj.shape[0]).view(-1, 1, 1).repeat(1, box_obj.shape[0], 1)
             idx_obj = torch.arange(box_obj.shape[0]).view(1, -1, 1).repeat(box_subj.shape[0], 1, 1)
             proposal_idx_pairs = torch.cat((idx_subj.view(-1, 1), idx_obj.view(-1, 1)), 1)
-            keep_idx = (proposal_idx_pairs[:, (0)] != proposal_idx_pairs[:, (1)]).nonzero().view(-1)
+            keep_idx = (proposal_idx_pairs[:, 0] != proposal_idx_pairs[:, 1]).nonzero().view(-1)
             if self.cfg.MODEL.ROI_RELATION_HEAD.FILTER_NON_OVERLAP:
                 ious = boxlist_iou(proposals_per_image, proposals_per_image).view(-1)
                 ious = ious[keep_idx]
@@ -4878,10 +4878,10 @@ class ROIRelationHead(torch.nn.Module):
         self.freq_dist_file = 'freq_prior.npy'
         self.freq_dist = np.load(self.freq_dist_file)
         if self.cfg.MODEL.USE_FREQ_PRIOR:
-            self.freq_dist[:, :, (0)] = 0
+            self.freq_dist[:, :, 0] = 0
             self.freq_bias = FrequencyBias(self.freq_dist)
         else:
-            self.freq_dist[:, :, (0)] = 0
+            self.freq_dist[:, :, 0] = 0
             self.freq_dist = np.log(self.freq_dist + 0.001)
             self.freq_dist = torch.from_numpy(self.freq_dist)
 
@@ -4902,7 +4902,7 @@ class ROIRelationHead(torch.nn.Module):
             idx_subj = torch.arange(box_subj.shape[0]).view(-1, 1, 1).repeat(1, box_obj.shape[0], 1)
             idx_obj = torch.arange(box_obj.shape[0]).view(1, -1, 1).repeat(box_subj.shape[0], 1, 1)
             proposal_idx_pairs = torch.cat((idx_subj.view(-1, 1), idx_obj.view(-1, 1)), 1)
-            keep_idx = (proposal_idx_pairs[:, (0)] != proposal_idx_pairs[:, (1)]).nonzero().view(-1)
+            keep_idx = (proposal_idx_pairs[:, 0] != proposal_idx_pairs[:, 1]).nonzero().view(-1)
             if self.cfg.MODEL.ROI_RELATION_HEAD.FILTER_NON_OVERLAP:
                 ious = boxlist_iou(proposals_per_image, proposals_per_image).view(-1)
                 ious = ious[keep_idx]
@@ -4959,11 +4959,11 @@ class ROIRelationHead(torch.nn.Module):
             _, obj_labels, im_inds = _get_tensor_from_boxlist(proposals, 'labels')
             _, proposal_idx_pairs, im_inds_pairs = _get_tensor_from_boxlist(proposal_pairs, 'idx_pairs')
             rel_inds = _get_rel_inds(im_inds, im_inds_pairs, proposal_idx_pairs)
-            pred_class_logits = self.freq_bias.index_with_labels(torch.stack((obj_labels[rel_inds[:, (0)]], obj_labels[rel_inds[:, (1)]]), 1))
+            pred_class_logits = self.freq_bias.index_with_labels(torch.stack((obj_labels[rel_inds[:, 0]], obj_labels[rel_inds[:, 1]]), 1))
         else:
             x, obj_class_logits, pred_class_logits, obj_class_labels, rel_inds = self.rel_predictor(features, proposals, proposal_pairs)
             if self.use_bias:
-                pred_class_logits = pred_class_logits + self.freq_bias.index_with_labels(torch.stack((obj_class_labels[rel_inds[:, (0)]], obj_class_labels[rel_inds[:, (1)]]), 1))
+                pred_class_logits = pred_class_logits + self.freq_bias.index_with_labels(torch.stack((obj_class_labels[rel_inds[:, 0]], obj_class_labels[rel_inds[:, 1]]), 1))
         if not self.training:
             result = self.post_processor(pred_class_logits, proposal_pairs, use_freq_prior=self.cfg.MODEL.USE_FREQ_PRIOR)
             return x, result, {}
@@ -4971,7 +4971,7 @@ class ROIRelationHead(torch.nn.Module):
         if obj_class_logits is not None:
             loss_obj_classifier = self.loss_evaluator.obj_classification_loss(proposals, [obj_class_logits])
         if self.cfg.MODEL.USE_RELPN:
-            idx = obj_class_labels[rel_inds[:, (0)]] * 151 + obj_class_labels[rel_inds[:, (1)]]
+            idx = obj_class_labels[rel_inds[:, 0]] * 151 + obj_class_labels[rel_inds[:, 1]]
             freq_prior = self.freq_dist.view(-1, 51)[idx]
             loss_pred_classifier = self.relpn.pred_classification_loss([pred_class_logits], freq_prior=freq_prior)
             return x, proposal_pairs, dict(loss_obj_classifier=loss_obj_classifier, loss_relpn=loss_relpn, loss_pred_classifier=loss_pred_classifier)
@@ -5351,7 +5351,7 @@ TESTCASES = [
      False),
     (RPNHead,
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
-     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (RPNHeadConvRegressor,
      lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
@@ -5385,6 +5385,10 @@ TESTCASES = [
      lambda: ([], {'dim_in': 4, 'dim_out': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
+    (_GraphConvolutionLayer_Collect,
+     lambda: ([], {'dim_obj': 4, 'dim_rel': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
     (_GraphConvolutionLayer_Update,
      lambda: ([], {'dim_obj': 4, 'dim_rel': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
@@ -5482,4 +5486,7 @@ class Test_jwyang_graph_rcnn_pytorch(_paritybench_base):
 
     def test_028(self):
         self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
 

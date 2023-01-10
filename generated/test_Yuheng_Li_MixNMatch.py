@@ -571,10 +571,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (Bi_Dis_base,
-     lambda: ([], {'code_len': 4}),
-     lambda: ([torch.rand([4, 3, 128, 128]), torch.rand([4, 4])], {}),
-     False),
     (ConvT_Block,
      lambda: ([], {'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -650,7 +646,4 @@ class Test_Yuheng_Li_MixNMatch(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

@@ -1676,9 +1676,9 @@ class SegBaseModel(nn.Module):
                 assert crop_size[0] >= h and crop_size[1] >= w
                 crop_size_scaled = int(math.ceil(crop_size[0] * scale)), int(math.ceil(crop_size[1] * scale))
                 cur_img = _pad_image(cur_img, crop_size_scaled)
-            outputs = self.forward(cur_img)[0][(...), :height, :width]
+            outputs = self.forward(cur_img)[0][..., :height, :width]
             if flip:
-                outputs += _flip_image(self.forward(_flip_image(cur_img))[0])[(...), :height, :width]
+                outputs += _flip_image(self.forward(_flip_image(cur_img))[0])[..., :height, :width]
             score = _resize_image(outputs, h, w)
             if scores is None:
                 scores = score
@@ -3785,19 +3785,19 @@ def sampling_points(mask, N, k=3, beta=0.75, training=True):
     if not training:
         H_step, W_step = 1 / H, 1 / W
         N = min(H * W, N)
-        uncertainty_map = -1 * (mask[:, (0)] - mask[:, (1)])
+        uncertainty_map = -1 * (mask[:, 0] - mask[:, 1])
         _, idx = uncertainty_map.view(B, -1).topk(N, dim=1)
         points = torch.zeros(B, N, 2, dtype=torch.float, device=device)
-        points[:, :, (0)] = W_step / 2.0 + idx % W * W_step
-        points[:, :, (1)] = H_step / 2.0 + idx // W * H_step
+        points[:, :, 0] = W_step / 2.0 + idx % W * W_step
+        points[:, :, 1] = H_step / 2.0 + idx // W * H_step
         return idx, points
     over_generation = torch.rand(B, k * N, 2, device=device)
     over_generation_map = point_sample(mask, over_generation, align_corners=False)
-    uncertainty_map = -1 * (over_generation_map[:, (0)] - over_generation_map[:, (1)])
+    uncertainty_map = -1 * (over_generation_map[:, 0] - over_generation_map[:, 1])
     _, idx = uncertainty_map.topk(int(beta * N), -1)
     shift = k * N * torch.arange(B, dtype=torch.long, device=device)
-    idx += shift[:, (None)]
-    importance = over_generation.view(-1, 2)[(idx.view(-1)), :].view(B, int(beta * N), 2)
+    idx += shift[:, None]
+    importance = over_generation.view(-1, 2)[idx.view(-1), :].view(B, int(beta * N), 2)
     coverage = torch.rand(B, N - int(beta * N), 2, device=device)
     return torch.cat([importance, coverage], 1)
 
@@ -4380,9 +4380,9 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
         if C == 1:
             if len(classes) > 1:
                 raise ValueError('Sigmoid output possible only with 1 class')
-            class_pred = probas[:, (0)]
+            class_pred = probas[:, 0]
         else:
-            class_pred = probas[:, (c)]
+            class_pred = probas[:, c]
         errors = (Variable(fg) - class_pred).abs()
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
@@ -4546,7 +4546,7 @@ class DiceLoss(nn.Module):
         predict = F.softmax(predict, dim=1)
         for i in range(target.shape[-1]):
             if i != self.ignore_index:
-                dice_loss = dice(predict[:, (i)], target[..., i], valid_mask)
+                dice_loss = dice(predict[:, i], target[..., i], valid_mask)
                 if self.weight is not None:
                     assert self.weight.shape[0] == target.shape[1], 'Expect weight shape [{}], get[{}]'.format(target.shape[1], self.weight.shape[0])
                     dice_loss *= self.weights[i]
@@ -4805,6 +4805,10 @@ TESTCASES = [
      lambda: ([], {'dw_channels': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ContextGuidedBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Conv,
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4825,14 +4829,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DataParallelCriterion,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DataParallelModel,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (DepthConv,
      lambda: ([], {'dw_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4949,10 +4945,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (PAM_Module,
-     lambda: ([], {'in_dim': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     True),
     (PyramidAttentionBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4964,10 +4956,6 @@ TESTCASES = [
     (PyramidPooling,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SEModule,
-     lambda: ([], {'channels': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
      True),
     (SSnbt,
      lambda: ([], {'in_channels': 4}),
@@ -5047,6 +5035,10 @@ TESTCASES = [
      True),
     (_FCNHead,
      lambda: ([], {'in_channels': 4, 'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_FGlo,
+     lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (_GlobalAvgPooling,
@@ -5298,10 +5290,4 @@ class Test_LikeLy_Journey_SegmenTron(_paritybench_base):
 
     def test_076(self):
         self._check(*TESTCASES[76])
-
-    def test_077(self):
-        self._check(*TESTCASES[77])
-
-    def test_078(self):
-        self._check(*TESTCASES[78])
 

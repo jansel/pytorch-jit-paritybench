@@ -239,7 +239,7 @@ TESTCASES = [
     (HPM,
      lambda: ([], {'in_dim': 4, 'out_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (SetBlock,
      lambda: ([], {'forward_block': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),

@@ -261,7 +261,7 @@ class resnet_mil(nn.Module):
         x = self.l1(x)
         x1 = torch.add(torch.mul(x.view(x.size(0), 1000, -1), -1), 1)
         cumprod = torch.cumprod(x1, 2)
-        out = torch.max(x, torch.add(torch.mul(cumprod[:, :, (-1)], -1), 1))
+        out = torch.max(x, torch.add(torch.mul(cumprod[:, :, -1], -1), 1))
         return out
 
 
@@ -342,7 +342,7 @@ class vgg_mil(nn.Module):
         x = x.squeeze(2).squeeze(2)
         x1 = torch.add(torch.mul(x0.view(x.size(0), 1000, -1), -1), 1)
         cumprod = torch.cumprod(x1, 2)
-        out = torch.max(x, torch.add(torch.mul(cumprod[:, :, (-1)], -1), 1))
+        out = torch.max(x, torch.add(torch.mul(cumprod[:, :, -1], -1), 1))
         out = F.softmax(out)
         return out
 
@@ -373,10 +373,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (MIL_Precision_Score_Mapping,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
 ]
 
 class Test_gujiuxiang_MIL_pytorch(_paritybench_base):
@@ -385,7 +381,4 @@ class Test_gujiuxiang_MIL_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

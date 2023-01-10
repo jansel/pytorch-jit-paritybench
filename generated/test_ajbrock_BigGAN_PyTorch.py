@@ -1354,10 +1354,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Attention,
-     lambda: ([], {'ch': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
-     False),
     (BatchNorm2dReimpl,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1366,25 +1362,13 @@ TESTCASES = [
      lambda: ([], {'num_features': 4, 'num_classes': 4}),
      lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (DataParallelWithCallback,
-     lambda: ([], {'module': _mock_layer()}),
-     lambda: ([], {'input': torch.rand([4, 4])}),
-     False),
     (SNConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (SNEmbedding,
-     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
     (SNLinear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (SelfAttention,
-     lambda: ([], {'in_dim': 18}),
-     lambda: ([torch.rand([4, 18, 64, 64])], {}),
      False),
     (SynchronizedBatchNorm1d,
      lambda: ([], {'num_features': 4}),
@@ -1449,16 +1433,4 @@ class Test_ajbrock_BigGAN_PyTorch(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

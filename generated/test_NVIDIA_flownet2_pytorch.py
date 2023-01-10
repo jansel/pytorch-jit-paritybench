@@ -677,14 +677,14 @@ class FlowNet2(nn.Module):
         min_dim = min(f_shape[0], f_shape[1])
         weight.data.fill_(0.0)
         for i in range(min_dim):
-            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
+            weight.data[i, i, :, :] = torch.from_numpy(bilinear)
         return
 
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -743,8 +743,8 @@ class FlowNet2CS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
@@ -793,8 +793,8 @@ class FlowNet2CSS(nn.Module):
     def forward(self, inputs):
         rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
         x = torch.cat((x1, x2), dim=1)
         flownetc_flow2 = self.flownetc(x)[0]
         flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)

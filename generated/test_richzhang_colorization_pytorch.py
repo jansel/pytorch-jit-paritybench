@@ -477,14 +477,6 @@ TESTCASES = [
      lambda: ([], {'input_nc': 4, 'output_nc': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
-    (SIGGRAPHGenerator,
-     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
-     lambda: ([torch.rand([4, 1, 8, 8]), torch.rand([4, 1, 8, 8]), torch.rand([4, 2, 8, 8])], {}),
-     True),
-    (UnetGenerator,
-     lambda: ([], {'input_nc': 4, 'output_nc': 4, 'num_downs': 4}),
-     lambda: ([torch.rand([4, 1, 64, 64]), torch.rand([4, 1, 64, 64]), torch.rand([4, 2, 64, 64])], {}),
-     True),
 ]
 
 class Test_richzhang_colorization_pytorch(_paritybench_base):
@@ -505,10 +497,4 @@ class Test_richzhang_colorization_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

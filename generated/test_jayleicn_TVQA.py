@@ -219,7 +219,7 @@ def max_along_time(outputs, lengths):
     :param lengths: (B, )
     :return: (B, D)
     """
-    outputs = [outputs[(i), :int(lengths[i]), :].max(dim=0)[0] for i in range(len(lengths))]
+    outputs = [outputs[i, :int(lengths[i]), :].max(dim=0)[0] for i in range(len(lengths))]
     return torch.stack(outputs, dim=0)
 
 
@@ -323,8 +323,8 @@ class ABC(nn.Module):
         q_l = torch.ones(bsz).fill_(25).long()
         a = torch.ones(bsz, 5, 20).long()
         a_l = torch.ones(bsz, 5).fill_(20).long()
-        a0, a1, a2, a3, a4 = [a[:, (i), :] for i in range(5)]
-        a0_l, a1_l, a2_l, a3_l, a4_l = [a_l[:, (i)] for i in range(5)]
+        a0, a1, a2, a3, a4 = [a[:, i, :] for i in range(5)]
+        a0_l, a1_l, a2_l, a3_l, a4_l = [a_l[:, i] for i in range(5)]
         sub = torch.ones(bsz, 300).long()
         sub_l = torch.ones(bsz).fill_(300).long()
         vcpt = torch.ones(bsz, 300).long()

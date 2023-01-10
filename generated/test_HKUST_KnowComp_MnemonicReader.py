@@ -292,7 +292,7 @@ class MemoryAnsPointer(nn.Module):
             self.SFUs_end.append(SFU(y_size, 2 * hidden_size))
 
     def forward(self, x, y, x_mask, y_mask):
-        z_s = y[:, (-1), :].unsqueeze(1)
+        z_s = y[:, -1, :].unsqueeze(1)
         z_e = None
         s = None
         e = None
@@ -395,7 +395,7 @@ class SelfAttnMatch(nn.Module):
         if not self.diag:
             x_len = x.size(1)
             for i in range(x_len):
-                scores[:, (i), (i)] = 0
+                scores[:, i, i] = 0
         x_mask = x_mask.unsqueeze(1).expand(scores.size())
         scores.data.masked_fill_(x_mask.data, -float('inf'))
         alpha = F.softmax(scores, dim=2)
@@ -535,8 +535,8 @@ class MnemonicReader(nn.Module):
             x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=self.training)
             x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb, training=self.training)
             x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb, training=self.training)
-        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, (-1), :]
-        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, (-1), :]
+        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, -1, :]
+        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, -1, :]
         crnn_input = [x1_emb, x1_c_features]
         qrnn_input = [x2_emb, x2_c_features]
         if self.args.num_features > 0:
@@ -603,8 +603,8 @@ class R_Net(nn.Module):
             x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=self.training)
             x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb, training=self.training)
             x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb, training=self.training)
-        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, (-1), :]
-        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, (-1), :]
+        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, -1, :]
+        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, -1, :]
         crnn_input = [x1_emb, x1_c_features]
         qrnn_input = [x2_emb, x2_c_features]
         c = self.encode_rnn(torch.cat(crnn_input, 2), x1_mask)
@@ -699,7 +699,7 @@ TESTCASES = [
      True),
     (StackedBRNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
 ]
 

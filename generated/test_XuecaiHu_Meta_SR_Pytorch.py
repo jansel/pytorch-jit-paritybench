@@ -207,7 +207,7 @@ class Loss(nn.modules.loss._Loss):
             label = '{} Loss'.format(l['type'])
             fig = plt.figure()
             plt.title(label)
-            plt.plot(axis, self.log[:, (i)].numpy(), label=label)
+            plt.plot(axis, self.log[:, i].numpy(), label=label)
             plt.legend()
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
@@ -386,7 +386,7 @@ class Model(nn.Module):
                 forward_function = self.model.forward
             return self.forward_x8(x, forward_function)
         elif self.chop and not self.training:
-            return self.forward_chop(x, pos_mat)
+            return self.forward_chop(x)
         else:
             return self.model(x, pos_mat)
 
@@ -424,7 +424,7 @@ class Model(nn.Module):
             self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_{}.pt'.format(resume)), **kwargs), strict=False)
             None
 
-    def forward_chop(self, x, pos_mat, shave=10, min_size=160000):
+    def forward_chop(self, x, shave=10, min_size=160000):
         scale = self.scale[self.idx_scale]
         n_GPUs = min(self.n_GPUs, 4)
         b, c, h, w = x.size()
@@ -435,11 +435,10 @@ class Model(nn.Module):
             sr_list = []
             for i in range(0, 4, n_GPUs):
                 lr_batch = torch.cat(lr_list[i:i + n_GPUs], dim=0)
-                sr_batch = self.model(lr_batch, pos_mat)
+                sr_batch = self.model(lr_batch)
                 sr_list.extend(sr_batch.chunk(n_GPUs, dim=0))
         else:
-            sr_list = [self.forward_chop(patch, pos_mat, shave=shave, min_size=min_size) for patch in lr_list]
-        scale = math.ceil(scale)
+            sr_list = [self.forward_chop(patch, shave=shave, min_size=min_size) for patch in lr_list]
         h, w = scale * h, scale * w
         h_half, w_half = scale * h_half, scale * w_half
         h_size, w_size = scale * h_size, scale * w_size
@@ -798,18 +797,6 @@ class MetaRDN(nn.Module):
         x = torch.cat([x] * scale_int, 5).permute(0, 3, 5, 1, 2, 4)
         return x.contiguous().view(-1, C, H, W)
 
-    def repeat_weight(self, weight, scale, inw, inh):
-        k = int(math.sqrt(weight.size(0)))
-        outw = inw * scale
-        outh = inh * scale
-        weight = weight.view(k, k, -1)
-        scale_w = (outw + k - 1) // k
-        scale_h = (outh + k - 1) // k
-        weight = torch.cat([weight] * scale_h, 0)
-        weight = torch.cat([weight] * scale_w, 1)
-        weight = weight[0:outh, 0:outw, :]
-        return weight
-
     def forward(self, x, pos_mat):
         x = self.sub_mean(x)
         f__1 = self.SFENet1(x)
@@ -824,7 +811,6 @@ class MetaRDN(nn.Module):
         up_x = self.repeat_x(x)
         cols = nn.functional.unfold(up_x, 3, padding=1)
         scale_int = math.ceil(self.scale)
-        local_weight = self.repeat_weight(local_weight, scale_int, x.size(2), x.size(3))
         cols = cols.contiguous().view(cols.size(0) // scale_int ** 2, scale_int ** 2, cols.size(1), cols.size(2), 1).permute(0, 1, 3, 4, 2).contiguous()
         local_weight = local_weight.contiguous().view(x.size(2), scale_int, x.size(3), scale_int, -1, 3).permute(1, 3, 0, 2, 4, 5).contiguous()
         local_weight = local_weight.contiguous().view(scale_int ** 2, x.size(2) * x.size(3), -1, 3)
@@ -848,14 +834,6 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BasicBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (CALayer,
-     lambda: ([], {'channel': 18}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     True),
-    (Discriminator,
-     lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (RCAB,
@@ -891,10 +869,4 @@ class Test_XuecaiHu_Meta_SR_Pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

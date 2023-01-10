@@ -151,7 +151,7 @@ class MultiheadAttention(nn.Module):
             q = self.in_proj_q(query)
             k = self.in_proj_k(key)
             v = self.in_proj_v(value)
-        q *= self.scaling
+        q = q * self.scaling
         if self.bias_k is not None:
             assert self.bias_v is not None
             k = torch.cat([k, self.bias_k.repeat(1, bsz, 1)])
@@ -263,7 +263,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
         if embedding_dim % 2 == 1:
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
-            emb[(padding_idx), :] = 0
+            emb[padding_idx, :] = 0
         return emb
 
     def forward(self, input):
@@ -423,14 +423,14 @@ class TransformerEncoder(nn.Module):
         """
         x = self.embed_scale * x_in
         if self.embed_positions is not None:
-            x += self.embed_positions(x_in.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
+            x += self.embed_positions(x_in.transpose(0, 1)[:, :, 0]).transpose(0, 1)
         x = F.dropout(x, p=self.dropout, training=self.training)
         if x_in_k is not None and x_in_v is not None:
             x_k = self.embed_scale * x_in_k
             x_v = self.embed_scale * x_in_v
             if self.embed_positions is not None:
-                x_k += self.embed_positions(x_in_k.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
-                x_v += self.embed_positions(x_in_v.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
+                x_k += self.embed_positions(x_in_k.transpose(0, 1)[:, :, 0]).transpose(0, 1)
+                x_v += self.embed_positions(x_in_v.transpose(0, 1)[:, :, 0]).transpose(0, 1)
             x_k = F.dropout(x_k, p=self.dropout, training=self.training)
             x_v = F.dropout(x_v, p=self.dropout, training=self.training)
         intermediates = [x]
@@ -605,10 +605,6 @@ TESTCASES = [
      lambda: ([], {'embedding_dim': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
-    (TransformerEncoder,
-     lambda: ([], {'embed_dim': 4, 'num_heads': 4, 'layers': 1}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
     (TransformerEncoderLayer,
      lambda: ([], {'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -627,7 +623,4 @@ class Test_yaohungt_Multimodal_Transformer(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

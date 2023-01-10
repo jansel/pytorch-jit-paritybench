@@ -79,6 +79,9 @@ import torch.utils.data
 import torchvision.transforms as transforms
 
 
+from torch.utils.tensorboard import SummaryWriter
+
+
 import torch.nn as nn
 
 

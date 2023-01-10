@@ -201,7 +201,7 @@ class ApplyStyle(nn.Module):
         style = self.linear(latent)
         shape = [-1, 2, x.size(1), 1, 1]
         style = style.view(shape)
-        x = x * (style[:, (0)] + 1.0) + style[:, (1)]
+        x = x * (style[:, 0] + 1.0) + style[:, 1]
         return x
 
 
@@ -216,7 +216,7 @@ class Blur2d(nn.Module):
         assert isinstance(f, list) or f is None, 'kernel f must be an instance of python built_in type list!'
         if f is not None:
             f = torch.tensor(f, dtype=torch.float32)
-            f = f[:, (None)] * f[(None), :]
+            f = f[:, None] * f[None, :]
             f = f[None, None]
             if normalize:
                 f = f / f.sum()
@@ -367,9 +367,9 @@ class GBlock(nn.Module):
 
     def forward(self, x, dlatent):
         x = self.up_sample(x)
-        x = self.adaIn1(x, self.noise_input[self.res * 2 - 4], dlatent[:, (self.res * 2 - 4)])
+        x = self.adaIn1(x, self.noise_input[self.res * 2 - 4], dlatent[:, self.res * 2 - 4])
         x = self.conv1(x)
-        x = self.adaIn2(x, self.noise_input[self.res * 2 - 3], dlatent[:, (self.res * 2 - 3)])
+        x = self.adaIn2(x, self.noise_input[self.res * 2 - 3], dlatent[:, self.res * 2 - 3])
         return x
 
 
@@ -449,9 +449,9 @@ class G_synthesis(nn.Module):
         if self.structure == 'fixed':
             x = self.const_input.expand(dlatent.size(0), -1, -1, -1)
             x = x + self.bias.view(1, -1, 1, 1)
-            x = self.adaIn1(x, self.noise_inputs[0], dlatent[:, (0)])
+            x = self.adaIn1(x, self.noise_inputs[0], dlatent[:, 0])
             x = self.conv1(x)
-            x = self.adaIn2(x, self.noise_inputs[1], dlatent[:, (1)])
+            x = self.adaIn2(x, self.noise_inputs[1], dlatent[:, 1])
             x = self.GBlock1(x, dlatent)
             x = self.GBlock2(x, dlatent)
             x = self.GBlock3(x, dlatent)
@@ -484,7 +484,7 @@ class StyleGenerator(nn.Module):
             coefs = np.ones([1, num_layers, 1], dtype=np.float32)
             for i in range(num_layers):
                 if i < self.truncation_cutoff:
-                    coefs[:, (i), :] *= self.truncation_psi
+                    coefs[:, i, :] *= self.truncation_psi
             """Linear interpolation.
                a + (b - a) * t (a = 0)
                reduce to
@@ -589,7 +589,7 @@ TESTCASES = [
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 128, 128])], {}),
-     True),
+     False),
     (FC,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -597,7 +597,7 @@ TESTCASES = [
     (Generator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 512, 1, 1])], {}),
-     True),
+     False),
     (InstanceNorm,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

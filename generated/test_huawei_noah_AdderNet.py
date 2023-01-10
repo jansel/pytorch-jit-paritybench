@@ -2,6 +2,7 @@ import sys
 _module = sys.modules[__name__]
 del sys
 adder = _module
+main = _module
 resnet20 = _module
 resnet50 = _module
 test = _module
@@ -41,13 +42,39 @@ from torch.autograd import Function
 import math
 
 
-import torch.backends.cudnn as cudnn
+from torch.autograd import Variable
+
+
+from torchvision.datasets import CIFAR10
 
 
 import torchvision.transforms as transforms
 
 
+from torch.utils.data import DataLoader
+
+
+import torch.backends.cudnn as cudnn
+
+
 import torchvision.datasets as datasets
+
+
+class adder(Function):
+
+    @staticmethod
+    def forward(ctx, W_col, X_col):
+        ctx.save_for_backward(W_col, X_col)
+        output = -(W_col.unsqueeze(2) - X_col.unsqueeze(0)).abs().sum(1)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        W_col, X_col = ctx.saved_tensors
+        grad_W_col = ((X_col.unsqueeze(0) - W_col.unsqueeze(2)) * grad_output.unsqueeze(1)).sum(2)
+        grad_W_col = grad_W_col / grad_W_col.norm(p=2).clamp(min=1e-12) * math.sqrt(W_col.size(1) * W_col.size(0)) / 5
+        grad_X_col = (-(X_col.unsqueeze(0) - W_col.unsqueeze(2)).clamp(-1, 1) * grad_output.unsqueeze(1)).sum(0)
+        return grad_W_col, grad_X_col
 
 
 def adder2d_function(X, W, stride=1, padding=0):
@@ -59,7 +86,7 @@ def adder2d_function(X, W, stride=1, padding=0):
     X_col = torch.nn.functional.unfold(X.view(1, -1, h_x, w_x), h_filter, dilation=1, padding=padding, stride=stride).view(n_x, -1, h_out * w_out)
     X_col = X_col.permute(1, 2, 0).contiguous().view(X_col.size(1), -1)
     W_col = W.view(n_filters, -1)
-    out = -torch.cdist(W_col, X_col.transpose(0, 1), 1)
+    out = adder.apply(W_col, X_col)
     out = out.view(n_filters, h_out, w_out, n_x)
     out = out.permute(3, 0, 1, 2).contiguous()
     return out
@@ -211,10 +238,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (BasicBlock,
-     lambda: ([], {'inplanes': 4, 'planes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (adder2d,
      lambda: ([], {'input_channel': 4, 'output_channel': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -224,7 +247,4 @@ TESTCASES = [
 class Test_huawei_noah_AdderNet(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

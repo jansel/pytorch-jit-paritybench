@@ -297,10 +297,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (UpsampleBLock,
-     lambda: ([], {'in_channels': 4, 'up_scale': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
 ]
 
 class Test_leftthomas_SRGAN(_paritybench_base):
@@ -321,7 +317,4 @@ class Test_leftthomas_SRGAN(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

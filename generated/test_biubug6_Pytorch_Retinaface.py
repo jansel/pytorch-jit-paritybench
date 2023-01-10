@@ -142,10 +142,10 @@ def encode_landm(matched, priors, variances):
         encoded landm (tensor), Shape: [num_priors, 10]
     """
     matched = torch.reshape(matched, (matched.size(0), 5, 2))
-    priors_cx = priors[:, (0)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
-    priors_cy = priors[:, (1)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
-    priors_w = priors[:, (2)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
-    priors_h = priors[:, (3)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_cx = priors[:, 0].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_cy = priors[:, 1].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_w = priors[:, 2].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_h = priors[:, 3].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
     priors = torch.cat([priors_cx, priors_cy, priors_w, priors_h], dim=2)
     g_cxcy = matched[:, :, :2] - priors[:, :, :2]
     g_cxcy /= variances[0] * priors[:, :, 2:]
@@ -169,7 +169,7 @@ def intersect(box_a, box_b):
     max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
     min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    return inter[:, :, 0] * inter[:, :, 1]
 
 
 def jaccard(box_a, box_b):
@@ -185,8 +185,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -223,8 +223,8 @@ def match(threshold, truths, priors, variances, labels, landms, loc_t, conf_t, l
     """
     overlaps = jaccard(truths, point_form(priors))
     best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
-    valid_gt_idx = best_prior_overlap[:, (0)] >= 0.2
-    best_prior_idx_filter = best_prior_idx[(valid_gt_idx), :]
+    valid_gt_idx = best_prior_overlap[:, 0] >= 0.2
+    best_prior_idx_filter = best_prior_idx[valid_gt_idx, :]
     if best_prior_idx_filter.shape[0] <= 0:
         loc_t[idx] = 0
         conf_t[idx] = 0
@@ -305,7 +305,7 @@ class MultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :4].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             landms = targets[idx][:, 4:14].data
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels, landms, loc_t, conf_t, landm_t, idx)

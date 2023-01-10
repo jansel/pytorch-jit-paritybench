@@ -1023,8 +1023,8 @@ class GetRotationMatrix(nn.Module):
         is_cuda = angles_in.is_cuda
         assert angles_in.shape[1] == 2
         bn = angles_in.shape[0]
-        az_in = angles_in[:, (0)]
-        ele_in = angles_in[:, (1)]
+        az_in = angles_in[:, 0]
+        ele_in = angles_in[:, 1]
         az_in = torch.clamp(az_in, self.az_min, self.az_max)
         ele_in = torch.clamp(ele_in, self.ele_min, self.ele_max)
         az_sin = torch.sin(az_in)
@@ -1035,9 +1035,9 @@ class GetRotationMatrix(nn.Module):
         R_ele = self.create_Rele(ele_cos, ele_sin)
         R_rot = torch.bmm(R_az, R_ele)
         R_0 = angles_in.data.new(bn, 3, 3).zero_()
-        R_0[:, (0), (1)] = 1
-        R_0[:, (1), (0)] = -1
-        R_0[:, (2), (2)] = 1
+        R_0[:, 0, 1] = 1
+        R_0[:, 1, 0] = -1
+        R_0[:, 2, 2] = 1
         R_0 = R_0.requires_grad_(True)
         if is_cuda:
             R_0 = R_0
@@ -1102,8 +1102,8 @@ class CroppingLayer(nn.Module):
         h = torch.arange(0, size[0]).float() / (size[0] - 1.0) * 2.0 - 1.0
         w = torch.arange(0, size[1]).float() / (size[1] - 1.0) * 2.0 - 1.0
         grid = torch.zeros(size[0], size[1], 2)
-        grid[:, :, (0)] = w.unsqueeze(0).repeat(size[0], 1)
-        grid[:, :, (1)] = h.unsqueeze(0).repeat(size[1], 1).transpose(0, 1)
+        grid[:, :, 0] = w.unsqueeze(0).repeat(size[0], 1)
+        grid[:, :, 1] = h.unsqueeze(0).repeat(size[1], 1).transpose(0, 1)
         grid = grid.unsqueeze(0)
         self.register_buffer('grid', grid)
         self.kernel = np.ones((5, 5), np.uint8)
@@ -1124,19 +1124,19 @@ class CroppingLayer(nn.Module):
         mask_largest_batch = torch.FloatTensor(n, c, h, w).zero_()
         for x in range(n):
             if self.no_largest:
-                nz = np.nonzero(mask_th_binary[(x), (0), :, :])
+                nz = np.nonzero(mask_th_binary[x, 0, :, :])
                 bbox[x, 0] = np.min(nz[0])
                 bbox[x, 1] = np.min(nz[1])
                 bbox[x, 2] = np.max(nz[0])
                 bbox[x, 3] = np.max(nz[1])
-                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(mask_th_binary[(x), (0), :, :].astype(np.float32)).float()
+                mask_largest_batch[x, 0, :, :] = torch.from_numpy(mask_th_binary[x, 0, :, :].astype(np.float32)).float()
             else:
-                mask_th_binary_pad = np.pad(mask_th_binary[(x), (0), :, :], ((1, 1),), 'constant', constant_values=0).astype(np.uint8)
+                mask_th_binary_pad = np.pad(mask_th_binary[x, 0, :, :], ((1, 1),), 'constant', constant_values=0).astype(np.uint8)
                 labeled, nr_objects = ndimage.measurements.label(mask_th_binary_pad)
                 counts = np.bincount(labeled.flatten())
                 largest = np.argmax(counts[1:]) + 1
                 mask_largest = np.where(labeled == largest, 1, 0)[1:-1, 1:-1]
-                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(mask_largest.astype(np.float32)).float()
+                mask_largest_batch[x, 0, :, :] = torch.from_numpy(mask_largest.astype(np.float32)).float()
                 nz = np.nonzero(mask_largest)
                 bbox[x, 0] = np.min(nz[0])
                 bbox[x, 1] = np.min(nz[1])
@@ -1160,9 +1160,9 @@ class CroppingLayer(nn.Module):
             w = bbox[x, 3] + 1 - bbox[x, 1]
             h = int(h)
             w = int(w)
-            cropped_sil = exp_sil[(x), (0), bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
+            cropped_sil = exp_sil[x, 0, bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
             cropped_sil = cropped_sil.contiguous().view(1, 1, h, w)
-            cropped_depth = exp_depth[(x), (0), bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
+            cropped_depth = exp_depth[x, 0, bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
             cropped_depth = cropped_depth.contiguous().view(1, 1, h, w)
             if h > w:
                 dim = h
@@ -1235,12 +1235,12 @@ class AffineGridGen3DFunction(Function):
         theta = theta.contiguous()
         base_grid = theta.new(N, sz1, sz2, sz3, 4)
         linear_points = torch.linspace(-1, 1, sz1) if sz1 > 1 else torch.Tensor([-1])
-        base_grid[:, :, :, :, (0)] = linear_points.view(1, -1, 1, 1).expand_as(base_grid[:, :, :, :, (0)])
+        base_grid[:, :, :, :, 0] = linear_points.view(1, -1, 1, 1).expand_as(base_grid[:, :, :, :, 0])
         linear_points = torch.linspace(-1, 1, sz2) if sz2 > 1 else torch.Tensor([-1])
-        base_grid[:, :, :, :, (1)] = linear_points.view(1, 1, -1, 1).expand_as(base_grid[:, :, :, :, (1)])
+        base_grid[:, :, :, :, 1] = linear_points.view(1, 1, -1, 1).expand_as(base_grid[:, :, :, :, 1])
         linear_points = torch.linspace(-1, 1, sz3) if sz3 > 1 else torch.Tensor([-1])
-        base_grid[:, :, :, :, (2)] = linear_points.view(1, 1, 1, -1).expand_as(base_grid[:, :, :, :, (2)])
-        base_grid[:, :, :, :, (3)] = 1
+        base_grid[:, :, :, :, 2] = linear_points.view(1, 1, 1, -1).expand_as(base_grid[:, :, :, :, 2])
+        base_grid[:, :, :, :, 3] = 1
         ctx.base_grid = base_grid
         grid = torch.bmm(base_grid.view(N, sz1 * sz2 * sz3, 4), theta.transpose(1, 2))
         grid = grid.view(N, sz1, sz2, sz3, 3)
@@ -1327,16 +1327,16 @@ class VoxelRenderLayer(nn.Module):
         H, W = np.meshgrid(h_linspace, w_linspace)
         cam = np.array([[[-dist, 0, 0]]])
         grid_vec = np.zeros([res, res, 3], dtype=numtype)
-        grid_vec[:, :, (1)] = W
-        grid_vec[:, :, (2)] = H
-        grid_vec[:, :, (0)] = -(dist - fl)
+        grid_vec[:, :, 1] = W
+        grid_vec[:, :, 2] = H
+        grid_vec[:, :, 0] = -(dist - fl)
         grid_vec = grid_vec - cam
         self.grid_vec = grid_vec
         grid_vec_a = grid_vec * ((dist - 1) / fl)
         grid_vec_b = grid_vec * ((dist + 1) / fl)
         for idn in range(n):
             for ids in range(nsamples):
-                grid[(idn), (ids), :, :, :] = grid_vec_b - (1 - ids / nsamples) * (grid_vec_b - grid_vec_a)
+                grid[idn, ids, :, :, :] = grid_vec_b - (1 - ids / nsamples) * (grid_vec_b - grid_vec_a)
         grid = grid + cam
         return torch.from_numpy(grid.astype(numtype))
 
@@ -1362,12 +1362,8 @@ TESTCASES = [
      lambda: ([], {'input_nc': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      False),
-    (Decoder,
-     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 18, 'output_dim': 4}),
-     lambda: ([torch.rand([4, 18, 4, 4])], {}),
-     False),
     (Decoder_all,
-     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 18, 'output_dim': 4}),
+     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 4, 'output_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (E_adaIN,
@@ -1423,7 +1419,4 @@ class Test_junyanz_VON(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
 

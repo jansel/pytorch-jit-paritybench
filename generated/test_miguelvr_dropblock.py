@@ -93,12 +93,12 @@ class DropBlock2D(nn.Module):
             mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).float()
             mask = mask
             block_mask = self._compute_block_mask(mask)
-            out = x * block_mask[:, (None), :, :]
+            out = x * block_mask[:, None, :, :]
             out = out * block_mask.numel() / block_mask.sum()
             return out
 
     def _compute_block_mask(self, mask):
-        block_mask = F.max_pool2d(input=mask[:, (None), :, :], kernel_size=(self.block_size, self.block_size), stride=(1, 1), padding=self.block_size // 2)
+        block_mask = F.max_pool2d(input=mask[:, None, :, :], kernel_size=(self.block_size, self.block_size), stride=(1, 1), padding=self.block_size // 2)
         if self.block_size % 2 == 0:
             block_mask = block_mask[:, :, :-1, :-1]
         block_mask = 1 - block_mask.squeeze(1)
@@ -141,12 +141,12 @@ class DropBlock3D(DropBlock2D):
             mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).float()
             mask = mask
             block_mask = self._compute_block_mask(mask)
-            out = x * block_mask[:, (None), :, :, :]
+            out = x * block_mask[:, None, :, :, :]
             out = out * block_mask.numel() / block_mask.sum()
             return out
 
     def _compute_block_mask(self, mask):
-        block_mask = F.max_pool3d(input=mask[:, (None), :, :, :], kernel_size=(self.block_size, self.block_size, self.block_size), stride=(1, 1, 1), padding=self.block_size // 2)
+        block_mask = F.max_pool3d(input=mask[:, None, :, :, :], kernel_size=(self.block_size, self.block_size, self.block_size), stride=(1, 1, 1), padding=self.block_size // 2)
         if self.block_size % 2 == 0:
             block_mask = block_mask[:, :, :-1, :-1, :-1]
         block_mask = 1 - block_mask.squeeze(1)
@@ -162,7 +162,7 @@ class LinearScheduler(nn.Module):
         super(LinearScheduler, self).__init__()
         self.dropblock = dropblock
         self.i = 0
-        self.drop_values = np.linspace(start=start_value, stop=stop_value, num=nr_steps)
+        self.drop_values = np.linspace(start=start_value, stop=stop_value, num=int(nr_steps))
 
     def forward(self, x):
         return self.dropblock(x)

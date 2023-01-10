@@ -39,7 +39,6 @@ dummy_reader = _module
 throughput = _module
 cache = _module
 codecs = _module
-compat = _module
 errors = _module
 etl = _module
 dataset_metadata = _module
@@ -49,13 +48,10 @@ petastorm_generate_metadata = _module
 rowgroup_indexers = _module
 rowgroup_indexing = _module
 fs_utils = _module
-gcsfs_helpers = _module
-gcsfs_wrapper = _module
 generator = _module
 hdfs = _module
 namenode = _module
 test_hdfs_namenode = _module
-local_disk_arrow_table_cache = _module
 local_disk_cache = _module
 namedtuple_gt_255_fields = _module
 ngram = _module
@@ -69,7 +65,6 @@ reader = _module
 reader_impl = _module
 arrow_table_serializer = _module
 pickle_serializer = _module
-pyarrow_serializer = _module
 pytorch_shuffling_buffer = _module
 shuffling_buffer = _module
 selectors = _module
@@ -103,7 +98,6 @@ test_ngram_end_to_end = _module
 test_parquet_reader = _module
 test_pickle_serializer = _module
 test_predicates = _module
-test_pyarrow_serializer = _module
 test_pytorch_dataloader = _module
 test_pytorch_utils = _module
 test_reader = _module
@@ -130,6 +124,7 @@ weighted_sampling_reader = _module
 workers_pool = _module
 dummy_pool = _module
 exec_in_new_process = _module
+exec_in_new_process_entrypoint = _module
 process_pool = _module
 stub_workers = _module
 test_ventilator = _module
@@ -192,7 +187,7 @@ from collections import namedtuple
 from functools import partial
 
 
-import collections
+import collections.abc
 
 
 import re
@@ -204,10 +199,13 @@ from torch.utils.data.dataloader import default_collate
 import abc
 
 
-from collections import deque
-
-
 import uuid
+
+
+from typing import List
+
+
+from typing import Any
 
 
 import tensorflow.compat.v1 as tf

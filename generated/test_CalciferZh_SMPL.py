@@ -98,10 +98,10 @@ class SMIL(nn.Module):
         Rotation matrix of shape [N, 3, 3].
         """
         theta = torch.norm(r, dim=(1, 2), keepdim=True)
-        torch.max(theta, theta.new_full((1,), torch.finfo(theta.dtype).tiny), out=theta)
+        torch.max(theta, theta.new_full((1,), torch.finfo(theta.dtype).eps), out=theta)
         r_hat = r / theta
-        z_stick = torch.zeros_like(r_hat[:, (0), (0)])
-        m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)], r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0), (1)], r_hat[:, (0), (0)], z_stick), dim=1)
+        z_stick = torch.zeros_like(r_hat[:, 0, 0])
+        m = torch.stack((z_stick, -r_hat[:, 0, 2], r_hat[:, 0, 1], r_hat[:, 0, 2], z_stick, -r_hat[:, 0, 0], -r_hat[:, 0, 1], r_hat[:, 0, 0], z_stick), dim=1)
         m = m.reshape(-1, 3, 3)
         dot = torch.bmm(r_hat.transpose(1, 2), r_hat)
         cos = theta.cos()
@@ -176,18 +176,18 @@ class SMIL(nn.Module):
             lrotmin = lrotmin.reshape(batch_size, -1)
             v_shaped += torch.tensordot(lrotmin, self.posedirs, dims=([1], [2]))
         rest_shape_h = torch.cat((v_shaped, v_shaped.new_ones(1).expand(*v_shaped.shape[:-1], 1)), 2)
-        G = [self.rotate_translate(R_cube[:, (0)], J[:, (0)])]
+        G = [self.rotate_translate(R_cube[:, 0], J[:, 0])]
         for i in range(1, self.kintree_table.shape[1]):
-            G.append(torch.bmm(G[self.parent[i]], self.rotate_translate(R_cube[:, (i)], J[:, (i)] - J[:, (self.parent[i])])))
+            G.append(torch.bmm(G[self.parent[i]], self.rotate_translate(R_cube[:, i], J[:, i] - J[:, self.parent[i]])))
         G = torch.stack(G, 1)
-        Jtr = G[(...), :4, (3)].clone()
+        Jtr = G[..., :4, 3].clone()
         G = G - self.pack(torch.matmul(G, torch.cat([J, J.new_zeros(1).expand(*J.shape[:2], 1)], dim=2).unsqueeze(-1)))
         T = torch.tensordot(G, self.weights, dims=([1], [1])).permute(0, 3, 1, 2)
         v = torch.matmul(T, torch.reshape(rest_shape_h, (batch_size, -1, 4, 1))).reshape(batch_size, -1, 4)
         if trans is not None:
             trans = trans.unsqueeze(1)
-            v[(...), :3] += trans
-            Jtr[(...), :3] += trans
+            v[..., :3] += trans
+            Jtr[..., :3] += trans
         return v, Jtr
 
 
@@ -235,7 +235,7 @@ class SMPLModel(Module):
         r_hat = r / theta
         cos = torch.cos(theta)
         z_stick = torch.zeros(theta_dim, dtype=torch.float64)
-        m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)], r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0), (1)], r_hat[:, (0), (0)], z_stick), dim=1)
+        m = torch.stack((z_stick, -r_hat[:, 0, 2], r_hat[:, 0, 1], r_hat[:, 0, 2], z_stick, -r_hat[:, 0, 0], -r_hat[:, 0, 1], r_hat[:, 0, 0], z_stick), dim=1)
         m = torch.reshape(m, (-1, 3, 3))
         i_cube = torch.eye(3, dtype=torch.float64).unsqueeze(dim=0) + torch.zeros((theta_dim, 3, 3), dtype=torch.float64)
         A = r_hat.permute(0, 2, 1)
@@ -324,9 +324,9 @@ class SMPLModel(Module):
             lrotmin = (R_cube - I_cube).reshape(batch_num, -1, 1).squeeze(dim=2)
             v_posed = v_shaped + torch.tensordot(lrotmin, self.posedirs, dims=([1], [2]))
         results = []
-        results.append(self.with_zeros(torch.cat((R_cube_big[:, (0)], torch.reshape(J[:, (0), :], (-1, 3, 1))), dim=2)))
+        results.append(self.with_zeros(torch.cat((R_cube_big[:, 0], torch.reshape(J[:, 0, :], (-1, 3, 1))), dim=2)))
         for i in range(1, self.kintree_table.shape[1]):
-            results.append(torch.matmul(results[parent[i]], self.with_zeros(torch.cat((R_cube_big[:, (i)], torch.reshape(J[:, (i), :] - J[:, (parent[i]), :], (-1, 3, 1))), dim=2))))
+            results.append(torch.matmul(results[parent[i]], self.with_zeros(torch.cat((R_cube_big[:, i], torch.reshape(J[:, i, :] - J[:, parent[i], :], (-1, 3, 1))), dim=2))))
         stacked = torch.stack(results, dim=1)
         results = stacked - self.pack(torch.matmul(stacked, torch.reshape(torch.cat((J, torch.zeros((batch_num, 24, 1), dtype=torch.float64)), dim=2), (batch_num, 24, 4, 1))))
         T = torch.tensordot(results, self.weights, dims=([1], [1])).permute(0, 3, 1, 2)

@@ -16,7 +16,6 @@ agent = _module
 component = _module
 envs = _module
 random_process = _module
-replay = _module
 network = _module
 network_bodies = _module
 network_heads = _module
@@ -28,6 +27,7 @@ misc = _module
 normalizer = _module
 plot = _module
 schedule = _module
+sum_tree = _module
 torch_utils = _module
 examples = _module
 setup = _module
@@ -78,109 +78,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+import math
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
 import logging
 
 
-def layer_init(layer, w_scale=1.0):
-    nn.init.orthogonal_(layer.weight.data)
-    layer.weight.data.mul_(w_scale)
-    nn.init.constant_(layer.bias.data, 0)
-    return layer
+import itertools
 
 
-class NatureConvBody(nn.Module):
-
-    def __init__(self, in_channels=4):
-        super(NatureConvBody, self).__init__()
-        self.feature_dim = 512
-        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4))
-        self.conv2 = layer_init(nn.Conv2d(32, 64, kernel_size=4, stride=2))
-        self.conv3 = layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1))
-        self.fc4 = layer_init(nn.Linear(7 * 7 * 64, self.feature_dim))
-
-    def forward(self, x):
-        y = F.relu(self.conv1(x))
-        y = F.relu(self.conv2(y))
-        y = F.relu(self.conv3(y))
-        y = y.view(y.size(0), -1)
-        y = F.relu(self.fc4(y))
-        return y
+from collections import OrderedDict
 
 
-class DDPGConvBody(nn.Module):
-
-    def __init__(self, in_channels=4):
-        super(DDPGConvBody, self).__init__()
-        self.feature_dim = 39 * 39 * 32
-        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=3, stride=2))
-        self.conv2 = layer_init(nn.Conv2d(32, 32, kernel_size=3))
-
-    def forward(self, x):
-        y = F.elu(self.conv1(x))
-        y = F.elu(self.conv2(y))
-        y = y.view(y.size(0), -1)
-        return y
-
-
-class FCBody(nn.Module):
-
-    def __init__(self, state_dim, hidden_units=(64, 64), gate=F.relu):
-        super(FCBody, self).__init__()
-        dims = (state_dim,) + hidden_units
-        self.layers = nn.ModuleList([layer_init(nn.Linear(dim_in, dim_out)) for dim_in, dim_out in zip(dims[:-1], dims[1:])])
-        self.gate = gate
-        self.feature_dim = dims[-1]
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = self.gate(layer(x))
-        return x
-
-
-class TwoLayerFCBodyWithAction(nn.Module):
-
-    def __init__(self, state_dim, action_dim, hidden_units=(64, 64), gate=F.relu):
-        super(TwoLayerFCBodyWithAction, self).__init__()
-        hidden_size1, hidden_size2 = hidden_units
-        self.fc1 = layer_init(nn.Linear(state_dim, hidden_size1))
-        self.fc2 = layer_init(nn.Linear(hidden_size1 + action_dim, hidden_size2))
-        self.gate = gate
-        self.feature_dim = hidden_size2
-
-    def forward(self, x, action):
-        x = self.gate(self.fc1(x))
-        phi = self.gate(self.fc2(torch.cat([x, action], dim=1)))
-        return phi
-
-
-class OneLayerFCBodyWithAction(nn.Module):
-
-    def __init__(self, state_dim, action_dim, hidden_units, gate=F.relu):
-        super(OneLayerFCBodyWithAction, self).__init__()
-        self.fc_s = layer_init(nn.Linear(state_dim, hidden_units))
-        self.fc_a = layer_init(nn.Linear(action_dim, hidden_units))
-        self.gate = gate
-        self.feature_dim = hidden_units * 2
-
-    def forward(self, x, action):
-        phi = self.gate(torch.cat([self.fc_s(x), self.fc_a(action)], dim=1))
-        return phi
-
-
-class DummyBody(nn.Module):
-
-    def __init__(self, state_dim):
-        super(DummyBody, self).__init__()
-        self.feature_dim = state_dim
-
-    def forward(self, x):
-        return x
-
-
-class BaseNet:
-
-    def __init__(self):
-        pass
+from collections import Sequence
 
 
 class BaseNormalizer:
@@ -215,6 +128,9 @@ class RescaleNormalizer(BaseNormalizer):
 
 class Config:
     DEVICE = torch.device('cpu')
+    NOISY_LAYER_STD = 0.1
+    DEFAULT_REPLAY = 'replay'
+    PRIORITIZED_REPLAY = 'prioritized_replay'
 
     def __init__(self):
         self.parser = argparse.ArgumentParser()
@@ -263,6 +179,11 @@ class Config:
         self.eval_episodes = 10
         self.async_actor = True
         self.tasks = False
+        self.replay_type = Config.DEFAULT_REPLAY
+        self.decaying_lr = False
+        self.shared_repr = False
+        self.noisy_linear = False
+        self.n_step = 1
 
     @property
     def eval_env(self):
@@ -286,11 +207,149 @@ class Config:
             setattr(self, key, config_dict[key])
 
 
+class NoisyLinear(nn.Module):
+
+    def __init__(self, in_features, out_features, std_init=0.4):
+        super(NoisyLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.std_init = std_init
+        self.weight_mu = nn.Parameter(torch.zeros((out_features, in_features)), requires_grad=True)
+        self.weight_sigma = nn.Parameter(torch.zeros((out_features, in_features)), requires_grad=True)
+        self.register_buffer('weight_epsilon', torch.zeros((out_features, in_features)))
+        self.bias_mu = nn.Parameter(torch.zeros(out_features), requires_grad=True)
+        self.bias_sigma = nn.Parameter(torch.zeros(out_features), requires_grad=True)
+        self.register_buffer('bias_epsilon', torch.zeros(out_features))
+        self.register_buffer('noise_in', torch.zeros(in_features))
+        self.register_buffer('noise_out_weight', torch.zeros(out_features))
+        self.register_buffer('noise_out_bias', torch.zeros(out_features))
+        self.reset_parameters()
+        self.reset_noise()
+
+    def forward(self, x):
+        if self.training:
+            weight = self.weight_mu + self.weight_sigma.mul(self.weight_epsilon)
+            bias = self.bias_mu + self.bias_sigma.mul(self.bias_epsilon)
+        else:
+            weight = self.weight_mu
+            bias = self.bias_mu
+        return F.linear(x, weight, bias)
+
+    def reset_parameters(self):
+        mu_range = 1 / math.sqrt(self.weight_mu.size(1))
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.weight_sigma.data.fill_(self.std_init / math.sqrt(self.weight_sigma.size(1)))
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_sigma.data.fill_(self.std_init / math.sqrt(self.bias_sigma.size(0)))
+
+    def reset_noise(self):
+        self.noise_in.normal_(std=Config.NOISY_LAYER_STD)
+        self.noise_out_weight.normal_(std=Config.NOISY_LAYER_STD)
+        self.noise_out_bias.normal_(std=Config.NOISY_LAYER_STD)
+        self.weight_epsilon.copy_(self.transform_noise(self.noise_out_weight).ger(self.transform_noise(self.noise_in)))
+        self.bias_epsilon.copy_(self.transform_noise(self.noise_out_bias))
+
+    def transform_noise(self, x):
+        return x.sign().mul(x.abs().sqrt())
+
+
+def layer_init(layer, w_scale=1.0):
+    nn.init.orthogonal_(layer.weight.data)
+    layer.weight.data.mul_(w_scale)
+    nn.init.constant_(layer.bias.data, 0)
+    return layer
+
+
+class NatureConvBody(nn.Module):
+
+    def __init__(self, in_channels=4, noisy_linear=False):
+        super(NatureConvBody, self).__init__()
+        self.feature_dim = 512
+        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4))
+        self.conv2 = layer_init(nn.Conv2d(32, 64, kernel_size=4, stride=2))
+        self.conv3 = layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1))
+        if noisy_linear:
+            self.fc4 = NoisyLinear(7 * 7 * 64, self.feature_dim)
+        else:
+            self.fc4 = layer_init(nn.Linear(7 * 7 * 64, self.feature_dim))
+        self.noisy_linear = noisy_linear
+
+    def reset_noise(self):
+        if self.noisy_linear:
+            self.fc4.reset_noise()
+
+    def forward(self, x):
+        y = F.relu(self.conv1(x))
+        y = F.relu(self.conv2(y))
+        y = F.relu(self.conv3(y))
+        y = y.view(y.size(0), -1)
+        y = F.relu(self.fc4(y))
+        return y
+
+
+class DDPGConvBody(nn.Module):
+
+    def __init__(self, in_channels=4):
+        super(DDPGConvBody, self).__init__()
+        self.feature_dim = 39 * 39 * 32
+        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=3, stride=2))
+        self.conv2 = layer_init(nn.Conv2d(32, 32, kernel_size=3))
+
+    def forward(self, x):
+        y = F.elu(self.conv1(x))
+        y = F.elu(self.conv2(y))
+        y = y.view(y.size(0), -1)
+        return y
+
+
+class FCBody(nn.Module):
+
+    def __init__(self, state_dim, hidden_units=(64, 64), gate=F.relu, noisy_linear=False):
+        super(FCBody, self).__init__()
+        dims = (state_dim,) + hidden_units
+        if noisy_linear:
+            self.layers = nn.ModuleList([NoisyLinear(dim_in, dim_out) for dim_in, dim_out in zip(dims[:-1], dims[1:])])
+        else:
+            self.layers = nn.ModuleList([layer_init(nn.Linear(dim_in, dim_out)) for dim_in, dim_out in zip(dims[:-1], dims[1:])])
+        self.gate = gate
+        self.feature_dim = dims[-1]
+        self.noisy_linear = noisy_linear
+
+    def reset_noise(self):
+        if self.noisy_linear:
+            for layer in self.layers:
+                layer.reset_noise()
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = self.gate(layer(x))
+        return x
+
+
+class DummyBody(nn.Module):
+
+    def __init__(self, state_dim):
+        super(DummyBody, self).__init__()
+        self.feature_dim = state_dim
+
+    def forward(self, x):
+        return x
+
+
+class BaseNet:
+
+    def __init__(self):
+        pass
+
+    def reset_noise(self):
+        pass
+
+
 def tensor(x):
     if isinstance(x, torch.Tensor):
         return x
-    x = np.asarray(x, dtype=np.float)
-    x = torch.tensor(x, device=Config.DEVICE, dtype=torch.float32)
+    x = np.asarray(x, dtype=np.float32)
+    x = torch.from_numpy(x)
     return x
 
 
@@ -304,8 +363,8 @@ class VanillaNet(nn.Module, BaseNet):
 
     def forward(self, x):
         phi = self.body(tensor(x))
-        y = self.fc_head(phi)
-        return y
+        q = self.fc_head(phi)
+        return dict(q=q)
 
 
 class DuelingNet(nn.Module, BaseNet):
@@ -322,7 +381,7 @@ class DuelingNet(nn.Module, BaseNet):
         value = self.fc_value(phi)
         advantange = self.fc_advantage(phi)
         q = value.expand_as(advantange) + (advantange - advantange.mean(1, keepdim=True).expand_as(advantange))
-        return q
+        return dict(q=q)
 
 
 class CategoricalNet(nn.Module, BaseNet):
@@ -340,7 +399,39 @@ class CategoricalNet(nn.Module, BaseNet):
         pre_prob = self.fc_categorical(phi).view((-1, self.action_dim, self.num_atoms))
         prob = F.softmax(pre_prob, dim=-1)
         log_prob = F.log_softmax(pre_prob, dim=-1)
-        return prob, log_prob
+        return dict(prob=prob, log_prob=log_prob)
+
+
+class RainbowNet(nn.Module, BaseNet):
+
+    def __init__(self, action_dim, num_atoms, body, noisy_linear):
+        super(RainbowNet, self).__init__()
+        if noisy_linear:
+            self.fc_value = NoisyLinear(body.feature_dim, num_atoms)
+            self.fc_advantage = NoisyLinear(body.feature_dim, action_dim * num_atoms)
+        else:
+            self.fc_value = layer_init(nn.Linear(body.feature_dim, num_atoms))
+            self.fc_advantage = layer_init(nn.Linear(body.feature_dim, action_dim * num_atoms))
+        self.action_dim = action_dim
+        self.num_atoms = num_atoms
+        self.body = body
+        self.noisy_linear = noisy_linear
+        self
+
+    def reset_noise(self):
+        if self.noisy_linear:
+            self.fc_value.reset_noise()
+            self.fc_advantage.reset_noise()
+            self.body.reset_noise()
+
+    def forward(self, x):
+        phi = self.body(tensor(x))
+        value = self.fc_value(phi).view((-1, 1, self.num_atoms))
+        advantage = self.fc_advantage(phi).view(-1, self.action_dim, self.num_atoms)
+        q = value + (advantage - advantage.mean(1, keepdim=True))
+        prob = F.softmax(q, dim=-1)
+        log_prob = F.log_softmax(q, dim=-1)
+        return dict(prob=prob, log_prob=log_prob)
 
 
 class QuantileNet(nn.Module, BaseNet):
@@ -357,7 +448,7 @@ class QuantileNet(nn.Module, BaseNet):
         phi = self.body(tensor(x))
         quantiles = self.fc_quantiles(phi)
         quantiles = quantiles.view((-1, self.action_dim, self.num_quantiles))
-        return quantiles
+        return dict(quantile=quantiles)
 
 
 class OptionCriticNet(nn.Module, BaseNet):
@@ -418,7 +509,7 @@ class DeterministicActorCriticNet(nn.Module, BaseNet):
         return torch.tanh(self.fc_action(self.actor_body(phi)))
 
     def critic(self, phi, a):
-        return self.fc_critic(self.critic_body(phi, a))
+        return self.fc_critic(self.critic_body(torch.cat([phi, a], dim=1)))
 
 
 class GaussianActorCriticNet(nn.Module, BaseNet):
@@ -455,7 +546,7 @@ class GaussianActorCriticNet(nn.Module, BaseNet):
             action = dist.sample()
         log_prob = dist.log_prob(action).sum(-1).unsqueeze(-1)
         entropy = dist.entropy().sum(-1).unsqueeze(-1)
-        return {'a': action, 'log_pi_a': log_prob, 'ent': entropy, 'mean': mean, 'v': v}
+        return {'action': action, 'log_pi_a': log_prob, 'entropy': entropy, 'mean': mean, 'v': v}
 
 
 class CategoricalActorCriticNet(nn.Module, BaseNet):
@@ -490,7 +581,7 @@ class CategoricalActorCriticNet(nn.Module, BaseNet):
             action = dist.sample()
         log_prob = dist.log_prob(action).unsqueeze(-1)
         entropy = dist.entropy().unsqueeze(-1)
-        return {'a': action, 'log_pi_a': log_prob, 'ent': entropy, 'v': v}
+        return {'action': action, 'log_pi_a': log_prob, 'entropy': entropy, 'v': v}
 
 
 class TD3Net(nn.Module, BaseNet):
@@ -549,13 +640,9 @@ TESTCASES = [
      lambda: ([], {'state_dim': 4, 'action_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (OneLayerFCBodyWithAction,
-     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'hidden_units': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (TwoLayerFCBodyWithAction,
-     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
 ]
 
@@ -577,7 +664,4 @@ class Test_ShangtongZhang_DeepRL(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

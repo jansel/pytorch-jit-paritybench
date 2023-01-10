@@ -96,18 +96,18 @@ class GlimpseWindow:
         glimpse_pixels = Variable(torch.arange(0, glimpse_size) - (glimpse_size - 1.0) / 2.0)
         if use_cuda:
             glimpse_pixels = glimpse_pixels
-        glimpse_pixels = deltas[:, (None)] * glimpse_pixels[(None), :]
-        glimpse_pixels = centers[:, (None)] + glimpse_pixels
+        glimpse_pixels = deltas[:, None] * glimpse_pixels[None, :]
+        glimpse_pixels = centers[:, None] + glimpse_pixels
         image_pixels = Variable(torch.arange(0, image_size))
         if use_cuda:
             image_pixels = image_pixels
-        fx = image_pixels - glimpse_pixels[:, :, (None)]
-        fx = fx / gammas[:, (None), (None)]
+        fx = image_pixels - glimpse_pixels[:, :, None]
+        fx = fx / gammas[:, None, None]
         fx = fx ** 2.0
         fx = 1.0 + fx
-        fx = math.pi * gammas[:, (None), (None)] * fx
+        fx = math.pi * gammas[:, None, None] * fx
         fx = 1.0 / fx
-        fx = fx / (torch.sum(fx, dim=2) + 0.0001)[:, :, (None)]
+        fx = fx / (torch.sum(fx, dim=2) + 0.0001)[:, :, None]
         return fx.transpose(1, 2)
 
     def get_attention_mask(self, glimpse_params: Variable, mask_h: int, mask_w: int) ->Variable:
@@ -124,8 +124,8 @@ class GlimpseWindow:
 
         """
         batch_size, _ = glimpse_params.size()
-        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (0)], image_size=mask_h, glimpse_size=self.glimpse_h)
-        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (1)], image_size=mask_w, glimpse_size=self.glimpse_w)
+        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, 2], center_caps=glimpse_params[:, 0], image_size=mask_h, glimpse_size=self.glimpse_h)
+        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, 2], center_caps=glimpse_params[:, 1], image_size=mask_w, glimpse_size=self.glimpse_w)
         glimpse_proxy = Variable(torch.ones(batch_size, self.glimpse_h, self.glimpse_w))
         mask = glimpse_proxy
         mask = torch.bmm(F_h, mask)
@@ -152,8 +152,8 @@ class GlimpseWindow:
 
         """
         batch_size, image_h, image_w = images.size()
-        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (0)], image_size=image_h, glimpse_size=self.glimpse_h)
-        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (1)], image_size=image_w, glimpse_size=self.glimpse_w)
+        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, 2], center_caps=glimpse_params[:, 0], image_size=image_h, glimpse_size=self.glimpse_h)
+        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, 2], center_caps=glimpse_params[:, 1], image_size=image_w, glimpse_size=self.glimpse_w)
         glimpses = images
         glimpses = torch.bmm(F_h.transpose(1, 2), glimpses)
         glimpses = torch.bmm(glimpses, F_w)
@@ -202,7 +202,7 @@ class ARC(nn.Module):
 
         """
         all_hidden = self._forward(image_pairs)
-        last_hidden = all_hidden[(-1), :, :]
+        last_hidden = all_hidden[-1, :, :]
         return last_hidden
 
     def _forward(self, image_pairs: Variable) ->Variable:
@@ -225,7 +225,7 @@ class ARC(nn.Module):
         if use_cuda:
             Hx, Cx = Hx, Cx
         for turn in range(2 * self.num_glimpses):
-            images_to_observe = image_pairs[:, (turn % 2)]
+            images_to_observe = image_pairs[:, turn % 2]
             glimpse_params = torch.tanh(self.glimpser(Hx))
             glimpses = self.glimpse_window.get_glimpse(images_to_observe, glimpse_params)
             flattened_glimpses = glimpses.view(batch_size, -1)

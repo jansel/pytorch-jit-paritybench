@@ -3033,7 +3033,7 @@ class LDAMLoss(nn.Module):
         index = torch.zeros_like(x, dtype=torch.uint8)
         index.scatter_(1, target.data.view(-1, 1), 1)
         index_float = index.type(torch.FloatTensor)
-        batch_m = torch.matmul(self.m_list[(None), :], index_float.transpose(0, 1))
+        batch_m = torch.matmul(self.m_list[None, :], index_float.transpose(0, 1))
         batch_m = batch_m.view((-1, 1))
         x_m = x - batch_m
         output = torch.where(index, x_m, x)
@@ -3209,9 +3209,9 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
         if C == 1:
             if len(classes) > 1:
                 raise ValueError('Sigmoid output possible only with 1 class')
-            class_pred = probas[:, (0)]
+            class_pred = probas[:, 0]
         else:
-            class_pred = probas[:, (c)]
+            class_pred = probas[:, c]
         errors = (Variable(fg) - class_pred).abs()
         errors_sorted, perm = torch.sort(errors, 0, descending=True)
         perm = perm.data
@@ -3317,6 +3317,10 @@ TESTCASES = [
      lambda: ([], {'dw_channels': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ContextGuidedBlock,
+     lambda: ([], {'nIn': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ContextNet,
      lambda: ([], {'classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3369,10 +3373,6 @@ TESTCASES = [
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DownSamplerB,
-     lambda: ([], {'nIn': 64, 'nOut': 18}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (DownSamplingBlock,
      lambda: ([], {'nIn': 4, 'nOut': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3389,10 +3389,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
-    (EESPNet_Seg,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
     (ESNet,
      lambda: ([], {'classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3405,6 +3401,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (FGlo,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (FPEBlock,
      lambda: ([], {'inplanes': 4, 'outplanes': 4, 'dilat': [4, 4, 4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),

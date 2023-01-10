@@ -132,21 +132,3 @@ class ResBlock(nn.Module):
         output = self.res_block(input)
         return input + 0.3 * output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (ResBlock,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 512, 64])], {}),
-     True),
-]
-
-class Test_caogang_wgan_gp(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-

@@ -1,11 +1,13 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+main_download_pretrained_models = _module
 main_test_bicubic = _module
 main_test_realapplication = _module
 main_test_table1 = _module
 basicblock = _module
 network_usrnet = _module
+network_usrnet_v1 = _module
 utils_deblur = _module
 utils_image = _module
 utils_logger = _module
@@ -62,6 +64,9 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import torch.fft
 
 
 import scipy
@@ -479,30 +484,8 @@ class ResUNet(nn.Module):
         x = self.m_up2(x + x3)
         x = self.m_up1(x + x2)
         x = self.m_tail(x + x1)
-        x = x[(...), :h, :w]
+        x = x[..., :h, :w]
         return x
-
-
-def cdiv(x, y):
-    a, b = x[..., 0], x[..., 1]
-    c, d = y[..., 0], y[..., 1]
-    cd2 = c ** 2 + d ** 2
-    return torch.stack([(a * c + b * d) / cd2, (b * c - a * d) / cd2], -1)
-
-
-def cmul(t1, t2):
-    """
-    complex multiplication
-    t1: NxCxHxWx2
-    output: NxCxHxWx2
-    """
-    real1, imag1 = t1[..., 0], t1[..., 1]
-    real2, imag2 = t2[..., 0], t2[..., 1]
-    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1)
-
-
-def csum(x, y):
-    return torch.stack([x[..., 0] + y, x[..., 1]], -1)
 
 
 def splits(a, sf):
@@ -522,14 +505,14 @@ class DataNet(nn.Module):
         super(DataNet, self).__init__()
 
     def forward(self, x, FB, FBC, F2B, FBFy, alpha, sf):
-        FR = FBFy + torch.rfft(alpha * x, 2, onesided=False)
-        x1 = cmul(FB, FR)
+        FR = FBFy + torch.fft.fftn(alpha * x, dim=(-2, -1))
+        x1 = FB.mul(FR)
         FBR = torch.mean(splits(x1, sf), dim=-1, keepdim=False)
         invW = torch.mean(splits(F2B, sf), dim=-1, keepdim=False)
-        invWBR = cdiv(FBR, csum(invW, alpha))
-        FCBinvWBR = cmul(FBC, invWBR.repeat(1, 1, sf, sf, 1))
-        FX = (FR - FCBinvWBR) / alpha.unsqueeze(-1)
-        Xest = torch.irfft(FX, 2, onesided=False)
+        invWBR = FBR.div(invW + alpha)
+        FCBinvWBR = FBC * invWBR.repeat(1, 1, sf, sf)
+        FX = (FR - FCBinvWBR) / alpha
+        Xest = torch.real(torch.fft.ifftn(FX, dim=(-2, -1)))
         return Xest
 
 
@@ -544,21 +527,6 @@ class HyPaNet(nn.Module):
         return x
 
 
-def cabs2(x):
-    return x[..., 0] ** 2 + x[..., 1] ** 2
-
-
-def cconj(t, inplace=False):
-    """
-    # complex's conjugation
-    t: NxCxHxWx2
-    output: NxCxHxWx2
-    """
-    c = t.clone() if not inplace else t
-    c[..., 1] *= -1
-    return c
-
-
 def p2o(psf, shape):
     """
     Args:
@@ -569,7 +537,7 @@ def p2o(psf, shape):
         otf: NxCxHxWx2
     """
     otf = torch.zeros(psf.shape[:-2] + shape).type_as(psf)
-    otf[(...), :psf.shape[2], :psf.shape[3]].copy_(psf)
+    otf[..., :psf.shape[2], :psf.shape[3]].copy_(psf)
     for axis, axis_size in enumerate(psf.shape[2:]):
         otf = torch.roll(otf, -int(axis_size / 2), dims=axis + 2)
     otf = torch.rfft(otf, 2, onesided=False)
@@ -578,17 +546,13 @@ def p2o(psf, shape):
     return otf
 
 
-def r2c(x):
-    return torch.stack([x, torch.zeros_like(x)], -1)
-
-
 def upsample(x, sf=3, center=False):
     """
     x: tensor image, NxCxWxH
     """
     st = (sf - 1) // 2 if center else 0
     z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)).type_as(x)
-    z[(...), st::sf, st::sf].copy_(x)
+    z[..., st::sf, st::sf].copy_(x)
     return z
 
 
@@ -610,15 +574,15 @@ class USRNet(nn.Module):
         """
         w, h = x.shape[-2:]
         FB = p2o(k, (w * sf, h * sf))
-        FBC = cconj(FB, inplace=False)
-        F2B = r2c(cabs2(FB))
+        FBC = torch.conj(FB)
+        F2B = torch.pow(torch.abs(FB), 2)
         STy = upsample(x, sf=sf)
-        FBFy = cmul(FBC, torch.rfft(STy, 2, onesided=False))
+        FBFy = FBC * torch.fft.fftn(STy, dim=(-2, -1))
         x = nn.functional.interpolate(x, scale_factor=sf, mode='nearest')
         ab = self.h(torch.cat((sigma, torch.tensor(sf).type_as(sigma).expand_as(sigma)), dim=1))
         for i in range(self.n):
-            x = self.d(x, FB, FBC, F2B, FBFy, ab[:, i:i + 1, (...)], sf)
-            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, (...)].repeat(1, 1, x.size(2), x.size(3))), dim=1))
+            x = self.d(x, FB, FBC, F2B, FBFy, ab[:, i:i + 1, ...], sf)
+            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, ...].repeat(1, 1, x.size(2), x.size(3))), dim=1))
         return x
 
 
@@ -636,10 +600,6 @@ TESTCASES = [
     (ConcatBlock,
      lambda: ([], {'submodule': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (ConditionalBatchNorm2d,
-     lambda: ([], {'num_features': 4, 'num_classes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.ones([4], dtype=torch.int64)], {}),
      True),
     (HyPaNet,
      lambda: ([], {}),
@@ -705,7 +665,4 @@ class Test_cszn_USRNet(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

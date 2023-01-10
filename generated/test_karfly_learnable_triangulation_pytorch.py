@@ -402,8 +402,8 @@ class RANSACTriangulationNet(nn.Module):
         _, max_indicies = torch.max(heatmaps.view(batch_size, n_views, n_joints, -1), dim=-1)
         keypoints_2d = torch.stack([max_indicies % heatmap_shape[1], max_indicies // heatmap_shape[1]], dim=-1)
         keypoints_2d_transformed = torch.zeros_like(keypoints_2d)
-        keypoints_2d_transformed[:, :, :, (0)] = keypoints_2d[:, :, :, (0)] * (image_shape[1] / heatmap_shape[1])
-        keypoints_2d_transformed[:, :, :, (1)] = keypoints_2d[:, :, :, (1)] * (image_shape[0] / heatmap_shape[0])
+        keypoints_2d_transformed[:, :, :, 0] = keypoints_2d[:, :, :, 0] * (image_shape[1] / heatmap_shape[1])
+        keypoints_2d_transformed[:, :, :, 1] = keypoints_2d[:, :, :, 1] * (image_shape[0] / heatmap_shape[0])
         keypoints_2d = keypoints_2d_transformed
         keypoints_2d_np = keypoints_2d.detach().cpu().numpy()
         proj_matricies_np = proj_matricies.detach().cpu().numpy()
@@ -412,7 +412,7 @@ class RANSACTriangulationNet(nn.Module):
         for batch_i in range(batch_size):
             for joint_i in range(n_joints):
                 current_proj_matricies = proj_matricies_np[batch_i]
-                points = keypoints_2d_np[(batch_i), :, (joint_i)]
+                points = keypoints_2d_np[batch_i, :, joint_i]
                 keypoint_3d, _ = self.triangulate_ransac(current_proj_matricies, points, direct_optimization=self.direct_optimization)
                 keypoints_3d[batch_i, joint_i] = keypoint_3d
         keypoints_3d = torch.from_numpy(keypoints_3d).type(torch.float)
@@ -495,8 +495,8 @@ class AlgebraicTriangulationNet(nn.Module):
         image_shape = tuple(images.shape[3:])
         batch_size, n_views, n_joints, heatmap_shape = heatmaps.shape[0], heatmaps.shape[1], heatmaps.shape[2], tuple(heatmaps.shape[3:])
         keypoints_2d_transformed = torch.zeros_like(keypoints_2d)
-        keypoints_2d_transformed[:, :, :, (0)] = keypoints_2d[:, :, :, (0)] * (image_shape[1] / heatmap_shape[1])
-        keypoints_2d_transformed[:, :, :, (1)] = keypoints_2d[:, :, :, (1)] * (image_shape[0] / heatmap_shape[0])
+        keypoints_2d_transformed[:, :, :, 0] = keypoints_2d[:, :, :, 0] * (image_shape[1] / heatmap_shape[1])
+        keypoints_2d_transformed[:, :, :, 1] = keypoints_2d[:, :, :, 1] * (image_shape[0] / heatmap_shape[0])
         keypoints_2d = keypoints_2d_transformed
         try:
             keypoints_3d = multiview.triangulate_batch_of_points(proj_matricies, keypoints_2d, confidences_batch=alg_confidences)
@@ -704,9 +704,9 @@ class VolumetricTriangulationNet(nn.Module):
             else:
                 keypoints_3d = batch['pred_keypoints_3d'][batch_i]
             if self.kind == 'coco':
-                base_point = (keypoints_3d[(11), :3] + keypoints_3d[(12), :3]) / 2
+                base_point = (keypoints_3d[11, :3] + keypoints_3d[12, :3]) / 2
             elif self.kind == 'mpii':
-                base_point = keypoints_3d[(6), :3]
+                base_point = keypoints_3d[6, :3]
             base_points[batch_i] = torch.from_numpy(base_point)
             sides = np.array([self.cuboid_side, self.cuboid_side, self.cuboid_side])
             position = base_point - sides / 2
@@ -716,9 +716,9 @@ class VolumetricTriangulationNet(nn.Module):
             grid = torch.stack([xxx, yyy, zzz], dim=-1).type(torch.float)
             grid = grid.reshape((-1, 3))
             grid_coord = torch.zeros_like(grid)
-            grid_coord[:, (0)] = position[0] + sides[0] / (self.volume_size - 1) * grid[:, (0)]
-            grid_coord[:, (1)] = position[1] + sides[1] / (self.volume_size - 1) * grid[:, (1)]
-            grid_coord[:, (2)] = position[2] + sides[2] / (self.volume_size - 1) * grid[:, (2)]
+            grid_coord[:, 0] = position[0] + sides[0] / (self.volume_size - 1) * grid[:, 0]
+            grid_coord[:, 1] = position[1] + sides[1] / (self.volume_size - 1) * grid[:, 1]
+            grid_coord[:, 2] = position[2] + sides[2] / (self.volume_size - 1) * grid[:, 2]
             coord_volume = grid_coord.reshape(self.volume_size, self.volume_size, self.volume_size, 3)
             if self.training:
                 theta = np.random.uniform(0.0, 2 * np.pi)
@@ -755,7 +755,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Basic3DBlock,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
@@ -787,11 +787,11 @@ TESTCASES = [
      True),
     (Res3DBlock,
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (Upsample3DBlock,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 2, 'stride': 2}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
 ]
 

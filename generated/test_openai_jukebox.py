@@ -105,9 +105,9 @@ dist_adapter = _module
 dist_utils = _module
 ema = _module
 fp16 = _module
-gcs_utils = _module
 io = _module
 logger = _module
+remote_utils = _module
 sample_utils = _module
 torch_utils = _module
 vqvae = _module
@@ -1329,7 +1329,7 @@ class PositionEmbedding(nn.Module):
 
     def forward(self):
         if self.pos_init:
-            pos_emb = sum([self._pos_embs[i](self.pos[:, (i)]) for i in range(len(self.input_shape))])
+            pos_emb = sum([self._pos_embs[i](self.pos[:, i]) for i in range(len(self.input_shape))])
         else:
             pos_emb = self.pos_emb
         return pos_emb
@@ -1553,8 +1553,8 @@ class FactoredAttention(nn.Module):
             v = t.nn.functional.pad(v[:, block_ctx - 1:blocks * block_ctx - 1:block_ctx, :], (0, 0, 1, 0))
             return self.dense_attn(q, k, v, sample).view(bs, 1, d)
         else:
-            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :-1, (-1), :], (0, 0, 1, 0))
-            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :-1, (-1), :], (0, 0, 1, 0))
+            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :-1, -1, :], (0, 0, 1, 0))
+            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :-1, -1, :], (0, 0, 1, 0))
             return self.dense_attn(q, k, v, sample).view(bs, l, d)
 
     def summary_spread_attn(self, q, k, v, sample):
@@ -1743,7 +1743,7 @@ class FactoredAttention(nn.Module):
         assert grad.shape == (bs, l, d)
         assert (grad[:2] == 0).all()
         assert (grad[3:] == 0).all()
-        assert (grad[(2), pos + 1:] == 0).all()
+        assert (grad[2, pos + 1:] == 0).all()
         pos_grad = (t.sum(grad[2] ** 2, dim=-1) > 0).nonzero().view(-1).cpu()
         block_pos = pos - pos % (l // blocks)
         exp_pos_grad = {(0): t.arange(pos), (1): t.arange(block_pos, pos), (2): t.arange(pos % (l // blocks), pos, l // blocks), (3): t.arange(block_pos - l // blocks, block_pos), (4): t.arange(l // blocks - 1, pos, l // blocks), (5): ((t.arange(pos) % (l // blocks) >= l // blocks - spread) & (t.arange(pos) < block_pos)).nonzero().view(-1)}[self.attn_func]
@@ -1778,14 +1778,14 @@ class FactoredAttention(nn.Module):
             x_out_normal = self.forward(x, encoder_kv=encoder_kv)
             x_out_sample = t.cat([self.forward(xs[i], encoder_kv=encoder_kv, sample=True) for i in range(l)], dim=1)
         max_err = t.max(t.abs(x_out_sample - x_out_normal))
-        assert max_err < 1e-08, f'Max sampling err is {max_err} {[i for i in range(l) if t.max(t.abs(x_out_sample - x_out_normal)[:, (i), :]) > 1e-08]}'
+        assert max_err < 1e-08, f'Max sampling err is {max_err} {[i for i in range(l) if t.max(t.abs(x_out_sample - x_out_normal)[:, i, :]) > 1e-08]}'
         with t.no_grad():
             x_out_normal = x_out_normal[:, :prime, :]
             self.del_cache()
             x_out_sample = self.forward(x[:, :prime, :].contiguous(), encoder_kv=encoder_kv, sample=True)
             self.check_cache(bs, prime, False)
         max_err = t.max(t.abs(x_out_sample - x_out_normal))
-        assert max_err < 1e-08, f'Max prime sampling err is {max_err} {[i for i in range(prime) if t.max(t.abs(x_out_sample - x_out_normal)[:, (i), :]) > 1e-08]}'
+        assert max_err < 1e-08, f'Max prime sampling err is {max_err} {[i for i in range(prime) if t.max(t.abs(x_out_sample - x_out_normal)[:, i, :]) > 1e-08]}'
 
     def check_chunks(self, chunk_size):
         t.manual_seed(42)
@@ -1803,7 +1803,7 @@ class FactoredAttention(nn.Module):
             self.del_cache()
             y_forw_sample = self.forward(x, encoder_kv=encoder_kv, sample=True)
             max_err = t.max(t.abs(y_forw - y_forw_sample))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_sample)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_sample)[:, i, :]) > 1e-06]}'
             self.del_cache()
             x_chunks = t.chunk(x, n_chunks, dim=1)
             y_chunks = []
@@ -1815,7 +1815,7 @@ class FactoredAttention(nn.Module):
                 y_chunks.append(y_chunk)
             y_forw_in_chunks = t.cat(y_chunks, dim=1)
             max_err = t.max(t.abs(y_forw - y_forw_in_chunks))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, i, :]) > 1e-06]}'
 
 
 class LayerNorm(FusedLayerNorm):
@@ -2014,7 +2014,7 @@ class Transformer(nn.Module):
             self.check_cache(bs, n, False)
             y_forw_in_chunks = t.cat(y_chunks, dim=1)
             max_err = t.max(t.abs(y_forw - y_forw_in_chunks))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, i, :]) > 1e-06]}'
 
 
 def empty_cache():
@@ -2033,13 +2033,13 @@ def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     top_k = min(top_k, logits.size(-1))
     assert top_k == 0 or top_p == 0.0
     if top_k > 0:
-        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][(...), -1:]
+        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][..., -1:]
         logits[indices_to_remove] = filter_value
     if top_p > 0.0:
         sorted_logits, sorted_indices = t.sort(logits, descending=True, dim=-1)
         cumulative_probs = t.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
         sorted_indices_to_remove = cumulative_probs > top_p
-        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
         sorted_indices_to_remove[..., 0] = 0
         indices_to_remove = t.zeros_like(logits, dtype=t.uint8).scatter_(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
@@ -2135,9 +2135,9 @@ class ConditionalAutoregressive2D(nn.Module):
         x = self.x_emb(x)
         x = roll(x, 1)
         if self.y_cond:
-            x[:, (0)] = y_cond.view(N, self.width)
+            x[:, 0] = y_cond.view(N, self.width)
         else:
-            x[:, (0)] = self.start_token
+            x[:, 0] = self.start_token
         x = self.x_emb_dropout(x) + self.pos_emb_dropout(self.pos_emb()) + x_cond
         x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16)
         if self.add_cond_after_transformer:
@@ -2167,9 +2167,9 @@ class ConditionalAutoregressive2D(nn.Module):
         if sample_t == 0:
             x = t.empty(n_samples, 1, self.width)
             if self.y_cond:
-                x[:, (0)] = y_cond.view(N, self.width)
+                x[:, 0] = y_cond.view(N, self.width)
             else:
-                x[:, (0)] = self.start_token
+                x[:, 0] = self.start_token
         else:
             assert isinstance(x, t.cuda.LongTensor)
             assert (0 <= x).all() and (x < self.bins).all()
@@ -2333,18 +2333,18 @@ class ConditionalAutoregressive2D(nn.Module):
             x, preds_sample = self.sample(bs, x_cond, y_cond, encoder_kv, get_preds=True)
             loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, i, :]) > 1e-06]}'
             x_prime = x.view(bs, -1)[:, :prime]
             x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True)
             assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
             loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, i, :]) > 1e-06]}'
             x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True, chunk_size=chunk_size)
             assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
             loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, i, :]) > 1e-06]}'
 
 
 class ResConv1DBlock(nn.Module):
@@ -2539,6 +2539,26 @@ class LabelConditioner(nn.Module):
         else:
             pos_emb = None
         return start_emb, pos_emb
+
+
+class EmptyLabeller:
+
+    def get_label(self, artist=None, genre=None, lyrics=None, total_length=None, offset=None):
+        y = np.array([], dtype=np.int64)
+        info = dict(artist='n/a', genre='n/a', lyrics=[], full_tokens=[])
+        return dict(y=y, info=info)
+
+    def get_batch_labels(self, metas, device='cpu'):
+        ys, infos = [], []
+        for meta in metas:
+            label = self.get_label()
+            y, info = label['y'], label['info']
+            ys.append(y)
+            infos.append(info)
+        ys = t.stack([t.from_numpy(y) for y in ys], dim=0).long()
+        assert ys.shape[0] == len(metas)
+        assert len(infos) == len(metas)
+        return dict(y=ys, info=infos)
 
 
 def create_reverse_lookup(atoi):
@@ -2822,11 +2842,15 @@ class SimplePrior(nn.Module):
         if labels:
             self.labels_v3 = labels_v3
             self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.n_tokens, self.sample_length, v3=self.labels_v3)
+        else:
+            self.labeller = EmptyLabeller()
         None
 
     def get_y(self, labels, start, get_indices=False):
+        if isinstance(self.labeller, EmptyLabeller):
+            return None
         y = labels['y'].clone()
-        y[:, (2)] = int(self.sample_length)
+        y[:, 2] = int(self.sample_length)
         y[:, 1:2] = y[:, 1:2] + int(start * self.raw_to_tokens)
         indices = self.labeller.set_y_lyric_tokens(y, labels)
         if get_indices:
@@ -3103,7 +3127,7 @@ class BottleneckBlock(nn.Module):
         if x.shape[-1] == self.emb_width:
             prenorm = t.norm(x - t.mean(x)) / np.sqrt(np.prod(x.shape))
         elif x.shape[-1] == 2 * self.emb_width:
-            x1, x2 = x[(...), :self.emb_width], x[(...), self.emb_width:]
+            x1, x2 = x[..., :self.emb_width], x[..., self.emb_width:]
             prenorm = t.norm(x1 - t.mean(x1)) / np.sqrt(np.prod(x1.shape)) + t.norm(x2 - t.mean(x2)) / np.sqrt(np.prod(x2.shape))
             x = x1 + x2
         else:
@@ -3794,16 +3818,12 @@ TESTCASES = [
      False),
     (DecoderConvBock,
      lambda: ([], {'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (DummyNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (EncoderConvBlock,
-     lambda: ([], {'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     False),
     (FactoredAttention,
      lambda: ([], {'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -3816,17 +3836,21 @@ TESTCASES = [
      lambda: ([], {'n_ctx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 16777216])], {}),
+     True),
     (NoBottleneck,
      lambda: ([], {'levels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (PositionEmbedding,
      lambda: ([], {'input_shape': 4, 'width': 4}),
      lambda: ([], {}),
      False),
     (ResConv1DBlock,
      lambda: ([], {'n_in': 4, 'n_state': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
     (ResConvBlock,
      lambda: ([], {'n_in': 4, 'n_state': 4}),
@@ -3838,12 +3862,16 @@ TESTCASES = [
      True),
     (Resnet1D,
      lambda: ([], {'n_in': 4, 'n_depth': 1}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      False),
     (SimpleModel,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (mLSTMRNNCell,
      lambda: ([], {'input_size': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -3908,4 +3936,7 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

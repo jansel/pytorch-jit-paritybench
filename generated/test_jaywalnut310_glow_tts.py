@@ -339,9 +339,6 @@ class CouplingBlock(nn.Module):
         b, c, t = x.size()
         if x_mask is None:
             x_mask = 1
-            attn_mask = None
-        else:
-            attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
         x_0, x_1 = x[:, :self.in_channels // 2], x[:, self.in_channels // 2:]
         x = self.start(x_0) * x_mask
         x = self.wn(x, x_mask, g)
@@ -424,8 +421,8 @@ class STFT(torch.nn.Module):
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
         cutoff = int(self.filter_length / 2 + 1)
         fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
-        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
+        forward_basis = torch.FloatTensor(fourier_basis[:, None, :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, None, :])
         if window is not None:
             assert filter_length >= win_length
             fft_window = get_window(window, win_length, fftbins=True)
@@ -454,8 +451,8 @@ class STFT(torch.nn.Module):
             imag_part = []
             for y in x:
                 y_ = stft(y, self.filter_length, self.hop_length, self.win_length, self.window)
-                real_part.append(y_.real[(None), :, :])
-                imag_part.append(y_.imag[(None), :, :])
+                real_part.append(y_.real[None, :, :])
+                imag_part.append(y_.imag[None, :, :])
             real_part = np.concatenate(real_part, 0)
             imag_part = np.concatenate(imag_part, 0)
             real_part = torch.from_numpy(real_part)
@@ -472,7 +469,7 @@ class STFT(torch.nn.Module):
                 window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
                 approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
                 window_sum = torch.from_numpy(window_sum)
-                inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
+                inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
                 inverse_transform *= float(self.filter_length) / self.hop_length
             inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
             inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
@@ -486,7 +483,7 @@ class STFT(torch.nn.Module):
             inverse_transform = []
             for y in x:
                 y_ = istft(y, self.hop_length, self.win_length, self.window)
-                inverse_transform.append(y_[(None), :])
+                inverse_transform.append(y_[None, :])
             inverse_transform = np.concatenate(inverse_transform, 0)
             inverse_transform = torch.from_numpy(inverse_transform)
         return inverse_transform
@@ -722,18 +719,18 @@ class FlowGenerator(nn.Module):
         else:
             y_max_length = y.size(2)
         y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
-        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1)
-        attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(y_mask, 2)
+        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1)
+        attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
         if gen:
             attn = commons.generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
-            y_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
-            y_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
+            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
+            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-08 + torch.sum(attn, -1)) * x_mask
-            z = (y_m + torch.exp(y_logs) * torch.randn_like(y_m) * noise_scale) * y_mask
-            y, logdet = self.decoder(z, y_mask, g=g, reverse=True)
-            return (y, y_m, y_logs, logdet), attn, logw, logw_, x_m, x_logs
+            z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
+            y, logdet = self.decoder(z, z_mask, g=g, reverse=True)
+            return (y, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_)
         else:
-            z, logdet = self.decoder(y, y_mask, g=g, reverse=False)
+            z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
             with torch.no_grad():
                 x_s_sq_r = torch.exp(-2 * x_logs)
                 logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)
@@ -742,10 +739,10 @@ class FlowGenerator(nn.Module):
                 logp4 = torch.sum(-0.5 * x_m ** 2 * x_s_sq_r, [1]).unsqueeze(-1)
                 logp = logp1 + logp2 + logp3 + logp4
                 attn = monotonic_align.maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
-            y_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
-            y_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
+            z_m = torch.matmul(attn.squeeze(1).transpose(1, 2), x_m.transpose(1, 2)).transpose(1, 2)
+            z_logs = torch.matmul(attn.squeeze(1).transpose(1, 2), x_logs.transpose(1, 2)).transpose(1, 2)
             logw_ = torch.log(1e-08 + torch.sum(attn, -1)) * x_mask
-            return (z, y_m, y_logs, logdet), attn, logw, logw_, x_m, x_logs
+            return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_)
 
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
@@ -908,7 +905,7 @@ class InvConvNear(nn.Module):
         self.no_jacobian = no_jacobian
         w_init = torch.qr(torch.FloatTensor(self.n_split, self.n_split).normal_())[0]
         if torch.det(w_init) < 0:
-            w_init[:, (0)] = -1 * w_init[:, (0)]
+            w_init[:, 0] = -1 * w_init[:, 0]
         self.weight = nn.Parameter(w_init)
 
     def forward(self, x, x_mask=None, reverse=False, **kwargs):
@@ -968,7 +965,7 @@ TESTCASES = [
      False),
     (MultiHeadAttention,
      lambda: ([], {'channels': 4, 'out_channels': 4, 'n_heads': 4}),
-     lambda: ([torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
 ]
 

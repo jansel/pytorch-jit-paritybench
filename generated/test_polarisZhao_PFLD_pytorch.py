@@ -10,6 +10,7 @@ loss = _module
 utils = _module
 pytorch2onnx = _module
 test = _module
+train = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -31,9 +32,6 @@ xrange = range
 wraps = functools.wraps
 
 
-import time
-
-
 import numpy as np
 
 
@@ -41,9 +39,6 @@ import torch
 
 
 import torchvision
-
-
-from torchvision import transforms
 
 
 from torch.utils import data
@@ -58,16 +53,19 @@ import torch.nn as nn
 import math
 
 
-from torch.autograd import Variable
+from collections import OrderedDict
 
 
 import torch.nn.functional as F
 
 
-from collections import OrderedDict
-
-
 from torch import nn
+
+
+from torch.autograd import Variable
+
+
+import time
 
 
 from matplotlib import pyplot as plt
@@ -76,7 +74,19 @@ from matplotlib import pyplot as plt
 from scipy.integrate import simps
 
 
+from torchvision import transforms
+
+
 import torch.backends.cudnn as cudnn
+
+
+import logging
+
+
+from torchvision import datasets
+
+
+import torchvision.utils as vutils
 
 
 class InvertedResidual(nn.Module):
@@ -151,7 +161,7 @@ class PFLDInference(nn.Module):
         x2 = self.avg_pool2(x)
         x2 = x2.view(x2.size(0), -1)
         x3 = self.relu(self.conv8(x))
-        x3 = x3.view(x1.size(0), -1)
+        x3 = x3.view(x3.size(0), -1)
         multi_scale = torch.cat([x1, x2, x3], 1)
         landmarks = self.fc(multi_scale)
         return out1, landmarks

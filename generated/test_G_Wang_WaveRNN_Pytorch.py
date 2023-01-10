@@ -190,8 +190,8 @@ def sample_from_beta_dist(y_hat):
     
     """
     loc_y = y_hat.exp()
-    alpha = loc_y[:, :, (0)].unsqueeze(-1)
-    beta = loc_y[:, :, (1)].unsqueeze(-1)
+    alpha = loc_y[:, :, 0].unsqueeze(-1)
+    beta = loc_y[:, :, 1].unsqueeze(-1)
     dist = Beta(alpha, beta)
     sample = dist.sample()
     sample = 2.0 * sample - 1.0
@@ -300,11 +300,11 @@ class Model(nn.Module):
             a4 = aux[:, :, aux_idx[3]:aux_idx[4]]
             seq_len = mels.size(1)
             for i in tqdm(range(seq_len)):
-                m_t = mels[:, (i), :]
-                a1_t = a1[:, (i), :]
-                a2_t = a2[:, (i), :]
-                a3_t = a3[:, (i), :]
-                a4_t = a4[:, (i), :]
+                m_t = mels[:, i, :]
+                a1_t = a1[:, i, :]
+                a2_t = a2[:, i, :]
+                a3_t = a3[:, i, :]
+                a4_t = a4[:, i, :]
                 x = torch.cat([x, m_t, a1_t], dim=1)
                 x = self.I(x)
                 h1 = rnn1(x, h1)
@@ -360,11 +360,11 @@ class Model(nn.Module):
             a4 = aux[:, :, aux_idx[3]:aux_idx[4]]
             seq_len = mels.size(1)
             for i in tqdm(range(seq_len)):
-                m_t = mels[:, (i), :]
-                a1_t = a1[:, (i), :]
-                a2_t = a2[:, (i), :]
-                a3_t = a3[:, (i), :]
-                a4_t = a4[:, (i), :]
+                m_t = mels[:, i, :]
+                a1_t = a1[:, i, :]
+                a2_t = a2[:, i, :]
+                a3_t = a3[:, i, :]
+                a4_t = a4[:, i, :]
                 x = torch.cat([x, m_t, a1_t], dim=1)
                 x = self.I(x)
                 h1 = rnn1(x, h1)
@@ -414,20 +414,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (MelResNet,
-     lambda: ([], {'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
     (ResBlock,
      lambda: ([], {'dims': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4])], {}),
      True),
 ]
 
 class Test_G_Wang_WaveRNN_Pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

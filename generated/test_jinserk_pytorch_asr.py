@@ -270,7 +270,7 @@ class CapsuleNet(nn.Module):
         if y is None:
             _, max_length_indices = classes.max(dim=1)
             y = Variable(torch.eye(p.NUM_LABELS)).index_select(dim=0, index=max_length_indices.data)
-        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
+        reconstructions = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
         return classes, reconstructions
 
 
@@ -312,20 +312,20 @@ class ConvCapsule(nn.Module):
         R = 1.0 / self.out_channel * Variable(torch.ones(self.batches, self.in_channel, self.kernel_size, self.kernel_size, self.out_channel, self.out_h, self.out_w), requires_grad=False)
         votes_reshape = votes.view(self.batches, self.in_channel, self.kernel_size, self.kernel_size, self.out_channel, self.out_dim, self.out_h, self.out_w)
         activations = activations.squeeze(dim=2)
-        a_reshape = [activations[:, :, :, (self.down_w(w))][:, :, (self.down_h(h)), :] for h in range(self.out_h) for w in range(self.out_w)]
+        a_reshape = [activations[:, :, :, self.down_w(w)][:, :, self.down_h(h), :] for h in range(self.out_h) for w in range(self.out_w)]
         a_stack = torch.stack(a_reshape, dim=4).view(self.batches, self.in_channel, self.kernel_size, self.kernel_size, self.out_h, self.out_w)
         for _ in range(self.routing):
-            r_hat = R * a_stack[:, :, :, :, (None), :, :]
+            r_hat = R * a_stack[:, :, :, :, None, :, :]
             sum_r_hat = r_hat.sum(3).sum(2).sum(1)
-            u_h = torch.sum(r_hat[:, :, :, :, :, (None), :, :] * votes_reshape, dim=3).sum(2).sum(1) / sum_r_hat[:, :, (None), :, :]
-            sigma_h_square = torch.sum(r_hat[:, :, :, :, :, (None), :, :] * (votes_reshape - u_h[:, (None), (None), (None), :, :, :, :]) ** 2, dim=3).sum(2).sum(1) / sum_r_hat[:, :, (None), :, :]
-            cost_h = (self.beta_v[(None), :, (None), :, :] + torch.log(torch.sqrt(sigma_h_square))) * sum_r_hat[:, :, (None), :, :]
-            a_hat = torch.sigmoid(self.lamda * (self.beta_a[(None), :, :, :] - cost_h.sum(2)))
+            u_h = torch.sum(r_hat[:, :, :, :, :, None, :, :] * votes_reshape, dim=3).sum(2).sum(1) / sum_r_hat[:, :, None, :, :]
+            sigma_h_square = torch.sum(r_hat[:, :, :, :, :, None, :, :] * (votes_reshape - u_h[:, None, None, None, :, :, :, :]) ** 2, dim=3).sum(2).sum(1) / sum_r_hat[:, :, None, :, :]
+            cost_h = (self.beta_v[None, :, None, :, :] + torch.log(torch.sqrt(sigma_h_square))) * sum_r_hat[:, :, None, :, :]
+            a_hat = torch.sigmoid(self.lamda * (self.beta_a[None, :, :, :] - cost_h.sum(2)))
             sigma_product = Variable(torch.ones(self.batches, self.out_channel, self.out_h, self.out_w), requires_grad=False)
             for dm in range(self.out_dim):
-                sigma_product = sigma_product * 2 * 3.1416 * sigma_h_square[:, :, (dm), :, :]
-            p_c = torch.exp(-torch.sum((votes_reshape - u_h[:, (None), (None), (None), :, :, :, :]) ** 2 / (2 * sigma_h_square[:, (None), (None), (None), :, :, :, :]), dim=5) / torch.sqrt(sigma_product[:, (None), (None), (None), :, :, :]))
-            R = a_hat[:, (None), (None), (None), :, :, :] * p_c / torch.sum(a_hat[:, (None), (None), (None), :, :, :] * p_c, dim=6, keepdim=True).sum(dim=5, keepdim=True).sum(dim=4, keepdim=True)
+                sigma_product = sigma_product * 2 * 3.1416 * sigma_h_square[:, :, dm, :, :]
+            p_c = torch.exp(-torch.sum((votes_reshape - u_h[:, None, None, None, :, :, :, :]) ** 2 / (2 * sigma_h_square[:, None, None, None, :, :, :, :]), dim=5) / torch.sqrt(sigma_product[:, None, None, None, :, :, :]))
+            R = a_hat[:, None, None, None, :, :, :] * p_c / torch.sum(a_hat[:, None, None, None, :, :, :] * p_c, dim=6, keepdim=True).sum(dim=5, keepdim=True).sum(dim=4, keepdim=True)
         return a_hat, u_h
 
     def forward(self, x, lamda=0):
@@ -343,19 +343,19 @@ class ConvCapsule(nn.Module):
                 self.beta_a = Variable(torch.randn(self.out_channel, self.out_h, self.out_w))
             self.lamda = lamda
             x_reshape = x.view(size[0], self.in_channel, 1 + self.in_dim, size[2], size[3])
-            activations = x_reshape[:, :, (0), :, :]
+            activations = x_reshape[:, :, 0, :, :]
             vector = x_reshape[:, :, 1:, :, :].contiguous().view(size[0], -1, size[2], size[3])
             maps = []
             for k_h in range(self.kernel_size):
                 for k_w in range(self.kernel_size):
-                    onemap = [vector[:, :, (k_h + i), (k_w + j)] for i in range(0, out_h * self.stride, self.stride) for j in range(0, out_w * self.stride, self.stride)]
+                    onemap = [vector[:, :, k_h + i, k_w + j] for i in range(0, out_h * self.stride, self.stride) for j in range(0, out_w * self.stride, self.stride)]
                     onemap = torch.stack(onemap, dim=2)
                     onemap = onemap.view(size[0], onemap.size(1), out_h, out_w)
                     maps.append(onemap)
             map_ = torch.cat(maps, dim=1)
             votes = self.routing_capsule(map_)
             output_a, output_v = self.EM_routing(votes, activations)
-            outputs = torch.cat([output_a[:, :, (None), :, :], output_v], dim=2)
+            outputs = torch.cat([output_a[:, :, None, :, :], output_v], dim=2)
             return outputs.view(self.batches, self.out_channel * (self.out_dim + 1), self.out_h, self.out_w)
         else:
             outputs = self.no_routing_capsule(x)
@@ -383,25 +383,25 @@ class ClassCapsule(nn.Module):
         activations = activations.squeeze(dim=2)
         votes_reshape = votes.view(self.batches, self.in_channel, self.classes, self.out_dim, self.h, self.w)
         for _ in range(self.routing):
-            r_hat = R * activations[:, :, (None), :, :]
+            r_hat = R * activations[:, :, None, :, :]
             sum_r_hat = r_hat.sum(4).sum(3).sum(1)
-            u_h = torch.sum(r_hat[:, :, :, (None), :, :] * votes_reshape, dim=5).sum(4).sum(1) / sum_r_hat[:, :, (None)]
-            sigma_h_square = torch.sum(r_hat[:, :, :, (None), :, :] * (votes_reshape - u_h[:, (None), :, :, (None), (None)]) ** 2, dim=5).sum(4).sum(1) / sum_r_hat[:, :, (None)]
-            cost_h = (self.beta_v[(None), :, (None)] + torch.log(sigma_h_square)) * sum_r_hat[:, :, (None)]
-            a_hat = torch.sigmoid(self.lamda * (self.beta_a[(None), :] - torch.sum(cost_h, dim=2)))
+            u_h = torch.sum(r_hat[:, :, :, None, :, :] * votes_reshape, dim=5).sum(4).sum(1) / sum_r_hat[:, :, None]
+            sigma_h_square = torch.sum(r_hat[:, :, :, None, :, :] * (votes_reshape - u_h[:, None, :, :, None, None]) ** 2, dim=5).sum(4).sum(1) / sum_r_hat[:, :, None]
+            cost_h = (self.beta_v[None, :, None] + torch.log(sigma_h_square)) * sum_r_hat[:, :, None]
+            a_hat = torch.sigmoid(self.lamda * (self.beta_a[None, :] - torch.sum(cost_h, dim=2)))
             sigma_product = Variable(torch.ones(self.batches, self.classes), requires_grad=False)
             for dm in range(self.out_dim):
-                sigma_product = 2 * 3.1416 * sigma_product * sigma_h_square[:, :, (dm)]
-            p_c = torch.exp(-torch.sum((votes_reshape - u_h[:, (None), :, :, (None), (None)]) ** 2 / (2 * sigma_h_square[:, (None), :, :, (None), (None)]), dim=3)) / torch.sqrt(sigma_product[:, (None), :, (None), (None)])
-            R = a_hat[:, (None), :, (None), (None)] * p_c / torch.sum(a_hat[:, (None), :, (None), (None)] * p_c, dim=2, keepdim=True)
+                sigma_product = 2 * 3.1416 * sigma_product * sigma_h_square[:, :, dm]
+            p_c = torch.exp(-torch.sum((votes_reshape - u_h[:, None, :, :, None, None]) ** 2 / (2 * sigma_h_square[:, None, :, :, None, None]), dim=3)) / torch.sqrt(sigma_product[:, None, :, None, None])
+            R = a_hat[:, None, :, None, None] * p_c / torch.sum(a_hat[:, None, :, None, None] * p_c, dim=2, keepdim=True)
         return a_hat, u_h
 
     def CoordinateAddition(self, vector):
         output = Variable(torch.zeros(vector.size()))
         coordinate_x = Variable(torch.FloatTensor(torch.arange(0, self.h)) / COORDINATE_SCALE, requires_grad=False)
         coordinate_y = Variable(torch.FloatTensor(torch.arange(0, self.w)) / COORDINATE_SCALE, requires_grad=False)
-        output[:, :, (0), :, :] = vector[:, :, (0), :, :] + coordinate_x[(None), (None), :, (None)]
-        output[:, :, (1), :, :] = vector[:, :, (1), :, :] + coordinate_y[(None), (None), (None), :]
+        output[:, :, 0, :, :] = vector[:, :, 0, :, :] + coordinate_x[None, None, :, None]
+        output[:, :, 1, :, :] = vector[:, :, 1, :, :] + coordinate_y[None, None, None, :]
         if output.size(2) > 2:
             output[:, :, 2:, :, :] = vector[:, :, 2:, :, :]
         return output
@@ -413,7 +413,7 @@ class ClassCapsule(nn.Module):
         self.h = size[2]
         self.w = size[3]
         x_reshape = x.view(size[0], self.in_channel, 1 + self.in_dim, size[2], size[3])
-        activations = x_reshape[:, :, (0), :, :]
+        activations = x_reshape[:, :, 0, :, :]
         vector = x_reshape[:, :, 1:, :, :]
         vec = self.CoordinateAddition(vector)
         vec = vec.view(size[0], -1, size[2], size[3])
@@ -811,8 +811,8 @@ class EditDistanceLoss(_Loss):
         batch_size = input.size(0)
         eds = list()
         for b in range(batch_size):
-            x = torch.argmax(input[(b), :input_seq_lens[b]], dim=-1)
-            y = target[(b), :target_seq_lens[b]]
+            x = torch.argmax(input[b, :input_seq_lens[b]], dim=-1)
+            y = target[b, :target_seq_lens[b]]
             d = self.calculate_levenshtein(x, y)
             eds.append(d)
         loss = torch.FloatTensor(eds)
@@ -977,7 +977,7 @@ class MultiHeadedSelfAttention(nn.Module):
         q, k, v = (split_last(x, (self.n_heads, -1)).transpose(1, 2) for x in [q, k, v])
         scores = q @ k.transpose(-2, -1) / np.sqrt(k.size(-1))
         if mask is not None:
-            mask = mask[:, (None), (None), :].float()
+            mask = mask[:, None, None, :].float()
             scores -= 10000.0 * (1.0 - mask)
         scores = self.drop(F.softmax(scores, dim=-1))
         h = (scores @ v).transpose(1, 2).contiguous()
@@ -1026,7 +1026,7 @@ class Speller(nn.Module):
         bs, ts, hs = h.size()
         mask = h.new_ones((bs, ts), dtype=torch.float)
         for b in range(bs):
-            mask[(b), seq_lens[b]:] = 0.0
+            mask[b, seq_lens[b]:] = 0.0
         return mask
 
     def _is_sample_step(self):
@@ -1250,10 +1250,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LSTMCell,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4])], {}),
-     False),
     (LogWithLabelSmoothing,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1265,7 +1261,7 @@ TESTCASES = [
     (MaskedSoftmax,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (SequenceWise,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1322,7 +1318,4 @@ class Test_jinserk_pytorch_asr(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

@@ -85,7 +85,7 @@ class Attention(nn.Module):
     def calculate_classification_error(self, X, Y):
         Y = Y.float()
         _, Y_hat, _ = self.forward(X)
-        error = 1.0 - Y_hat.eq(Y).cpu().float().mean().data[0]
+        error = 1.0 - Y_hat.eq(Y).cpu().float().mean().data.item()
         return error, Y_hat
 
     def calculate_objective(self, X, Y):
@@ -123,7 +123,7 @@ class GatedAttention(nn.Module):
         M = torch.mm(A, H)
         Y_prob = self.classifier(M)
         Y_hat = torch.ge(Y_prob, 0.5).float()
-        return Y_prob, A
+        return Y_prob, Y_hat, A
 
     def calculate_classification_error(self, X, Y):
         Y = Y.float()

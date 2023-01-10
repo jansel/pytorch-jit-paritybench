@@ -423,7 +423,7 @@ class _netG(nn.Module):
         for k in range(batch_size):
             state = []
             for state_tmp in hidden_state:
-                state.append(state_tmp[:, (k), :].view(1, 1, -1).expand(1, beam_size, self.nhid).clone())
+                state.append(state_tmp[:, k, :].view(1, 1, -1).expand(1, beam_size, self.nhid).clone())
             state = tuple(state)
             beam_seq = torch.LongTensor(self.seq_length, beam_size).zero_()
             beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size).zero_()
@@ -459,15 +459,15 @@ class _netG(nn.Module):
                     for vix in range(beam_size):
                         v = candidates[vix]
                         if t > 1:
-                            beam_seq[:t - 1, (vix)] = beam_seq_prev[:, (v['q'])]
-                            beam_seq_logprobs[:t - 1, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
+                            beam_seq[:t - 1, vix] = beam_seq_prev[:, v['q']]
+                            beam_seq_logprobs[:t - 1, vix] = beam_seq_logprobs_prev[:, v['q']]
                         for state_ix in range(len(new_state)):
                             new_state[state_ix][0, vix] = state[state_ix][0, v['q']]
                         beam_seq[t - 1, vix] = v['c']
                         beam_seq_logprobs[t - 1, vix] = v['r']
                         beam_logprobs_sum[vix] = v['p']
                         if v['c'] == self.vocab_size or t == self.seq_length:
-                            self.done_beams[k].append({'seq': beam_seq[:, (vix)].clone(), 'logps': beam_seq_logprobs[:, (vix)].clone(), 'p': beam_logprobs_sum[vix]})
+                            self.done_beams[k].append({'seq': beam_seq[:, vix].clone(), 'logps': beam_seq_logprobs[:, vix].clone(), 'p': beam_logprobs_sum[vix]})
                     it = beam_seq[t - 1].view(1, -1)
                     xt = netW(Variable(it))
                 if t >= 1:
@@ -481,10 +481,10 @@ class _netG(nn.Module):
                     decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
                     logprob = F.log_softmax(self.beta * decoded)
             self.done_beams[k] = sorted(self.done_beams[k], key=lambda x: -x['p'])
-            seq[:, (k)] = self.done_beams[k][0]['seq']
-            seqLogprobs[:, (k)] = self.done_beams[k][0]['logps']
+            seq[:, k] = self.done_beams[k][0]['seq']
+            seqLogprobs[:, k] = self.done_beams[k][0]['logps']
             for ii in range(beam_size):
-                seq_all[:, (k), (ii)] = self.done_beams[k][ii]['seq']
+                seq_all[:, k, ii] = self.done_beams[k][ii]['seq']
         return seq.transpose(0, 1), seqLogprobs.transpose(0, 1)
 
     def sample(self, netW, input, state, opt={}):
@@ -534,18 +534,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AxB,
-     lambda: ([], {'nhid': 4}),
-     lambda: ([torch.rand([400, 100, 4]), torch.rand([40000, 100, 4])], {}),
-     True),
     (LMCriterion,
      lambda: ([], {}),
      lambda: ([torch.ones([4, 4], dtype=torch.int64), torch.ones([4, 4], dtype=torch.int64)], {}),
      True),
-    (_netW,
-     lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
-     lambda: ([torch.ones([4], dtype=torch.int64)], {}),
-     False),
     (gumbel_sampler,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -554,10 +546,6 @@ TESTCASES = [
      lambda: ([], {'nhid': 4, 'n_experts': 4, 'ntoken': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (nPairLoss,
-     lambda: ([], {'ninp': 4, 'margin': 4}),
-     lambda: ([torch.rand([16, 4, 4]), torch.rand([64, 4]), torch.rand([64, 4, 4]), torch.rand([64, 4, 4])], {}),
-     False),
     (share_Linear,
      lambda: ([], {'weight': torch.rand([4, 4])}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -576,13 +564,4 @@ class Test_jiasenlu_visDial_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

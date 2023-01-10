@@ -21,7 +21,9 @@ senet = _module
 shufflenet = _module
 shufflenetv2 = _module
 squeezenet = _module
+stochasticdepth = _module
 vgg = _module
+wideresidual = _module
 xception = _module
 test = _module
 train = _module
@@ -89,16 +91,28 @@ import math
 from functools import partial
 
 
+from torch.distributions.bernoulli import Bernoulli
+
+
+import random
+
+
 from matplotlib import pyplot as plt
 
 
 import torchvision.transforms as transforms
 
 
-from torch.autograd import Variable
+import time
 
 
 import torchvision
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+import re
 
 
 class PreActResidualUnit(nn.Module):
@@ -372,7 +386,7 @@ class GoogleNet(nn.Module):
 
     def __init__(self, num_class=100):
         super().__init__()
-        self.prelayer = nn.Sequential(nn.Conv2d(3, 192, kernel_size=3, padding=1), nn.BatchNorm2d(192), nn.ReLU(inplace=True))
+        self.prelayer = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 192, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(192), nn.ReLU(inplace=True))
         self.a3 = Inception(192, 64, 96, 128, 16, 32, 32)
         self.b3 = Inception(256, 128, 128, 192, 32, 96, 64)
         self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
@@ -388,23 +402,24 @@ class GoogleNet(nn.Module):
         self.linear = nn.Linear(1024, num_class)
 
     def forward(self, x):
-        output = self.prelayer(x)
-        output = self.a3(output)
-        output = self.b3(output)
-        output = self.maxpool(output)
-        output = self.a4(output)
-        output = self.b4(output)
-        output = self.c4(output)
-        output = self.d4(output)
-        output = self.e4(output)
-        output = self.maxpool(output)
-        output = self.a5(output)
-        output = self.b5(output)
-        output = self.avgpool(output)
-        output = self.dropout(output)
-        output = output.view(output.size()[0], -1)
-        output = self.linear(output)
-        return output
+        x = self.prelayer(x)
+        x = self.maxpool(x)
+        x = self.a3(x)
+        x = self.b3(x)
+        x = self.maxpool(x)
+        x = self.a4(x)
+        x = self.b4(x)
+        x = self.c4(x)
+        x = self.d4(x)
+        x = self.e4(x)
+        x = self.maxpool(x)
+        x = self.a5(x)
+        x = self.b5(x)
+        x = self.avgpool(x)
+        x = self.dropout(x)
+        x = x.view(x.size()[0], -1)
+        x = self.linear(x)
+        return x
 
 
 class BasicConv2d(nn.Module):
@@ -801,10 +816,10 @@ class DepthSeperabelConv2d(nn.Module):
 class MobileNet(nn.Module):
     """
     Args:
-        width multipler: The role of the width multiplier α is to thin 
-                         a network uniformly at each layer. For a given 
-                         layer and width multiplier α, the number of 
-                         input channels M becomes αM and the number of 
+        width multipler: The role of the width multiplier α is to thin
+                         a network uniformly at each layer. For a given
+                         layer and width multiplier α, the number of
+                         input channels M becomes αM and the number of
                          output channels N becomes αN.
     """
 
@@ -1179,16 +1194,16 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
     def _make_layer(self, block, out_channels, num_blocks, stride):
-        """make resnet layers(by layer i didnt mean this 'layer' was the 
-        same as a neuron netowork layer, ex. conv layer), one layer may 
-        contain more than one residual block 
+        """make resnet layers(by layer i didnt mean this 'layer' was the
+        same as a neuron netowork layer, ex. conv layer), one layer may
+        contain more than one residual block
 
         Args:
             block: block type, basic block or bottle neck block
             out_channels: output depth channel number of this layer
             num_blocks: how many blocks per layer
             stride: the stride of the first block of this layer
-        
+
         Return:
             return a resnet layer
         """
@@ -1266,7 +1281,7 @@ class ResNext(nn.Module):
             num_block: number of blocks per layer
             out_channels: output channels per block
             stride: block stride
-        
+
         Returns:
             a resnext layer
         """
@@ -1421,7 +1436,7 @@ class SEResNet(nn.Module):
         self.stage1 = self._make_stage(block, block_num[0], 64, 1)
         self.stage2 = self._make_stage(block, block_num[1], 128, 2)
         self.stage3 = self._make_stage(block, block_num[2], 256, 2)
-        self.stage4 = self._make_stage(block, block_num[3], 516, 2)
+        self.stage4 = self._make_stage(block, block_num[3], 512, 2)
         self.linear = nn.Linear(self.in_channels, class_num)
 
     def forward(self, x):
@@ -1548,7 +1563,7 @@ class ShuffleNet(nn.Module):
         return x
 
     def _make_stage(self, block, num_blocks, output_channels, stride, stage, groups):
-        """make shufflenet stage 
+        """make shufflenet stage
 
         Args:
             block: block type, shuffle unit
@@ -1556,7 +1571,7 @@ class ShuffleNet(nn.Module):
             num_blocks: how many blocks per stage
             stride: the stride of the first block of this stage
             stage: stage index
-            groups: group number of group convolution 
+            groups: group number of group convolution
         Return:
             return a shuffle net stage
         """
@@ -1575,7 +1590,7 @@ def channel_shuffle(x, groups):
         groups: input branch number
     """
     batch_size, channels, height, width = x.size()
-    channels_per_group = int(channels / groups)
+    channels_per_group = int(channels // groups)
     x = x.view(batch_size, groups, channels_per_group, height, width)
     x = x.transpose(1, 2).contiguous()
     x = x.view(batch_size, -1, height, width)
@@ -1711,6 +1726,99 @@ class SqueezeNet(nn.Module):
         return x
 
 
+class StochasticDepthBasicBlock(torch.jit.ScriptModule):
+    expansion = 1
+
+    def __init__(self, p, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.p = p
+        self.residual = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels * StochasticDepthBasicBlock.expansion, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels))
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels * StochasticDepthBasicBlock.expansion:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels * StochasticDepthBasicBlock.expansion, kernel_size=1, stride=stride), nn.BatchNorm2d(out_channels))
+
+    def survival(self):
+        var = torch.bernoulli(torch.tensor(self.p).float())
+        return torch.equal(var, torch.tensor(1).float())
+
+    @torch.jit.script_method
+    def forward(self, x):
+        if self.training:
+            if self.survival():
+                x = self.residual(x) + self.shortcut(x)
+            else:
+                x = self.shortcut(x)
+        else:
+            x = self.residual(x) * self.p + self.shortcut(x)
+        return x
+
+
+class StochasticDepthBottleNeck(torch.jit.ScriptModule):
+    """Residual block for resnet over 50 layers
+
+    """
+    expansion = 4
+
+    def __init__(self, p, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.p = p
+        self.residual = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, stride=stride, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels * StochasticDepthBottleNeck.expansion, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels * StochasticDepthBottleNeck.expansion))
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels * StochasticDepthBottleNeck.expansion:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels * StochasticDepthBottleNeck.expansion, stride=stride, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels * StochasticDepthBottleNeck.expansion))
+
+    def survival(self):
+        var = torch.bernoulli(torch.tensor(self.p).float())
+        return torch.equal(var, torch.tensor(1).float())
+
+    @torch.jit.script_method
+    def forward(self, x):
+        if self.training:
+            if self.survival():
+                x = self.residual(x) + self.shortcut(x)
+            else:
+                x = self.shortcut(x)
+        else:
+            x = self.residual(x) * self.p + self.shortcut(x)
+        return x
+
+
+class StochasticDepthResNet(nn.Module):
+
+    def __init__(self, block, num_block, num_classes=100):
+        super().__init__()
+        self.in_channels = 64
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.step = (1 - 0.5) / (sum(num_block) - 1)
+        self.pl = 1
+        self.conv2_x = self._make_layer(block, 64, num_block[0], 1)
+        self.conv3_x = self._make_layer(block, 128, num_block[1], 2)
+        self.conv4_x = self._make_layer(block, 256, num_block[2], 2)
+        self.conv5_x = self._make_layer(block, 512, num_block[3], 2)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+    def _make_layer(self, block, out_channels, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.pl, self.in_channels, out_channels, stride))
+            self.in_channels = out_channels * block.expansion
+            self.pl -= self.step
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        output = self.conv1(x)
+        output = self.conv2_x(output)
+        output = self.conv3_x(output)
+        output = self.conv4_x(output)
+        output = self.conv5_x(output)
+        output = self.avg_pool(output)
+        output = output.view(output.size(0), -1)
+        output = self.fc(output)
+        return output
+
+
 class VGG(nn.Module):
 
     def __init__(self, features, num_class=100):
@@ -1723,6 +1831,72 @@ class VGG(nn.Module):
         output = output.view(output.size()[0], -1)
         output = self.classifier(output)
         return output
+
+
+class WideBasic(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.residual = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Dropout(), nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1))
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels or stride != 1:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, stride=stride))
+
+    def forward(self, x):
+        residual = self.residual(x)
+        shortcut = self.shortcut(x)
+        return residual + shortcut
+
+
+class WideResNet(nn.Module):
+
+    def __init__(self, num_classes, block, depth=50, widen_factor=1):
+        super().__init__()
+        self.depth = depth
+        k = widen_factor
+        l = int((depth - 4) / 6)
+        self.in_channels = 16
+        self.init_conv = nn.Conv2d(3, self.in_channels, 3, 1, padding=1)
+        self.conv2 = self._make_layer(block, 16 * k, l, 1)
+        self.conv3 = self._make_layer(block, 32 * k, l, 2)
+        self.conv4 = self._make_layer(block, 64 * k, l, 2)
+        self.bn = nn.BatchNorm2d(64 * k)
+        self.relu = nn.ReLU(inplace=True)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.linear = nn.Linear(64 * k, num_classes)
+
+    def forward(self, x):
+        x = self.init_conv(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.avg_pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        return x
+
+    def _make_layer(self, block, out_channels, num_blocks, stride):
+        """make resnet layers(by layer i didnt mean this 'layer' was the
+        same as a neuron netowork layer, ex. conv layer), one layer may
+        contain more than one residual block
+
+        Args:
+            block: block type, basic block or bottle neck block
+            out_channels: output depth channel number of this layer
+            num_blocks: how many blocks per layer
+            stride: the stride of the first block of this layer
+
+        Return:
+            return a resnet layer
+        """
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_channels, out_channels, stride))
+            self.in_channels = out_channels
+        return nn.Sequential(*layers)
 
 
 class EntryFlow(nn.Module):
@@ -1855,7 +2029,7 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (BasicResidualSEBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 16, 'stride': 1}),
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (BottleNeck,
@@ -2006,10 +2180,6 @@ TESTCASES = [
      lambda: ([], {'x_in': 4, 'prev_in': 4, 'output_channels': 4}),
      lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
      False),
-    (ResNextBottleNeckC,
-     lambda: ([], {'in_channels': 64, 'out_channels': 18, 'stride': 1}),
-     lambda: ([torch.rand([4, 64, 64, 64])], {}),
-     True),
     (ResnetInit,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'stride': 1}),
      lambda: ([(torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]))], {}),
@@ -2047,6 +2217,10 @@ TESTCASES = [
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
     (Transition,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WideBasic,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),

@@ -7,6 +7,7 @@ convcrf = _module
 demo = _module
 fullcrf = _module
 fullcrf = _module
+setup = _module
 utils = _module
 pascal_visualizer = _module
 synthetic = _module
@@ -105,7 +106,6 @@ class MessagePassingCol:
     """
 
     def __init__(self, feat_list, compat_list, merge, npixels, nclasses, norm='sym', filter_size=5, clip_edges=0, use_gpu=False, blur=1, matmul=False, verbose=False, pyinn=False):
-        assert use_gpu
         if not norm == 'sym' and not norm == 'none':
             raise NotImplementedError
         span = filter_size // 2
@@ -173,7 +173,7 @@ class MessagePassingCol:
                 diff = feat_t - feat_t2
                 diff_sq = diff * diff
                 exp_diff = torch.exp(torch.sum(-0.5 * diff_sq, dim=1))
-                gaussian[:, (dx + span), (dy + span), dx2:_negative(dx1), dy2:_negative(dy1)] = exp_diff
+                gaussian[:, dx + span, dy + span, dx2:_negative(dx1), dy2:_negative(dy1)] = exp_diff
         return gaussian.view(bs, 1, self.filter_size, self.filter_size, npixels[0], npixels[1])
 
     def compute(self, input):
@@ -303,8 +303,7 @@ class ConvCRF(nn.Module):
 
     def add_pairwise_energies(self, feat_list, compat_list, merge):
         assert len(feat_list) == len(compat_list)
-        assert self.use_gpu
-        self.kernel = MessagePassingCol(feat_list=feat_list, compat_list=compat_list, merge=merge, npixels=self.npixels, filter_size=self.filter_size, nclasses=self.nclasses, use_gpu=True, norm=self.norm, verbose=self.verbose, blur=self.blur, pyinn=self.pyinn)
+        self.kernel = MessagePassingCol(feat_list=feat_list, compat_list=compat_list, merge=merge, npixels=self.npixels, filter_size=self.filter_size, nclasses=self.nclasses, use_gpu=self.use_gpu, norm=self.norm, verbose=self.verbose, blur=self.blur, pyinn=self.pyinn)
 
     def inference(self, unary, num_iter=5):
         if not self.conf['logsoftmax']:
@@ -346,7 +345,7 @@ class GaussCRF(nn.Module):
         "Connected CRFs with Gaussian Edge Pots" (arxiv.org/abs/1210.5644)
     """
 
-    def __init__(self, conf, shape, nclasses=None):
+    def __init__(self, conf, shape, nclasses=None, use_gpu=True):
         super(GaussCRF, self).__init__()
         self.conf = conf
         self.shape = shape
@@ -380,7 +379,7 @@ class GaussCRF(nn.Module):
         elif conf['weight'] == 'vector':
             val = conf['weight_init']
             weight = val * torch.ones(1, nclasses, 1, 1)
-        self.CRF = ConvCRF(shape, nclasses, mode='col', conf=conf, use_gpu=True, filter_size=conf['filter_size'], norm=conf['norm'], blur=conf['blur'], trainable=conf['trainable'], convcomp=conf['convcomp'], weight=weight, final_softmax=conf['final_softmax'], unary_weight=conf['unary_weight'], pyinn=conf['pyinn'])
+        self.CRF = ConvCRF(shape, nclasses, mode='col', conf=conf, use_gpu=use_gpu, filter_size=conf['filter_size'], norm=conf['norm'], blur=conf['blur'], trainable=conf['trainable'], convcomp=conf['convcomp'], weight=weight, final_softmax=conf['final_softmax'], unary_weight=conf['unary_weight'], pyinn=conf['pyinn'])
         return
 
     def forward(self, unary, img, num_iter=5):

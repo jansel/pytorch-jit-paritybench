@@ -172,15 +172,15 @@ def _process_batch(data, size_index):
     _iou_mask[best_ious <= cfg.iou_thresh] = cfg.noobject_scale * iou_penalty
     cell_w = float(inp_size[0]) / W
     cell_h = float(inp_size[1]) / H
-    cx = (gt_boxes_b[:, (0)] + gt_boxes_b[:, (2)]) * 0.5 / cell_w
-    cy = (gt_boxes_b[:, (1)] + gt_boxes_b[:, (3)]) * 0.5 / cell_h
+    cx = (gt_boxes_b[:, 0] + gt_boxes_b[:, 2]) * 0.5 / cell_w
+    cy = (gt_boxes_b[:, 1] + gt_boxes_b[:, 3]) * 0.5 / cell_h
     cell_inds = np.floor(cy) * W + np.floor(cx)
     cell_inds = cell_inds.astype(np.int)
     target_boxes = np.empty(gt_boxes_b.shape, dtype=np.float)
-    target_boxes[:, (0)] = cx - np.floor(cx)
-    target_boxes[:, (1)] = cy - np.floor(cy)
-    target_boxes[:, (2)] = (gt_boxes_b[:, (2)] - gt_boxes_b[:, (0)]) / inp_size[0] * out_size[0]
-    target_boxes[:, (3)] = (gt_boxes_b[:, (3)] - gt_boxes_b[:, (1)]) / inp_size[1] * out_size[1]
+    target_boxes[:, 0] = cx - np.floor(cx)
+    target_boxes[:, 1] = cy - np.floor(cy)
+    target_boxes[:, 2] = (gt_boxes_b[:, 2] - gt_boxes_b[:, 0]) / inp_size[0] * out_size[0]
+    target_boxes[:, 3] = (gt_boxes_b[:, 3] - gt_boxes_b[:, 1]) / inp_size[1] * out_size[1]
     gt_boxes_resize = np.copy(gt_boxes_b)
     gt_boxes_resize[:, 0::2] *= out_size[0] / float(inp_size[0])
     gt_boxes_resize[:, 1::2] *= out_size[1] / float(inp_size[1])
@@ -193,13 +193,13 @@ def _process_batch(data, size_index):
             None
             continue
         a = anchor_inds[i]
-        iou_pred_cell_anchor = iou_pred_np[(cell_ind), (a), :]
-        _iou_mask[(cell_ind), (a), :] = cfg.object_scale * (1 - iou_pred_cell_anchor)
-        _ious[(cell_ind), (a), :] = ious_reshaped[cell_ind, a, i]
-        _box_mask[(cell_ind), (a), :] = cfg.coord_scale
-        target_boxes[(i), 2:4] /= anchors[a]
-        _boxes[(cell_ind), (a), :] = target_boxes[i]
-        _class_mask[(cell_ind), (a), :] = cfg.class_scale
+        iou_pred_cell_anchor = iou_pred_np[cell_ind, a, :]
+        _iou_mask[cell_ind, a, :] = cfg.object_scale * (1 - iou_pred_cell_anchor)
+        _ious[cell_ind, a, :] = ious_reshaped[cell_ind, a, i]
+        _box_mask[cell_ind, a, :] = cfg.coord_scale
+        target_boxes[i, 2:4] /= anchors[a]
+        _boxes[cell_ind, a, :] = target_boxes[i]
+        _class_mask[cell_ind, a, :] = cfg.class_scale
         _classes[cell_ind, a, gt_classes[i]] = 1.0
     return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
 
@@ -328,10 +328,10 @@ class RoIPool(nn.Module):
                     wend = min(data_width, max(0, wend + roi_start_w))
                     is_empty = hend <= hstart or wend <= wstart
                     if is_empty:
-                        outputs[(roi_ind), :, (ph), (pw)] = 0
+                        outputs[roi_ind, :, ph, pw] = 0
                     else:
                         data = features[batch_ind]
-                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
+                        outputs[roi_ind, :, ph, pw] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
         return outputs
 
 

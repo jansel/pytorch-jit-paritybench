@@ -596,7 +596,7 @@ class MADE(nn.Module):
         x = torch.zeros_like(u)
         for i in self.input_degrees:
             m, loga = self.net(self.net_input(x, y)).chunk(chunks=2, dim=1)
-            x[:, (i)] = u[:, (i)] * torch.exp(loga[:, (i)]) + m[:, (i)]
+            x[:, i] = u[:, i] * torch.exp(loga[:, i]) + m[:, i]
         log_abs_det_jacobian = loga
         return x, log_abs_det_jacobian
 
@@ -658,11 +658,11 @@ class MADEMOG(nn.Module):
         for i in self.input_degrees:
             m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L).chunk(chunks=3, dim=-1)
             logr = logr - logr.logsumexp(1, keepdim=True)
-            z = D.Categorical(logits=logr[:, :, (i)]).sample().unsqueeze(-1)
-            u_z = torch.gather(u[:, :, (i)], 1, z).squeeze()
-            m_z = torch.gather(m[:, :, (i)], 1, z).squeeze()
-            loga_z = torch.gather(loga[:, :, (i)], 1, z).squeeze()
-            x[:, (i)] = u_z * torch.exp(loga_z) + m_z
+            z = D.Categorical(logits=logr[:, :, i]).sample().unsqueeze(-1)
+            u_z = torch.gather(u[:, :, i], 1, z).squeeze()
+            m_z = torch.gather(m[:, :, i], 1, z).squeeze()
+            loga_z = torch.gather(loga[:, :, i], 1, z).squeeze()
+            x[:, i] = u_z * torch.exp(loga_z) + m_z
         log_abs_det_jacobian = loga
         return x, log_abs_det_jacobian
 

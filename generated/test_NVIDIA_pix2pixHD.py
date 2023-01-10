@@ -378,9 +378,9 @@ class Encoder(nn.Module):
             for b in range(input.size()[0]):
                 indices = (inst[b:b + 1] == int(i)).nonzero()
                 for j in range(self.output_nc):
-                    output_ins = outputs[indices[:, (0)] + b, indices[:, (1)] + j, indices[:, (2)], indices[:, (3)]]
+                    output_ins = outputs[indices[:, 0] + b, indices[:, 1] + j, indices[:, 2], indices[:, 3]]
                     mean_feat = torch.mean(output_ins).expand_as(output_ins)
-                    outputs_mean[indices[:, (0)] + b, indices[:, (1)] + j, indices[:, (2)], indices[:, (3)]] = mean_feat
+                    outputs_mean[indices[:, 0] + b, indices[:, 1] + j, indices[:, 2], indices[:, 3]] = mean_feat
         return outputs_mean
 
 
@@ -659,7 +659,7 @@ class Pix2PixHDModel(BaseModel):
                 cluster_idx = np.random.randint(0, feat.shape[0])
                 idx = (inst == int(i)).nonzero()
                 for k in range(self.opt.feat_num):
-                    feat_map[idx[:, (0)], idx[:, (1)] + k, idx[:, (2)], idx[:, (3)]] = feat[cluster_idx, k]
+                    feat_map[idx[:, 0], idx[:, 1] + k, idx[:, 2], idx[:, 3]] = feat[cluster_idx, k]
         if self.opt.data_type == 16:
             feat_map = feat_map.half()
         return feat_map
@@ -678,7 +678,7 @@ class Pix2PixHDModel(BaseModel):
             label = i if i < 1000 else i // 1000
             idx = (inst == int(i)).nonzero()
             num = idx.size()[0]
-            idx = idx[(num // 2), :]
+            idx = idx[num // 2, :]
             val = np.zeros((1, feat_num + 1))
             for k in range(feat_num):
                 val[0, k] = feat_map[idx[0], idx[1] + k, idx[2], idx[3]].data[0]
@@ -832,17 +832,17 @@ class UIModel(BaseModel):
         idx_src = (self.inst_map == inst_src).nonzero()
         if idx_src.shape:
             self.backup_current_state()
-            self.label_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = label_tgt
-            self.net_input[idx_src[:, (0)], idx_src[:, (1)] + label_src, idx_src[:, (2)], idx_src[:, (3)]] = 0
-            self.net_input[idx_src[:, (0)], idx_src[:, (1)] + label_tgt, idx_src[:, (2)], idx_src[:, (3)]] = 1
+            self.label_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = label_tgt
+            self.net_input[idx_src[:, 0], idx_src[:, 1] + label_src, idx_src[:, 2], idx_src[:, 3]] = 0
+            self.net_input[idx_src[:, 0], idx_src[:, 1] + label_tgt, idx_src[:, 2], idx_src[:, 3]] = 1
             if inst_tgt > 1000:
                 tgt_indices = (self.inst_map > label_tgt * 1000) & (self.inst_map < (label_tgt + 1) * 1000)
                 inst_tgt = self.inst_map[tgt_indices].max() + 1
-            self.inst_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = inst_tgt
-            self.net_input[:, (-1), :, :] = self.get_edges(self.inst_map)
+            self.inst_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = inst_tgt
+            self.net_input[:, -1, :, :] = self.get_edges(self.inst_map)
             idx_tgt = (self.inst_map == inst_tgt).nonzero()
             if idx_tgt.shape:
-                self.copy_features(idx_src, idx_tgt[(0), :])
+                self.copy_features(idx_src, idx_tgt[0, :])
         self.fake_image = util.tensor2im(self.single_forward(self.net_input, self.feat_map))
 
     def add_strokes(self, click_src, label_tgt, bw, save):
@@ -850,19 +850,19 @@ class UIModel(BaseModel):
         h, w = size[2], size[3]
         idx_src = torch.LongTensor(bw ** 2, 4).fill_(0)
         for i in range(bw):
-            idx_src[i * bw:(i + 1) * bw, (2)] = min(h - 1, max(0, click_src[0] - bw // 2 + i))
+            idx_src[i * bw:(i + 1) * bw, 2] = min(h - 1, max(0, click_src[0] - bw // 2 + i))
             for j in range(bw):
                 idx_src[i * bw + j, 3] = min(w - 1, max(0, click_src[1] - bw // 2 + j))
         idx_src = idx_src
         if idx_src.shape:
             if save:
                 self.backup_current_state()
-            self.label_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = label_tgt
+            self.label_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = label_tgt
             for k in range(self.opt.label_nc):
-                self.net_input[idx_src[:, (0)], idx_src[:, (1)] + k, idx_src[:, (2)], idx_src[:, (3)]] = 0
-            self.net_input[idx_src[:, (0)], idx_src[:, (1)] + label_tgt, idx_src[:, (2)], idx_src[:, (3)]] = 1
-            self.inst_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = label_tgt
-            self.net_input[:, (-1), :, :] = self.get_edges(self.inst_map)
+                self.net_input[idx_src[:, 0], idx_src[:, 1] + k, idx_src[:, 2], idx_src[:, 3]] = 0
+            self.net_input[idx_src[:, 0], idx_src[:, 1] + label_tgt, idx_src[:, 2], idx_src[:, 3]] = 1
+            self.inst_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = label_tgt
+            self.net_input[:, -1, :, :] = self.get_edges(self.inst_map)
             if self.opt.instance_feat:
                 feat = self.features_clustered[label_tgt]
                 cluster_idx = self.cluster_indices[label_tgt]
@@ -873,15 +873,15 @@ class UIModel(BaseModel):
         y, x = click_src[0], click_src[1]
         mask = np.transpose(mask, (2, 0, 1))[np.newaxis, ...]
         idx_src = torch.from_numpy(mask).nonzero()
-        idx_src[:, (2)] += y
-        idx_src[:, (3)] += x
+        idx_src[:, 2] += y
+        idx_src[:, 3] += x
         self.backup_current_state()
-        self.label_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = label_tgt
+        self.label_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = label_tgt
         for k in range(self.opt.label_nc):
-            self.net_input[idx_src[:, (0)], idx_src[:, (1)] + k, idx_src[:, (2)], idx_src[:, (3)]] = 0
-        self.net_input[idx_src[:, (0)], idx_src[:, (1)] + label_tgt, idx_src[:, (2)], idx_src[:, (3)]] = 1
-        self.inst_map[idx_src[:, (0)], idx_src[:, (1)], idx_src[:, (2)], idx_src[:, (3)]] = label_tgt
-        self.net_input[:, (-1), :, :] = self.get_edges(self.inst_map)
+            self.net_input[idx_src[:, 0], idx_src[:, 1] + k, idx_src[:, 2], idx_src[:, 3]] = 0
+        self.net_input[idx_src[:, 0], idx_src[:, 1] + label_tgt, idx_src[:, 2], idx_src[:, 3]] = 1
+        self.inst_map[idx_src[:, 0], idx_src[:, 1], idx_src[:, 2], idx_src[:, 3]] = label_tgt
+        self.net_input[:, -1, :, :] = self.get_edges(self.inst_map)
         self.set_features(idx_src, self.feat, style_id)
         self.fake_image = util.tensor2im(self.single_forward(self.net_input, self.feat_map))
 
@@ -960,8 +960,8 @@ class UIModel(BaseModel):
     def get_crop_region(self, idx):
         size = self.net_input.size()
         h, w = size[2], size[3]
-        min_y, min_x = idx[:, (2)].min(), idx[:, (3)].min()
-        max_y, max_x = idx[:, (2)].max(), idx[:, (3)].max()
+        min_y, min_x = idx[:, 2].min(), idx[:, 3].min()
+        max_y, max_x = idx[:, 2].max(), idx[:, 3].max()
         crop_min = 128
         if max_y - min_y < crop_min:
             min_y = max(0, (max_y + min_y) // 2 - crop_min // 2)
@@ -978,20 +978,20 @@ class UIModel(BaseModel):
             y, x = click_pt[0], click_pt[1]
             mask = np.transpose(mask, (2, 0, 1))[np.newaxis, ...]
             idx = torch.from_numpy(mask).nonzero()
-            idx[:, (2)] += y
-            idx[:, (3)] += x
+            idx[:, 2] += y
+            idx[:, 3] += x
         else:
             idx = (self.object_map == self.instToChange).nonzero()
         self.set_features(idx, self.feat, cluster_idx)
 
     def set_features(self, idx, feat, cluster_idx):
         for k in range(self.opt.feat_num):
-            self.feat_map[idx[:, (0)], idx[:, (1)] + k, idx[:, (2)], idx[:, (3)]] = feat[cluster_idx, k]
+            self.feat_map[idx[:, 0], idx[:, 1] + k, idx[:, 2], idx[:, 3]] = feat[cluster_idx, k]
 
     def copy_features(self, idx_src, idx_tgt):
         for k in range(self.opt.feat_num):
             val = self.feat_map[idx_tgt[0], idx_tgt[1] + k, idx_tgt[2], idx_tgt[3]]
-            self.feat_map[idx_src[:, (0)], idx_src[:, (1)] + k, idx_src[:, (2)], idx_src[:, (3)]] = val
+            self.feat_map[idx_src[:, 0], idx_src[:, 1] + k, idx_src[:, 2], idx_src[:, 3]] = val
 
     def get_current_visuals(self, getLabel=False):
         mask = self.mask

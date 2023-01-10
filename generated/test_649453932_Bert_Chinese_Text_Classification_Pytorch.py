@@ -290,7 +290,7 @@ class BertPooler(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
+        first_token_tensor = hidden_states[:, 0]
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -830,7 +830,7 @@ class Model(nn.Module):
         encoder_out, text_cls = self.bert(context, attention_mask=mask, output_all_encoded_layers=False)
         out, _ = self.lstm(encoder_out)
         out = self.dropout(out)
-        out = self.fc_rnn(out[:, (-1), :])
+        out = self.fc_rnn(out[:, -1, :])
         return out
 
 
@@ -2450,8 +2450,8 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel):
         hidden_states = self.transformer(input_ids, position_ids, token_type_ids)
         lm_logits = self.lm_head(hidden_states)
         if lm_labels is not None:
-            shift_logits = lm_logits[(...), :-1, :].contiguous()
-            shift_labels = lm_labels[(...), 1:].contiguous()
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = lm_labels[..., 1:].contiguous()
             loss_fct = CrossEntropyLoss(ignore_index=-1)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             return loss
@@ -2539,8 +2539,8 @@ class OpenAIGPTDoubleHeadsModel(OpenAIGPTPreTrainedModel):
         mc_logits = self.multiple_choice_head(hidden_states, mc_token_ids)
         losses = []
         if lm_labels is not None:
-            shift_logits = lm_logits[(...), :-1, :].contiguous()
-            shift_labels = lm_labels[(...), 1:].contiguous()
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = lm_labels[..., 1:].contiguous()
             loss_fct = CrossEntropyLoss(ignore_index=-1)
             losses.append(loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)))
         if mc_labels is not None:
@@ -2563,9 +2563,9 @@ class PositionalEmbedding(nn.Module):
         sinusoid_inp = torch.ger(pos_seq, self.inv_freq)
         pos_emb = torch.cat([sinusoid_inp.sin(), sinusoid_inp.cos()], dim=-1)
         if bsz is not None:
-            return pos_emb[:, (None), :].expand(-1, bsz, -1)
+            return pos_emb[:, None, :].expand(-1, bsz, -1)
         else:
-            return pos_emb[:, (None), :]
+            return pos_emb[:, None, :]
 
 
 class PositionwiseFF(nn.Module):
@@ -2628,9 +2628,9 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, head_v))
@@ -2686,7 +2686,7 @@ class RelMultiHeadAttn(nn.Module):
             x_padded = torch.cat([zero_pad, x], dim=1).expand(qlen, -1, -1, -1)
         else:
             x_padded = torch.cat([x, zero_pad], dim=1).expand(qlen, -1, -1, -1)
-        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen, klen, x.size(2), x.size(3))
+        x = x_padded.masked_select(mask[:, :, None, None]).view(qlen, klen, x.size(2), x.size(3))
         return x
 
     def _rel_shift(self, x, zero_triu=False):
@@ -2698,7 +2698,7 @@ class RelMultiHeadAttn(nn.Module):
         x = x_padded[1:].view_as(x)
         if zero_triu:
             ones = torch.ones((x.size(0), x.size(1)))
-            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (None)]
+            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, None, None]
         return x
 
     def forward(self, w, r, attn_mask=None, mems=None):
@@ -2743,9 +2743,9 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[None, :, :, None], -1e+30).type_as(attn_score)
             elif attn_mask.dim() == 3:
-                attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, None], -1e+30).type_as(attn_score)
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
@@ -2795,15 +2795,15 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
         rw_head_q = w_head_q + r_w_bias[None]
         AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))
         B_ = torch.einsum('ibnd,jnd->ijbn', (w_head_q, r_emb))
-        D_ = r_bias[(None), :, (None)]
+        D_ = r_bias[None, :, None]
         BD = self._rel_shift(B_ + D_)
         attn_score = AC + BD
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
@@ -3366,9 +3366,9 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 mask_shift_len = qlen - mask_len
             else:
                 mask_shift_len = qlen
-            dec_attn_mask = (torch.triu(all_ones, 1 + mlen) + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, (None)]
+            dec_attn_mask = (torch.triu(all_ones, 1 + mlen) + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]
         else:
-            dec_attn_mask = torch.triu(word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, (None)]
+            dec_attn_mask = torch.triu(word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, None]
         hids = []
         if self.attn_type == 0:
             pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device, dtype=word_emb.dtype)
@@ -3587,7 +3587,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if target is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
                         out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
@@ -3596,9 +3596,9 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if target is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
+                        logprob_i = head_logprob_i[:, cluster_prob_idx] + tail_logprob_i.gather(1, target_i[:, None]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
+                        logprob_i = head_logprob[:, cluster_prob_idx, None] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if target is not None:
                     if hasattr(self, 'keep_order') and self.keep_order or keep_order:
@@ -3652,8 +3652,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
                     tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
-                    logprob_i = head_logprob[:, (-i)] + tail_logprob_i
-                    out[:, (start_idx), (stop_idx)] = logprob_i
+                    logprob_i = head_logprob[:, -i] + tail_logprob_i
+                    out[:, start_idx, stop_idx] = logprob_i
             return out
 
 
@@ -3677,11 +3677,11 @@ def sample_logits(embedding, bias, labels, inputs, sampler):
     all_b = bias[all_ids]
     true_b = all_b[:-n_sample].view(b1, b2)
     sample_b = all_b[-n_sample:]
-    hit = (labels[:, :, (None)] == neg_samples).detach()
+    hit = (labels[:, :, None] == neg_samples).detach()
     true_logits = torch.einsum('ijk,ijk->ij', [true_w, inputs]) + true_b - true_log_probs
     sample_logits = torch.einsum('lk,ijk->ijl', [sample_w, inputs]) + sample_b - samp_log_probs
     sample_logits.masked_fill_(hit, -1e+30)
-    logits = torch.cat([true_logits[:, :, (None)], sample_logits], -1)
+    logits = torch.cat([true_logits[:, :, None], sample_logits], -1)
     return logits
 
 
@@ -3791,7 +3791,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
         if self.sample_softmax > 0 and self.training:
             assert self.config.tie_weight
             logit = sample_logits(self.transformer.word_emb, self.out_layer.bias, target, pred_hid, self.sampler)
-            softmax_output = -F.log_softmax(logit, -1)[:, :, (0)]
+            softmax_output = -F.log_softmax(logit, -1)[:, :, 0]
         else:
             softmax_output = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target)
             if target is None:

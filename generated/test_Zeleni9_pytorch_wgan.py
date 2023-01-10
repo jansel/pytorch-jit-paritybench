@@ -2,10 +2,12 @@ import sys
 _module = sys.modules[__name__]
 del sys
 main = _module
+models = _module
 dcgan = _module
 gan = _module
 wgan_clipping = _module
 wgan_gradient_penalty = _module
+utils = _module
 config = _module
 data_loader = _module
 fashion_mnist = _module
@@ -137,10 +139,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Discriminator,
-     lambda: ([], {'channels': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64])], {}),
-     True),
     (Generator,
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 100, 4, 4])], {}),
@@ -150,7 +148,4 @@ TESTCASES = [
 class Test_Zeleni9_pytorch_wgan(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

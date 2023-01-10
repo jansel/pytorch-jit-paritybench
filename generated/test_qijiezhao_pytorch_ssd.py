@@ -169,7 +169,7 @@ def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
     inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
+    return inter[:, 0] * inter[:, 1]
 
 
 def jaccard(box_a, box_b):
@@ -185,8 +185,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [num_objects, box_priors]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -298,7 +298,7 @@ class MultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
@@ -363,10 +363,10 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
     keep = scores.new(scores.size(0)).zero_().long()
     if boxes.numel() == 0:
         return keep
-    x1 = boxes[:, (0)]
-    y1 = boxes[:, (1)]
-    x2 = boxes[:, (2)]
-    y2 = boxes[:, (3)]
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
     area = torch.mul(x2 - x1, y2 - y1)
     v, idx = scores.sort(0)
     idx = idx[-top_k:]
@@ -455,9 +455,9 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                self.output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
+                self.output[i, cl, :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
         flt = self.output.view(-1, 5)
-        _, idx = flt[:, (0)].sort(0)
+        _, idx = flt[:, 0].sort(0)
         _, rank = idx.sort(0)
         flt[(rank >= self.top_k).unsqueeze(1).expand_as(flt)].fill_(0)
         return self.output

@@ -11,24 +11,36 @@ mobius_sigmoid_apply = _module
 parallel_transport = _module
 mobius_linear_example = _module
 geoopt = _module
+datasets = _module
+stereographic = _module
 docutils = _module
+layers = _module
+stereographic = _module
 linalg = _module
-_expm = _module
 batch_linalg = _module
 manifolds = _module
 base = _module
 birkhoff_polytope = _module
 euclidean = _module
+lorentz = _module
+math = _module
 product = _module
 scaled = _module
+siegel = _module
+bounded_domain = _module
+csym_math = _module
+siegel = _module
+upper_half = _module
+vvd_metrics = _module
 sphere = _module
-stereographic = _module
 manifold = _module
 math = _module
 stiefel = _module
+symmetric_positive_definite = _module
 optim = _module
 mixin = _module
 radam = _module
+rlinesearch = _module
 rsgd = _module
 sparse_radam = _module
 sparse_rsgd = _module
@@ -42,19 +54,27 @@ utils = _module
 setup = _module
 test_adam = _module
 test_birkhoff = _module
+test_cayley_transform = _module
+test_data = _module
 test_euclidean = _module
 test_gyrovector_math = _module
+test_lorentz_math = _module
 test_manifold_basic = _module
 test_origin = _module
 test_product_manifold = _module
 test_random = _module
 test_rhmc = _module
+test_rlinesearch = _module
 test_rsgd = _module
 test_scaling = _module
+test_siegel_distance = _module
 test_sparse_adam = _module
 test_sparse_rsgd = _module
+test_stereographic_product_manifold = _module
+test_takagi_factorization = _module
 test_tensor_api = _module
 test_utils = _module
+test_wrapped_normal = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -94,25 +114,40 @@ from matplotlib import rcParams
 import torch.nn
 
 
-import torch.jit
+import itertools
+
+
+import torch.utils.data
 
 
 from typing import List
 
 
-import abc
-
-
-import itertools
-
-
-from typing import Optional
+from typing import Callable
 
 
 from typing import Tuple
 
 
+import torch.jit
+
+
+from functools import lru_cache
+
+
+from functools import partial
+
+
+import abc
+
+
+from typing import Optional
+
+
 from typing import Union
+
+
+import torch as th
 
 
 import functools
@@ -124,13 +159,37 @@ import inspect
 import types
 
 
+from abc import ABC
+
+
+from abc import abstractmethod
+
+
+from enum import Enum
+
+
+import enum
+
+
+import warnings
+
+
 import torch.optim
+
+
+from scipy.optimize.linesearch import scalar_search_wolfe2
+
+
+from scipy.optimize.linesearch import scalar_search_armijo
 
 
 import torch.optim.optimizer
 
 
 from torch import optim as optim
+
+
+import copy
 
 
 from typing import Any
@@ -142,10 +201,10 @@ import re
 import random
 
 
-import warnings
-
-
 import collections
+
+
+from itertools import product
 
 
 def create_ball(ball=None, c=None):
@@ -189,6 +248,70 @@ class MobiusLinear(torch.nn.Linear):
         self.weight.add_(torch.rand_like(self.weight).mul_(0.001))
         if self.bias is not None:
             self.bias.zero_()
+
+
+class Distance2StereographicHyperplanes(torch.nn.Module):
+    """Distances to Stereographic hyperplanes.
+
+    This layer can be used as a feature extractor in deep learning.
+
+    Examples
+    --------
+    >>> ball = geoopt.Stereographic(-1)
+
+    >>> layer = torch.nn.Sequential(
+    ...    Distance2StereographicHyperplanes(2, 10, ball=ball),
+    ...    torch.nn.Linear(10, 32),
+    ...    torch.nn.ReLU(),
+    ...    torch.nn.Linear(32, 64),
+    ... )
+    >>> input = ball.random_normal(100, 2)
+    >>> layer(input).shape
+    torch.Size([100, 64])
+
+    >>> layer = torch.nn.Sequential(
+    ...    Distance2StereographicHyperplanes(2, 10, ball=ball, ndim=2),
+    ...    torch.nn.Conv2d(10, 32, 3),
+    ...    torch.nn.ReLU(),
+    ...    torch.nn.Conv2d(32, 64, 3),
+    ... )
+    >>> input = ball.random_normal(100, 12, 12, 2).permute(0, 3, 1, 2) # BxCxHxW
+    >>> input.shape
+    torch.Size([100, 2, 12, 12])
+    >>> layer(input).shape
+    torch.Size([100, 64, 8, 8])
+    """
+
+    def __init__(self, plane_shape: int, num_planes: int, signed=True, squared=False, *, ball, init_std=1.0, ndim=0):
+        super().__init__()
+        self.ndim = ndim
+        self.signed = signed
+        self.squared = squared
+        self.ball = ball
+        self.plane_shape = geoopt.utils.size2shape(plane_shape)
+        self.num_planes = num_planes
+        self.points = geoopt.ManifoldParameter(torch.empty(num_planes, plane_shape), manifold=self.ball)
+        self.init_std = init_std
+        self.reset_parameters()
+
+    def forward(self, input_p):
+        input_p = input_p.unsqueeze(-self.ndim - 1)
+        points = self.points.permute(1, 0)
+        points = points.view(points.shape + (1,) * self.ndim)
+        distance = self.ball.dist2plane(x=input_p, p=points, a=points, signed=self.signed, dim=-self.ndim - 2)
+        if self.squared and self.signed:
+            sign = distance.sign()
+            distance = distance ** 2 * sign
+        elif self.squared:
+            distance = distance ** 2
+        return distance
+
+    def extra_repr(self):
+        return f'ndim={self.ndim}, plane_shape={self.plane_shape}, num_planes={self.num_planes}'
+
+    @torch.no_grad()
+    def reset_parameters(self):
+        self.points.set_(self.ball.random_normal(*self.points.shape, std=self.init_std))
 
 
 class ScalingInfo(object):
@@ -746,7 +869,7 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def inner(self, x: torch.Tensor, u: torch.Tensor, v=None, *, keepdim=False) ->torch.Tensor:
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False) ->torch.Tensor:
         """
         Inner product for tangent vectors at point :math:`x`.
 
@@ -1252,38 +1375,9 @@ class Euclidean(Manifold):
         return 'ndim={}'.format(self.ndim)
 
 
-def _rebuild_manifold_parameter(cls, *args):
-    import torch._utils
-    tensor = torch._utils._rebuild_tensor_v2(*args[:-1])
-    return cls(tensor, manifold=args[-1], requires_grad=args[-3])
-
-
-def copy_or_set_(dest: torch.Tensor, source: torch.Tensor) ->torch.Tensor:
-    """
-    Copy or inplace set from :code:`source` to :code:`dest`.
-
-    A workaround to respect strides of :code:`dest` when copying :code:`source`.
-    The original issue was raised `here <https://github.com/geoopt/geoopt/issues/70>`_
-    when working with matrix manifolds. Inplace set operation is mode efficient,
-    but the resulting storage might be incompatible after. To avoid the issue we refer to
-    the safe option and use :code:`copy_` if strides do not match.
-
-    Parameters
-    ----------
-    dest : torch.Tensor
-        Destination tensor where to store new data
-    source : torch.Tensor
-        Source data to put in the new tensor
-
-    Returns
-    -------
-    dest
-        torch.Tensor, modified inplace
-    """
-    if dest.stride() != source.stride():
-        return dest.copy_(source)
-    else:
-        return dest.set_(source)
+def _rebuild_manifold_tensor(*args, build_fn):
+    tensor = build_fn(*args[:-4])
+    return args[-3](tensor, manifold=args[-2], requires_grad=args[-1])
 
 
 def insert_docs(doc, pattern=None, repl=None):
@@ -1307,7 +1401,11 @@ class ManifoldTensor(torch.Tensor):
     manifold : :class:`geoopt.Manifold`
         A manifold for the tensor, (default: :class:`geoopt.Euclidean`)
     """
-    manifold: Manifold
+    try:
+        from torch._C import _disabled_torch_function_impl
+        __torch_function__ = _disabled_torch_function_impl
+    except ImportError:
+        pass
 
     def __new__(cls, *args, manifold: Manifold=Euclidean(), requires_grad=False, **kwargs):
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
@@ -1321,6 +1419,7 @@ class ManifoldTensor(torch.Tensor):
         instance = torch.Tensor._make_subclass(cls, data, requires_grad)
         instance.manifold = manifold
         return instance
+    manifold: Manifold
 
     def proj_(self) ->torch.Tensor:
         """
@@ -1331,7 +1430,7 @@ class ManifoldTensor(torch.Tensor):
         tensor
             same instance
         """
-        return copy_or_set_(self, self.manifold.projx(self))
+        return self.copy_(self.manifold.projx(self))
 
     @insert_docs(Manifold.retr.__doc__, '\\s+x : .+\\n.+', '')
     def retr(self, u: torch.Tensor, **kwargs) ->torch.Tensor:
@@ -1397,21 +1496,31 @@ class ManifoldTensor(torch.Tensor):
         return 'Tensor on {} containing:\n'.format(self.manifold) + torch.Tensor.__repr__(self)
 
     def __reduce_ex__(self, proto):
-        proto = self.__class__, self.storage(), self.storage_offset(), self.size(), self.stride(), self.requires_grad, dict()
-        return _rebuild_manifold_parameter, proto + (self.manifold,)
+        build, proto = super(ManifoldTensor, self).__reduce_ex__(proto)
+        new_build = functools.partial(_rebuild_manifold_tensor, build_fn=build)
+        new_proto = proto + (dict(), self.__class__, self.manifold, self.requires_grad)
+        return new_build, new_proto
 
     @insert_docs(Manifold.unpack_tensor.__doc__, '\\s+tensor : .+\\n.+', '')
     def unpack_tensor(self) ->Union[torch.Tensor, Tuple[torch.Tensor]]:
         return self.manifold.unpack_tensor(self)
 
+    def __deepcopy__(self, memo):
+        if id(self) in memo:
+            return memo[id(self)]
+        else:
+            result = type(self)(self.data.clone(memory_format=torch.preserve_format), manifold=copy.deepcopy(self.manifold, memo=memo), requires_grad=self.requires_grad)
+            memo[id(self)] = result
+            return result
+
 
 @torch.jit.script
 def proj_doubly_stochastic(x, max_iter: int=300, eps: float=1e-05, tol: float=1e-05):
-    iter = 0
+    it_num = 0
     c = 1.0 / (x.sum(dim=-2, keepdim=True) + eps)
     r = 1.0 / (x @ c.transpose(-1, -2) + eps)
-    while iter < max_iter:
-        iter += 1
+    while it_num < max_iter:
+        it_num += 1
         cinv = torch.matmul(r.transpose(-1, -2), x)
         if torch.max(torch.abs(cinv * c - 1)) <= tol:
             break
@@ -1582,6 +1691,199 @@ class BirkhoffPolytope(Manifold):
         eye = torch.eye(*shape[-2:], dtype=dtype, device=device)
         eye = eye.expand(shape)
         return ManifoldTensor(eye, manifold=self)
+
+
+_lorentz_ball_doc = """
+    Lorentz model
+
+    Parameters
+    ----------
+    k : float|tensor
+        manifold negative curvature
+
+    Notes
+    -----
+    It is extremely recommended to work with this manifold in double precision
+"""
+
+
+class Lorentz(Manifold):
+    __doc__ = '{}\n    '.format(_lorentz_ball_doc)
+    ndim = 1
+    reversible = False
+    name = 'Lorentz'
+    __scaling__ = Manifold.__scaling__.copy()
+
+    def __init__(self, k=1.0, learnable=False):
+        super().__init__()
+        k = torch.as_tensor(k)
+        if not torch.is_floating_point(k):
+            k = k
+        self.k = torch.nn.Parameter(k, requires_grad=learnable)
+
+    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05, dim=-1) ->Tuple[bool, Optional[str]]:
+        dn = x.size(dim) - 1
+        x = x ** 2
+        quad_form = -x.narrow(dim, 0, 1) + x.narrow(dim, 1, dn).sum(dim=dim, keepdim=True)
+        ok = torch.allclose(quad_form, -self.k, atol=atol, rtol=rtol)
+        if not ok:
+            reason = f"'x' minkowski quadratic form is not equal to {-self.k.item()}"
+        else:
+            reason = None
+        return ok, reason
+
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05, dim=-1) ->Tuple[bool, Optional[str]]:
+        inner_ = math.inner(u, x, dim=dim)
+        ok = torch.allclose(inner_, torch.zeros(1), atol=atol, rtol=rtol)
+        if not ok:
+            reason = 'Minkowski inner produt is not equal to zero'
+        else:
+            reason = None
+        return ok, reason
+
+    def dist(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False, dim=-1) ->torch.Tensor:
+        return math.dist(x, y, k=self.k, keepdim=keepdim, dim=dim)
+
+    @__scaling__(ScalingInfo(1))
+    def dist0(self, x: torch.Tensor, *, dim=-1, keepdim=False) ->torch.Tensor:
+        return math.dist0(x, k=self.k, dim=dim, keepdim=keepdim)
+
+    def norm(self, u: torch.Tensor, *, keepdim=False, dim=-1) ->torch.Tensor:
+        return math.norm(u, keepdim=keepdim, dim=dim)
+
+    def egrad2rgrad(self, x: torch.Tensor, u: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.egrad2rgrad(x, u, dim=dim)
+
+    def projx(self, x: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.project(x, k=self.k, dim=dim)
+
+    def proju(self, x: torch.Tensor, v: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        v = math.project_u(x, v, k=self.k, dim=dim)
+        return v
+
+    def expmap(self, x: torch.Tensor, u: torch.Tensor, *, norm_tan=True, project=True, dim=-1) ->torch.Tensor:
+        if norm_tan is True:
+            u = self.proju(x, u, dim=dim)
+        res = math.expmap(x, u, k=self.k, dim=dim)
+        if project is True:
+            return math.project(res, k=self.k, dim=dim)
+        else:
+            return res
+
+    @__scaling__(ScalingInfo(u=-1))
+    def expmap0(self, u: torch.Tensor, *, project=True, dim=-1) ->torch.Tensor:
+        res = math.expmap0(u, k=self.k, dim=dim)
+        if project:
+            return math.project(res, k=self.k, dim=dim)
+        else:
+            return res
+
+    def logmap(self, x: torch.Tensor, y: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.logmap(x, y, k=self.k, dim=dim)
+
+    @__scaling__(ScalingInfo(1))
+    def logmap0(self, y: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.logmap0(y, k=self.k, dim=dim)
+
+    def logmap0back(self, x: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.logmap0back(x, k=self.k, dim=dim)
+
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False, dim=-1) ->torch.Tensor:
+        if v is None:
+            v = u
+        return math.inner(u, v, dim=dim, keepdim=keepdim)
+
+    def inner0(self, v: torch.Tensor=None, *, keepdim=False, dim=-1) ->torch.Tensor:
+        return math.inner0(v, k=self.k, dim=dim, keepdim=keepdim)
+
+    def egrad2rgrad(self, x: torch.Tensor, u: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.egrad2rgrad(x, u, k=self.k, dim=dim)
+
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.parallel_transport(x, y, v, k=self.k, dim=dim)
+
+    def transp0(self, y: torch.Tensor, u: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.parallel_transport0(y, u, k=self.k, dim=dim)
+
+    def transp0back(self, x: torch.Tensor, u: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        return math.parallel_transport0back(x, u, k=self.k, dim=dim)
+
+    def transp_follow_expmap(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, *, dim=-1, project=True) ->torch.Tensor:
+        y = self.expmap(x, u, dim=dim, project=project)
+        return self.transp(x, y, v, dim=dim)
+
+    @__scaling__(ScalingInfo(t=-1))
+    def geodesic_unit(self, t: torch.Tensor, x: torch.Tensor, u: torch.Tensor, *, dim=-1, project=True) ->torch.Tensor:
+        res = math.geodesic_unit(t, x, u, k=self.k)
+        if project:
+            return math.project(res, k=self.k, dim=dim)
+        else:
+            return res
+
+    @__scaling__(ScalingInfo(std=-1), 'random')
+    def random_normal(self, *size, mean=0, std=1, dtype=None, device=None) ->'geoopt.ManifoldTensor':
+        """
+        Create a point on the manifold, measure is induced by Normal distribution on the tangent space of zero.
+
+        Parameters
+        ----------
+        size : shape
+            the desired shape
+        mean : float|tensor
+            mean value for the Normal distribution
+        std : float|tensor
+            std value for the Normal distribution
+        dtype: torch.dtype
+            target dtype for sample, if not None, should match Manifold dtype
+        device: torch.device
+            target device for sample, if not None, should match Manifold device
+
+        Returns
+        -------
+        ManifoldTensor
+            random points on Hyperboloid
+
+        Notes
+        -----
+        The device and dtype will match the device and dtype of the Manifold
+        """
+        self._assert_check_shape(size2shape(*size), 'x')
+        if device is not None and device != self.k.device:
+            raise ValueError('`device` does not match the projector `device`, set the `device` argument to None')
+        if dtype is not None and dtype != self.k.dtype:
+            raise ValueError('`dtype` does not match the projector `dtype`, set the `dtype` arguement to None')
+        tens = torch.randn(*size, device=self.k.device, dtype=self.k.dtype) * std + mean
+        tens /= tens.norm(dim=-1, keepdim=True)
+        return geoopt.ManifoldTensor(self.expmap0(tens), manifold=self)
+
+    def origin(self, *size, dtype=None, device=None, seed=42) ->'geoopt.ManifoldTensor':
+        """
+        Zero point origin.
+
+        Parameters
+        ----------
+        size : shape
+            the desired shape
+        device : torch.device
+            the desired device
+        dtype : torch.dtype
+            the desired dtype
+        seed : int
+            ignored
+
+        Returns
+        -------
+        ManifoldTensor
+            zero point on the manifold
+        """
+        if dtype is None:
+            dtype = self.k.dtype
+        if device is None:
+            device = self.k.device
+        zero_point = torch.zeros(*size, dtype=dtype, device=device)
+        zero_point[..., 0] = torch.sqrt(self.k)
+        return geoopt.ManifoldTensor(zero_point, manifold=self)
+    retr = expmap
 
 
 def _calculate_target_batch_dim(*dims: int):
@@ -1949,370 +2251,24 @@ class ProductManifold(Manifold):
         return geoopt.ManifoldTensor(tensor, manifold=self)
 
 
-def rescale_value(value, scaling, power):
-    return value * scaling ** power if power != 0 else value
-
-
-def rescale(function, scaling_info):
-    if scaling_info is ScalingInfo.NotCompatible:
-
-        @functools.wraps(functools)
-        def stub(self, *args, **kwargs):
-            raise NotImplementedError("Scaled version of '{}' is not available".format(function.__name__))
-        return stub
-    signature = inspect.signature(function)
-
-    @functools.wraps(function)
-    def rescaled_function(self, *args, **kwargs):
-        params = signature.bind(self.base, *args, **kwargs)
-        params.apply_defaults()
-        arguments = params.arguments
-        for k, power in scaling_info.kwargs.items():
-            arguments[k] = rescale_value(arguments[k], self.scale, power)
-        params = params.__class__(signature, arguments)
-        results = function(*params.args, **params.kwargs)
-        if not scaling_info.results:
-            return results
-        wrapped_results = []
-        is_tuple = isinstance(results, tuple)
-        results = geoopt.utils.make_tuple(results)
-        for i, (res, power) in enumerate(itertools.zip_longest(results, scaling_info.results, fillvalue=0)):
-            wrapped_results.append(rescale_value(res, self.scale, power))
-        if not is_tuple:
-            wrapped_results = wrapped_results[0]
-        else:
-            wrapped_results = results.__class__(wrapped_results)
-        return wrapped_results
-    return rescaled_function
-
-
-class Scaled(Manifold):
-    """
-    Scaled manifold.
-
-    Scales all the distances on tha manifold by a constant factor. Scaling may be learnable
-    since the underlying representation is canonical.
-
-    Examples
-    --------
-    Here is a simple example of radius 2 Sphere
-
-    >>> import geoopt, torch, numpy as np
-    >>> sphere = geoopt.Sphere()
-    >>> radius_2_sphere = Scaled(sphere, 2)
-    >>> p1 = torch.tensor([-1., 0.])
-    >>> p2 = torch.tensor([0., 1.])
-    >>> np.testing.assert_allclose(sphere.dist(p1, p2), np.pi / 2)
-    >>> np.testing.assert_allclose(radius_2_sphere.dist(p1, p2), np.pi)
-    """
-
-    def __init__(self, manifold: Manifold, scale=1.0, learnable=False):
-        super().__init__()
-        self.base = manifold
-        scale = torch.as_tensor(scale, dtype=torch.get_default_dtype())
-        scale = scale.requires_grad_(False)
-        if not learnable:
-            self.register_buffer('_scale', scale)
-            self.register_buffer('_log_scale', None)
-        else:
-            self.register_buffer('_scale', None)
-            self.register_parameter('_log_scale', torch.nn.Parameter(scale.log()))
-        for method, scaling_info in self.base.__scaling__.items():
-            unbound_method = getattr(self.base, method).__func__
-            self.__setattr__(method, types.MethodType(rescale(unbound_method, scaling_info), self))
-
-    @property
-    def scale(self) ->torch.Tensor:
-        if self._scale is None:
-            return self._log_scale.exp()
-        else:
-            return self._scale
-
-    @property
-    def log_scale(self) ->torch.Tensor:
-        if self._log_scale is None:
-            return self._scale.log()
-        else:
-            return self._log_scale
-    reversible = property(lambda self: self.base.reversible)
-    ndim = property(lambda self: self.base.ndim)
-    name = 'Scaled'
-    __scaling__ = property(lambda self: self.base.__scaling__)
-    retr = NotImplemented
-    expmap = NotImplemented
-
-    def __getattr__(self, item):
-        try:
-            return super().__getattr__(item)
-        except AttributeError as original:
-            try:
-                if isinstance(self.base, Scaled) and item in self._base_attributes:
-                    return self.base.__getattr__(item)
-                else:
-                    return self.base.__getattribute__(item)
-            except AttributeError as e:
-                raise original from e
-
-    @property
-    def _base_attributes(self):
-        if isinstance(self.base, Scaled):
-            return self.base._base_attributes
-        else:
-            base_attributes = set(dir(self.base.__class__))
-            base_attributes |= set(self.base.__dict__.keys())
-            return base_attributes
-
-    def __dir__(self):
-        return list(set(super().__dir__()) | self._base_attributes)
-
-    def __repr__(self):
-        extra = self.base.extra_repr()
-        if extra:
-            return self.name + '({})({}) manifold'.format(self.base.name, extra)
-        else:
-            return self.name + '({}) manifold'.format(self.base.name)
-
-    def _check_shape(self, shape: Tuple[int], name: str) ->Tuple[bool, Optional[str]]:
-        return self.base._check_shape(shape, name)
-
-    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
-        return self.base._check_point_on_manifold(x, atol=atol, rtol=rtol)
-
-    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
-        return self.base._check_vector_on_tangent(x, u, atol=atol, rtol=rtol)
-
-    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False, **kwargs) ->torch.Tensor:
-        return self.base.inner(x, u, v, keepdim=keepdim, **kwargs)
-
-    def norm(self, x: torch.Tensor, u: torch.Tensor, *, keepdim=False, **kwargs) ->torch.Tensor:
-        return self.base.norm(x, u, keepdim=keepdim, **kwargs)
-
-    def proju(self, x: torch.Tensor, u: torch.Tensor, **kwargs) ->torch.Tensor:
-        return self.base.proju(x, u, **kwargs)
-
-    def projx(self, x: torch.Tensor, **kwargs) ->torch.Tensor:
-        return self.base.projx(x, **kwargs)
-
-    def egrad2rgrad(self, x: torch.Tensor, u: torch.Tensor, **kwargs) ->torch.Tensor:
-        return self.base.egrad2rgrad(x, u, **kwargs)
-
-    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor, **kwargs) ->torch.Tensor:
-        return self.base.transp(x, y, v, **kwargs)
-
-    def random(self, *size, dtype=None, device=None, **kwargs) ->torch.Tensor:
-        return self.base.random(*size, dtype=dtype, device=device, **kwargs)
-
-
-EPS = {torch.float32: 0.0001, torch.float64: 1e-07}
-
-
-_sphere_doc = """
-    Sphere manifold induced by the following constraint
-
-    .. math::
-
-        \\|x\\|=1\\\\
-        x \\in \\mathbb{span}(U)
-
-    where :math:`U` can be parametrized with compliment space or intersection.
-
-    Parameters
-    ----------
-    intersection : tensor
-        shape ``(..., dim, K)``, subspace to intersect with
-    complement : tensor
-        shape ``(..., dim, K)``, subspace to compliment
-"""
-
-
-class Sphere(Manifold):
-    __doc__ = """{}
-
-    See Also
-    --------
-    :class:`SphereExact`
-    """.format(_sphere_doc)
-    ndim = 1
-    name = 'Sphere'
-    reversible = False
-
-    def __init__(self, intersection: torch.Tensor=None, complement: torch.Tensor=None):
-        super().__init__()
-        if intersection is not None and complement is not None:
-            raise TypeError("Can't initialize with both intersection and compliment arguments, please specify only one")
-        elif intersection is not None:
-            self._configure_manifold_intersection(intersection)
-        elif complement is not None:
-            self._configure_manifold_complement(complement)
-        else:
-            self._configure_manifold_no_constraints()
-        if self.projector is not None and (geoopt.linalg.batch_linalg.matrix_rank(self.projector) == 1).any():
-            raise ValueError('Manifold only consists of isolated points when subspace is 1-dimensional.')
-
-    def _check_shape(self, shape: Tuple[int], name: str) ->Union[Tuple[bool, Optional[str]], bool]:
-        ok, reason = super()._check_shape(shape, name)
-        if ok and self.projector is not None:
-            ok = len(shape) < self.projector.dim() - 1
-            if not ok:
-                reason = '`{}` should have at least {} dimensions but has {}'.format(name, self.projector.dim() - 1, len(shape))
-            ok = shape[-1] == self.projector.shape[-2]
-            if not ok:
-                reason = 'The [-2] shape of `span` does not match `{}`: {}, {}'.format(name, shape[-1], self.projector.shape[-1])
-        elif ok:
-            ok = shape[-1] != 1
-            if not ok:
-                reason = 'Manifold only consists of isolated points when subspace is 1-dimensional.'
-        return ok, reason
-
-    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Tuple[bool, Optional[str]]:
-        norm = x.norm(dim=-1)
-        ok = torch.allclose(norm, norm.new((1,)).fill_(1), atol=atol, rtol=rtol)
-        if not ok:
-            return False, '`norm(x) != 1` with atol={}, rtol={}'.format(atol, rtol)
-        ok = torch.allclose(self._project_on_subspace(x), x, atol=atol, rtol=rtol)
-        if not ok:
-            return False, '`x` is not in the subspace of the manifold with atol={}, rtol={}'.format(atol, rtol)
-        return True, None
-
-    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Tuple[bool, Optional[str]]:
-        inner = self.inner(x, x, u, keepdim=True)
-        ok = torch.allclose(inner, inner.new_zeros((1,)), atol=atol, rtol=rtol)
-        if not ok:
-            return False, '`<x, u> != 0` with atol={}, rtol={}'.format(atol, rtol)
-        return True, None
-
-    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False) ->torch.Tensor:
-        if v is None:
-            v = u
-        inner = (u * v).sum(-1, keepdim=keepdim)
-        target_shape = broadcast_shapes(x.shape[:-1] + (1,) * keepdim, inner.shape)
-        return inner.expand(target_shape)
-
-    def projx(self, x: torch.Tensor) ->torch.Tensor:
-        x = self._project_on_subspace(x)
-        return x / x.norm(dim=-1, keepdim=True)
-
-    def proju(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
-        u = u - (x * u).sum(dim=-1, keepdim=True) * x
-        return self._project_on_subspace(u)
-
-    def expmap(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
-        norm_u = u.norm(dim=-1, keepdim=True)
-        exp = x * torch.cos(norm_u) + u * torch.sin(norm_u) / norm_u
-        retr = self.projx(x + u)
-        cond = norm_u > EPS[norm_u.dtype]
-        return torch.where(cond, exp, retr)
-
-    def retr(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
-        return self.projx(x + u)
-
-    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
-        return self.proju(y, v)
-
-    def logmap(self, x: torch.Tensor, y: torch.Tensor) ->torch.Tensor:
-        u = self.proju(x, y - x)
-        dist = self.dist(x, y, keepdim=True)
-        cond = dist.gt(EPS[x.dtype])
-        result = torch.where(cond, u * dist / u.norm(dim=-1, keepdim=True).clamp_min(EPS[x.dtype]), u)
-        return result
-
-    def dist(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False) ->torch.Tensor:
-        inner = self.inner(x, x, y, keepdim=keepdim).clamp(-1 + EPS[x.dtype], 1 - EPS[x.dtype])
-        return torch.acos(inner)
-    egrad2rgrad = proju
-
-    def _configure_manifold_complement(self, complement: torch.Tensor):
-        Q, _ = geoopt.linalg.batch_linalg.qr(complement)
-        P = -Q @ Q.transpose(-1, -2)
-        P[..., torch.arange(P.shape[-2]), torch.arange(P.shape[-2])] += 1
-        self.register_buffer('projector', P)
-
-    def _configure_manifold_intersection(self, intersection: torch.Tensor):
-        Q, _ = geoopt.linalg.batch_linalg.qr(intersection)
-        self.register_buffer('projector', Q @ Q.transpose(-1, -2))
-
-    def _configure_manifold_no_constraints(self):
-        self.register_buffer('projector', None)
-
-    def _project_on_subspace(self, x: torch.Tensor) ->torch.Tensor:
-        if self.projector is not None:
-            return x @ self.projector.transpose(-1, -2)
-        else:
-            return x
-
-    def random_uniform(self, *size, dtype=None, device=None) ->torch.Tensor:
-        """
-        Uniform random measure on Sphere manifold.
-
-        Parameters
-        ----------
-        size : shape
-            the desired output shape
-        dtype : torch.dtype
-            desired dtype
-        device : torch.device
-            desired device
-
-        Returns
-        -------
-        ManifoldTensor
-            random point on Sphere manifold
-
-        Notes
-        -----
-        In case of projector on the manifold, dtype and device are set automatically and shouldn't be provided.
-        If you provide them, they are checked to match the projector device and dtype
-        """
-        self._assert_check_shape(size2shape(*size), 'x')
-        if self.projector is None:
-            tens = torch.randn(*size, device=device, dtype=dtype)
-        else:
-            if device is not None and device != self.projector.device:
-                raise ValueError('`device` does not match the projector `device`, set the `device` argument to None')
-            if dtype is not None and dtype != self.projector.dtype:
-                raise ValueError('`dtype` does not match the projector `dtype`, set the `dtype` arguement to None')
-            tens = torch.randn(*size, device=self.projector.device, dtype=self.projector.dtype)
-        return ManifoldTensor(self.projx(tens), manifold=self)
-    random = random_uniform
-
-
-class SphereExact(Sphere):
-    __doc__ = """{}
-
-    See Also
-    --------
-    :class:`Sphere`
-
-    Notes
-    -----
-    The implementation of retraction is an exact exponential map, this retraction will be used in optimization
-    """.format(_sphere_doc)
-    retr_transp = Sphere.expmap_transp
-    transp_follow_retr = Sphere.transp_follow_expmap
-    retr = Sphere.expmap
-
-    def extra_repr(self):
-        return 'exact'
-
-
 _references = """References
     ----------
     The functions for the mathematics in gyrovector spaces are taken from the
     following resources:
 
-    [1] Ganea, Octavian, Gary Bécigneul, and Thomas Hofmann. "Hyperbolic 
-           neural networks." Advances in neural information processing systems. 
+    [1] Ganea, Octavian, Gary Bécigneul, and Thomas Hofmann. "Hyperbolic
+           neural networks." Advances in neural information processing systems.
            2018.
     [2] Bachmann, Gregor, Gary Bécigneul, and Octavian-Eugen Ganea. "Constant
-           Curvature Graph Convolutional Networks." arXiv preprint 
+           Curvature Graph Convolutional Networks." arXiv preprint
            arXiv:1911.05076 (2019).
-    [3] Skopek, Ondrej, Octavian-Eugen Ganea, and Gary Bécigneul. 
-           "Mixed-curvature Variational Autoencoders." arXiv preprint 
+    [3] Skopek, Ondrej, Octavian-Eugen Ganea, and Gary Bécigneul.
+           "Mixed-curvature Variational Autoencoders." arXiv preprint
            arXiv:1911.08411 (2019).
-    [4] Ungar, Abraham A. Analytic hyperbolic geometry: Mathematical 
+    [4] Ungar, Abraham A. Analytic hyperbolic geometry: Mathematical
            foundations and applications. World Scientific, 2005.
-    [5] Albert, Ungar Abraham. Barycentric calculus in Euclidean and 
-           hyperbolic geometry: A comparative introduction. World Scientific, 
+    [5] Albert, Ungar Abraham. Barycentric calculus in Euclidean and
+           hyperbolic geometry: A comparative introduction. World Scientific,
            2010.
 """
 
@@ -2322,7 +2278,7 @@ _stereographic_doc = """
 
     Parameters
     ----------
-    k : float|tensor 
+    k : float|tensor
         sectional curvature :math:`\\kappa` of the manifold
         - k<0: Poincaré ball (stereographic projection of hyperboloid)
         - k>0: Stereographic projection of sphere
@@ -2333,7 +2289,7 @@ _stereographic_doc = """
     It is extremely recommended to work with this manifold in double precision.
 
     Documentation & Illustration
-    ---------------------------- 
+    ----------------------------
     http://andbloch.github.io/K-Stereographic-Model/ or :doc:`/extended/stereographic`
 """
 
@@ -2586,6 +2542,48 @@ class Stereographic(Manifold):
         return geoopt.ManifoldTensor(self.expmap0(tens), manifold=self)
     random = random_normal
 
+    @__scaling__(ScalingInfo(std=-1))
+    def wrapped_normal(self, *size, mean: torch.Tensor, std=1, dtype=None, device=None) ->'geoopt.ManifoldTensor':
+        """
+        Create a point on the manifold, measure is induced by Normal distribution on the tangent space of mean.
+
+        Definition is taken from
+        [1] Mathieu, Emile et. al. "Continuous Hierarchical Representations with
+        Poincaré Variational Auto-Encoders." arXiv preprint
+        arxiv:1901.06033 (2019).
+
+        Parameters
+        ----------
+        size : shape
+            the desired shape
+        mean : float|tensor
+            mean value for the Normal distribution
+        std : float|tensor
+            std value for the Normal distribution
+        dtype: torch.dtype
+            target dtype for sample, if not None, should match Manifold dtype
+        device: torch.device
+            target device for sample, if not None, should match Manifold device
+
+        Returns
+        -------
+        ManifoldTensor
+            random point on the PoincareBall manifold
+
+        Notes
+        -----
+        The device and dtype will match the device and dtype of the Manifold
+        """
+        size = size2shape(*size)
+        self._assert_check_shape(size, 'x')
+        if device is not None and device != self.k.device:
+            raise ValueError('`device` does not match the manifold `device`, set the `device` argument to None')
+        if dtype is not None and dtype != self.k.dtype:
+            raise ValueError('`dtype` does not match the manifold `dtype`, set the `dtype` argument to None')
+        v = torch.randn(size, device=self.k.device, dtype=self.k.dtype) * std
+        lambda_x = self.lambda_x(mean).unsqueeze(-1)
+        return geoopt.ManifoldTensor(self.expmap(mean, v / lambda_x), manifold=self)
+
     def origin(self, *size, dtype=None, device=None, seed=42) ->'geoopt.ManifoldTensor':
         """
         Zero point origin.
@@ -2620,6 +2618,990 @@ class Stereographic(Manifold):
 
     def inv_sproj(self, x: torch.Tensor, *, dim: int=-1):
         return math.inv_sproj(x, k=self.k, dim=dim)
+
+
+class StereographicProductManifold(ProductManifold):
+    """
+    Product Manifold for Stereographic manifolds.
+
+    Examples
+    --------
+    A Torus
+
+    >>> import geoopt
+    >>> sphere = geoopt.SphereProjection()
+    >>> torus = StereographicProductManifold((sphere, 2), (sphere, 2))
+    """
+    __scaling__ = Stereographic.__scaling__.copy()
+
+    def __init__(self, *manifolds_with_shape: Tuple[Stereographic, Union[Tuple[int, ...], int]]):
+        super().__init__(*manifolds_with_shape)
+        for man in self.manifolds:
+            if not geoopt.utils.ismanifold(man, Stereographic):
+                raise TypeError('Every submanifold has to be Stereographic manifold')
+
+    def dist2plane(self, x: torch.Tensor, p: torch.Tensor, a: torch.Tensor, *, keepdim=False, signed=False, scaled=False) ->torch.Tensor:
+        dists = []
+        for i, manifold in enumerate(self.manifolds):
+            dists.append(manifold.dist2plane(self.take_submanifold_value(x, i), self.take_submanifold_value(p, i), self.take_submanifold_value(a, i), dim=-1, keepdim=keepdim, signed=signed, scaled=scaled))
+        dists = torch.stack(dists, -1)
+        return (dists ** 2).sum(axis=-1).sqrt()
+
+    def mobius_add(self, x: torch.Tensor, y: torch.Tensor, *, project=True) ->torch.Tensor:
+        return self._mobius_2_manifold_args(x, y, 'mobius_add', project=project)
+
+    def mobius_coadd(self, x: torch.Tensor, y: torch.Tensor, *, project=True) ->torch.Tensor:
+        return self._mobius_2_manifold_args(x, y, 'mobius_coadd', project=project)
+
+    def mobius_sub(self, x: torch.Tensor, y: torch.Tensor, *, project=True) ->torch.Tensor:
+        return self._mobius_2_manifold_args(x, y, 'mobius_sub', project=project)
+
+    def mobius_cosub(self, x: torch.Tensor, y: torch.Tensor, *, project=True) ->torch.Tensor:
+        return self._mobius_2_manifold_args(x, y, 'mobius_cosub', project=project)
+
+    def _mobius_2_manifold_args(self, x: torch.Tensor, y: torch.Tensor, kind, *, project=True) ->torch.Tensor:
+        target_batch_dim = _calculate_target_batch_dim(x.dim(), y.dim())
+        mapped_tensors = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            y_ = self.take_submanifold_value(y, i)
+            mapped = getattr(manifold, kind)(x_, y_, dim=-1, project=project)
+            mapped = mapped.reshape((*mapped.shape[:target_batch_dim], -1))
+            mapped_tensors.append(mapped)
+        return self.pack_point(*mapped_tensors)
+
+    def mobius_scalar_mul(self, r: torch.Tensor, x: torch.Tensor, *, project=True) ->torch.Tensor:
+        mapped_tensors = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            mapped_tensors.append(manifold.mobius_scalar_mul(r, x_, project=project))
+        return self.pack_point(*mapped_tensors)
+
+    def mobius_pointwise_mul(self, w: torch.Tensor, x: torch.Tensor, *, project=True) ->torch.Tensor:
+        mapped_tensors = []
+        for i, manifold in enumerate(self.manifolds):
+            w_ = self.take_submanifold_value(w, i)
+            x_ = self.take_submanifold_value(x, i)
+            mapped_tensors.append(manifold.mobius_pointwise_mul(w_, x_, project=project))
+        return self.pack_point(*mapped_tensors)
+
+    def take_submanifold_matrix(self, x: torch.Tensor, i: int, reshape=True) ->torch.Tensor:
+        """
+        Take i'th slice of the ambient tensor and possibly reshape.
+
+        Parameters
+        ----------
+        x : tensor
+            Ambient tensor
+        i : int
+            submanifold index
+        reshape : bool
+            reshape the slice?
+
+        Returns
+        -------
+        torch.Tensor
+        """
+        slc = self.slices[i]
+        part = x[..., slc, slc]
+        if reshape:
+            part = part.reshape((*part.shape[:-2], *self.shapes[i], *self.shapes[i]))
+        return part
+
+    def mobius_matvec(self, m: torch.Tensor, x: torch.Tensor, *, project=True) ->torch.Tensor:
+        mapped_tensors = []
+        for i, manifold in enumerate(self.manifolds):
+            m_ = self.take_submanifold_matrix(m, i)
+            x_ = self.take_submanifold_value(x, i)
+            mapped_tensors.append(manifold.mobius_matvec(m_, x_, project=project))
+        return self.pack_point(*mapped_tensors)
+
+    @__scaling__(ScalingInfo(std=-1))
+    def wrapped_normal(self, *size, mean: torch.Tensor, std: Union[torch.Tensor, int, float]=1, dtype=None, device=None) ->'geoopt.ManifoldTensor':
+        shape = size2shape(*size)
+        self._assert_check_shape(shape, 'x')
+        batch_shape = shape[:-1]
+        if type(std) == int or type(std) == float:
+            std = torch.zeros(mean.shape[-1]).type_as(mean) * std
+        points = []
+        for i, (manifold, shape) in enumerate(zip(self.manifolds, self.shapes)):
+            points.append(manifold.wrapped_normal(*(batch_shape + shape), mean=self.take_submanifold_value(mean, i), std=self.take_submanifold_value(std, i), dtype=dtype, device=device))
+        tensor = self.pack_point(*points)
+        return geoopt.ManifoldTensor(tensor, manifold=self)
+
+    def geodesic(self, t: torch.Tensor, x: torch.Tensor, y: torch.Tensor, *, dim=-1) ->torch.Tensor:
+        res_list = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            y_ = self.take_submanifold_value(y, i)
+            res = manifold.geodesic(t, x_, y_, dim=-1)
+            res_list.append(res)
+        return self.pack_point(*res_list)
+
+    def geodesic_unit(self, t: torch.Tensor, x: torch.Tensor, u: torch.Tensor, *, project=True) ->torch.Tensor:
+        res_list = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            u_ = self.take_submanifold_value(u, i)
+            res = manifold.geodesic_unit(t, x_, u_, dim=-1, project=project)
+            res_list.append(res)
+        return self.pack_point(*res_list)
+
+    def dist0(self, x: torch.Tensor, *, keepdim=False) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            res.append(manifold.dist0(x_) ** 2)
+        res = sum(res) ** 0.5
+        if keepdim:
+            res = torch.unsqueeze(res, -1)
+        return res
+
+    def expmap0(self, u: torch.Tensor, *, project=True) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            u_ = self.take_submanifold_value(u, i)
+            res.append(manifold.expmap0(u_, dim=-1, project=project))
+        return self.pack_point(*res)
+
+    def logmap0(self, x: torch.Tensor, *, project=True) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            res.append(manifold.logmap0(x_, dim=-1))
+        return self.pack_point(*res)
+
+    def transp0(self, y: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            y_ = self.take_submanifold_value(y, i)
+            u_ = self.take_submanifold_value(u, i)
+            res.append(manifold.transp0(y_, u_, dim=-1))
+        return self.pack_point(*res)
+
+    def transp0back(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            u_ = self.take_submanifold_value(u, i)
+            res.append(manifold.transp0back(x_, u_, dim=-1))
+        return self.pack_point(*res)
+
+    def gyration(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, *, project=True) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            y_ = self.take_submanifold_value(y, i)
+            z_ = self.take_submanifold_value(z, i)
+            res.append(manifold.gyration(x_, y_, z_, dim=-1))
+        return self.pack_point(*res)
+
+    def antipode(self, x: torch.Tensor, *, project=True) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            res.append(manifold.antipode(x_, dim=-1))
+        return self.pack_point(*res)
+
+    def mobius_fn_apply(self, fn: callable, x: torch.Tensor, *args, project=True, **kwargs) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            res.append(manifold.mobius_fn_apply(fn, x_, *args, dim=-1, project=project, **kwargs))
+        return self.pack_point(*res)
+
+    def mobius_fn_apply_chain(self, x: torch.Tensor, *fns: callable, project=True) ->torch.Tensor:
+        res = []
+        for i, manifold in enumerate(self.manifolds):
+            x_ = self.take_submanifold_value(x, i)
+            res.append(manifold.mobius_fn_apply_chain(x_, *fns, dim=-1, project=project))
+        return self.pack_point(*res)
+
+
+def rescale_value(value, scaling, power):
+    return value * scaling ** power if power != 0 else value
+
+
+def rescale(function, scaling_info):
+    if scaling_info is ScalingInfo.NotCompatible:
+
+        @functools.wraps(functools)
+        def stub(self, *args, **kwargs):
+            raise NotImplementedError("Scaled version of '{}' is not available".format(function.__name__))
+        return stub
+    signature = inspect.signature(function)
+
+    @functools.wraps(function)
+    def rescaled_function(self, *args, **kwargs):
+        params = signature.bind(self.base, *args, **kwargs)
+        params.apply_defaults()
+        arguments = params.arguments
+        for k, power in scaling_info.kwargs.items():
+            arguments[k] = rescale_value(arguments[k], self.scale, power)
+        params = params.__class__(signature, arguments)
+        results = function(*params.args, **params.kwargs)
+        if not scaling_info.results:
+            return results
+        wrapped_results = []
+        is_tuple = isinstance(results, tuple)
+        results = geoopt.utils.make_tuple(results)
+        for _, (res, power) in enumerate(itertools.zip_longest(results, scaling_info.results, fillvalue=0)):
+            wrapped_results.append(rescale_value(res, self.scale, power))
+        if not is_tuple:
+            wrapped_results = wrapped_results[0]
+        else:
+            wrapped_results = results.__class__(wrapped_results)
+        return wrapped_results
+    return rescaled_function
+
+
+class Scaled(Manifold):
+    """
+    Scaled manifold.
+
+    Scales all the distances on tha manifold by a constant factor. Scaling may be learnable
+    since the underlying representation is canonical.
+
+    Examples
+    --------
+    Here is a simple example of radius 2 Sphere
+
+    >>> import geoopt, torch, numpy as np
+    >>> sphere = geoopt.Sphere()
+    >>> radius_2_sphere = Scaled(sphere, 2)
+    >>> p1 = torch.tensor([-1., 0.])
+    >>> p2 = torch.tensor([0., 1.])
+    >>> np.testing.assert_allclose(sphere.dist(p1, p2), np.pi / 2)
+    >>> np.testing.assert_allclose(radius_2_sphere.dist(p1, p2), np.pi)
+    """
+
+    def __init__(self, manifold: Manifold, scale=1.0, learnable=False):
+        super().__init__()
+        self.base = manifold
+        scale = torch.as_tensor(scale, dtype=torch.get_default_dtype())
+        scale = scale.requires_grad_(False)
+        if not learnable:
+            self.register_buffer('_scale', scale)
+            self.register_buffer('_log_scale', None)
+        else:
+            self.register_buffer('_scale', None)
+            self.register_parameter('_log_scale', torch.nn.Parameter(scale.log()))
+        for method, scaling_info in self.base.__scaling__.items():
+            unbound_method = getattr(self.base, method).__func__
+            self.__setattr__(method, types.MethodType(rescale(unbound_method, scaling_info), self))
+
+    @property
+    def scale(self) ->torch.Tensor:
+        if self._scale is None:
+            return self._log_scale.exp()
+        else:
+            return self._scale
+
+    @property
+    def log_scale(self) ->torch.Tensor:
+        if self._log_scale is None:
+            return self._scale.log()
+        else:
+            return self._log_scale
+    reversible = property(lambda self: self.base.reversible)
+    ndim = property(lambda self: self.base.ndim)
+    name = 'Scaled'
+    __scaling__ = property(lambda self: self.base.__scaling__)
+    retr = NotImplemented
+    expmap = NotImplemented
+
+    def __getattr__(self, item):
+        try:
+            return super().__getattr__(item)
+        except AttributeError as original:
+            try:
+                if isinstance(self.base, Scaled) and item in self._base_attributes:
+                    return self.base.__getattr__(item)
+                else:
+                    return self.base.__getattribute__(item)
+            except AttributeError as e:
+                raise original from e
+
+    @property
+    def _base_attributes(self):
+        if isinstance(self.base, Scaled):
+            return self.base._base_attributes
+        else:
+            base_attributes = set(dir(self.base.__class__))
+            base_attributes |= set(self.base.__dict__.keys())
+            return base_attributes
+
+    def __dir__(self):
+        return list(set(super().__dir__()) | self._base_attributes)
+
+    def __repr__(self):
+        extra = self.base.extra_repr()
+        if extra:
+            return self.name + '({})({}) manifold'.format(self.base.name, extra)
+        else:
+            return self.name + '({}) manifold'.format(self.base.name)
+
+    def _check_shape(self, shape: Tuple[int], name: str) ->Tuple[bool, Optional[str]]:
+        return self.base._check_shape(shape, name)
+
+    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+        return self.base._check_point_on_manifold(x, atol=atol, rtol=rtol)
+
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+        return self.base._check_vector_on_tangent(x, u, atol=atol, rtol=rtol)
+
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False, **kwargs) ->torch.Tensor:
+        return self.base.inner(x, u, v, keepdim=keepdim, **kwargs)
+
+    def norm(self, x: torch.Tensor, u: torch.Tensor, *, keepdim=False, **kwargs) ->torch.Tensor:
+        return self.base.norm(x, u, keepdim=keepdim, **kwargs)
+
+    def proju(self, x: torch.Tensor, u: torch.Tensor, **kwargs) ->torch.Tensor:
+        return self.base.proju(x, u, **kwargs)
+
+    def projx(self, x: torch.Tensor, **kwargs) ->torch.Tensor:
+        return self.base.projx(x, **kwargs)
+
+    def egrad2rgrad(self, x: torch.Tensor, u: torch.Tensor, **kwargs) ->torch.Tensor:
+        return self.base.egrad2rgrad(x, u, **kwargs)
+
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor, **kwargs) ->torch.Tensor:
+        return self.base.transp(x, y, v, **kwargs)
+
+    def random(self, *size, dtype=None, device=None, **kwargs) ->torch.Tensor:
+        return self.base.random(*size, dtype=dtype, device=device, **kwargs)
+
+
+class SiegelMetric(ABC):
+    """
+    Abstract implementation for Siegel metrics.
+
+    Based on the vector-valued distance computed on Siegel spaces, different metric functions
+    can be taken, which give raise to different distances that can be computed in the space.
+
+    The vector-valued distance is given by :math:`v_i = log((1 + e_i) / (1 - e_i)), i = 1, ..., n`,
+    with :math:`e_i` the eigenvalues of the crossratio matrix sorted in ascending order
+    (:math:`e_1 < e_2 < ... < e_n`), and :math:`n = rank`.
+
+    Parameters
+    ----------
+    rank : int
+         Rank of the spaces. Only mandatory for Finsler distance of minimum entropy or weighted sum.
+    """
+
+    def __init__(self, rank: int=None):
+        self.rank = rank
+
+    @abstractmethod
+    def compute_metric(self, v: torch.Tensor, keepdim=False) ->torch.Tensor:
+        raise NotImplementedError
+
+
+class FinslerInfinityMetric(SiegelMetric):
+
+    def compute_metric(self, v: torch.Tensor, keepdim=True) ->torch.Tensor:
+        """Finsler Infinity distance: :math:`d(Z_1, Z_2) = \\max \\{v_i\\}=v_n`.
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            Vector-valued distance
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            Finsler Infinity distance between the points
+        """
+        res = v.select(dim=-1, index=-1)
+        if keepdim:
+            return res.unsqueeze(dim=-1)
+        return res
+
+
+class FinslerMinimumEntropyMetric(SiegelMetric):
+
+    def __init__(self, rank: int):
+        super().__init__(rank)
+        if rank is None or rank < 2:
+            raise ValueError('Parameter rank has to be >= 2')
+        factor = 2
+        self.weights = factor * (rank + 1 - torch.arange(start=rank + 1, end=1, step=-1).unsqueeze(0))
+
+    def compute_metric(self, v: torch.Tensor, keepdim=True) ->torch.Tensor:
+        """Finsler distance of minimum entropy: :math:`d(Z_1, Z_2) = \\sum_{i=1}^n 2 * (n + 1 - i) * v_i`.
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            Vector-valued distance
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            Finsler distance of minimum entropy between the points
+        """
+        res = torch.sum(self.weights * v, dim=-1, keepdim=keepdim)
+        return res
+
+
+class FinslerOneMetric(SiegelMetric):
+
+    def compute_metric(self, v: torch.Tensor, keepdim=True) ->torch.Tensor:
+        """Finsler One distance: :math:`d(Z_1, Z_2) = \\sum_{i=1}^n v_i`.
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            Vector-valued distance
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            Finsler One distance between the points
+        """
+        res = torch.sum(v, dim=-1, keepdim=keepdim)
+        return res
+
+
+class FinslerWeightedSumMetric(SiegelMetric, torch.nn.Module):
+
+    def __init__(self, rank):
+        torch.nn.Module.__init__(self)
+        SiegelMetric.__init__(self, rank)
+        if rank is None or rank < 2:
+            raise ValueError("'rank' has to be >= 2")
+        self.weights = torch.nn.parameter.Parameter(torch.ones((1, rank)))
+
+    def compute_metric(self, v: torch.Tensor, keepdim=True) ->torch.Tensor:
+        """Weighted sum of vector-valued distance: :math:`d(Z_1, Z_2) = \\sum_{i=1}^n w_i * v_i`.
+
+        :math:`w_i` is a learnable parameter.
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            Vector-valued distance
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            Weighted sum of vector-valued distance between the points
+        """
+        weights = torch.relu(self.weights)
+        res = weights * v
+        res = torch.sum(res, dim=-1, keepdim=keepdim)
+        return res
+
+
+class RiemannianMetric(SiegelMetric):
+
+    def compute_metric(self, v: torch.Tensor, keepdim=False) ->torch.Tensor:
+        """Riemannian distance: :math:`d(Z_1, Z_2) = \\sqrt{\\sum_{i=1}^n v_i^2}`.
+
+        Parameters
+        ----------
+        v : torch.Tensor
+            Vector-valued distance
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            Riemannian distance between the points
+        """
+        res = torch.norm(v, dim=-1, keepdim=keepdim)
+        return res
+
+
+class SiegelMetricType(Enum):
+    """Supported metric types for Siegel Spaces."""
+    RIEMANNIAN = 'riem'
+    FINSLER_ONE = 'fone'
+    FINSLER_INFINITY = 'finf'
+    FINSLER_MINIMUM = 'fmin'
+    WEIGHTED_SUM = 'wsum'
+
+
+class SiegelMetricFactory:
+    metrics_map = {SiegelMetricType.RIEMANNIAN: RiemannianMetric, SiegelMetricType.FINSLER_ONE: FinslerOneMetric, SiegelMetricType.FINSLER_INFINITY: FinslerInfinityMetric, SiegelMetricType.FINSLER_MINIMUM: FinslerMinimumEntropyMetric, SiegelMetricType.WEIGHTED_SUM: FinslerWeightedSumMetric}
+
+    @classmethod
+    def get(cls, metric_type: SiegelMetricType, rank: int):
+        return cls.metrics_map[metric_type](rank)
+
+
+class SiegelManifold(Manifold, ABC):
+    """Abstract Manifold to work on Siegel spaces.
+
+    The implementation is aimed to work with realization of the Siegel space as
+    spaces of complex symmetric matrices.
+
+    References
+    ----------
+    - Federico López, Beatrice Pozzetti, Steve Trettel, Michael Strube, Anna Wienhard.
+      "Symmetric Spaces for Graph Embeddings: A Finsler-Riemannian Approach", 2021.
+
+    Parameters
+    ----------
+    metric: SiegelMetricType
+        one of Riemannian, Finsler One, Finsler Infinity, Finsler metric of minimum entropy, or learnable weighted sum.
+    rank: int
+        Rank of the space. Only mandatory for "fmin" and "wsum" metrics.
+    """
+    __scaling__ = Manifold.__scaling__.copy()
+    name = 'Siegel Space'
+    ndim = 2
+    reversible = False
+
+    def __init__(self, metric: SiegelMetricType=SiegelMetricType.RIEMANNIAN, rank: int=None):
+        super().__init__()
+        self.metric = SiegelMetricFactory.get(metric, rank)
+
+    def dist(self, z1: torch.Tensor, z2: torch.Tensor, *, keepdim=False) ->torch.Tensor:
+        """
+        Compute distance between two points on the manifold according to the specified metric.
+
+        Calculates the distance for the Upper Half Space Manifold (UHSM)
+        It is implemented here since the way to calculate distances in the Bounded Domain Manifold
+        requires mapping the points to the UHSM, and then applying this formula.
+
+        Parameters
+        ----------
+        z1 : torch.Tensor
+             point on the manifold
+        z2 : torch.Tensor
+             point on the manifold
+        keepdim : bool, optional
+            keep the last dim?, by default False
+
+        Returns
+        -------
+        torch.Tensor
+            distance between two points
+        """
+        x, y = z1.real, z1.imag
+        inv_sqrt_y = lalg.sym_inv_sqrtm1(y).type_as(z1)
+        z3 = inv_sqrt_y @ (z2 - x) @ inv_sqrt_y
+        w = sm.inverse_cayley_transform(z3)
+        evalues = sm.takagi_eigvals(w)
+        eps = sm.EPS[evalues.dtype]
+        assert torch.all(evalues >= 0 - eps), f'Eigenvalues: {evalues}'
+        assert torch.all(evalues <= 1.01), f'Eigenvalues: {evalues}'
+        vvd = (1 + evalues) / (1 - evalues).clamp(min=eps)
+        vvd = torch.log(vvd)
+        res = self.metric.compute_metric(vvd)
+        return res
+
+    def retr(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        approx = x + u
+        return self.projx(approx)
+
+    def _check_matrices_are_symmetric(self, x: torch.Tensor, *, atol: float=0.0001, rtol: float=1e-05):
+        """Check that matrices are symmetric.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            point on the manifold
+        atol : float
+            absolute tolerance for allclose
+        rtol : float
+            relative tolerance for allclose
+
+        Returns
+        -------
+        boolean
+            whether the points in x are complex symmetric or not
+        """
+        return sm.is_complex_symmetric(x, atol, rtol)
+
+    def projx(self, x: torch.Tensor) ->torch.Tensor:
+        return lalg.sym(x)
+
+    def proju(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        return self.egrad2rgrad(x, u)
+
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
+        return v
+
+    def expmap(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        raise NotImplementedError
+
+    def logmap(self, x: torch.Tensor, y: torch.Tensor) ->torch.Tensor:
+        raise NotImplementedError
+
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+        ok = torch.allclose(u, u.transpose(-1, -2), atol=atol, rtol=rtol)
+        if not ok:
+            return False, 'u is not symmetric (u != u.transpose) with atol={}, rtol={}'.format(atol, rtol)
+        return True, None
+
+    def extra_repr(self) ->str:
+        return f'metric={type(self.metric).__name__}'
+
+
+COMPLEX_DTYPES = {torch.complex64, torch.complex128}
+
+
+class UpperHalf(SiegelManifold):
+    """
+    Upper Half Space Manifold.
+
+    This model generalizes the upper half plane model of the hyperbolic plane.
+    Points in the space are complex symmetric matrices.
+
+    .. math::
+
+        \\mathcal{S}_n = \\{Z = X + iY \\in \\operatorname{Sym}(n, \\mathbb{C}) | Y >> 0 \\}.
+
+
+    Parameters
+    ----------
+    metric: SiegelMetricType
+        one of Riemannian, Finsler One, Finsler Infinity, Finsler metric of minimum entropy, or learnable weighted sum.
+    rank: int
+        Rank of the space. Only mandatory for "fmin" and "wsum" metrics.
+    """
+    name = 'Upper Half Space'
+
+    def __init__(self, metric: SiegelMetricType=SiegelMetricType.RIEMANNIAN, rank: int=None):
+        super().__init__(metric=metric, rank=rank)
+
+    def egrad2rgrad(self, z: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        """
+        Transform gradient computed using autodiff to the correct Riemannian gradient for the point :math:`Z`.
+
+        For a function :math:`f(Z)` on :math:`\\mathcal{S}_n`, the gradient is:
+
+        .. math::
+
+            \\operatorname{grad}_{R}(f(Z)) = Y \\cdot \\operatorname{grad}_E(f(Z)) \\cdot Y
+
+        where :math:`Y` is the imaginary part of :math:`Z`.
+
+        Parameters
+        ----------
+        z : torch.Tensor
+             point on the manifold
+        u : torch.Tensor
+             gradient to be projected
+
+        Returns
+        -------
+        torch.Tensor
+            Riemannian gradient
+        """
+        real_grad, imag_grad = u.real, u.imag
+        y = z.imag
+        real_grad = y @ real_grad @ y
+        imag_grad = y @ imag_grad @ y
+        return lalg.sym(sm.to_complex(real_grad, imag_grad))
+
+    def projx(self, z: torch.Tensor) ->torch.Tensor:
+        """
+        Project point :math:`Z` on the manifold.
+
+        In this space, we need to ensure that :math:`Y = Im(Z)` is positive definite.
+        Since the matrix Y is symmetric, it is possible to diagonalize it.
+        For a diagonal matrix the condition is just that all diagonal entries are positive,
+        so we clamp the values that are <= 0 in the diagonal to an epsilon, and then restore
+        the matrix back into non-diagonal form using the base change matrix that was obtained
+        from the diagonalization.
+
+        Parameters
+        ----------
+        z : torch.Tensor
+             point on the manifold
+
+        Returns
+        -------
+        torch.Tensor
+            Projected points
+        """
+        z = super().projx(z)
+        y = sm.positive_conjugate_projection(z.imag)
+        return sm.to_complex(z.real, y)
+
+    def inner(self, z: torch.Tensor, u: torch.Tensor, v=None, *, keepdim=False) ->torch.Tensor:
+        """
+        Inner product for tangent vectors at point :math:`Z`.
+
+        The inner product at point :math:`Z = X + iY` of the vectors :math:`U, V` is:
+
+        .. math::
+
+            g_{Z}(U, V) = \\operatorname{Tr}[ Y^{-1} U Y^{-1} \\overline{V} ]
+
+        Parameters
+        ----------
+        z : torch.Tensor
+             point on the manifold
+        u : torch.Tensor
+             tangent vector at point :math:`z`
+        v : torch.Tensor
+             tangent vector at point :math:`z`
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            inner product (broadcasted)
+        """
+        if v is None:
+            v = u
+        inv_y = sm.inverse(z.imag).type_as(z)
+        res = inv_y @ u @ inv_y @ v.conj()
+        return lalg.trace(res, keepdim=keepdim)
+
+    def _check_point_on_manifold(self, z: torch.Tensor, *, atol=1e-05, rtol=1e-05):
+        if not self._check_matrices_are_symmetric(z, atol=atol, rtol=rtol):
+            return False, 'Matrices are not symmetric'
+        ok = torch.all(sm.eigvalsh(z.imag) > 0)
+        if not ok:
+            reason = 'Imaginary part of Z is not positive definite'
+        else:
+            reason = None
+        return ok, reason
+
+    def random(self, *size, dtype=None, device=None, **kwargs) ->torch.Tensor:
+        if dtype and dtype not in COMPLEX_DTYPES:
+            raise ValueError(f'dtype must be one of {COMPLEX_DTYPES}')
+        if dtype is None:
+            dtype = torch.complex128
+        tens = 0.5 * torch.randn(*size, dtype=dtype, device=device)
+        tens = lalg.sym(tens)
+        tens.imag = lalg.expm(tens.imag)
+        return tens
+
+    def origin(self, *size: Union[int, Tuple[int]], dtype=None, device=None, seed: Optional[int]=42) ->torch.Tensor:
+        """
+        Create points at the origin of the manifold in a deterministic way.
+
+        For the Upper half model, the origin is the imaginary identity.
+        This is, a matrix whose real part is all zeros, and the identity as the imaginary part.
+
+        Parameters
+        ----------
+        size : Union[int, Tuple[int]]
+            the desired shape
+        device : torch.device
+            the desired device
+        dtype : torch.dtype
+            the desired dtype
+        seed : Optional[int]
+            A parameter controlling deterministic randomness for manifolds that do not provide ``.origin``,
+            but provide ``.random``. (default: 42)
+
+        Returns
+        -------
+        torch.Tensor
+        """
+        imag = torch.eye(*size[:-1], dtype=dtype, device=device)
+        if imag.dtype in COMPLEX_DTYPES:
+            imag = imag.real
+        return torch.complex(torch.zeros_like(imag), imag)
+
+
+EPS = {torch.float32: 0.0001, torch.float64: 1e-07}
+
+
+_sphere_doc = """
+    Sphere manifold induced by the following constraint
+
+    .. math::
+
+        \\|x\\|=1\\\\
+        x \\in \\mathbb{span}(U)
+
+    where :math:`U` can be parametrized with compliment space or intersection.
+
+    Parameters
+    ----------
+    intersection : tensor
+        shape ``(..., dim, K)``, subspace to intersect with
+    complement : tensor
+        shape ``(..., dim, K)``, subspace to compliment
+"""
+
+
+class Sphere(Manifold):
+    __doc__ = """{}
+
+    See Also
+    --------
+    :class:`SphereExact`
+    """.format(_sphere_doc)
+    ndim = 1
+    name = 'Sphere'
+    reversible = False
+
+    def __init__(self, intersection: torch.Tensor=None, complement: torch.Tensor=None):
+        super().__init__()
+        if intersection is not None and complement is not None:
+            raise TypeError("Can't initialize with both intersection and compliment arguments, please specify only one")
+        elif intersection is not None:
+            self._configure_manifold_intersection(intersection)
+        elif complement is not None:
+            self._configure_manifold_complement(complement)
+        else:
+            self._configure_manifold_no_constraints()
+        if self.projector is not None and (linalg.matrix_rank(self.projector) == 1).any():
+            raise ValueError('Manifold only consists of isolated points when subspace is 1-dimensional.')
+
+    def _check_shape(self, shape: Tuple[int], name: str) ->Union[Tuple[bool, Optional[str]], bool]:
+        ok, reason = super()._check_shape(shape, name)
+        if ok and self.projector is not None:
+            ok = len(shape) < self.projector.dim() - 1
+            if not ok:
+                reason = '`{}` should have at least {} dimensions but has {}'.format(name, self.projector.dim() - 1, len(shape))
+            ok = shape[-1] == self.projector.shape[-2]
+            if not ok:
+                reason = 'The [-2] shape of `span` does not match `{}`: {}, {}'.format(name, shape[-1], self.projector.shape[-1])
+        elif ok:
+            ok = shape[-1] != 1
+            if not ok:
+                reason = 'Manifold only consists of isolated points when subspace is 1-dimensional.'
+        return ok, reason
+
+    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Tuple[bool, Optional[str]]:
+        norm = x.norm(dim=-1)
+        ok = torch.allclose(norm, norm.new((1,)).fill_(1), atol=atol, rtol=rtol)
+        if not ok:
+            return False, '`norm(x) != 1` with atol={}, rtol={}'.format(atol, rtol)
+        ok = torch.allclose(self._project_on_subspace(x), x, atol=atol, rtol=rtol)
+        if not ok:
+            return False, '`x` is not in the subspace of the manifold with atol={}, rtol={}'.format(atol, rtol)
+        return True, None
+
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Tuple[bool, Optional[str]]:
+        inner = self.inner(x, x, u, keepdim=True)
+        ok = torch.allclose(inner, inner.new_zeros((1,)), atol=atol, rtol=rtol)
+        if not ok:
+            return False, '`<x, u> != 0` with atol={}, rtol={}'.format(atol, rtol)
+        return True, None
+
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None, *, keepdim=False) ->torch.Tensor:
+        if v is None:
+            v = u
+        inner = (u * v).sum(-1, keepdim=keepdim)
+        target_shape = broadcast_shapes(x.shape[:-1] + (1,) * keepdim, inner.shape)
+        return inner.expand(target_shape)
+
+    def projx(self, x: torch.Tensor) ->torch.Tensor:
+        x = self._project_on_subspace(x)
+        return x / x.norm(dim=-1, keepdim=True)
+
+    def proju(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        u = u - (x * u).sum(dim=-1, keepdim=True) * x
+        return self._project_on_subspace(u)
+
+    def expmap(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        norm_u = u.norm(dim=-1, keepdim=True)
+        exp = x * torch.cos(norm_u) + u * torch.sin(norm_u) / norm_u
+        retr = self.projx(x + u)
+        cond = norm_u > EPS[norm_u.dtype]
+        return torch.where(cond, exp, retr)
+
+    def retr(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        return self.projx(x + u)
+
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
+        return self.proju(y, v)
+
+    def logmap(self, x: torch.Tensor, y: torch.Tensor) ->torch.Tensor:
+        u = self.proju(x, y - x)
+        dist = self.dist(x, y, keepdim=True)
+        cond = dist.gt(EPS[x.dtype])
+        result = torch.where(cond, u * dist / u.norm(dim=-1, keepdim=True).clamp_min(EPS[x.dtype]), u)
+        return result
+
+    def dist(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False) ->torch.Tensor:
+        inner = self.inner(x, x, y, keepdim=keepdim).clamp(-1 + EPS[x.dtype], 1 - EPS[x.dtype])
+        return torch.acos(inner)
+    egrad2rgrad = proju
+
+    def _configure_manifold_complement(self, complement: torch.Tensor):
+        Q, _ = linalg.qr(complement)
+        P = -Q @ Q.transpose(-1, -2)
+        P[..., torch.arange(P.shape[-2]), torch.arange(P.shape[-2])] += 1
+        self.register_buffer('projector', P)
+
+    def _configure_manifold_intersection(self, intersection: torch.Tensor):
+        Q, _ = linalg.qr(intersection)
+        self.register_buffer('projector', Q @ Q.transpose(-1, -2))
+
+    def _configure_manifold_no_constraints(self):
+        self.register_buffer('projector', None)
+
+    def _project_on_subspace(self, x: torch.Tensor) ->torch.Tensor:
+        if self.projector is not None:
+            return x @ self.projector.transpose(-1, -2)
+        else:
+            return x
+
+    def random_uniform(self, *size, dtype=None, device=None) ->torch.Tensor:
+        """
+        Uniform random measure on Sphere manifold.
+
+        Parameters
+        ----------
+        size : shape
+            the desired output shape
+        dtype : torch.dtype
+            desired dtype
+        device : torch.device
+            desired device
+
+        Returns
+        -------
+        ManifoldTensor
+            random point on Sphere manifold
+
+        Notes
+        -----
+        In case of projector on the manifold, dtype and device are set automatically and shouldn't be provided.
+        If you provide them, they are checked to match the projector device and dtype
+        """
+        self._assert_check_shape(size2shape(*size), 'x')
+        if self.projector is None:
+            tens = torch.randn(*size, device=device, dtype=dtype)
+        else:
+            if device is not None and device != self.projector.device:
+                raise ValueError('`device` does not match the projector `device`, set the `device` argument to None')
+            if dtype is not None and dtype != self.projector.dtype:
+                raise ValueError('`dtype` does not match the projector `dtype`, set the `dtype` arguement to None')
+            tens = torch.randn(*size, device=self.projector.device, dtype=self.projector.dtype)
+        return ManifoldTensor(self.projx(tens), manifold=self)
+    random = random_uniform
+
+
+class SphereExact(Sphere):
+    __doc__ = """{}
+
+    See Also
+    --------
+    :class:`Sphere`
+
+    Notes
+    -----
+    The implementation of retraction is an exact exponential map, this retraction will be used in optimization
+    """.format(_sphere_doc)
+    retr_transp = Sphere.expmap_transp
+    transp_follow_retr = Sphere.transp_follow_expmap
+    retr = Sphere.expmap
+
+    def extra_repr(self):
+        return 'exact'
 
 
 class StereographicExact(Stereographic):
@@ -2818,8 +3800,8 @@ class Stiefel(Manifold):
         return True, None
 
     def projx(self, x: torch.Tensor) ->torch.Tensor:
-        U, _, V = linalg.batch_linalg.svd(x)
-        return torch.einsum('...ik,...jk->...ij', U, V)
+        U, _, V = linalg.svd(x, full_matrices=False)
+        return torch.einsum('...ik,...kj->...ij', U, V)
 
     def random_naive(self, *size, dtype=None, device=None) ->torch.Tensor:
         """
@@ -2870,4 +3852,212 @@ class Stiefel(Manifold):
         eye = torch.zeros(*size, dtype=dtype, device=device)
         eye[..., torch.arange(eye.shape[-1]), torch.arange(eye.shape[-1])] += 1
         return ManifoldTensor(eye, manifold=self)
+
+
+class SPDMetric(enum.Enum):
+    AIM = 'AIM'
+    SM = 'SM'
+    LEM = 'LEM'
+
+
+class SymmetricPositiveDefinite(Manifold):
+    """Manifold of symmetric positive definite matrices.
+
+    .. math::
+
+        A = A^T\\\\
+        \\langle x, A x \\rangle > 0 \\quad , \\forall x \\in \\mathrm{R}^{n}, x \\neq 0 \\\\
+        A \\in \\mathrm{R}^{n\\times m}
+
+
+    The tangent space of the manifold contains all symmetric matrices.
+
+    References
+    ----------
+    - https://github.com/pymanopt/pymanopt/blob/master/pymanopt/manifolds/psd.py
+    - https://github.com/dalab/matrix-manifolds/blob/master/graphembed/graphembed/manifolds/spd.py
+
+    Parameters
+    ----------
+    default_metric: Union[str, SPDMetric]
+        one of AIM, SM, LEM. So far only AIM is fully implemented.
+    """
+    __scaling__ = Manifold.__scaling__.copy()
+    name = 'SymmetricPositiveDefinite'
+    ndim = 2
+    reversible = False
+
+    def __init__(self, default_metric: Union[str, SPDMetric]='AIM'):
+        super().__init__()
+        self.default_metric = SPDMetric(default_metric)
+        if self.default_metric != SPDMetric.AIM:
+            warnings.warn('{} is not fully implemented and results may be not as you expect'.format(self.default_metric))
+    _dist_doc = """
+        Parameters
+        ----------
+        x : torch.Tensor
+            point on the manifold
+        y : torch.Tensor
+            point on the manifold
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            distance between two points
+        """
+
+    def _affine_invariant_metric(self, x: torch.Tensor, y: torch.Tensor, keepdim=False) ->torch.Tensor:
+        """Affine Invariant Metric distance.
+
+        {}
+
+        References
+        ----------
+        A Riemannian framework for tensor computing. 2006.
+        """.format(self._dist_doc)
+        inv_sqrt_x = linalg.sym_inv_sqrtm1(x)
+        return torch.norm(linalg.sym_logm(inv_sqrt_x @ y @ inv_sqrt_x), dim=[-1, -2], keepdim=keepdim)
+
+    def _stein_metric(self, x: torch.Tensor, y: torch.Tensor, keepdim=False) ->torch.Tensor:
+        """Stein Metric distance.
+
+        {}
+
+        References
+        ----------
+        A new metric on the manifold of kernel matrices with application to matrix geometric means. 2012.
+        """.format(self._dist_doc)
+
+        def log_det(tensor: torch.Tensor) ->torch.Tensor:
+            return torch.log(torch.det(tensor))
+        ret = log_det((x + y) * 0.5) - 0.5 * log_det(x @ y)
+        if keepdim:
+            return torch.unsqueeze(torch.unsqueeze(ret, -1), -1)
+        return ret
+
+    def _log_eucliden_metric(self, x: torch.Tensor, y: torch.Tensor, keepdim=False) ->torch.Tensor:
+        """Log-Eucliden Metric distance.
+
+        {}
+
+        References
+        ----------
+        Log‐Euclidean metrics for fast and simple calculus on diffusion tensors. 2006.
+        """.format(self._dist_doc)
+        return torch.norm(linalg.sym_logm(x) - linalg.sym_logm(y), dim=[-1, -2], keepdim=keepdim)
+
+    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+        ok = torch.allclose(x, x.transpose(-1, -2), atol=atol, rtol=rtol)
+        if not ok:
+            return False, '`x != x.transpose` with atol={}, rtol={}'.format(atol, rtol)
+        e, _ = torch.linalg.eigh(x, 'U')
+        ok = (e > -atol).min()
+        if not ok:
+            return False, 'eigenvalues of x are not all greater than 0.'
+        return True, None
+
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+        ok = torch.allclose(u, u.transpose(-1, -2), atol=atol, rtol=rtol)
+        if not ok:
+            return False, '`u != u.transpose` with atol={}, rtol={}'.format(atol, rtol)
+        return True, None
+
+    def projx(self, x: torch.Tensor) ->torch.Tensor:
+        symx = linalg.sym(x)
+        return linalg.sym_funcm(symx, torch.abs)
+
+    def proju(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        return linalg.sym(u)
+
+    def egrad2rgrad(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        return x @ self.proju(x, u) @ x.transpose(-1, -2)
+    _dist_metric = {SPDMetric.AIM: _affine_invariant_metric, SPDMetric.SM: _stein_metric, SPDMetric.LEM: _log_eucliden_metric}
+
+    def dist(self, x: torch.Tensor, y: torch.Tensor, keepdim=False) ->torch.Tensor:
+        """Compute distance between 2 points on the manifold that is the shortest path along geodesics.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            point on the manifold
+        y : torch.Tensor
+            point on the manifold
+        keepdim : bool, optional
+            keep the last dim?, by default False
+
+        Returns
+        -------
+        torch.Tensor
+            distance between two points
+
+        Raises
+        ------
+        ValueError
+            if `mode` isn't in `_dist_metric`
+        """
+        return self._dist_metric[self.default_metric](self, x, y, keepdim=keepdim)
+
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v: Optional[torch.Tensor]=None, keepdim=False) ->torch.Tensor:
+        """
+        Inner product for tangent vectors at point :math:`x`.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            point on the manifold
+        u : torch.Tensor
+            tangent vector at point :math:`x`
+        v : Optional[torch.Tensor]
+            tangent vector at point :math:`x`
+        keepdim : bool
+            keep the last dim?
+
+        Returns
+        -------
+        torch.Tensor
+            inner product (broadcasted)
+
+        Raises
+        ------
+        ValueError
+            if `keepdim` sine `torch.trace` doesn't support keepdim
+        """
+        if v is None:
+            v = u
+        inv_x = linalg.sym_invm(x)
+        ret = linalg.trace(inv_x @ u @ inv_x @ v)
+        if keepdim:
+            return torch.unsqueeze(torch.unsqueeze(ret, -1), -1)
+        return ret
+
+    def retr(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        inv_x = linalg.sym_invm(x)
+        return linalg.sym(x + u + 0.5 * u @ inv_x @ u)
+
+    def expmap(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        inv_sqrt_x, sqrt_x = linalg.sym_inv_sqrtm2(x)
+        return sqrt_x @ linalg.sym_expm(inv_sqrt_x @ u @ inv_sqrt_x) @ sqrt_x
+
+    def logmap(self, x: torch.Tensor, u: torch.Tensor) ->torch.Tensor:
+        inv_sqrt_x, sqrt_x = linalg.sym_inv_sqrtm2(x)
+        return sqrt_x @ linalg.sym_logm(inv_sqrt_x @ u @ inv_sqrt_x) @ sqrt_x
+
+    def extra_repr(self) ->str:
+        return 'default_metric={}'.format(self.default_metric)
+
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
+        inv_sqrt_x, sqrt_x = linalg.sym_inv_sqrtm2(x)
+        exp_x_y = linalg.sym_expm(0.5 * linalg.sym_logm(inv_sqrt_x @ y @ inv_sqrt_x))
+        return sqrt_x @ exp_x_y @ linalg.sym(inv_sqrt_x @ v @ inv_sqrt_x) @ exp_x_y @ sqrt_x
+
+    def random(self, *size, dtype=None, device=None, **kwargs) ->torch.Tensor:
+        tens = 0.5 * torch.randn(*size, dtype=dtype, device=device)
+        tens = linalg.sym(tens)
+        tens = linalg.sym_funcm(tens, torch.exp)
+        return tens
+
+    def origin(self, *size: Union[int, Tuple[int]], dtype=None, device=None, seed: Optional[int]=42) ->torch.Tensor:
+        return torch.diag_embed(torch.ones(*size[:-1], dtype=dtype, device=device))
 

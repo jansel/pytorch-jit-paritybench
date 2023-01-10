@@ -779,14 +779,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
-    (Conv1dPeepholeLSTM,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (Conv1dPeepholeLSTMCell,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
     (Conv1dRNN,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -811,14 +803,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
-    (Conv2dPeepholeLSTM,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
-     False),
-    (Conv2dPeepholeLSTMCell,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (Conv2dRNN,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
@@ -832,10 +816,6 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4, 4, 4])], {}),
      False),
     (Conv3dLSTM,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4, 4])], {}),
-     False),
-    (Conv3dPeepholeLSTM,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4, 4])], {}),
      False),
@@ -890,19 +870,4 @@ class Test_kamo_naoyuki_pytorch_convolutional_rnn(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
-
-    def test_016(self):
-        self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
-
-    def test_019(self):
-        self._check(*TESTCASES[19])
 

@@ -2,19 +2,29 @@ import sys
 _module = sys.modules[__name__]
 del sys
 alfred = _module
-dl = _module
+tensorrt = _module
+calibrator = _module
 common = _module
+process = _module
+wrapper = _module
+dl = _module
 coco_dataset = _module
 meta = _module
 concatenated_dataset = _module
 dataset_mixin = _module
 getter_dataset = _module
 sliceable_dataset = _module
+evaluator = _module
+yolo_evaluator = _module
 inference = _module
 image_inference = _module
+metrics = _module
+iou_loss = _module
+utils = _module
 common = _module
 utils = _module
 env = _module
+gpu = _module
 metrics = _module
 model_summary = _module
 nn = _module
@@ -38,12 +48,28 @@ geometry = _module
 kitti_fusion = _module
 nuscenes_fusion = _module
 cabinet = _module
+changesource = _module
 count_file = _module
+gtrend = _module
 license = _module
+markdown_tool = _module
+mdparse = _module
+formatters = _module
+html = _module
+pdf = _module
+simple = _module
+image_downloader = _module
+string_tools = _module
+transformers = _module
+transformer = _module
+md = _module
+www_tools = _module
 split_txt = _module
 stack_imgs = _module
+webcam = _module
 data = _module
 coco2voc = _module
+coco2yolo = _module
 convert_csv2voc = _module
 convert_cvat2voc = _module
 convert_labelone2voc = _module
@@ -52,13 +78,19 @@ eval_voc = _module
 extract_voc = _module
 gather_voclabels = _module
 labelone_view = _module
-split = _module
+mergevoc = _module
+split_coco = _module
+split_voc = _module
 txt2voc = _module
 view_coco = _module
 view_txt = _module
 view_voc = _module
+view_yolo = _module
 voc2coco = _module
 voc2yolo = _module
+yolo2voc = _module
+dltool = _module
+cal_anchors = _module
 scrap = _module
 image_scraper = _module
 scraper_images = _module
@@ -70,30 +102,65 @@ video_extractor = _module
 video_reducer = _module
 vis_kit = _module
 labelmap_pb2 = _module
+handler = _module
+models = _module
+topicgen = _module
 tests = _module
 cv_box_fancy = _module
+base_config = _module
+communicate = _module
 cv_wrapper = _module
 file_io = _module
 image_convertor = _module
 log = _module
 mana = _module
+math_utils = _module
+pprint = _module
 timer = _module
+version = _module
 vis = _module
 image = _module
+constants = _module
 det = _module
+face = _module
 get_dataset_color_map = _module
 get_dataset_label_map = _module
 mask = _module
-process = _module
+pose = _module
+pose_dataset_info = _module
+animalpose = _module
+coco = _module
+coco_wholebody = _module
+coco_wholebody_face = _module
+coco_wholebody_hand = _module
+interhand2d = _module
+interhand3d = _module
+mpii = _module
+onehand10k = _module
+pose_hand = _module
 seg = _module
+o3d_visconfig = _module
+o3dsocket = _module
+o3dwrapper = _module
+skelmodel = _module
 pointcloud = _module
 pointcloud_vis = _module
+render_p3d = _module
+render_prd = _module
 alfred_show_box_gt = _module
+chatbot = _module
+demo_o3d = _module
+demo_o3d_server = _module
+demo_p3d = _module
+demo_show_mesh = _module
 draw_3d_box_on_image = _module
 draw_3d_pointcloud = _module
+projection_cal = _module
 pykitti_test = _module
 vis_coco = _module
 setup = _module
+test_cv3d = _module
+transformations = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -115,31 +182,49 @@ xrange = range
 wraps = functools.wraps
 
 
+import numpy as np
+
+
 import torch
+
+
+from torch import nn
+
+
+import torchvision.transforms as T
+
+
+from torch.utils.dlpack import to_dlpack
+
+
+from torch.utils.dlpack import from_dlpack
+
+
+import math
+
+
+import torch.nn as nn
 
 
 import functools
 
 
+import torch.nn.functional as F
+
+
+import itertools
+
+
+import inspect
+
+
 import logging
-
-
-import numpy as np
 
 
 import torch.distributed as dist
 
 
 import random
-
-
-import torch.nn.functional as F
-
-
-from torch import nn
-
-
-import torch.nn as nn
 
 
 from torch.autograd import Variable
@@ -149,9 +234,6 @@ from collections import OrderedDict
 
 
 from torch.nn import functional as F
-
-
-import math
 
 
 import time
@@ -164,9 +246,6 @@ import torchvision
 
 
 from torch.utils import model_zoo
-
-
-import inspect
 
 
 from collections import Iterable
@@ -209,6 +288,12 @@ from typing import Optional
 
 
 from typing import Callable
+
+
+from typing import Tuple
+
+
+import matplotlib.pyplot as plt
 
 
 class Scalar(nn.Module):
@@ -403,9 +488,9 @@ class PrecisionRecall(nn.Module):
             assert self._use_sigmoid_score is True
             total_scores = torch.sigmoid(preds)
         elif self._use_sigmoid_score:
-            total_scores = torch.sigmoid(preds)[(...), 1:]
+            total_scores = torch.sigmoid(preds)[..., 1:]
         else:
-            total_scores = F.softmax(preds, dim=-1)[(...), 1:]
+            total_scores = F.softmax(preds, dim=-1)[..., 1:]
         """
         if preds.shape[self._dim] == 1:  # BCE
             scores = torch.sigmoid(preds)
@@ -543,6 +628,66 @@ class GroupNorm(torch.nn.GroupNorm):
 
     def __init__(self, num_channels, num_groups, eps=1e-05, affine=True):
         super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
+
+
+class Renderer:
+
+    def __init__(self, smpl_faces, resolution=(224, 224), orig_img=False, wireframe=False, use_gpu=True):
+        """
+        resolution is: h, w
+        """
+        self.name = 'pyrender'
+        self.resolution = resolution
+        self.faces = smpl_faces
+        self.orig_img = orig_img
+        self.wireframe = wireframe
+        self.renderer = pyrender.OffscreenRenderer(viewport_width=self.resolution[1], viewport_height=self.resolution[0], point_size=1.0)
+        self.scene = pyrender.Scene(bg_color=[0.0, 0.0, 0.0, 0.0], ambient_light=(0.3, 0.3, 0.3))
+        light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=0.8)
+        light_pose = np.eye(4)
+        light_pose[:3, 3] = [0, -1, 1]
+        self.scene.add(light, pose=light_pose)
+        light_pose[:3, 3] = [0, 1, 1]
+        self.scene.add(light, pose=light_pose)
+        light_pose[:3, 3] = [1, 1, 2]
+        self.scene.add(light, pose=light_pose)
+        None
+
+    def render(self, img, verts, cam, angle=None, axis=None, mesh_filename=None, color=[1.0, 1.0, 0.9], rotate=False):
+        mesh = trimesh.Trimesh(vertices=verts, faces=self.faces, process=False)
+        Rx = trimesh.transformations.rotation_matrix(math.radians(180), [1, 0, 0])
+        mesh.apply_transform(Rx)
+        if rotate:
+            rot = trimesh.transformations.rotation_matrix(np.radians(60), [0, 1, 0])
+            mesh.apply_transform(rot)
+        if angle and axis:
+            R = trimesh.transformations.rotation_matrix(math.radians(angle), axis)
+            mesh.apply_transform(R)
+        if mesh_filename is not None:
+            mesh.export(mesh_filename)
+        sx, sy, tx, ty = cam
+        camera = WeakPerspectiveCamera(scale=[sx, sy], translation=[tx, ty], zfar=1000.0)
+        material = pyrender.MetallicRoughnessMaterial(metallicFactor=0.0, alphaMode='OPAQUE', smooth=True, wireframe=True, roughnessFactor=1.0, emissiveFactor=(0.1, 0.1, 0.1), baseColorFactor=(color[0], color[1], color[2], 1.0))
+        mesh = pyrender.Mesh.from_trimesh(mesh, material=material)
+        mesh_node = self.scene.add(mesh, 'mesh')
+        camera_pose = np.eye(4)
+        cam_node = self.scene.add(camera, pose=camera_pose)
+        if self.wireframe:
+            render_flags = RenderFlags.RGBA | RenderFlags.ALL_WIREFRAME
+        else:
+            render_flags = RenderFlags.RGBA
+        rgb, _ = self.renderer.render(self.scene, flags=render_flags)
+        if rgb.shape[-1] == 4:
+            valid_mask = (rgb[:, :, -1] > 0)[:, :, np.newaxis]
+            output_img = rgb[:, :, :-1] * valid_mask + (1 - valid_mask) * img
+            image = output_img.astype(np.uint8)
+        else:
+            valid_mask = rgb > 0
+            output_img = rgb * valid_mask + (1 - valid_mask) * img
+            image = output_img.astype(np.uint8)
+        self.scene.remove_node(mesh_node)
+        self.scene.remove_node(cam_node)
+        return image
 
 
 import torch

@@ -1,6 +1,7 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+LRP = _module
 cnn_layer_visualization = _module
 deep_dream = _module
 generate_class_specific_samples = _module
@@ -12,6 +13,7 @@ guided_gradcam = _module
 integrated_gradients = _module
 inverted_representation = _module
 layer_activation_with_guided_backprop = _module
+layercam = _module
 misc_functions = _module
 scorecam = _module
 smooth_grad = _module
@@ -37,10 +39,16 @@ xrange = range
 wraps = functools.wraps
 
 
+import copy
+
+
 import numpy as np
 
 
 import torch
+
+
+import torch.nn as nn
 
 
 from torch.optim import Adam
@@ -58,10 +66,13 @@ from torch.autograd import Variable
 from torch.nn import ReLU
 
 
-import copy
-
-
 import matplotlib.cm as mpl_color_map
+
+
+from matplotlib.colors import ListedColormap
+
+
+from matplotlib import pyplot as plt
 
 
 import torch.nn.functional as F

@@ -777,7 +777,7 @@ TESTCASES = [
      False),
     (STNkD,
      lambda: ([], {'nfeat': 4, 'nf_conv': [4, 4], 'nf_fc': [4, 4]}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
      False),
 ]
 

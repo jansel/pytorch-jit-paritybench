@@ -178,7 +178,7 @@ def interp_surgery(lay):
         raise ValueError
     filt = upsample_filt(h)
     for i in range(m):
-        lay.weight[(i), (i), :, :].data.copy_(torch.from_numpy(filt))
+        lay.weight[i, i, :, :].data.copy_(torch.from_numpy(filt))
     return lay.weight.data
 
 
@@ -291,7 +291,7 @@ class OSVOS(nn.Module):
                     assert layer.data.shape == c_w.shape
                     layer.data = c_w
                 else:
-                    c_b = torch.from_numpy(caffe_weights['biases'][0][caffe_ind][:, (0)])
+                    c_b = torch.from_numpy(caffe_weights['biases'][0][caffe_ind][:, 0])
                     assert layer.data.shape == c_b.shape
                     layer.data = c_b
                     caffe_ind += 1

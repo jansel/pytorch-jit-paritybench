@@ -522,19 +522,19 @@ def bbox_overlaps_batch(anchors, gt_boxes):
         K = gt_boxes.size(1)
         anchors = anchors.view(1, N, 4).expand(batch_size, N, 4).contiguous()
         gt_boxes = gt_boxes[:, :, :4].contiguous()
-        gt_boxes_x = gt_boxes[:, :, (2)] - gt_boxes[:, :, (0)] + 1
-        gt_boxes_y = gt_boxes[:, :, (3)] - gt_boxes[:, :, (1)] + 1
+        gt_boxes_x = gt_boxes[:, :, 2] - gt_boxes[:, :, 0] + 1
+        gt_boxes_y = gt_boxes[:, :, 3] - gt_boxes[:, :, 1] + 1
         gt_boxes_area = (gt_boxes_x * gt_boxes_y).view(batch_size, 1, K)
-        anchors_boxes_x = anchors[:, :, (2)] - anchors[:, :, (0)] + 1
-        anchors_boxes_y = anchors[:, :, (3)] - anchors[:, :, (1)] + 1
+        anchors_boxes_x = anchors[:, :, 2] - anchors[:, :, 0] + 1
+        anchors_boxes_y = anchors[:, :, 3] - anchors[:, :, 1] + 1
         anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size, N, 1)
         gt_area_zero = (gt_boxes_x == 1) & (gt_boxes_y == 1)
         anchors_area_zero = (anchors_boxes_x == 1) & (anchors_boxes_y == 1)
         boxes = anchors.view(batch_size, N, 1, 4).expand(batch_size, N, K, 4)
         query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size, N, K, 4)
-        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
+        iw = torch.min(boxes[:, :, :, 2], query_boxes[:, :, :, 2]) - torch.max(boxes[:, :, :, 0], query_boxes[:, :, :, 0]) + 1
         iw[iw < 0] = 0
-        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
+        ih = torch.min(boxes[:, :, :, 3], query_boxes[:, :, :, 3]) - torch.max(boxes[:, :, :, 1], query_boxes[:, :, :, 1]) + 1
         ih[ih < 0] = 0
         ua = anchors_area + gt_boxes_area - iw * ih
         overlaps = iw * ih / ua
@@ -548,19 +548,19 @@ def bbox_overlaps_batch(anchors, gt_boxes):
         else:
             anchors = anchors[:, :, 1:5].contiguous()
         gt_boxes = gt_boxes[:, :, :4].contiguous()
-        gt_boxes_x = gt_boxes[:, :, (2)] - gt_boxes[:, :, (0)] + 1
-        gt_boxes_y = gt_boxes[:, :, (3)] - gt_boxes[:, :, (1)] + 1
+        gt_boxes_x = gt_boxes[:, :, 2] - gt_boxes[:, :, 0] + 1
+        gt_boxes_y = gt_boxes[:, :, 3] - gt_boxes[:, :, 1] + 1
         gt_boxes_area = (gt_boxes_x * gt_boxes_y).view(batch_size, 1, K)
-        anchors_boxes_x = anchors[:, :, (2)] - anchors[:, :, (0)] + 1
-        anchors_boxes_y = anchors[:, :, (3)] - anchors[:, :, (1)] + 1
+        anchors_boxes_x = anchors[:, :, 2] - anchors[:, :, 0] + 1
+        anchors_boxes_y = anchors[:, :, 3] - anchors[:, :, 1] + 1
         anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size, N, 1)
         gt_area_zero = (gt_boxes_x == 1) & (gt_boxes_y == 1)
         anchors_area_zero = (anchors_boxes_x == 1) & (anchors_boxes_y == 1)
         boxes = anchors.view(batch_size, N, 1, 4).expand(batch_size, N, K, 4)
         query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size, N, K, 4)
-        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
+        iw = torch.min(boxes[:, :, :, 2], query_boxes[:, :, :, 2]) - torch.max(boxes[:, :, :, 0], query_boxes[:, :, :, 0]) + 1
         iw[iw < 0] = 0
-        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
+        ih = torch.min(boxes[:, :, :, 3], query_boxes[:, :, :, 3]) - torch.max(boxes[:, :, :, 1], query_boxes[:, :, :, 1]) + 1
         ih[ih < 0] = 0
         ua = anchors_area + gt_boxes_area - iw * ih
         overlaps = iw * ih / ua
@@ -573,27 +573,27 @@ def bbox_overlaps_batch(anchors, gt_boxes):
 
 def bbox_transform_batch(ex_rois, gt_rois):
     if ex_rois.dim() == 2:
-        ex_widths = ex_rois[:, (2)] - ex_rois[:, (0)] + 1.0
-        ex_heights = ex_rois[:, (3)] - ex_rois[:, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        ex_widths = ex_rois[:, 2] - ex_rois[:, 0] + 1.0
+        ex_heights = ex_rois[:, 3] - ex_rois[:, 1] + 1.0
+        ex_ctr_x = ex_rois[:, 0] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, 1] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, 2] - gt_rois[:, :, 0] + 1.0
+        gt_heights = gt_rois[:, :, 3] - gt_rois[:, :, 1] + 1.0
+        gt_ctr_x = gt_rois[:, :, 0] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, 1] + 0.5 * gt_heights
         targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)) / ex_widths
         targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)) / ex_heights
         targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(gt_widths))
         targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).expand_as(gt_heights))
     elif ex_rois.dim() == 3:
-        ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
-        ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
-        ex_ctr_x = ex_rois[:, :, (0)] + 0.5 * ex_widths
-        ex_ctr_y = ex_rois[:, :, (1)] + 0.5 * ex_heights
-        gt_widths = gt_rois[:, :, (2)] - gt_rois[:, :, (0)] + 1.0
-        gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
-        gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
-        gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
+        ex_widths = ex_rois[:, :, 2] - ex_rois[:, :, 0] + 1.0
+        ex_heights = ex_rois[:, :, 3] - ex_rois[:, :, 1] + 1.0
+        ex_ctr_x = ex_rois[:, :, 0] + 0.5 * ex_widths
+        ex_ctr_y = ex_rois[:, :, 1] + 0.5 * ex_heights
+        gt_widths = gt_rois[:, :, 2] - gt_rois[:, :, 0] + 1.0
+        gt_heights = gt_rois[:, :, 3] - gt_rois[:, :, 1] + 1.0
+        gt_ctr_x = gt_rois[:, :, 0] + 0.5 * gt_widths
+        gt_ctr_y = gt_rois[:, :, 1] + 0.5 * gt_heights
         targets_dx = (gt_ctr_x - ex_ctr_x) / ex_widths
         targets_dy = (gt_ctr_y - ex_ctr_y) / ex_heights
         targets_dw = torch.log(gt_widths / ex_widths)
@@ -662,8 +662,8 @@ class _ProposalTargetLayer(nn.Module):
             inds = torch.nonzero(clss[b] > 0).view(-1)
             for i in range(inds.numel()):
                 ind = inds[i]
-                bbox_targets[(b), (ind), :] = bbox_target_data[(b), (ind), :]
-                bbox_inside_weights[(b), (ind), :] = self.BBOX_INSIDE_WEIGHTS
+                bbox_targets[b, ind, :] = bbox_target_data[b, ind, :]
+                bbox_inside_weights[b, ind, :] = self.BBOX_INSIDE_WEIGHTS
         return bbox_targets, bbox_inside_weights
 
     def _compute_targets_pytorch(self, ex_rois, gt_rois):
@@ -689,7 +689,7 @@ class _ProposalTargetLayer(nn.Module):
         num_boxes_per_img = overlaps.size(2)
         offset = torch.arange(0, batch_size) * gt_boxes.size(1)
         offset = offset.view(-1, 1).type_as(gt_assignment) + gt_assignment
-        labels = gt_boxes[:, :, (4)].contiguous().view(-1)[offset.view(-1),].view(batch_size, -1)
+        labels = gt_boxes[:, :, 4].contiguous().view(-1)[offset.view(-1),].view(batch_size, -1)
         labels_batch = labels.new(batch_size, rois_per_image).zero_()
         rois_batch = all_rois.new(batch_size, rois_per_image, 5).zero_()
         gt_rois_batch = all_rois.new(batch_size, rois_per_image, 5).zero_()
@@ -725,7 +725,7 @@ class _ProposalTargetLayer(nn.Module):
             if fg_rois_per_this_image < rois_per_image:
                 labels_batch[i][fg_rois_per_this_image:] = 0
             rois_batch[i] = all_rois[i][keep_inds]
-            rois_batch[(i), :, (0)] = i
+            rois_batch[i, :, 0] = i
             gt_rois_batch[i] = gt_boxes[i][gt_assignment[i][keep_inds]]
         bbox_target_data = self._compute_targets_pytorch(rois_batch[:, :, 1:5], gt_rois_batch[:, :, :4])
         bbox_targets, bbox_inside_weights = self._get_bbox_regression_labels_pytorch(bbox_target_data, labels_batch, num_classes)
@@ -742,10 +742,10 @@ def _unmap(data, count, inds, batch_size, fill=0):
     size count) """
     if data.dim() == 2:
         ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
-        ret[:, (inds)] = data
+        ret[:, inds] = data
     else:
         ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill).type_as(data)
-        ret[:, (inds), :] = data
+        ret[:, inds, :] = data
     return ret
 
 
@@ -754,8 +754,8 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     Given a vector of widths (ws) and heights (hs) around a center
     (x_ctr, y_ctr), output a set of anchors (windows).
     """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
+    ws = ws[:, np.newaxis]
+    hs = hs[:, np.newaxis]
     anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
@@ -802,7 +802,7 @@ def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.arange(3, 
     """
     base_anchor = np.array([1, 1, base_size, base_size]) - 1
     ratio_anchors = _ratio_enum(base_anchor, ratios)
-    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in xrange(ratio_anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(ratio_anchors[i, :], scales) for i in xrange(ratio_anchors.shape[0])])
     return anchors
 
 
@@ -840,9 +840,9 @@ class _AnchorTargetLayer(nn.Module):
         all_anchors = self._anchors.view(1, A, 4) + shifts.view(K, 1, 4)
         all_anchors = all_anchors.view(K * A, 4)
         total_anchors = int(K * A)
-        keep = (all_anchors[:, (0)] >= -self._allowed_border) & (all_anchors[:, (1)] >= -self._allowed_border) & (all_anchors[:, (2)] < long(im_info[0][1]) + self._allowed_border) & (all_anchors[:, (3)] < long(im_info[0][0]) + self._allowed_border)
+        keep = (all_anchors[:, 0] >= -self._allowed_border) & (all_anchors[:, 1] >= -self._allowed_border) & (all_anchors[:, 2] < long(im_info[0][1]) + self._allowed_border) & (all_anchors[:, 3] < long(im_info[0][0]) + self._allowed_border)
         inds_inside = torch.nonzero(keep).view(-1)
-        anchors = all_anchors[(inds_inside), :]
+        anchors = all_anchors[inds_inside, :]
         labels = gt_boxes.new(batch_size, inds_inside.size(0)).fill_(-1)
         bbox_inside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
         bbox_outside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
@@ -875,7 +875,7 @@ class _AnchorTargetLayer(nn.Module):
                 labels[i][disable_inds] = -1
         offset = torch.arange(0, batch_size) * gt_boxes.size(1)
         argmax_overlaps = argmax_overlaps + offset.view(batch_size, 1).type_as(argmax_overlaps)
-        bbox_targets = _compute_targets_batch(anchors, gt_boxes.view(-1, 5)[(argmax_overlaps.view(-1)), :].view(batch_size, -1, 5))
+        bbox_targets = _compute_targets_batch(anchors, gt_boxes.view(-1, 5)[argmax_overlaps.view(-1), :].view(batch_size, -1, 5))
         bbox_inside_weights[labels == 1] = cfg.TRAIN.RPN_BBOX_INSIDE_WEIGHTS[0]
         if cfg.TRAIN.RPN_POSITIVE_WEIGHT < 0:
             num_examples = torch.sum(labels[i] >= 0)
@@ -914,10 +914,10 @@ class _AnchorTargetLayer(nn.Module):
 
 
 def bbox_transform_inv(boxes, deltas, batch_size):
-    widths = boxes[:, :, (2)] - boxes[:, :, (0)] + 1.0
-    heights = boxes[:, :, (3)] - boxes[:, :, (1)] + 1.0
-    ctr_x = boxes[:, :, (0)] + 0.5 * widths
-    ctr_y = boxes[:, :, (1)] + 0.5 * heights
+    widths = boxes[:, :, 2] - boxes[:, :, 0] + 1.0
+    heights = boxes[:, :, 3] - boxes[:, :, 1] + 1.0
+    ctr_x = boxes[:, :, 0] + 0.5 * widths
+    ctr_y = boxes[:, :, 1] + 0.5 * heights
     dx = deltas[:, :, 0::4]
     dy = deltas[:, :, 1::4]
     dw = deltas[:, :, 2::4]
@@ -936,18 +936,18 @@ def bbox_transform_inv(boxes, deltas, batch_size):
 
 def clip_boxes(boxes, im_shape, batch_size):
     for i in range(batch_size):
-        boxes[(i), :, 0::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 1::4].clamp_(0, im_shape[i, 0] - 1)
-        boxes[(i), :, 2::4].clamp_(0, im_shape[i, 1] - 1)
-        boxes[(i), :, 3::4].clamp_(0, im_shape[i, 0] - 1)
+        boxes[i, :, 0::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[i, :, 1::4].clamp_(0, im_shape[i, 0] - 1)
+        boxes[i, :, 2::4].clamp_(0, im_shape[i, 1] - 1)
+        boxes[i, :, 3::4].clamp_(0, im_shape[i, 0] - 1)
     return boxes
 
 
 def nms(self, bboxes, scores, thresh=0.5):
-    x1 = bboxes[:, (0)]
-    y1 = bboxes[:, (1)]
-    x2 = bboxes[:, (2)]
-    y2 = bboxes[:, (3)]
+    x1 = bboxes[:, 0]
+    y1 = bboxes[:, 1]
+    x2 = bboxes[:, 2]
+    y2 = bboxes[:, 3]
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
     _, order = scores.sort(0, descending=True)
     keep = []
@@ -1021,17 +1021,17 @@ class _ProposalLayer(nn.Module):
             order_single = order[i]
             if pre_nms_topN > 0 and pre_nms_topN < scores_keep.numel():
                 order_single = order_single[:pre_nms_topN]
-            proposals_single = proposals_single[(order_single), :]
+            proposals_single = proposals_single[order_single, :]
             scores_single = scores_single[order_single].view(-1, 1)
             keep_idx_i = nms(torch.cat((proposals_single, scores_single), 1), nms_thresh, force_cpu=not cfg.USE_GPU_NMS)
             keep_idx_i = keep_idx_i.long().view(-1)
             if post_nms_topN > 0:
                 keep_idx_i = keep_idx_i[:post_nms_topN]
-            proposals_single = proposals_single[(keep_idx_i), :]
-            scores_single = scores_single[(keep_idx_i), :]
+            proposals_single = proposals_single[keep_idx_i, :]
+            scores_single = scores_single[keep_idx_i, :]
             num_proposal = proposals_single.size(0)
-            output[(i), :, (0)] = i
-            output[(i), :num_proposal, 1:] = proposals_single
+            output[i, :, 0] = i
+            output[i, :num_proposal, 1:] = proposals_single
         return output
 
     def backward(self, top, propagate_down, bottom):
@@ -1044,8 +1044,8 @@ class _ProposalLayer(nn.Module):
 
     def _filter_boxes(self, boxes, min_size):
         """Remove all boxes with any side smaller than min_size."""
-        ws = boxes[:, :, (2)] - boxes[:, :, (0)] + 1
-        hs = boxes[:, :, (3)] - boxes[:, :, (1)] + 1
+        ws = boxes[:, :, 2] - boxes[:, :, 0] + 1
+        hs = boxes[:, :, 3] - boxes[:, :, 1] + 1
         keep = (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size.view(-1, 1).expand_as(hs))
         return keep
 
@@ -1248,7 +1248,7 @@ class _fasterRCNN(nn.Module):
         rois = Variable(rois)
         if cfg.POOLING_MODE == 'crop':
             grid_xy = _affine_grid_gen(rois.view(-1, 5), base_feat.size()[2:], self.grid_size)
-            grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+            grid_yx = torch.stack([grid_xy.data[:, :, :, 1], grid_xy.data[:, :, :, 0]], 3).contiguous()
             pooled_feat = self.RCNN_roi_crop(base_feat, Variable(grid_yx).detach())
             if cfg.CROP_RESIZE_WITH_MAX_POOL:
                 pooled_feat = F.max_pool2d(pooled_feat, 2, 2)
@@ -1519,9 +1519,9 @@ class AffineGridGenFunction(Function):
         self.lr = lr
         self.height, self.width = height, width
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -1577,9 +1577,9 @@ class AffineGridGenV2(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -1600,15 +1600,15 @@ class CylinderGridGenV2(Module):
         self.height, self.width = height, width
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input):
         self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.grid.size())
         for i in range(input.size(0)):
-            self.batchgrid[(i), :, :, :] = self.grid
+            self.batchgrid[i, :, :, :] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         input_u = input.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output0 = self.batchgrid[:, :, :, 0:1]
@@ -1625,9 +1625,9 @@ class DenseAffineGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
@@ -1649,20 +1649,20 @@ class DenseAffine3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, input1):
         self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
@@ -1688,20 +1688,20 @@ class DenseAffine3DGridGen_rotate(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, input1, input2):
         self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
@@ -1734,20 +1734,20 @@ class Depth3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, depth, trans0, trans1, rotate):
         self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
@@ -1781,20 +1781,20 @@ class Depth3DGridGen_with_mask(Module):
         self.lr = lr
         self.ray_tracing = ray_tracing
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
-        self.grid[:, :, (2)] = np.ones([self.height, width])
+        self.grid[:, :, 0] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, 1] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
+        self.grid[:, :, 2] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
-        self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
-        self.phi = self.grid[:, :, (1)] * np.pi
+        self.theta = self.grid[:, :, 0] * np.pi / 2 + np.pi / 2
+        self.phi = self.grid[:, :, 1] * np.pi
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
         self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
-        self.grid3d[:, :, (0)] = self.x
-        self.grid3d[:, :, (1)] = self.y
-        self.grid3d[:, :, (2)] = self.z
-        self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
+        self.grid3d[:, :, 0] = self.x
+        self.grid3d[:, :, 1] = self.y
+        self.grid3d[:, :, 2] = self.z
+        self.grid3d[:, :, 3] = self.grid[:, :, 2]
 
     def forward(self, depth, trans0, trans1, rotate):
         self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
@@ -1879,7 +1879,7 @@ def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
     min_xy = np.maximum(box_a[:, :2], box_b[:2])
     inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
+    return inter[:, 0] * inter[:, 1]
 
 
 def jaccard(box_a, box_b):
@@ -1895,8 +1895,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -2004,7 +2004,7 @@ class MultiBoxLoss(nn.Module):
         conf_t = torch.LongTensor(num, num_priors)
         for idx in range(num):
             truths = targets[idx][:, :-1].data
-            labels = targets[idx][:, (-1)].data
+            labels = targets[idx][:, -1].data
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
@@ -2097,9 +2097,9 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
+                output[i, cl, :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
         flt = output.contiguous().view(num, -1, 5)
-        _, idx = flt[:, :, (0)].sort(1, descending=True)
+        _, idx = flt[:, :, 0].sort(1, descending=True)
         _, rank = idx.sort(1)
         flt[(rank < self.top_k).unsqueeze(-1).expand_as(flt)].fill_(0)
         return output
@@ -2324,15 +2324,15 @@ def _process_batch(data, size_index):
     _iou_mask[best_ious <= cfg.iou_thresh] = cfg.noobject_scale * iou_penalty
     cell_w = float(inp_size[0]) / W
     cell_h = float(inp_size[1]) / H
-    cx = (gt_boxes_b[:, (0)] + gt_boxes_b[:, (2)]) * 0.5 / cell_w
-    cy = (gt_boxes_b[:, (1)] + gt_boxes_b[:, (3)]) * 0.5 / cell_h
+    cx = (gt_boxes_b[:, 0] + gt_boxes_b[:, 2]) * 0.5 / cell_w
+    cy = (gt_boxes_b[:, 1] + gt_boxes_b[:, 3]) * 0.5 / cell_h
     cell_inds = np.floor(cy) * W + np.floor(cx)
     cell_inds = cell_inds.astype(np.int)
     target_boxes = np.empty(gt_boxes_b.shape, dtype=np.float)
-    target_boxes[:, (0)] = cx - np.floor(cx)
-    target_boxes[:, (1)] = cy - np.floor(cy)
-    target_boxes[:, (2)] = (gt_boxes_b[:, (2)] - gt_boxes_b[:, (0)]) / inp_size[0] * out_size[0]
-    target_boxes[:, (3)] = (gt_boxes_b[:, (3)] - gt_boxes_b[:, (1)]) / inp_size[1] * out_size[1]
+    target_boxes[:, 0] = cx - np.floor(cx)
+    target_boxes[:, 1] = cy - np.floor(cy)
+    target_boxes[:, 2] = (gt_boxes_b[:, 2] - gt_boxes_b[:, 0]) / inp_size[0] * out_size[0]
+    target_boxes[:, 3] = (gt_boxes_b[:, 3] - gt_boxes_b[:, 1]) / inp_size[1] * out_size[1]
     gt_boxes_resize = np.copy(gt_boxes_b)
     gt_boxes_resize[:, 0::2] *= out_size[0] / float(inp_size[0])
     gt_boxes_resize[:, 1::2] *= out_size[1] / float(inp_size[1])
@@ -2345,13 +2345,13 @@ def _process_batch(data, size_index):
             None
             continue
         a = anchor_inds[i]
-        iou_pred_cell_anchor = iou_pred_np[(cell_ind), (a), :]
-        _iou_mask[(cell_ind), (a), :] = cfg.object_scale * (1 - iou_pred_cell_anchor)
-        _ious[(cell_ind), (a), :] = ious_reshaped[cell_ind, a, i]
-        _box_mask[(cell_ind), (a), :] = cfg.coord_scale
-        target_boxes[(i), 2:4] /= anchors[a]
-        _boxes[(cell_ind), (a), :] = target_boxes[i]
-        _class_mask[(cell_ind), (a), :] = cfg.class_scale
+        iou_pred_cell_anchor = iou_pred_np[cell_ind, a, :]
+        _iou_mask[cell_ind, a, :] = cfg.object_scale * (1 - iou_pred_cell_anchor)
+        _ious[cell_ind, a, :] = ious_reshaped[cell_ind, a, i]
+        _box_mask[cell_ind, a, :] = cfg.coord_scale
+        target_boxes[i, 2:4] /= anchors[a]
+        _boxes[cell_ind, a, :] = target_boxes[i]
+        _class_mask[cell_ind, a, :] = cfg.class_scale
         _classes[cell_ind, a, gt_classes[i]] = 1.0
     return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
 
@@ -2480,10 +2480,10 @@ class RoIPool(nn.Module):
                     wend = min(data_width, max(0, wend + roi_start_w))
                     is_empty = hend <= hstart or wend <= wstart
                     if is_empty:
-                        outputs[(roi_ind), :, (ph), (pw)] = 0
+                        outputs[roi_ind, :, ph, pw] = 0
                     else:
                         data = features[batch_ind]
-                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
+                        outputs[roi_ind, :, ph, pw] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
         return outputs
 
 

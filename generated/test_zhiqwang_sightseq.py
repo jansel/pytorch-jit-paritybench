@@ -128,9 +128,6 @@ import re
 import torch.utils.checkpoint as cp
 
 
-from torchvision.models.utils import load_state_dict_from_url
-
-
 from torch import nn
 
 
