@@ -117,17 +117,33 @@ def wrap_kwargs(kwargs, device="cuda"):
     return wrapped_kwargs
 
 
+def get_skiplist(main_args):
+    if main_args.exportdir:
+        return SKIP.get("export")
+    else:
+        return SKIP.get(main_args.backend)
+
+
 SKIP_DYNAMO_EAGER = [
-    "./generated/test_lyakaap_pytorch_template.py:ASP_OC_Module",  # legacy torch.autograd.Variable
-    "./generated/test_Ha0Tang_GestureGAN.py:GANLoss",  # nn.module.__call__, no plan to support yet
-    "./generated/test_Luodian_MADAN.py:GANLoss",
-    "./generated/test_Yijunmaverick_CartoonGAN_Test_Pytorch_Torch.py:InstanceNormalization",
-    "./generated/test_amjltc295_Free_Form_Video_Inpainting.py:AdversarialLoss",
-    "./generated/test_knazeri_edge_connect.py:AdversarialLoss",
-    "./generated/test_mrzhu_cool_pix2pix_pytorch.py:GANLoss",
-    "./generated/test_richzhang_colorization_pytorch.py:GANLoss",
-    "./generated/test_yiranran_APDrawingGAN.py:GANLoss",
-    "./generated/test_youyuge34_Anime_InPainting.py:AdversarialLoss",
+    "./generated/test_DSE_MSU_DeepRobust.py:CrossEntropyWithWeightPenlty",  # nn.module.__call__, no plan to support yet
+    "./generated/test_Hawkeye_FineGrained_Hawkeye.py:CINLoss",
+    "./generated/test_NetEase_GameAI_Face2FaceRHO.py:GANLoss",
+    "./generated/test_Nixtla_neuralforecast.py:MAE",
+    "./generated/test_SijieSong_person_generation_spt.py:GANLoss",
+    "./generated/test_Vermeille_Torchelie.py:RGB",
+    "./generated/test_google_retiming.py:MaskLoss",
+    "./generated/test_junyanz_BicycleGAN.py:RecLoss",
+    "./generated/test_open_mmlab_mmdeploy.py:DummyWrapper",
+    "./generated/test_pfnet_pfrl.py:SingleSharedBias",
+    "./generated/test_pyro_ppl_pyro.py:BatchNorm",
+    "./generated/test_richzhang_colorization_pytorch.py:HuberLoss",
+    "./generated/test_zudi_lin_pytorch_connectomics.py:GANLoss",
+    "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",  # try ... catch ...
+    "./generated/test_BlinkDL_RWKV_LM.py:RWKV_ChannelMix",  # Subclasses torch.jit.ScriptModule
 ]
 SKIP_INDUCTOR = []
-SKIP = SKIP_DYNAMO_EAGER + SKIP_INDUCTOR
+SKIP = {
+    "eager": SKIP_DYNAMO_EAGER,
+    "inductor": SKIP_DYNAMO_EAGER + SKIP_INDUCTOR,
+    "export": SKIP_DYNAMO_EAGER,
+}
