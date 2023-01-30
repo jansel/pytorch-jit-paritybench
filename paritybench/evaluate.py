@@ -11,7 +11,7 @@ import torch._dynamo
 from torch.testing._internal.jit_utils import JitTestCase
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
-from paritybench.utils import import_file, subproc_wrapper, wrap_args, wrap_kwargs, SKIP
+from paritybench.utils import import_file, get_skiplist, subproc_wrapper, wrap_args, wrap_kwargs
 
 
 log = logging.getLogger(__name__)
@@ -26,8 +26,11 @@ class OnnxFailed(RuntimeError):
 class JitFailed(RuntimeError):
     pass
 
+class ExportFailed(RuntimeError):
+    pass
 
-def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, main_args):
+
+def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, main_args, path):
     """
     Run an nn.Module with torch.jit.script and see if it works the same
     as eager.
@@ -79,6 +82,28 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('export_onnx', e)
             raise OnnxFailed()
 
+    if main_args.exportdir:
+        try:
+            model_path = path.split('/')[-1].split('.')[0]
+            export_path = "./{}/{}".format(main_args.exportdir, model_path)
+
+            if not os.path.exists(export_path):
+                os.makedirs(export_path)
+
+            export_file = f"{export_path}/{nn_cls.__name__}.txt"
+
+            gm, _ = torch._dynamo.export(nn, *args, aten_graph=True)
+
+            with open(export_file, 'w') as f:
+                gm_str = gm.print_readable(print_output=False)
+                print(gm_str, file=f)
+
+        except Exception as e:
+            record_error('dynamo_export', e)
+            raise ExportFailed()
+
+        return True
+
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
@@ -104,7 +129,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     return True
 
 
-def evaluate_pyfile_subproc(tempdir: str, path: str, args, skiplist):
+def evaluate_pyfile_subproc(tempdir: str, path: str, args):
     """
     Evaluate/test all the TESTCASES in path.
 
@@ -127,7 +152,7 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args, skiplist):
         if args.filter and args.filter not in nn_cls.__name__:
             continue
 
-        if f"{path}:{nn_cls.__name__}" in skiplist:
+        if f"{path}:{nn_cls.__name__}" in get_skiplist(args):
             continue
 
         stats["tests"] += 1
@@ -138,7 +163,8 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args, skiplist):
                 get_init_args,
                 get_forward_args,
                 partial(errors.record, module=repro),
-                main_args=args)
+                main_args=args,
+                path=path)
             stats["tests_passed"] += int(rv)
         except JitFailed:
             pass
@@ -173,7 +199,7 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
     :param fn: inner function to run the tests
     :param jobs: how many processes to run at once
     """
-    feval = partial(evaluate_pyfile_subproc, args=args, skiplist=SKIP)
+    feval = partial(evaluate_pyfile_subproc, args=args)
     fn = partial(subproc_wrapper, fn=feval)
     start = time.time()
     stats = Stats()
