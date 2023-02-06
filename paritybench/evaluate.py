@@ -155,6 +155,11 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
         if f"{path}:{nn_cls.__name__}" in get_skiplist(args):
             continue
 
+        # nn.module doesn't have `forward` function(e.g, has __call__ instead).
+        # dynamo doesn't plan to support it yet.
+        if nn_cls.forward.__name__ == "_forward_unimplemented":
+            continue
+
         stats["tests"] += 1
         repro = f"{nn_cls.__name__} # pytest {path} -k test_{index:03d}"
         try:
@@ -226,4 +231,4 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
         columns=["total", "passing", "score"],
     )
 
-    log.info(f"TOTAL: {stats}, took {time.time() - start:.1f} seconds\n\nTorchScript ParityBench:\n{report}")
+    log.info(f"TOTAL: {stats}, took {time.time() - start:.1f} seconds\n\n{args.compile_mode} {args.backend} ParityBench:\n{report}")
