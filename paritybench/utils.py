@@ -125,19 +125,6 @@ def get_skiplist(main_args):
 
 
 SKIP_DYNAMO_EAGER = [
-    "./generated/test_DSE_MSU_DeepRobust.py:CrossEntropyWithWeightPenlty",  # nn.module.__call__, no plan to support yet
-    "./generated/test_Hawkeye_FineGrained_Hawkeye.py:CINLoss",
-    "./generated/test_NetEase_GameAI_Face2FaceRHO.py:GANLoss",
-    "./generated/test_Nixtla_neuralforecast.py:MAE",
-    "./generated/test_SijieSong_person_generation_spt.py:GANLoss",
-    "./generated/test_Vermeille_Torchelie.py:RGB",
-    "./generated/test_google_retiming.py:MaskLoss",
-    "./generated/test_junyanz_BicycleGAN.py:RecLoss",
-    "./generated/test_open_mmlab_mmdeploy.py:DummyWrapper",
-    "./generated/test_pfnet_pfrl.py:SingleSharedBias",
-    "./generated/test_pyro_ppl_pyro.py:BatchNorm",
-    "./generated/test_richzhang_colorization_pytorch.py:HuberLoss",
-    "./generated/test_zudi_lin_pytorch_connectomics.py:GANLoss",
     "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",  # try ... catch ...
     "./generated/test_BlinkDL_RWKV_LM.py:RWKV_ChannelMix",  # Subclasses torch.jit.ScriptModule
 ]
