@@ -118,7 +118,7 @@ def wrap_kwargs(kwargs, device="cuda"):
 
 
 def get_skiplist(main_args):
-    if main_args.exportdir:
+    if main_args.compile_mode == 'export':
         return SKIP.get("export")
     else:
         return SKIP.get(main_args.backend)
