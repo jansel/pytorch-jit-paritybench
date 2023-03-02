@@ -26,9 +26,6 @@ class OnnxFailed(RuntimeError):
 class JitFailed(RuntimeError):
     pass
 
-class ExportFailed(RuntimeError):
-    pass
-
 
 def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, main_args, path):
     """
@@ -82,35 +79,22 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('export_onnx', e)
             raise OnnxFailed()
 
-    if main_args.exportdir:
-        try:
-            model_path = path.split('/')[-1].split('.')[0]
-            export_path = "./{}/{}".format(main_args.exportdir, model_path)
-
-            if not os.path.exists(export_path):
-                os.makedirs(export_path)
-
-            export_file = f"{export_path}/{nn_cls.__name__}.txt"
-
-            gm, _ = torch._dynamo.export(nn, *args, aten_graph=True)
-
-            with open(export_file, 'w') as f:
-                gm_str = gm.print_readable(print_output=False)
-                print(gm_str, file=f)
-
-        except Exception as e:
-            record_error('dynamo_export', e)
-            raise ExportFailed()
-
-        return True
-
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
         else:
             torch._dynamo.reset()
-            compiled_model = torch._dynamo.optimize(main_args.backend)(nn)
-            result3 = compiled_model(*args, **kwargs)
+            if main_args.compile_mode == 'dynamo':
+                compiled_model = torch._dynamo.optimize(
+                    main_args.backend, nopython=main_args.fullgraph
+                )(nn)
+                result3 = compiled_model(*args, **kwargs)
+            else:
+                # main_args.compile_mode == 'export'
+                exported_model, _ = torch._dynamo.export(
+                    nn, *args, aten_graph=True, **kwargs
+                )
+                result3 = exported_model(*args, **kwargs)
 
     except Exception as e:
         record_error('run_jit {} '.format(main_args.compile_mode), e)
