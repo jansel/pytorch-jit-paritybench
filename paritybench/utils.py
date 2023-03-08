@@ -125,8 +125,18 @@ def get_skiplist(main_args):
 
 
 SKIP_DYNAMO_EAGER = [
-    "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",  # try ... catch ...
+    "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",
+    "./generated/test_SforAiDl_vformer.py:PVTClassification",
+    "./generated/test_SforAiDl_vformer.py:PVTDetection",  # try ... catch ...
     "./generated/test_BlinkDL_RWKV_LM.py:RWKV_ChannelMix",  # Subclasses torch.jit.ScriptModule
+    "./generated/test_facebookresearch_pytext.py:ContextualTokenEmbedding",
+    "./generated/test_pytorch_translate.py:OutputProjection",  # shape_as_tensor
+    "./generated/test_ludwig_ai_ludwig.py:_VectorPreprocessing",
+    "./generated/test_ludwig_ai_ludwig.py:_DatePreprocessing",  # torch.jit.isinstance
+    "./generated/test_adapter_hub_adapter_transformers.py:GPTNeoSelfAttention", # torch.where with dtype torch.uint8 is now deprecated.
+    "./generated/test_ZhaoJ9014_face_evoLVe.py:AM_Softmax",
+    "./generated/test_ZhaoJ9014_face_evoLVe.py:CircleLoss",
+    "./generated/test_fangchangma_self_supervised_depth_completion.py:PhotometricLoss",  # torch.index with dtype torch.uint8 is now deprecated.
 ]
 SKIP_INDUCTOR = []
 SKIP = {
