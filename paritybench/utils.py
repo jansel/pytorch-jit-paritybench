@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import platform
 import re
 import resource
 import signal
@@ -43,8 +44,14 @@ def call_with_timeout(fn, args, kwargs=None, timeout=10):
 
 
 def call_with_timeout_subproc(fn, args, kwargs, return_pipe):
-    _, hard = resource.getrlimit(resource.RLIMIT_AS)
-    resource.setrlimit(resource.RLIMIT_AS, (int(os.environ.get("RLIMIT_AS_GB", 10)) * 1024 ** 3, hard))
+    use_rlimit = (
+        os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 1024 ** 3 < 1000
+        if platform.system() == "Linux"
+        else True
+    )
+    if use_rlimit:
+        _, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (int(os.environ.get("RLIMIT_AS_GB", 10)) * 1024 ** 3, hard))
     try:
         result = fn(*args, *kwargs)
         return_pipe.send(result)
