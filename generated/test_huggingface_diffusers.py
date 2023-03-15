@@ -381,7 +381,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, importlib, inspect, itertools, logging, math, matplotlib, numbers, numpy, os, pandas, queue, random, re, scipy, sklearn, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import operator as op
+from dataclasses import dataclass
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -407,6 +409,9 @@ from typing import Union
 
 
 import torch
+
+
+import os
 
 
 from typing import Dict
@@ -448,6 +453,9 @@ import re
 from torchvision import transforms as tfms
 
 
+import importlib
+
+
 from typing import Any
 
 
@@ -473,6 +481,9 @@ from torch.utils.data import Dataset
 
 
 from copy import deepcopy
+
+
+import os.path as osp
 
 
 from torchvision.datasets.utils import download_url
@@ -529,6 +540,9 @@ from typing import Iterable
 from uuid import uuid4
 
 
+import importlib.util
+
+
 from collections import OrderedDict
 
 
@@ -564,7 +578,7 @@ class DiffusionUncond(nn.Module):
 
 class AttnProcsLayers(torch.nn.Module):
 
-    def __init__(self, state_dict: Dict[str, torch.Tensor]):
+    def __init__(self, state_dict: 'Dict[str, torch.Tensor]'):
         super().__init__()
         self.layers = torch.nn.ModuleList(state_dict.values())
         self.mapping = {k: v for k, v in enumerate(state_dict.keys())}
@@ -589,6 +603,9 @@ class AttnProcsLayers(torch.nn.Module):
         self._register_load_state_dict_pre_hook(map_from, with_module=True)
 
 
+_xformers_available = importlib.util.find_spec('xformers') is not None
+
+
 def is_xformers_available():
     return _xformers_available
 
@@ -609,7 +626,7 @@ class AttentionBlock(nn.Module):
         eps (`float`, *optional*, defaults to 1e-5): The epsilon value to use for group norm.
     """
 
-    def __init__(self, channels: int, num_head_channels: Optional[int]=None, norm_num_groups: int=32, rescale_output_factor: float=1.0, eps: float=1e-05):
+    def __init__(self, channels: 'int', num_head_channels: 'Optional[int]'=None, norm_num_groups: 'int'=32, rescale_output_factor: 'float'=1.0, eps: 'float'=1e-05):
         super().__init__()
         self.channels = channels
         self.num_heads = channels // num_head_channels if num_head_channels is not None else 1
@@ -637,7 +654,7 @@ class AttentionBlock(nn.Module):
         tensor = tensor.permute(0, 2, 1, 3).reshape(batch_size // head_size, seq_len, dim * head_size)
         return tensor
 
-    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable]=None):
+    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: 'bool', attention_op: 'Optional[Callable]'=None):
         if use_memory_efficient_attention_xformers:
             if not is_xformers_available():
                 raise ModuleNotFoundError('Refer to https://github.com/facebookresearch/xformers for more information on how to install xformers', name='xformers')
@@ -734,7 +751,7 @@ class LabelEmbedding(nn.Module):
 
 class TimestepEmbedding(nn.Module):
 
-    def __init__(self, in_channels: int, time_embed_dim: int, act_fn: str='silu', out_dim: int=None, post_act_fn: Optional[str]=None, cond_proj_dim=None):
+    def __init__(self, in_channels: 'int', time_embed_dim: 'int', act_fn: 'str'='silu', out_dim: 'int'=None, post_act_fn: 'Optional[str]'=None, cond_proj_dim=None):
         super().__init__()
         self.linear_1 = nn.Linear(in_channels, time_embed_dim)
         if cond_proj_dim is not None:
@@ -777,7 +794,7 @@ class TimestepEmbedding(nn.Module):
         return sample
 
 
-def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, flip_sin_to_cos: bool=False, downscale_freq_shift: float=1, scale: float=1, max_period: int=10000):
+def get_timestep_embedding(timesteps: 'torch.Tensor', embedding_dim: 'int', flip_sin_to_cos: 'bool'=False, downscale_freq_shift: 'float'=1, scale: 'float'=1, max_period: 'int'=10000):
     """
     This matches the implementation in Denoising Diffusion Probabilistic Models: Create sinusoidal timestep embeddings.
 
@@ -803,7 +820,7 @@ def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, flip_sin
 
 class Timesteps(nn.Module):
 
-    def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float):
+    def __init__(self, num_channels: 'int', flip_sin_to_cos: 'bool', downscale_freq_shift: 'float'):
         super().__init__()
         self.num_channels = num_channels
         self.flip_sin_to_cos = flip_sin_to_cos
@@ -849,6 +866,91 @@ class AdaLayerNormZero(nn.Module):
         return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
 
 
+class AttnProcessor2_0:
+
+    def __init__(self):
+        if not hasattr(F, 'scaled_dot_product_attention'):
+            raise ImportError('AttnProcessor2_0 requires PyTorch 2.0, to use it, please upgrade PyTorch to 2.0.')
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        inner_dim = hidden_states.shape[-1]
+        if attention_mask is not None:
+            attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
+        query = attn.to_q(hidden_states)
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.cross_attention_norm:
+            encoder_hidden_states = attn.norm_cross(encoder_hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+        head_dim = inner_dim // attn.heads
+        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        hidden_states = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False)
+        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+        hidden_states = hidden_states
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        return hidden_states
+
+
+class CrossAttnAddedKVProcessor:
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+        residual = hidden_states
+        hidden_states = hidden_states.view(hidden_states.shape[0], hidden_states.shape[1], -1).transpose(1, 2)
+        batch_size, sequence_length, _ = hidden_states.shape
+        encoder_hidden_states = encoder_hidden_states.transpose(1, 2)
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+        query = attn.to_q(hidden_states)
+        query = attn.head_to_batch_dim(query)
+        key = attn.to_k(hidden_states)
+        value = attn.to_v(hidden_states)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+        encoder_hidden_states_key_proj = attn.add_k_proj(encoder_hidden_states)
+        encoder_hidden_states_value_proj = attn.add_v_proj(encoder_hidden_states)
+        encoder_hidden_states_key_proj = attn.head_to_batch_dim(encoder_hidden_states_key_proj)
+        encoder_hidden_states_value_proj = attn.head_to_batch_dim(encoder_hidden_states_value_proj)
+        key = torch.cat([encoder_hidden_states_key_proj, key], dim=1)
+        value = torch.cat([encoder_hidden_states_value_proj, value], dim=1)
+        attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        hidden_states = hidden_states.transpose(-1, -2).reshape(residual.shape)
+        hidden_states = hidden_states + residual
+        return hidden_states
+
+
+class CrossAttnProcessor:
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        query = attn.to_q(hidden_states)
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.cross_attention_norm:
+            encoder_hidden_states = attn.norm_cross(encoder_hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+        query = attn.head_to_batch_dim(query)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+        attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        return hidden_states
+
+
 class LoRALinearLayer(nn.Module):
 
     def __init__(self, in_features, out_features, rank=4):
@@ -868,12 +970,72 @@ class LoRALinearLayer(nn.Module):
         return up_hidden_states
 
 
+class LoRACrossAttnProcessor(nn.Module):
+
+    def __init__(self, hidden_size, cross_attention_dim=None, rank=4):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.cross_attention_dim = cross_attention_dim
+        self.rank = rank
+        self.to_q_lora = LoRALinearLayer(hidden_size, hidden_size, rank)
+        self.to_k_lora = LoRALinearLayer(cross_attention_dim or hidden_size, hidden_size, rank)
+        self.to_v_lora = LoRALinearLayer(cross_attention_dim or hidden_size, hidden_size, rank)
+        self.to_out_lora = LoRALinearLayer(hidden_size, hidden_size, rank)
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None, scale=1.0):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        query = attn.to_q(hidden_states) + scale * self.to_q_lora(hidden_states)
+        query = attn.head_to_batch_dim(query)
+        encoder_hidden_states = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
+        key = attn.to_k(encoder_hidden_states) + scale * self.to_k_lora(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states) + scale * self.to_v_lora(encoder_hidden_states)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+        attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states) + scale * self.to_out_lora(hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        return hidden_states
+
+
+class LoRAXFormersCrossAttnProcessor(nn.Module):
+
+    def __init__(self, hidden_size, cross_attention_dim, rank=4, attention_op: 'Optional[Callable]'=None):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.cross_attention_dim = cross_attention_dim
+        self.rank = rank
+        self.attention_op = attention_op
+        self.to_q_lora = LoRALinearLayer(hidden_size, hidden_size, rank)
+        self.to_k_lora = LoRALinearLayer(cross_attention_dim or hidden_size, hidden_size, rank)
+        self.to_v_lora = LoRALinearLayer(cross_attention_dim or hidden_size, hidden_size, rank)
+        self.to_out_lora = LoRALinearLayer(hidden_size, hidden_size, rank)
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None, scale=1.0):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        query = attn.to_q(hidden_states) + scale * self.to_q_lora(hidden_states)
+        query = attn.head_to_batch_dim(query).contiguous()
+        encoder_hidden_states = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
+        key = attn.to_k(encoder_hidden_states) + scale * self.to_k_lora(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states) + scale * self.to_v_lora(encoder_hidden_states)
+        key = attn.head_to_batch_dim(key).contiguous()
+        value = attn.head_to_batch_dim(value).contiguous()
+        hidden_states = xformers.ops.memory_efficient_attention(query, key, value, attn_bias=attention_mask, op=self.attention_op, scale=attn.scale)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states) + scale * self.to_out_lora(hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        return hidden_states
+
+
 class SlicedAttnAddedKVProcessor:
 
     def __init__(self, slice_size):
         self.slice_size = slice_size
 
-    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+    def __call__(self, attn: "'CrossAttention'", hidden_states, encoder_hidden_states=None, attention_mask=None):
         residual = hidden_states
         hidden_states = hidden_states.view(hidden_states.shape[0], hidden_states.shape[1], -1).transpose(1, 2)
         encoder_hidden_states = encoder_hidden_states.transpose(1, 2)
@@ -909,6 +1071,68 @@ class SlicedAttnAddedKVProcessor:
         hidden_states = attn.to_out[1](hidden_states)
         hidden_states = hidden_states.transpose(-1, -2).reshape(residual.shape)
         hidden_states = hidden_states + residual
+        return hidden_states
+
+
+class SlicedAttnProcessor:
+
+    def __init__(self, slice_size):
+        self.slice_size = slice_size
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        query = attn.to_q(hidden_states)
+        dim = query.shape[-1]
+        query = attn.head_to_batch_dim(query)
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.cross_attention_norm:
+            encoder_hidden_states = attn.norm_cross(encoder_hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+        batch_size_attention, query_tokens, _ = query.shape
+        hidden_states = torch.zeros((batch_size_attention, query_tokens, dim // attn.heads), device=query.device, dtype=query.dtype)
+        for i in range(batch_size_attention // self.slice_size):
+            start_idx = i * self.slice_size
+            end_idx = (i + 1) * self.slice_size
+            query_slice = query[start_idx:end_idx]
+            key_slice = key[start_idx:end_idx]
+            attn_mask_slice = attention_mask[start_idx:end_idx] if attention_mask is not None else None
+            attn_slice = attn.get_attention_scores(query_slice, key_slice, attn_mask_slice)
+            attn_slice = torch.bmm(attn_slice, value[start_idx:end_idx])
+            hidden_states[start_idx:end_idx] = attn_slice
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+        return hidden_states
+
+
+class XFormersCrossAttnProcessor:
+
+    def __init__(self, attention_op: 'Optional[Callable]'=None):
+        self.attention_op = attention_op
+
+    def __call__(self, attn: 'CrossAttention', hidden_states, encoder_hidden_states=None, attention_mask=None):
+        batch_size, sequence_length, _ = hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+        query = attn.to_q(hidden_states)
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.cross_attention_norm:
+            encoder_hidden_states = attn.norm_cross(encoder_hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+        query = attn.head_to_batch_dim(query).contiguous()
+        key = attn.head_to_batch_dim(key).contiguous()
+        value = attn.head_to_batch_dim(value).contiguous()
+        hidden_states = xformers.ops.memory_efficient_attention(query, key, value, attn_bias=attention_mask, op=self.attention_op, scale=attn.scale)
+        hidden_states = hidden_states
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
         return hidden_states
 
 
@@ -961,7 +1185,7 @@ class CrossAttention(nn.Module):
             Set to `True` for the query, key, and value linear layers to contain a bias parameter.
     """
 
-    def __init__(self, query_dim: int, cross_attention_dim: Optional[int]=None, heads: int=8, dim_head: int=64, dropout: float=0.0, bias=False, upcast_attention: bool=False, upcast_softmax: bool=False, cross_attention_norm: bool=False, added_kv_proj_dim: Optional[int]=None, norm_num_groups: Optional[int]=None, out_bias: bool=True, scale_qk: bool=True, processor: Optional['AttnProcessor']=None):
+    def __init__(self, query_dim: 'int', cross_attention_dim: 'Optional[int]'=None, heads: 'int'=8, dim_head: 'int'=64, dropout: 'float'=0.0, bias=False, upcast_attention: 'bool'=False, upcast_softmax: 'bool'=False, cross_attention_norm: 'bool'=False, added_kv_proj_dim: 'Optional[int]'=None, norm_num_groups: 'Optional[int]'=None, out_bias: 'bool'=True, scale_qk: 'bool'=True, processor: "Optional['AttnProcessor']"=None):
         super().__init__()
         inner_dim = dim_head * heads
         cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
@@ -991,7 +1215,7 @@ class CrossAttention(nn.Module):
             processor = AttnProcessor2_0() if hasattr(F, 'scaled_dot_product_attention') and scale_qk else CrossAttnProcessor()
         self.set_processor(processor)
 
-    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable]=None):
+    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: 'bool', attention_op: 'Optional[Callable]'=None):
         is_lora = hasattr(self, 'processor') and isinstance(self.processor, (LoRACrossAttnProcessor, LoRAXFormersCrossAttnProcessor))
         if use_memory_efficient_attention_xformers:
             if self.added_kv_proj_dim is not None:
@@ -1032,7 +1256,7 @@ class CrossAttention(nn.Module):
             processor = CrossAttnProcessor()
         self.set_processor(processor)
 
-    def set_processor(self, processor: 'AttnProcessor'):
+    def set_processor(self, processor: "'AttnProcessor'"):
         if hasattr(self, 'processor') and isinstance(self.processor, torch.nn.Module) and not isinstance(processor, torch.nn.Module):
             logger.info(f'You are removing possibly trained weights of {self.processor} with {processor}')
             self._modules.pop('processor')
@@ -1099,7 +1323,7 @@ class ApproximateGELU(nn.Module):
     For more details, see section 2: https://arxiv.org/abs/1606.08415
     """
 
-    def __init__(self, dim_in: int, dim_out: int):
+    def __init__(self, dim_in: 'int', dim_out: 'int'):
         super().__init__()
         self.proj = nn.Linear(dim_in, dim_out)
 
@@ -1117,7 +1341,7 @@ class GEGLU(nn.Module):
         dim_out (`int`): The number of channels in the output.
     """
 
-    def __init__(self, dim_in: int, dim_out: int):
+    def __init__(self, dim_in: 'int', dim_out: 'int'):
         super().__init__()
         self.proj = nn.Linear(dim_in, dim_out * 2)
 
@@ -1136,7 +1360,7 @@ class GELU(nn.Module):
     GELU activation function with tanh approximation support with `approximate="tanh"`.
     """
 
-    def __init__(self, dim_in: int, dim_out: int, approximate: str='none'):
+    def __init__(self, dim_in: 'int', dim_out: 'int', approximate: 'str'='none'):
         super().__init__()
         self.proj = nn.Linear(dim_in, dim_out)
         self.approximate = approximate
@@ -1165,7 +1389,7 @@ class FeedForward(nn.Module):
         final_dropout (`bool` *optional*, defaults to False): Apply a final dropout.
     """
 
-    def __init__(self, dim: int, dim_out: Optional[int]=None, mult: int=4, dropout: float=0.0, activation_fn: str='geglu', final_dropout: bool=False):
+    def __init__(self, dim: 'int', dim_out: 'Optional[int]'=None, mult: 'int'=4, dropout: 'float'=0.0, activation_fn: 'str'='geglu', final_dropout: 'bool'=False):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
@@ -1207,7 +1431,7 @@ class BasicTransformerBlock(nn.Module):
             obj: `bool`, *optional*, defaults to `False`): Configure if the attentions should contain a bias parameter.
     """
 
-    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, dropout=0.0, cross_attention_dim: Optional[int]=None, activation_fn: str='geglu', num_embeds_ada_norm: Optional[int]=None, attention_bias: bool=False, only_cross_attention: bool=False, upcast_attention: bool=False, norm_elementwise_affine: bool=True, norm_type: str='layer_norm', final_dropout: bool=False):
+    def __init__(self, dim: 'int', num_attention_heads: 'int', attention_head_dim: 'int', dropout=0.0, cross_attention_dim: 'Optional[int]'=None, activation_fn: 'str'='geglu', num_embeds_ada_norm: 'Optional[int]'=None, attention_bias: 'bool'=False, only_cross_attention: 'bool'=False, upcast_attention: 'bool'=False, norm_elementwise_affine: 'bool'=True, norm_type: 'str'='layer_norm', final_dropout: 'bool'=False):
         super().__init__()
         self.only_cross_attention = only_cross_attention
         self.use_ada_layer_norm_zero = num_embeds_ada_norm is not None and norm_type == 'ada_norm_zero'
@@ -1263,7 +1487,7 @@ class AdaGroupNorm(nn.Module):
     GroupNorm layer modified to incorporate timestep embeddings.
     """
 
-    def __init__(self, embedding_dim: int, out_dim: int, num_groups: int, act_fn: Optional[str]=None, eps: float=1e-05):
+    def __init__(self, embedding_dim: 'int', out_dim: 'int', num_groups: 'int', act_fn: 'Optional[str]'=None, eps: 'float'=1e-05):
         super().__init__()
         self.num_groups = num_groups
         self.eps = eps
@@ -1305,7 +1529,7 @@ class ControlNetConditioningEmbedding(nn.Module):
     model) to encode image-space conditions ... into feature maps ..."
     """
 
-    def __init__(self, conditioning_embedding_channels: int, conditioning_channels: int=3, block_out_channels: Tuple[int]=(16, 32, 96, 256)):
+    def __init__(self, conditioning_embedding_channels: 'int', conditioning_channels: 'int'=3, block_out_channels: 'Tuple[int]'=(16, 32, 96, 256)):
         super().__init__()
         self.conv_in = nn.Conv2d(conditioning_channels, block_out_channels[0], kernel_size=3, padding=1)
         self.blocks = nn.ModuleList([])
@@ -1403,28 +1627,52 @@ install wandb`
 """
 
 
+_compel_available = importlib.util.find_spec('compel')
+
+
+_tensorboard_available = importlib.util.find_spec('tensorboard')
+
+
 def is_flax_available():
     return _flax_available
+
+
+_inflect_available = importlib.util.find_spec('inflect') is not None
 
 
 def is_inflect_available():
     return _inflect_available
 
 
+_k_diffusion_available = importlib.util.find_spec('k_diffusion') is not None
+
+
 def is_k_diffusion_available():
     return _k_diffusion_available
+
+
+_librosa_available = importlib.util.find_spec('librosa') is not None
 
 
 def is_librosa_available():
     return _librosa_available
 
 
+_omegaconf_available = importlib.util.find_spec('omegaconf') is not None
+
+
 def is_omegaconf_available():
     return _omegaconf_available
 
 
+_onnx_available = importlib.util.find_spec('onnxruntime') is not None
+
+
 def is_onnx_available():
     return _onnx_available
+
+
+_scipy_available = importlib.util.find_spec('scipy') is not None
 
 
 def is_scipy_available():
@@ -1435,19 +1683,53 @@ def is_torch_available():
     return _torch_available
 
 
+_transformers_available = importlib.util.find_spec('transformers') is not None
+
+
 def is_transformers_available():
     return _transformers_available
+
+
+_unidecode_available = importlib.util.find_spec('unidecode') is not None
 
 
 def is_unidecode_available():
     return _unidecode_available
 
 
+_wandb_available = importlib.util.find_spec('wandb') is not None
+
+
 def is_wandb_available():
     return _wandb_available
 
 
-def is_transformers_version(operation: str, version: str):
+BACKENDS_MAPPING = OrderedDict([('flax', (is_flax_available, FLAX_IMPORT_ERROR)), ('inflect', (is_inflect_available, INFLECT_IMPORT_ERROR)), ('onnx', (is_onnx_available, ONNX_IMPORT_ERROR)), ('scipy', (is_scipy_available, SCIPY_IMPORT_ERROR)), ('torch', (is_torch_available, PYTORCH_IMPORT_ERROR)), ('transformers', (is_transformers_available, TRANSFORMERS_IMPORT_ERROR)), ('unidecode', (is_unidecode_available, UNIDECODE_IMPORT_ERROR)), ('librosa', (is_librosa_available, LIBROSA_IMPORT_ERROR)), ('k_diffusion', (is_k_diffusion_available, K_DIFFUSION_IMPORT_ERROR)), ('wandb', (is_wandb_available, WANDB_IMPORT_ERROR)), ('omegaconf', (is_omegaconf_available, OMEGACONF_IMPORT_ERROR)), ('tensorboard', (_tensorboard_available, TENSORBOARD_IMPORT_ERROR)), ('compel', (_compel_available, COMPEL_IMPORT_ERROR))])
+
+
+STR_OPERATION_TO_FUNC = {'>': op.gt, '>=': op.ge, '==': op.eq, '!=': op.ne, '<=': op.le, '<': op.lt}
+
+
+def compare_versions(library_or_version: 'Union[str, Version]', operation: 'str', requirement_version: 'str'):
+    """
+    Args:
+    Compares a library version to some requirement using a given operation.
+        library_or_version (`str` or `packaging.version.Version`):
+            A library name or a version to check.
+        operation (`str`):
+            A string representation of an operator, such as `">"` or `"<="`.
+        requirement_version (`str`):
+            The version to compare the library version against
+    """
+    if operation not in STR_OPERATION_TO_FUNC.keys():
+        raise ValueError(f'`operation` must be one of {list(STR_OPERATION_TO_FUNC.keys())}, received {operation}')
+    operation = STR_OPERATION_TO_FUNC[operation]
+    if isinstance(library_or_version, str):
+        library_or_version = parse(importlib_metadata.version(library_or_version))
+    return operation(library_or_version, parse(requirement_version))
+
+
+def is_transformers_version(operation: 'str', version: 'str'):
     """
     Args:
     Compares the current Transformers version to a given reference with an operation.
@@ -1566,6 +1848,17 @@ class BaseOutput(OrderedDict):
         return tuple(self[k] for k in self.keys())
 
 
+@dataclass
+class Transformer2DModelOutput(BaseOutput):
+    """
+    Args:
+        sample (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)` or `(batch size, num_vector_embeds - 1, num_latent_pixels)` if [`Transformer2DModel`] is discrete):
+            Hidden states conditioned on `encoder_hidden_states` input. If discrete, returns probability distributions
+            for the unnoised latent pixels.
+    """
+    sample: 'torch.FloatTensor'
+
+
 class DualTransformer2DModel(nn.Module):
     """
     Dual transformer wrapper that combines two `Transformer2DModel`s for mixed inference.
@@ -1593,14 +1886,14 @@ class DualTransformer2DModel(nn.Module):
             Configure if the TransformerBlocks' attention should contain a bias parameter.
     """
 
-    def __init__(self, num_attention_heads: int=16, attention_head_dim: int=88, in_channels: Optional[int]=None, num_layers: int=1, dropout: float=0.0, norm_num_groups: int=32, cross_attention_dim: Optional[int]=None, attention_bias: bool=False, sample_size: Optional[int]=None, num_vector_embeds: Optional[int]=None, activation_fn: str='geglu', num_embeds_ada_norm: Optional[int]=None):
+    def __init__(self, num_attention_heads: 'int'=16, attention_head_dim: 'int'=88, in_channels: 'Optional[int]'=None, num_layers: 'int'=1, dropout: 'float'=0.0, norm_num_groups: 'int'=32, cross_attention_dim: 'Optional[int]'=None, attention_bias: 'bool'=False, sample_size: 'Optional[int]'=None, num_vector_embeds: 'Optional[int]'=None, activation_fn: 'str'='geglu', num_embeds_ada_norm: 'Optional[int]'=None):
         super().__init__()
         self.transformers = nn.ModuleList([Transformer2DModel(num_attention_heads=num_attention_heads, attention_head_dim=attention_head_dim, in_channels=in_channels, num_layers=num_layers, dropout=dropout, norm_num_groups=norm_num_groups, cross_attention_dim=cross_attention_dim, attention_bias=attention_bias, sample_size=sample_size, num_vector_embeds=num_vector_embeds, activation_fn=activation_fn, num_embeds_ada_norm=num_embeds_ada_norm) for _ in range(2)])
         self.mix_ratio = 0.5
         self.condition_lengths = [77, 257]
         self.transformer_index_for_condition = [1, 0]
 
-    def forward(self, hidden_states, encoder_hidden_states, timestep=None, attention_mask=None, cross_attention_kwargs=None, return_dict: bool=True):
+    def forward(self, hidden_states, encoder_hidden_states, timestep=None, attention_mask=None, cross_attention_kwargs=None, return_dict: 'bool'=True):
         """
         Args:
             hidden_states ( When discrete, `torch.LongTensor` of shape `(batch size, num latent pixels)`.
@@ -1707,7 +2000,7 @@ class PatchEmbed(nn.Module):
 class GaussianFourierProjection(nn.Module):
     """Gaussian Fourier embeddings for noise levels."""
 
-    def __init__(self, embedding_size: int=256, scale: float=1.0, set_W_to_weight=True, log=True, flip_sin_to_cos=False):
+    def __init__(self, embedding_size: 'int'=256, scale: 'float'=1.0, set_W_to_weight=True, log=True, flip_sin_to_cos=False):
         super().__init__()
         self.weight = nn.Parameter(torch.randn(embedding_size) * scale, requires_grad=False)
         self.log = log
@@ -1751,7 +2044,7 @@ class ImagePositionalEmbeddings(nn.Module):
             Dimension of the produced vector embeddings. Used for the latent pixel, height, and width embeddings.
     """
 
-    def __init__(self, num_embed: int, height: int, width: int, embed_dim: int):
+    def __init__(self, num_embed: 'int', height: 'int', width: 'int', embed_dim: 'int'):
         super().__init__()
         self.height = height
         self.width = width
@@ -2527,7 +2820,7 @@ class ValueFunctionMidBlock1D(nn.Module):
 
 class MidResTemporalBlock1D(nn.Module):
 
-    def __init__(self, in_channels, out_channels, embed_dim, num_layers: int=1, add_downsample: bool=False, add_upsample: bool=False, non_linearity=None):
+    def __init__(self, in_channels, out_channels, embed_dim, num_layers: 'int'=1, add_downsample: 'bool'=False, add_upsample: 'bool'=False, non_linearity=None):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -2650,7 +2943,7 @@ class SelfAttention1d(nn.Module):
         self.proj_attn = nn.Linear(self.channels, self.channels, 1)
         self.dropout = nn.Dropout(dropout_rate, inplace=True)
 
-    def transpose_for_scores(self, projection: torch.Tensor) ->torch.Tensor:
+    def transpose_for_scores(self, projection: 'torch.Tensor') ->torch.Tensor:
         new_projection_shape = projection.size()[:-1] + (self.num_heads, -1)
         new_projection = projection.view(new_projection_shape).permute(0, 2, 1, 3)
         return new_projection
@@ -2852,7 +3145,7 @@ class UNet2DModel(metaclass=DummyObject):
 
 class UNetMidBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, add_attention: bool=True, attn_num_head_channels=1, output_scale_factor=1.0):
+    def __init__(self, in_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, add_attention: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0):
         super().__init__()
         resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
         self.add_attention = add_attention
@@ -2878,7 +3171,7 @@ class UNetMidBlock2D(nn.Module):
 
 class UNetMidBlock2DCrossAttn(nn.Module):
 
-    def __init__(self, in_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280, dual_cross_attention=False, use_linear_projection=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280, dual_cross_attention=False, use_linear_projection=False, upcast_attention=False):
         super().__init__()
         self.has_cross_attention = True
         self.attn_num_head_channels = attn_num_head_channels
@@ -2904,7 +3197,7 @@ class UNetMidBlock2DCrossAttn(nn.Module):
 
 class UNetMidBlock2DSimpleCrossAttn(nn.Module):
 
-    def __init__(self, in_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280):
+    def __init__(self, in_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280):
         super().__init__()
         self.has_cross_attention = True
         self.attn_num_head_channels = attn_num_head_channels
@@ -2929,7 +3222,7 @@ class UNetMidBlock2DSimpleCrossAttn(nn.Module):
 
 class AttnDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, downsample_padding=1, add_downsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, downsample_padding=1, add_downsample=True):
         super().__init__()
         resnets = []
         attentions = []
@@ -2959,7 +3252,7 @@ class AttnDownBlock2D(nn.Module):
 
 class CrossAttnDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, downsample_padding=1, add_downsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, downsample_padding=1, add_downsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
         super().__init__()
         resnets = []
         attentions = []
@@ -3008,7 +3301,7 @@ class CrossAttnDownBlock2D(nn.Module):
 
 class DownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3044,7 +3337,7 @@ class DownBlock2D(nn.Module):
 
 class DownEncoderBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
+    def __init__(self, in_channels: 'int', out_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3067,7 +3360,7 @@ class DownEncoderBlock2D(nn.Module):
 
 class AttnDownEncoderBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
+    def __init__(self, in_channels: 'int', out_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
         super().__init__()
         resnets = []
         attentions = []
@@ -3094,7 +3387,7 @@ class AttnDownEncoderBlock2D(nn.Module):
 
 class AttnSkipDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=np.sqrt(2.0), downsample_padding=1, add_downsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=np.sqrt(2.0), downsample_padding=1, add_downsample=True):
         super().__init__()
         self.attentions = nn.ModuleList([])
         self.resnets = nn.ModuleList([])
@@ -3128,7 +3421,7 @@ class AttnSkipDownBlock2D(nn.Module):
 
 class SkipDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_pre_norm: bool=True, output_scale_factor=np.sqrt(2.0), add_downsample=True, downsample_padding=1):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_pre_norm: 'bool'=True, output_scale_factor=np.sqrt(2.0), add_downsample=True, downsample_padding=1):
         super().__init__()
         self.resnets = nn.ModuleList([])
         for i in range(num_layers):
@@ -3159,7 +3452,7 @@ class SkipDownBlock2D(nn.Module):
 
 class ResnetDownsampleBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_downsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_downsample=True):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3195,7 +3488,7 @@ class ResnetDownsampleBlock2D(nn.Module):
 
 class SimpleCrossAttnDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_downsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_downsample=True):
         super().__init__()
         self.has_cross_attention = True
         resnets = []
@@ -3230,7 +3523,7 @@ class SimpleCrossAttnDownBlock2D(nn.Module):
 
 class KDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=4, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: int=32, add_downsample=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=4, resnet_eps: 'float'=1e-05, resnet_act_fn: 'str'='gelu', resnet_group_size: 'int'=32, add_downsample=False):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3282,7 +3575,7 @@ class KAttentionBlock(nn.Module):
             obj: `bool`, *optional*, defaults to `False`): Configure if the attentions should contain a bias parameter.
     """
 
-    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, dropout: float=0.0, cross_attention_dim: Optional[int]=None, attention_bias: bool=False, upcast_attention: bool=False, temb_channels: int=768, add_self_attention: bool=False, cross_attention_norm: bool=False, group_size: int=32):
+    def __init__(self, dim: 'int', num_attention_heads: 'int', attention_head_dim: 'int', dropout: 'float'=0.0, cross_attention_dim: 'Optional[int]'=None, attention_bias: 'bool'=False, upcast_attention: 'bool'=False, temb_channels: 'int'=768, add_self_attention: 'bool'=False, cross_attention_norm: 'bool'=False, group_size: 'int'=32):
         super().__init__()
         self.add_self_attention = add_self_attention
         if add_self_attention:
@@ -3317,7 +3610,7 @@ class KAttentionBlock(nn.Module):
 
 class KCrossAttnDownBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, cross_attention_dim: int, dropout: float=0.0, num_layers: int=4, resnet_group_size: int=32, add_downsample=True, attn_num_head_channels: int=64, add_self_attention: bool=False, resnet_eps: float=1e-05, resnet_act_fn: str='gelu'):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', cross_attention_dim: 'int', dropout: 'float'=0.0, num_layers: 'int'=4, resnet_group_size: 'int'=32, add_downsample=True, attn_num_head_channels: 'int'=64, add_self_attention: 'bool'=False, resnet_eps: 'float'=1e-05, resnet_act_fn: 'str'='gelu'):
         super().__init__()
         resnets = []
         attentions = []
@@ -3366,7 +3659,7 @@ class KCrossAttnDownBlock2D(nn.Module):
 
 class AttnUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         attentions = []
@@ -3397,7 +3690,7 @@ class AttnUpBlock2D(nn.Module):
 
 class CrossAttnUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, prev_output_channel: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', prev_output_channel: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
         super().__init__()
         resnets = []
         attentions = []
@@ -3447,7 +3740,7 @@ class CrossAttnUpBlock2D(nn.Module):
 
 class UpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3484,7 +3777,7 @@ class UpBlock2D(nn.Module):
 
 class UpDecoderBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3507,7 +3800,7 @@ class UpDecoderBlock2D(nn.Module):
 
 class AttnUpDecoderBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         attentions = []
@@ -3534,7 +3827,7 @@ class AttnUpDecoderBlock2D(nn.Module):
 
 class AttnSkipUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=np.sqrt(2.0), upsample_padding=1, add_upsample=True):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=np.sqrt(2.0), upsample_padding=1, add_upsample=True):
         super().__init__()
         self.attentions = nn.ModuleList([])
         self.resnets = nn.ModuleList([])
@@ -3577,7 +3870,7 @@ class AttnSkipUpBlock2D(nn.Module):
 
 class SkipUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_pre_norm: bool=True, output_scale_factor=np.sqrt(2.0), add_upsample=True, upsample_padding=1):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_pre_norm: 'bool'=True, output_scale_factor=np.sqrt(2.0), add_upsample=True, upsample_padding=1):
         super().__init__()
         self.resnets = nn.ModuleList([])
         for i in range(num_layers):
@@ -3617,7 +3910,7 @@ class SkipUpBlock2D(nn.Module):
 
 class ResnetUpsampleBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -3654,7 +3947,7 @@ class ResnetUpsampleBlock2D(nn.Module):
 
 class SimpleCrossAttnUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, prev_output_channel: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', prev_output_channel: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         attentions = []
@@ -3690,7 +3983,7 @@ class SimpleCrossAttnUpBlock2D(nn.Module):
 
 class KUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=5, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: Optional[int]=32, add_upsample=True):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=5, resnet_eps: 'float'=1e-05, resnet_act_fn: 'str'='gelu', resnet_group_size: 'Optional[int]'=32, add_upsample=True):
         super().__init__()
         resnets = []
         k_in_channels = 2 * out_channels
@@ -3731,7 +4024,7 @@ class KUpBlock2D(nn.Module):
 
 class KCrossAttnUpBlock2D(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=4, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: int=32, attn_num_head_channels=1, cross_attention_dim: int=768, add_upsample: bool=True, upcast_attention: bool=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=4, resnet_eps: 'float'=1e-05, resnet_act_fn: 'str'='gelu', resnet_group_size: 'int'=32, attn_num_head_channels=1, cross_attention_dim: 'int'=768, add_upsample: 'bool'=True, upcast_attention: 'bool'=False):
         super().__init__()
         resnets = []
         attentions = []
@@ -3836,7 +4129,7 @@ class FrozenDict(OrderedDict):
 HUGGINGFACE_CO_RESOLVE_ENDPOINT = 'https://huggingface.co'
 
 
-def extract_commit_hash(resolved_file: Optional[str], commit_hash: Optional[str]=None):
+def extract_commit_hash(resolved_file: 'Optional[str]', commit_hash: 'Optional[str]'=None):
     """
     Extracts the commit hash from a resolved filename toward a cache file.
     """
@@ -3851,6 +4144,12 @@ def extract_commit_hash(resolved_file: Optional[str], commit_hash: Optional[str]
 
 
 ENV_VARS_TRUE_VALUES = {'1', 'ON', 'YES', 'TRUE'}
+
+
+DISABLE_TELEMETRY = os.getenv('DISABLE_TELEMETRY', '').upper() in ENV_VARS_TRUE_VALUES
+
+
+HF_HUB_OFFLINE = os.getenv('HF_HUB_OFFLINE', '').upper() in ENV_VARS_TRUE_VALUES
 
 
 SESSION_ID = uuid4().hex
@@ -3868,7 +4167,7 @@ _onnxruntime_version = 'N/A'
 _torch_version = 'N/A'
 
 
-def http_user_agent(user_agent: Union[Dict, str, None]=None) ->str:
+def http_user_agent(user_agent: 'Union[Dict, str, None]'=None) ->str:
     """
     Formats a user-agent string with basic info about a request.
     """
@@ -3889,6 +4188,339 @@ def http_user_agent(user_agent: Union[Dict, str, None]=None) ->str:
     elif isinstance(user_agent, str):
         ua += '; ' + user_agent
     return ua
+
+
+class ConfigMixin:
+    """
+    Base class for all configuration classes. Stores all configuration parameters under `self.config` Also handles all
+    methods for loading/downloading/saving classes inheriting from [`ConfigMixin`] with
+        - [`~ConfigMixin.from_config`]
+        - [`~ConfigMixin.save_config`]
+
+    Class attributes:
+        - **config_name** (`str`) -- A filename under which the config should stored when calling
+          [`~ConfigMixin.save_config`] (should be overridden by parent class).
+        - **ignore_for_config** (`List[str]`) -- A list of attributes that should not be saved in the config (should be
+          overridden by subclass).
+        - **has_compatibles** (`bool`) -- Whether the class has compatible classes (should be overridden by subclass).
+        - **_deprecated_kwargs** (`List[str]`) -- Keyword arguments that are deprecated. Note that the init function
+          should only have a `kwargs` argument if at least one argument is deprecated (should be overridden by
+          subclass).
+    """
+    config_name = None
+    ignore_for_config = []
+    has_compatibles = False
+    _deprecated_kwargs = []
+
+    def register_to_config(self, **kwargs):
+        if self.config_name is None:
+            raise NotImplementedError(f'Make sure that {self.__class__} has defined a class name `config_name`')
+        kwargs.pop('kwargs', None)
+        for key, value in kwargs.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError as err:
+                logger.error(f"Can't set {key} with value {value} for {self}")
+                raise err
+        if not hasattr(self, '_internal_dict'):
+            internal_dict = kwargs
+        else:
+            previous_dict = dict(self._internal_dict)
+            internal_dict = {**self._internal_dict, **kwargs}
+            logger.debug(f'Updating config from {previous_dict} to {internal_dict}')
+        self._internal_dict = FrozenDict(internal_dict)
+
+    def save_config(self, save_directory: 'Union[str, os.PathLike]', push_to_hub: 'bool'=False, **kwargs):
+        """
+        Save a configuration object to the directory `save_directory`, so that it can be re-loaded using the
+        [`~ConfigMixin.from_config`] class method.
+
+        Args:
+            save_directory (`str` or `os.PathLike`):
+                Directory where the configuration JSON file will be saved (will be created if it does not exist).
+        """
+        if os.path.isfile(save_directory):
+            raise AssertionError(f'Provided path ({save_directory}) should be a directory, not a file')
+        os.makedirs(save_directory, exist_ok=True)
+        output_config_file = os.path.join(save_directory, self.config_name)
+        self.to_json_file(output_config_file)
+        logger.info(f'Configuration saved in {output_config_file}')
+
+    @classmethod
+    def from_config(cls, config: 'Union[FrozenDict, Dict[str, Any]]'=None, return_unused_kwargs=False, **kwargs):
+        """
+        Instantiate a Python class from a config dictionary
+
+        Parameters:
+            config (`Dict[str, Any]`):
+                A config dictionary from which the Python class will be instantiated. Make sure to only load
+                configuration files of compatible classes.
+            return_unused_kwargs (`bool`, *optional*, defaults to `False`):
+                Whether kwargs that are not consumed by the Python class should be returned or not.
+
+            kwargs (remaining dictionary of keyword arguments, *optional*):
+                Can be used to update the configuration object (after it being loaded) and initiate the Python class.
+                `**kwargs` will be directly passed to the underlying scheduler/model's `__init__` method and eventually
+                overwrite same named arguments of `config`.
+
+        Examples:
+
+        ```python
+        >>> from diffusers import DDPMScheduler, DDIMScheduler, PNDMScheduler
+
+        >>> # Download scheduler from huggingface.co and cache.
+        >>> scheduler = DDPMScheduler.from_pretrained("google/ddpm-cifar10-32")
+
+        >>> # Instantiate DDIM scheduler class with same config as DDPM
+        >>> scheduler = DDIMScheduler.from_config(scheduler.config)
+
+        >>> # Instantiate PNDM scheduler class with same config as DDPM
+        >>> scheduler = PNDMScheduler.from_config(scheduler.config)
+        ```
+        """
+        if 'pretrained_model_name_or_path' in kwargs:
+            config = kwargs.pop('pretrained_model_name_or_path')
+        if config is None:
+            raise ValueError('Please make sure to provide a config as the first positional argument.')
+        if not isinstance(config, dict):
+            deprecation_message = 'It is deprecated to pass a pretrained model name or path to `from_config`.'
+            if 'Scheduler' in cls.__name__:
+                deprecation_message += f'If you were trying to load a scheduler, please use {cls}.from_pretrained(...) instead. Otherwise, please make sure to pass a configuration dictionary instead. This functionality will be removed in v1.0.0.'
+            elif 'Model' in cls.__name__:
+                deprecation_message += f'If you were trying to load a model, please use {cls}.load_config(...) followed by {cls}.from_config(...) instead. Otherwise, please make sure to pass a configuration dictionary instead. This functionality will be removed in v1.0.0.'
+            deprecate('config-passed-as-path', '1.0.0', deprecation_message, standard_warn=False)
+            config, kwargs = cls.load_config(pretrained_model_name_or_path=config, return_unused_kwargs=True, **kwargs)
+        init_dict, unused_kwargs, hidden_dict = cls.extract_init_dict(config, **kwargs)
+        if 'dtype' in unused_kwargs:
+            init_dict['dtype'] = unused_kwargs.pop('dtype')
+        for deprecated_kwarg in cls._deprecated_kwargs:
+            if deprecated_kwarg in unused_kwargs:
+                init_dict[deprecated_kwarg] = unused_kwargs.pop(deprecated_kwarg)
+        model = cls(**init_dict)
+        model.register_to_config(**hidden_dict)
+        unused_kwargs = {**unused_kwargs, **hidden_dict}
+        if return_unused_kwargs:
+            return model, unused_kwargs
+        else:
+            return model
+
+    @classmethod
+    def get_config_dict(cls, *args, **kwargs):
+        deprecation_message = f' The function get_config_dict is deprecated. Please use {cls}.load_config instead. This function will be removed in version v1.0.0'
+        deprecate('get_config_dict', '1.0.0', deprecation_message, standard_warn=False)
+        return cls.load_config(*args, **kwargs)
+
+    @classmethod
+    def load_config(cls, pretrained_model_name_or_path: 'Union[str, os.PathLike]', return_unused_kwargs=False, return_commit_hash=False, **kwargs) ->Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Instantiate a Python class from a config dictionary
+
+        Parameters:
+            pretrained_model_name_or_path (`str` or `os.PathLike`, *optional*):
+                Can be either:
+
+                    - A string, the *model id* of a model repo on huggingface.co. Valid model ids should have an
+                      organization name, like `google/ddpm-celebahq-256`.
+                    - A path to a *directory* containing model weights saved using [`~ConfigMixin.save_config`], e.g.,
+                      `./my_model_directory/`.
+
+            cache_dir (`Union[str, os.PathLike]`, *optional*):
+                Path to a directory in which a downloaded pretrained model configuration should be cached if the
+                standard cache should not be used.
+            force_download (`bool`, *optional*, defaults to `False`):
+                Whether or not to force the (re-)download of the model weights and configuration files, overriding the
+                cached versions if they exist.
+            resume_download (`bool`, *optional*, defaults to `False`):
+                Whether or not to delete incompletely received files. Will attempt to resume the download if such a
+                file exists.
+            proxies (`Dict[str, str]`, *optional*):
+                A dictionary of proxy servers to use by protocol or endpoint, e.g., `{'http': 'foo.bar:3128',
+                'http://hostname': 'foo.bar:4012'}`. The proxies are used on each request.
+            output_loading_info(`bool`, *optional*, defaults to `False`):
+                Whether or not to also return a dictionary containing missing keys, unexpected keys and error messages.
+            local_files_only(`bool`, *optional*, defaults to `False`):
+                Whether or not to only look at local files (i.e., do not try to download the model).
+            use_auth_token (`str` or *bool*, *optional*):
+                The token to use as HTTP bearer authorization for remote files. If `True`, will use the token generated
+                when running `transformers-cli login` (stored in `~/.huggingface`).
+            revision (`str`, *optional*, defaults to `"main"`):
+                The specific model version to use. It can be a branch name, a tag name, or a commit id, since we use a
+                git-based system for storing models and other artifacts on huggingface.co, so `revision` can be any
+                identifier allowed by git.
+            subfolder (`str`, *optional*, defaults to `""`):
+                In case the relevant files are located inside a subfolder of the model repo (either remote in
+                huggingface.co or downloaded locally), you can specify the folder name here.
+            return_unused_kwargs (`bool`, *optional*, defaults to `False):
+                Whether unused keyword arguments of the config shall be returned.
+            return_commit_hash (`bool`, *optional*, defaults to `False):
+                Whether the commit_hash of the loaded configuration shall be returned.
+
+        <Tip>
+
+         It is required to be logged in (`huggingface-cli login`) when you want to use private or [gated
+         models](https://huggingface.co/docs/hub/models-gated#gated-models).
+
+        </Tip>
+
+        <Tip>
+
+        Activate the special ["offline-mode"](https://huggingface.co/transformers/installation.html#offline-mode) to
+        use this method in a firewalled environment.
+
+        </Tip>
+        """
+        cache_dir = kwargs.pop('cache_dir', DIFFUSERS_CACHE)
+        force_download = kwargs.pop('force_download', False)
+        resume_download = kwargs.pop('resume_download', False)
+        proxies = kwargs.pop('proxies', None)
+        use_auth_token = kwargs.pop('use_auth_token', None)
+        local_files_only = kwargs.pop('local_files_only', False)
+        revision = kwargs.pop('revision', None)
+        _ = kwargs.pop('mirror', None)
+        subfolder = kwargs.pop('subfolder', None)
+        user_agent = kwargs.pop('user_agent', {})
+        user_agent = {**user_agent, 'file_type': 'config'}
+        user_agent = http_user_agent(user_agent)
+        pretrained_model_name_or_path = str(pretrained_model_name_or_path)
+        if cls.config_name is None:
+            raise ValueError('`self.config_name` is not defined. Note that one should not load a config from `ConfigMixin`. Please make sure to define `config_name` in a class inheriting from `ConfigMixin`')
+        if os.path.isfile(pretrained_model_name_or_path):
+            config_file = pretrained_model_name_or_path
+        elif os.path.isdir(pretrained_model_name_or_path):
+            if os.path.isfile(os.path.join(pretrained_model_name_or_path, cls.config_name)):
+                config_file = os.path.join(pretrained_model_name_or_path, cls.config_name)
+            elif subfolder is not None and os.path.isfile(os.path.join(pretrained_model_name_or_path, subfolder, cls.config_name)):
+                config_file = os.path.join(pretrained_model_name_or_path, subfolder, cls.config_name)
+            else:
+                raise EnvironmentError(f'Error no file named {cls.config_name} found in directory {pretrained_model_name_or_path}.')
+        else:
+            try:
+                config_file = hf_hub_download(pretrained_model_name_or_path, filename=cls.config_name, cache_dir=cache_dir, force_download=force_download, proxies=proxies, resume_download=resume_download, local_files_only=local_files_only, use_auth_token=use_auth_token, user_agent=user_agent, subfolder=subfolder, revision=revision)
+            except RepositoryNotFoundError:
+                raise EnvironmentError(f"{pretrained_model_name_or_path} is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'\nIf this is a private repository, make sure to pass a token having permission to this repo with `use_auth_token` or log in with `huggingface-cli login`.")
+            except RevisionNotFoundError:
+                raise EnvironmentError(f"{revision} is not a valid git identifier (branch name, tag name or commit id) that exists for this model name. Check the model page at 'https://huggingface.co/{pretrained_model_name_or_path}' for available revisions.")
+            except EntryNotFoundError:
+                raise EnvironmentError(f'{pretrained_model_name_or_path} does not appear to have a file named {cls.config_name}.')
+            except HTTPError as err:
+                raise EnvironmentError(f'There was a specific connection error when trying to load {pretrained_model_name_or_path}:\n{err}')
+            except ValueError:
+                raise EnvironmentError(f"We couldn't connect to '{HUGGINGFACE_CO_RESOLVE_ENDPOINT}' to load this model, couldn't find it in the cached files and it looks like {pretrained_model_name_or_path} is not the path to a directory containing a {cls.config_name} file.\nCheckout your internet connection or see how to run the library in offline mode at 'https://huggingface.co/docs/diffusers/installation#offline-mode'.")
+            except EnvironmentError:
+                raise EnvironmentError(f"Can't load config for '{pretrained_model_name_or_path}'. If you were trying to load it from 'https://huggingface.co/models', make sure you don't have a local directory with the same name. Otherwise, make sure '{pretrained_model_name_or_path}' is the correct path to a directory containing a {cls.config_name} file")
+        try:
+            config_dict = cls._dict_from_json_file(config_file)
+            commit_hash = extract_commit_hash(config_file)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise EnvironmentError(f"It looks like the config file at '{config_file}' is not a valid JSON file.")
+        if not (return_unused_kwargs or return_commit_hash):
+            return config_dict
+        outputs = config_dict,
+        if return_unused_kwargs:
+            outputs += kwargs,
+        if return_commit_hash:
+            outputs += commit_hash,
+        return outputs
+
+    @staticmethod
+    def _get_init_keys(cls):
+        return set(dict(inspect.signature(cls.__init__).parameters).keys())
+
+    @classmethod
+    def extract_init_dict(cls, config_dict, **kwargs):
+        original_dict = {k: v for k, v in config_dict.items()}
+        expected_keys = cls._get_init_keys(cls)
+        expected_keys.remove('self')
+        if 'kwargs' in expected_keys:
+            expected_keys.remove('kwargs')
+        if hasattr(cls, '_flax_internal_args'):
+            for arg in cls._flax_internal_args:
+                expected_keys.remove(arg)
+        if len(cls.ignore_for_config) > 0:
+            expected_keys = expected_keys - set(cls.ignore_for_config)
+        diffusers_library = importlib.import_module(__name__.split('.')[0])
+        if cls.has_compatibles:
+            compatible_classes = [c for c in cls._get_compatibles() if not isinstance(c, DummyObject)]
+        else:
+            compatible_classes = []
+        expected_keys_comp_cls = set()
+        for c in compatible_classes:
+            expected_keys_c = cls._get_init_keys(c)
+            expected_keys_comp_cls = expected_keys_comp_cls.union(expected_keys_c)
+        expected_keys_comp_cls = expected_keys_comp_cls - cls._get_init_keys(cls)
+        config_dict = {k: v for k, v in config_dict.items() if k not in expected_keys_comp_cls}
+        orig_cls_name = config_dict.pop('_class_name', cls.__name__)
+        if orig_cls_name != cls.__name__ and hasattr(diffusers_library, orig_cls_name):
+            orig_cls = getattr(diffusers_library, orig_cls_name)
+            unexpected_keys_from_orig = cls._get_init_keys(orig_cls) - expected_keys
+            config_dict = {k: v for k, v in config_dict.items() if k not in unexpected_keys_from_orig}
+        config_dict = {k: v for k, v in config_dict.items() if not k.startswith('_')}
+        init_dict = {}
+        for key in expected_keys:
+            if key in kwargs and key in config_dict:
+                config_dict[key] = kwargs.pop(key)
+            if key in kwargs:
+                init_dict[key] = kwargs.pop(key)
+            elif key in config_dict:
+                init_dict[key] = config_dict.pop(key)
+        if len(config_dict) > 0:
+            logger.warning(f'The config attributes {config_dict} were passed to {cls.__name__}, but are not expected and will be ignored. Please verify your {cls.config_name} configuration file.')
+        passed_keys = set(init_dict.keys())
+        if len(expected_keys - passed_keys) > 0:
+            logger.info(f'{expected_keys - passed_keys} was not found in config. Values will be initialized to default values.')
+        unused_kwargs = {**config_dict, **kwargs}
+        hidden_config_dict = {k: v for k, v in original_dict.items() if k not in init_dict}
+        return init_dict, unused_kwargs, hidden_config_dict
+
+    @classmethod
+    def _dict_from_json_file(cls, json_file: 'Union[str, os.PathLike]'):
+        with open(json_file, 'r', encoding='utf-8') as reader:
+            text = reader.read()
+        return json.loads(text)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__} {self.to_json_string()}'
+
+    @property
+    def config(self) ->Dict[str, Any]:
+        """
+        Returns the config of the class as a frozen dictionary
+
+        Returns:
+            `Dict[str, Any]`: Config of the class.
+        """
+        return self._internal_dict
+
+    def to_json_string(self) ->str:
+        """
+        Serializes this instance to a JSON string.
+
+        Returns:
+            `str`: String containing all the attributes that make up this configuration instance in JSON format.
+        """
+        config_dict = self._internal_dict if hasattr(self, '_internal_dict') else {}
+        config_dict['_class_name'] = self.__class__.__name__
+        config_dict['_diffusers_version'] = __version__
+
+        def to_json_saveable(value):
+            if isinstance(value, np.ndarray):
+                value = value.tolist()
+            elif isinstance(value, PosixPath):
+                value = str(value)
+            return value
+        config_dict = {k: to_json_saveable(v) for k, v in config_dict.items()}
+        return json.dumps(config_dict, indent=2, sort_keys=True) + '\n'
+
+    def to_json_file(self, json_file_path: 'Union[str, os.PathLike]'):
+        """
+        Save this instance to a JSON file.
+
+        Args:
+            json_file_path (`str` or `os.PathLike`):
+                Path to the JSON file in which this configuration instance's parameters will be saved.
+        """
+        with open(json_file_path, 'w', encoding='utf-8') as writer:
+            writer.write(self.to_json_string())
 
 
 CONFIG_NAME = 'config.json'
@@ -3953,33 +4585,32 @@ def convert_pytorch_state_dict_to_flax(pt_state_dict, flax_model, init_key=42):
     return unflatten_dict(flax_state_dict)
 
 
-def flax_register_to_config(cls):
-    original_init = cls.__init__
+def _add_variant(weights_name: 'str', variant: 'Optional[str]'=None) ->str:
+    if variant is not None:
+        splits = weights_name.split('.')
+        splits = splits[:-1] + [variant] + splits[-1:]
+        weights_name = '.'.join(splits)
+    return weights_name
 
-    @functools.wraps(original_init)
-    def init(self, *args, **kwargs):
-        if not isinstance(self, ConfigMixin):
-            raise RuntimeError(f'`@register_for_config` was applied to {self.__class__.__name__} init method, but this class does not inherit from `ConfigMixin`.')
-        init_kwargs = {k: v for k, v in kwargs.items()}
-        fields = dataclasses.fields(self)
-        default_kwargs = {}
-        for field in fields:
-            if field.name in self._flax_internal_args:
-                continue
-            if type(field.default) == dataclasses._MISSING_TYPE:
-                default_kwargs[field.name] = None
-            else:
-                default_kwargs[field.name] = getattr(self, field.name)
-        new_kwargs = {**default_kwargs, **init_kwargs}
-        if 'dtype' in new_kwargs:
-            new_kwargs.pop('dtype')
-        for i, arg in enumerate(args):
-            name = fields[i].name
-            new_kwargs[name] = arg
-        getattr(self, 'register_to_config')(**new_kwargs)
-        original_init(self, *args, **kwargs)
-    cls.__init__ = init
-    return cls
+
+def load_state_dict(checkpoint_file: 'Union[str, os.PathLike]', variant: 'Optional[str]'=None):
+    """
+    Reads a checkpoint file, returning properly formatted errors if they arise.
+    """
+    try:
+        if os.path.basename(checkpoint_file) == _add_variant(WEIGHTS_NAME, variant):
+            return torch.load(checkpoint_file, map_location='cpu')
+        else:
+            return safetensors.torch.load_file(checkpoint_file, device='cpu')
+    except Exception as e:
+        try:
+            with open(checkpoint_file) as f:
+                if f.read().startswith('version'):
+                    raise OSError('You seem to have cloned a repository without having git-lfs installed. Please install git-lfs and run `git lfs install` followed by `git lfs pull` in the folder you cloned.')
+                else:
+                    raise ValueError(f'Unable to locate the file {checkpoint_file} which is necessary to load this pretrained model. Make sure you have saved the model properly.') from e
+        except (UnicodeDecodeError, ValueError):
+            raise OSError(f"Unable to load weights from checkpoint file for '{checkpoint_file}' at '{checkpoint_file}'. If you tried to load a PyTorch model from a TF 2.0 checkpoint, please set from_tf=True.")
 
 
 class LinearMultiDim(nn.Linear):
@@ -4062,7 +4693,7 @@ class ResnetBlockFlat(nn.Module):
 
 class CrossAttnDownBlockFlat(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, downsample_padding=1, add_downsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, downsample_padding=1, add_downsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
         super().__init__()
         resnets = []
         attentions = []
@@ -4111,7 +4742,7 @@ class CrossAttnDownBlockFlat(nn.Module):
 
 class DownBlockFlat(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
+    def __init__(self, in_channels: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_downsample=True, downsample_padding=1):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -4191,7 +4822,7 @@ class Encoder(nn.Module):
 
 class CrossAttnUpBlockFlat(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, prev_output_channel: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', out_channels: 'int', prev_output_channel: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, cross_attention_dim=1280, output_scale_factor=1.0, add_upsample=True, dual_cross_attention=False, use_linear_projection=False, only_cross_attention=False, upcast_attention=False):
         super().__init__()
         resnets = []
         attentions = []
@@ -4241,7 +4872,7 @@ class CrossAttnUpBlockFlat(nn.Module):
 
 class UpBlockFlat(nn.Module):
 
-    def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, output_scale_factor=1.0, add_upsample=True):
+    def __init__(self, in_channels: 'int', prev_output_channel: 'int', out_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, output_scale_factor=1.0, add_upsample=True):
         super().__init__()
         resnets = []
         for i in range(num_layers):
@@ -4454,7 +5085,7 @@ class VQModel(metaclass=DummyObject):
 class LDMBertAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, embed_dim: int, num_heads: int, head_dim: int, dropout: float=0.0, is_decoder: bool=False, bias: bool=False):
+    def __init__(self, embed_dim: 'int', num_heads: 'int', head_dim: 'int', dropout: 'float'=0.0, is_decoder: 'bool'=False, bias: 'bool'=False):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -4468,10 +5099,10 @@ class LDMBertAttention(nn.Module):
         self.q_proj = nn.Linear(embed_dim, self.inner_dim, bias=bias)
         self.out_proj = nn.Linear(self.inner_dim, embed_dim)
 
-    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
+    def _shape(self, tensor: 'torch.Tensor', seq_len: 'int', bsz: 'int'):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
-    def forward(self, hidden_states: torch.Tensor, key_value_states: Optional[torch.Tensor]=None, past_key_value: Optional[Tuple[torch.Tensor]]=None, attention_mask: Optional[torch.Tensor]=None, layer_head_mask: Optional[torch.Tensor]=None, output_attentions: bool=False) ->Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    def forward(self, hidden_states: 'torch.Tensor', key_value_states: 'Optional[torch.Tensor]'=None, past_key_value: 'Optional[Tuple[torch.Tensor]]'=None, attention_mask: 'Optional[torch.Tensor]'=None, layer_head_mask: 'Optional[torch.Tensor]'=None, output_attentions: 'bool'=False) ->Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         """Input shape: Batch x Time x Channel"""
         is_cross_attention = key_value_states is not None
         bsz, tgt_len, _ = hidden_states.size()
@@ -4527,6 +5158,53 @@ class LDMBertAttention(nn.Module):
         return attn_output, attn_weights_reshaped, past_key_value
 
 
+class LDMBertEncoderLayer(nn.Module):
+
+    def __init__(self, config: 'LDMBertConfig'):
+        super().__init__()
+        self.embed_dim = config.d_model
+        self.self_attn = LDMBertAttention(embed_dim=self.embed_dim, num_heads=config.encoder_attention_heads, head_dim=config.head_dim, dropout=config.attention_dropout)
+        self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
+        self.dropout = config.dropout
+        self.activation_fn = ACT2FN[config.activation_function]
+        self.activation_dropout = config.activation_dropout
+        self.fc1 = nn.Linear(self.embed_dim, config.encoder_ffn_dim)
+        self.fc2 = nn.Linear(config.encoder_ffn_dim, self.embed_dim)
+        self.final_layer_norm = nn.LayerNorm(self.embed_dim)
+
+    def forward(self, hidden_states: 'torch.FloatTensor', attention_mask: 'torch.FloatTensor', layer_head_mask: 'torch.FloatTensor', output_attentions: 'Optional[bool]'=False) ->Tuple[torch.FloatTensor, Optional[torch.FloatTensor]]:
+        """
+        Args:
+            hidden_states (`torch.FloatTensor`): input to the layer of shape `(seq_len, batch, embed_dim)`
+            attention_mask (`torch.FloatTensor`): attention mask of size
+                `(batch, 1, tgt_len, src_len)` where padding elements are indicated by very large negative values.
+            layer_head_mask (`torch.FloatTensor`): mask for attention heads in a given layer of size
+                `(encoder_attention_heads,)`.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+        """
+        residual = hidden_states
+        hidden_states = self.self_attn_layer_norm(hidden_states)
+        hidden_states, attn_weights, _ = self.self_attn(hidden_states=hidden_states, attention_mask=attention_mask, layer_head_mask=layer_head_mask, output_attentions=output_attentions)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+        residual = hidden_states
+        hidden_states = self.final_layer_norm(hidden_states)
+        hidden_states = self.activation_fn(self.fc1(hidden_states))
+        hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
+        hidden_states = self.fc2(hidden_states)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+        if hidden_states.dtype == torch.float16 and (torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()):
+            clamp_value = torch.finfo(hidden_states.dtype).max - 1000
+            hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
+        outputs = hidden_states,
+        if output_attentions:
+            outputs += attn_weights,
+        return outputs
+
+
 class PaintByExampleMapper(nn.Module):
 
     def __init__(self, config):
@@ -4554,7 +5232,7 @@ class GaussianSmoothing(torch.nn.Module):
             Default value is 2 (spatial).
     """
 
-    def __init__(self, channels: int=1, kernel_size: int=3, sigma: float=0.5, dim: int=2):
+    def __init__(self, channels: 'int'=1, kernel_size: 'int'=3, sigma: 'float'=0.5, dim: 'int'=2):
         super().__init__()
         if isinstance(kernel_size, int):
             kernel_size = [kernel_size] * dim
@@ -4588,21 +5266,6 @@ class GaussianSmoothing(torch.nn.Module):
             filtered (torch.Tensor): Filtered output.
         """
         return self.conv(input, weight=self.weight, groups=self.groups)
-
-
-class ControlNetModel(metaclass=DummyObject):
-    _backends = ['torch']
-
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ['torch'])
-
-    @classmethod
-    def from_config(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
 
 
 def jax_cosine_distance(emb_1, emb_2, eps=1e-12):
@@ -4639,9 +5302,84 @@ def register_to_config(init):
     return inner_init
 
 
+class StableUnCLIPImageNormalizer(ModelMixin, ConfigMixin):
+    """
+    This class is used to hold the mean and standard deviation of the CLIP embedder used in stable unCLIP.
+
+    It is used to normalize the image embeddings before the noise is applied and un-normalize the noised image
+    embeddings.
+    """
+
+    @register_to_config
+    def __init__(self, embedding_dim: 'int'=768):
+        super().__init__()
+        self.mean = nn.Parameter(torch.zeros(1, embedding_dim))
+        self.std = nn.Parameter(torch.ones(1, embedding_dim))
+
+    def scale(self, embeds):
+        embeds = (embeds - self.mean) * 1.0 / self.std
+        return embeds
+
+    def unscale(self, embeds):
+        embeds = embeds * self.std + self.mean
+        return embeds
+
+
+class UnCLIPTextProjModel(ModelMixin, ConfigMixin):
+    """
+    Utility class for CLIP embeddings. Used to combine the image and text embeddings into a format usable by the
+    decoder.
+
+    For more details, see the original paper: https://arxiv.org/abs/2204.06125 section 2.1
+    """
+
+    @register_to_config
+    def __init__(self, *, clip_extra_context_tokens: int=4, clip_embeddings_dim: int=768, time_embed_dim: int, cross_attention_dim):
+        super().__init__()
+        self.learned_classifier_free_guidance_embeddings = nn.Parameter(torch.zeros(clip_embeddings_dim))
+        self.embedding_proj = nn.Linear(clip_embeddings_dim, time_embed_dim)
+        self.clip_image_embeddings_project_to_time_embeddings = nn.Linear(clip_embeddings_dim, time_embed_dim)
+        self.clip_extra_context_tokens = clip_extra_context_tokens
+        self.clip_extra_context_tokens_proj = nn.Linear(clip_embeddings_dim, self.clip_extra_context_tokens * cross_attention_dim)
+        self.encoder_hidden_states_proj = nn.Linear(clip_embeddings_dim, cross_attention_dim)
+        self.text_encoder_hidden_states_norm = nn.LayerNorm(cross_attention_dim)
+
+    def forward(self, *, image_embeddings, prompt_embeds, text_encoder_hidden_states, do_classifier_free_guidance):
+        if do_classifier_free_guidance:
+            image_embeddings_batch_size = image_embeddings.shape[0]
+            classifier_free_guidance_embeddings = self.learned_classifier_free_guidance_embeddings.unsqueeze(0)
+            classifier_free_guidance_embeddings = classifier_free_guidance_embeddings.expand(image_embeddings_batch_size, -1)
+            image_embeddings = torch.cat([classifier_free_guidance_embeddings, image_embeddings], dim=0)
+        assert image_embeddings.shape[0] == prompt_embeds.shape[0]
+        batch_size = prompt_embeds.shape[0]
+        time_projected_prompt_embeds = self.embedding_proj(prompt_embeds)
+        time_projected_image_embeddings = self.clip_image_embeddings_project_to_time_embeddings(image_embeddings)
+        additive_clip_time_embeddings = time_projected_image_embeddings + time_projected_prompt_embeds
+        clip_extra_context_tokens = self.clip_extra_context_tokens_proj(image_embeddings)
+        clip_extra_context_tokens = clip_extra_context_tokens.reshape(batch_size, -1, self.clip_extra_context_tokens)
+        text_encoder_hidden_states = self.encoder_hidden_states_proj(text_encoder_hidden_states)
+        text_encoder_hidden_states = self.text_encoder_hidden_states_norm(text_encoder_hidden_states)
+        text_encoder_hidden_states = text_encoder_hidden_states.permute(0, 2, 1)
+        text_encoder_hidden_states = torch.cat([clip_extra_context_tokens, text_encoder_hidden_states], dim=2)
+        return text_encoder_hidden_states, additive_clip_time_embeddings
+
+
+AttnProcessor = Union[CrossAttnProcessor, XFormersCrossAttnProcessor, SlicedAttnProcessor, CrossAttnAddedKVProcessor, SlicedAttnAddedKVProcessor, LoRACrossAttnProcessor, LoRAXFormersCrossAttnProcessor]
+
+
+@dataclass
+class UNet2DConditionOutput(BaseOutput):
+    """
+    Args:
+        sample (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
+            Hidden states conditioned on `encoder_hidden_states` input. Output of last layer of model.
+    """
+    sample: 'torch.FloatTensor'
+
+
 class UNetMidBlockFlatCrossAttn(nn.Module):
 
-    def __init__(self, in_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280, dual_cross_attention=False, use_linear_projection=False, upcast_attention=False):
+    def __init__(self, in_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280, dual_cross_attention=False, use_linear_projection=False, upcast_attention=False):
         super().__init__()
         self.has_cross_attention = True
         self.attn_num_head_channels = attn_num_head_channels
@@ -4667,7 +5405,7 @@ class UNetMidBlockFlatCrossAttn(nn.Module):
 
 class UNetMidBlockFlatSimpleCrossAttn(nn.Module):
 
-    def __init__(self, in_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280):
+    def __init__(self, in_channels: 'int', temb_channels: 'int', dropout: 'float'=0.0, num_layers: 'int'=1, resnet_eps: 'float'=1e-06, resnet_time_scale_shift: 'str'='default', resnet_act_fn: 'str'='swish', resnet_groups: 'int'=32, resnet_pre_norm: 'bool'=True, attn_num_head_channels=1, output_scale_factor=1.0, cross_attention_dim=1280):
         super().__init__()
         self.has_cross_attention = True
         self.attn_num_head_channels = attn_num_head_channels
@@ -4688,6 +5426,350 @@ class UNetMidBlockFlatSimpleCrossAttn(nn.Module):
             hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask, **cross_attention_kwargs)
             hidden_states = resnet(hidden_states, temb)
         return hidden_states
+
+
+class UNetFlatConditionModel(ModelMixin, ConfigMixin):
+    """
+    UNetFlatConditionModel is a conditional 2D UNet model that takes in a noisy sample, conditional state, and a
+    timestep and returns sample shaped output.
+
+    This model inherits from [`ModelMixin`]. Check the superclass documentation for the generic methods the library
+    implements for all the models (such as downloading or saving, etc.)
+
+    Parameters:
+        sample_size (`int` or `Tuple[int, int]`, *optional*, defaults to `None`):
+            Height and width of input/output sample.
+        in_channels (`int`, *optional*, defaults to 4): The number of channels in the input sample.
+        out_channels (`int`, *optional*, defaults to 4): The number of channels in the output.
+        center_input_sample (`bool`, *optional*, defaults to `False`): Whether to center the input sample.
+        flip_sin_to_cos (`bool`, *optional*, defaults to `False`):
+            Whether to flip the sin to cos in the time embedding.
+        freq_shift (`int`, *optional*, defaults to 0): The frequency shift to apply to the time embedding.
+        down_block_types (`Tuple[str]`, *optional*, defaults to `("CrossAttnDownBlockFlat", "CrossAttnDownBlockFlat", "CrossAttnDownBlockFlat", "DownBlockFlat")`):
+            The tuple of downsample blocks to use.
+        mid_block_type (`str`, *optional*, defaults to `"UNetMidBlockFlatCrossAttn"`):
+            The mid block type. Choose from `UNetMidBlockFlatCrossAttn` or `UNetMidBlockFlatSimpleCrossAttn`, will skip
+            the mid block layer if `None`.
+        up_block_types (`Tuple[str]`, *optional*, defaults to `("UpBlockFlat", "CrossAttnUpBlockFlat", "CrossAttnUpBlockFlat", "CrossAttnUpBlockFlat",)`):
+            The tuple of upsample blocks to use.
+        only_cross_attention(`bool` or `Tuple[bool]`, *optional*, default to `False`):
+            Whether to include self-attention in the basic transformer blocks, see
+            [`~models.attention.BasicTransformerBlock`].
+        block_out_channels (`Tuple[int]`, *optional*, defaults to `(320, 640, 1280, 1280)`):
+            The tuple of output channels for each block.
+        layers_per_block (`int`, *optional*, defaults to 2): The number of layers per block.
+        downsample_padding (`int`, *optional*, defaults to 1): The padding to use for the downsampling convolution.
+        mid_block_scale_factor (`float`, *optional*, defaults to 1.0): The scale factor to use for the mid block.
+        act_fn (`str`, *optional*, defaults to `"silu"`): The activation function to use.
+        norm_num_groups (`int`, *optional*, defaults to 32): The number of groups to use for the normalization.
+            If `None`, it will skip the normalization and activation layers in post-processing
+        norm_eps (`float`, *optional*, defaults to 1e-5): The epsilon to use for the normalization.
+        cross_attention_dim (`int`, *optional*, defaults to 1280): The dimension of the cross attention features.
+        attention_head_dim (`int`, *optional*, defaults to 8): The dimension of the attention heads.
+        resnet_time_scale_shift (`str`, *optional*, defaults to `"default"`): Time scale shift config
+            for resnet blocks, see [`~models.resnet.ResnetBlockFlat`]. Choose from `default` or `scale_shift`.
+        class_embed_type (`str`, *optional*, defaults to None):
+            The type of class embedding to use which is ultimately summed with the time embeddings. Choose from `None`,
+            `"timestep"`, `"identity"`, or `"projection"`.
+        num_class_embeds (`int`, *optional*, defaults to None):
+            Input dimension of the learnable embedding matrix to be projected to `time_embed_dim`, when performing
+            class conditioning with `class_embed_type` equal to `None`.
+        time_embedding_type (`str`, *optional*, default to `positional`):
+            The type of position embedding to use for timesteps. Choose from `positional` or `fourier`.
+        timestep_post_act (`str, *optional*, default to `None`):
+            The second activation function to use in timestep embedding. Choose from `silu`, `mish` and `gelu`.
+        time_cond_proj_dim (`int`, *optional*, default to `None`):
+            The dimension of `cond_proj` layer in timestep embedding.
+        conv_in_kernel (`int`, *optional*, default to `3`): The kernel size of `conv_in` layer.
+        conv_out_kernel (`int`, *optional*, default to `3`): The kernel size of `conv_out` layer.
+        projection_class_embeddings_input_dim (`int`, *optional*): The dimension of the `class_labels` input when
+            using the "projection" `class_embed_type`. Required when using the "projection" `class_embed_type`.
+    """
+    _supports_gradient_checkpointing = True
+
+    @register_to_config
+    def __init__(self, sample_size: 'Optional[int]'=None, in_channels: 'int'=4, out_channels: 'int'=4, center_input_sample: 'bool'=False, flip_sin_to_cos: 'bool'=True, freq_shift: 'int'=0, down_block_types: 'Tuple[str]'=('CrossAttnDownBlockFlat', 'CrossAttnDownBlockFlat', 'CrossAttnDownBlockFlat', 'DownBlockFlat'), mid_block_type: 'Optional[str]'='UNetMidBlockFlatCrossAttn', up_block_types: 'Tuple[str]'=('UpBlockFlat', 'CrossAttnUpBlockFlat', 'CrossAttnUpBlockFlat', 'CrossAttnUpBlockFlat'), only_cross_attention: 'Union[bool, Tuple[bool]]'=False, block_out_channels: 'Tuple[int]'=(320, 640, 1280, 1280), layers_per_block: 'int'=2, downsample_padding: 'int'=1, mid_block_scale_factor: 'float'=1, act_fn: 'str'='silu', norm_num_groups: 'Optional[int]'=32, norm_eps: 'float'=1e-05, cross_attention_dim: 'int'=1280, attention_head_dim: 'Union[int, Tuple[int]]'=8, dual_cross_attention: 'bool'=False, use_linear_projection: 'bool'=False, class_embed_type: 'Optional[str]'=None, num_class_embeds: 'Optional[int]'=None, upcast_attention: 'bool'=False, resnet_time_scale_shift: 'str'='default', time_embedding_type: 'str'='positional', timestep_post_act: 'Optional[str]'=None, time_cond_proj_dim: 'Optional[int]'=None, conv_in_kernel: 'int'=3, conv_out_kernel: 'int'=3, projection_class_embeddings_input_dim: 'Optional[int]'=None):
+        super().__init__()
+        self.sample_size = sample_size
+        if len(down_block_types) != len(up_block_types):
+            raise ValueError(f'Must provide the same number of `down_block_types` as `up_block_types`. `down_block_types`: {down_block_types}. `up_block_types`: {up_block_types}.')
+        if len(block_out_channels) != len(down_block_types):
+            raise ValueError(f'Must provide the same number of `block_out_channels` as `down_block_types`. `block_out_channels`: {block_out_channels}. `down_block_types`: {down_block_types}.')
+        if not isinstance(only_cross_attention, bool) and len(only_cross_attention) != len(down_block_types):
+            raise ValueError(f'Must provide the same number of `only_cross_attention` as `down_block_types`. `only_cross_attention`: {only_cross_attention}. `down_block_types`: {down_block_types}.')
+        if not isinstance(attention_head_dim, int) and len(attention_head_dim) != len(down_block_types):
+            raise ValueError(f'Must provide the same number of `attention_head_dim` as `down_block_types`. `attention_head_dim`: {attention_head_dim}. `down_block_types`: {down_block_types}.')
+        conv_in_padding = (conv_in_kernel - 1) // 2
+        self.conv_in = LinearMultiDim(in_channels, block_out_channels[0], kernel_size=conv_in_kernel, padding=conv_in_padding)
+        if time_embedding_type == 'fourier':
+            time_embed_dim = block_out_channels[0] * 2
+            if time_embed_dim % 2 != 0:
+                raise ValueError(f'`time_embed_dim` should be divisible by 2, but is {time_embed_dim}.')
+            self.time_proj = GaussianFourierProjection(time_embed_dim // 2, set_W_to_weight=False, log=False, flip_sin_to_cos=flip_sin_to_cos)
+            timestep_input_dim = time_embed_dim
+        elif time_embedding_type == 'positional':
+            time_embed_dim = block_out_channels[0] * 4
+            self.time_proj = Timesteps(block_out_channels[0], flip_sin_to_cos, freq_shift)
+            timestep_input_dim = block_out_channels[0]
+        else:
+            raise ValueError(f'{time_embedding_type} does not exist. Pleaes make sure to use one of `fourier` or `positional`.')
+        self.time_embedding = TimestepEmbedding(timestep_input_dim, time_embed_dim, act_fn=act_fn, post_act_fn=timestep_post_act, cond_proj_dim=time_cond_proj_dim)
+        if class_embed_type is None and num_class_embeds is not None:
+            self.class_embedding = nn.Embedding(num_class_embeds, time_embed_dim)
+        elif class_embed_type == 'timestep':
+            self.class_embedding = TimestepEmbedding(timestep_input_dim, time_embed_dim)
+        elif class_embed_type == 'identity':
+            self.class_embedding = nn.Identity(time_embed_dim, time_embed_dim)
+        elif class_embed_type == 'projection':
+            if projection_class_embeddings_input_dim is None:
+                raise ValueError("`class_embed_type`: 'projection' requires `projection_class_embeddings_input_dim` be set")
+            self.class_embedding = TimestepEmbedding(projection_class_embeddings_input_dim, time_embed_dim)
+        else:
+            self.class_embedding = None
+        self.down_blocks = nn.ModuleList([])
+        self.up_blocks = nn.ModuleList([])
+        if isinstance(only_cross_attention, bool):
+            only_cross_attention = [only_cross_attention] * len(down_block_types)
+        if isinstance(attention_head_dim, int):
+            attention_head_dim = (attention_head_dim,) * len(down_block_types)
+        output_channel = block_out_channels[0]
+        for i, down_block_type in enumerate(down_block_types):
+            input_channel = output_channel
+            output_channel = block_out_channels[i]
+            is_final_block = i == len(block_out_channels) - 1
+            down_block = get_down_block(down_block_type, num_layers=layers_per_block, in_channels=input_channel, out_channels=output_channel, temb_channels=time_embed_dim, add_downsample=not is_final_block, resnet_eps=norm_eps, resnet_act_fn=act_fn, resnet_groups=norm_num_groups, cross_attention_dim=cross_attention_dim, attn_num_head_channels=attention_head_dim[i], downsample_padding=downsample_padding, dual_cross_attention=dual_cross_attention, use_linear_projection=use_linear_projection, only_cross_attention=only_cross_attention[i], upcast_attention=upcast_attention, resnet_time_scale_shift=resnet_time_scale_shift)
+            self.down_blocks.append(down_block)
+        if mid_block_type == 'UNetMidBlockFlatCrossAttn':
+            self.mid_block = UNetMidBlockFlatCrossAttn(in_channels=block_out_channels[-1], temb_channels=time_embed_dim, resnet_eps=norm_eps, resnet_act_fn=act_fn, output_scale_factor=mid_block_scale_factor, resnet_time_scale_shift=resnet_time_scale_shift, cross_attention_dim=cross_attention_dim, attn_num_head_channels=attention_head_dim[-1], resnet_groups=norm_num_groups, dual_cross_attention=dual_cross_attention, use_linear_projection=use_linear_projection, upcast_attention=upcast_attention)
+        elif mid_block_type == 'UNetMidBlockFlatSimpleCrossAttn':
+            self.mid_block = UNetMidBlockFlatSimpleCrossAttn(in_channels=block_out_channels[-1], temb_channels=time_embed_dim, resnet_eps=norm_eps, resnet_act_fn=act_fn, output_scale_factor=mid_block_scale_factor, cross_attention_dim=cross_attention_dim, attn_num_head_channels=attention_head_dim[-1], resnet_groups=norm_num_groups, resnet_time_scale_shift=resnet_time_scale_shift)
+        elif mid_block_type is None:
+            self.mid_block = None
+        else:
+            raise ValueError(f'unknown mid_block_type : {mid_block_type}')
+        self.num_upsamplers = 0
+        reversed_block_out_channels = list(reversed(block_out_channels))
+        reversed_attention_head_dim = list(reversed(attention_head_dim))
+        only_cross_attention = list(reversed(only_cross_attention))
+        output_channel = reversed_block_out_channels[0]
+        for i, up_block_type in enumerate(up_block_types):
+            is_final_block = i == len(block_out_channels) - 1
+            prev_output_channel = output_channel
+            output_channel = reversed_block_out_channels[i]
+            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)]
+            if not is_final_block:
+                add_upsample = True
+                self.num_upsamplers += 1
+            else:
+                add_upsample = False
+            up_block = get_up_block(up_block_type, num_layers=layers_per_block + 1, in_channels=input_channel, out_channels=output_channel, prev_output_channel=prev_output_channel, temb_channels=time_embed_dim, add_upsample=add_upsample, resnet_eps=norm_eps, resnet_act_fn=act_fn, resnet_groups=norm_num_groups, cross_attention_dim=cross_attention_dim, attn_num_head_channels=reversed_attention_head_dim[i], dual_cross_attention=dual_cross_attention, use_linear_projection=use_linear_projection, only_cross_attention=only_cross_attention[i], upcast_attention=upcast_attention, resnet_time_scale_shift=resnet_time_scale_shift)
+            self.up_blocks.append(up_block)
+            prev_output_channel = output_channel
+        if norm_num_groups is not None:
+            self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps)
+            self.conv_act = nn.SiLU()
+        else:
+            self.conv_norm_out = None
+            self.conv_act = None
+        conv_out_padding = (conv_out_kernel - 1) // 2
+        self.conv_out = LinearMultiDim(block_out_channels[0], out_channels, kernel_size=conv_out_kernel, padding=conv_out_padding)
+
+    @property
+    def attn_processors(self) ->Dict[str, AttnProcessor]:
+        """
+        Returns:
+            `dict` of attention processors: A dictionary containing all attention processors used in the model with
+            indexed by its weight name.
+        """
+        processors = {}
+
+        def fn_recursive_add_processors(name: 'str', module: 'torch.nn.Module', processors: 'Dict[str, AttnProcessor]'):
+            if hasattr(module, 'set_processor'):
+                processors[f'{name}.processor'] = module.processor
+            for sub_name, child in module.named_children():
+                fn_recursive_add_processors(f'{name}.{sub_name}', child, processors)
+            return processors
+        for name, module in self.named_children():
+            fn_recursive_add_processors(name, module, processors)
+        return processors
+
+    def set_attn_processor(self, processor: 'Union[AttnProcessor, Dict[str, AttnProcessor]]'):
+        """
+        Parameters:
+            `processor (`dict` of `AttnProcessor` or `AttnProcessor`):
+                The instantiated processor class or a dictionary of processor classes that will be set as the processor
+                of **all** `CrossAttention` layers.
+            In case `processor` is a dict, the key needs to define the path to the corresponding cross attention processor. This is strongly recommended when setting trainablae attention processors.:
+
+        """
+        count = len(self.attn_processors.keys())
+        if isinstance(processor, dict) and len(processor) != count:
+            raise ValueError(f'A dict of processors was passed, but the number of processors {len(processor)} does not match the number of attention layers: {count}. Please make sure to pass {count} processor classes.')
+
+        def fn_recursive_attn_processor(name: 'str', module: 'torch.nn.Module', processor):
+            if hasattr(module, 'set_processor'):
+                if not isinstance(processor, dict):
+                    module.set_processor(processor)
+                else:
+                    module.set_processor(processor.pop(f'{name}.processor'))
+            for sub_name, child in module.named_children():
+                fn_recursive_attn_processor(f'{name}.{sub_name}', child, processor)
+        for name, module in self.named_children():
+            fn_recursive_attn_processor(name, module, processor)
+
+    def set_attention_slice(self, slice_size):
+        """
+        Enable sliced attention computation.
+
+        When this option is enabled, the attention module will split the input tensor in slices, to compute attention
+        in several steps. This is useful to save some memory in exchange for a small speed decrease.
+
+        Args:
+            slice_size (`str` or `int` or `list(int)`, *optional*, defaults to `"auto"`):
+                When `"auto"`, halves the input to the attention heads, so attention will be computed in two steps. If
+                `"max"`, maxium amount of memory will be saved by running only one slice at a time. If a number is
+                provided, uses as many slices as `attention_head_dim // slice_size`. In this case, `attention_head_dim`
+                must be a multiple of `slice_size`.
+        """
+        sliceable_head_dims = []
+
+        def fn_recursive_retrieve_slicable_dims(module: 'torch.nn.Module'):
+            if hasattr(module, 'set_attention_slice'):
+                sliceable_head_dims.append(module.sliceable_head_dim)
+            for child in module.children():
+                fn_recursive_retrieve_slicable_dims(child)
+        for module in self.children():
+            fn_recursive_retrieve_slicable_dims(module)
+        num_slicable_layers = len(sliceable_head_dims)
+        if slice_size == 'auto':
+            slice_size = [(dim // 2) for dim in sliceable_head_dims]
+        elif slice_size == 'max':
+            slice_size = num_slicable_layers * [1]
+        slice_size = num_slicable_layers * [slice_size] if not isinstance(slice_size, list) else slice_size
+        if len(slice_size) != len(sliceable_head_dims):
+            raise ValueError(f'You have provided {len(slice_size)}, but {self.config} has {len(sliceable_head_dims)} different attention layers. Make sure to match `len(slice_size)` to be {len(sliceable_head_dims)}.')
+        for i in range(len(slice_size)):
+            size = slice_size[i]
+            dim = sliceable_head_dims[i]
+            if size is not None and size > dim:
+                raise ValueError(f'size {size} has to be smaller or equal to {dim}.')
+
+        def fn_recursive_set_attention_slice(module: 'torch.nn.Module', slice_size: 'List[int]'):
+            if hasattr(module, 'set_attention_slice'):
+                module.set_attention_slice(slice_size.pop())
+            for child in module.children():
+                fn_recursive_set_attention_slice(child, slice_size)
+        reversed_slice_size = list(reversed(slice_size))
+        for module in self.children():
+            fn_recursive_set_attention_slice(module, reversed_slice_size)
+
+    def _set_gradient_checkpointing(self, module, value=False):
+        if isinstance(module, (CrossAttnDownBlockFlat, DownBlockFlat, CrossAttnUpBlockFlat, UpBlockFlat)):
+            module.gradient_checkpointing = value
+
+    def forward(self, sample: 'torch.FloatTensor', timestep: 'Union[torch.Tensor, float, int]', encoder_hidden_states: 'torch.Tensor', class_labels: 'Optional[torch.Tensor]'=None, timestep_cond: 'Optional[torch.Tensor]'=None, attention_mask: 'Optional[torch.Tensor]'=None, cross_attention_kwargs: 'Optional[Dict[str, Any]]'=None, down_block_additional_residuals: 'Optional[Tuple[torch.Tensor]]'=None, mid_block_additional_residual: 'Optional[torch.Tensor]'=None, return_dict: 'bool'=True) ->Union[UNet2DConditionOutput, Tuple]:
+        """
+        Args:
+            sample (`torch.FloatTensor`): (batch, channel, height, width) noisy inputs tensor
+            timestep (`torch.FloatTensor` or `float` or `int`): (batch) timesteps
+            encoder_hidden_states (`torch.FloatTensor`): (batch, sequence_length, feature_dim) encoder hidden states
+            return_dict (`bool`, *optional*, defaults to `True`):
+                Whether or not to return a [`models.unet_2d_condition.UNet2DConditionOutput`] instead of a plain tuple.
+            cross_attention_kwargs (`dict`, *optional*):
+                A kwargs dictionary that if specified is passed along to the `AttnProcessor` as defined under
+                `self.processor` in
+                [diffusers.cross_attention](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/cross_attention.py).
+
+        Returns:
+            [`~models.unet_2d_condition.UNet2DConditionOutput`] or `tuple`:
+            [`~models.unet_2d_condition.UNet2DConditionOutput`] if `return_dict` is True, otherwise a `tuple`. When
+            returning a tuple, the first element is the sample tensor.
+        """
+        default_overall_up_factor = 2 ** self.num_upsamplers
+        forward_upsample_size = False
+        upsample_size = None
+        if any(s % default_overall_up_factor != 0 for s in sample.shape[-2:]):
+            logger.info('Forward upsample size to force interpolation output size.')
+            forward_upsample_size = True
+        if attention_mask is not None:
+            attention_mask = (1 - attention_mask) * -10000.0
+            attention_mask = attention_mask.unsqueeze(1)
+        if self.config.center_input_sample:
+            sample = 2 * sample - 1.0
+        timesteps = timestep
+        if not torch.is_tensor(timesteps):
+            is_mps = sample.device.type == 'mps'
+            if isinstance(timestep, float):
+                dtype = torch.float32 if is_mps else torch.float64
+            else:
+                dtype = torch.int32 if is_mps else torch.int64
+            timesteps = torch.tensor([timesteps], dtype=dtype, device=sample.device)
+        elif len(timesteps.shape) == 0:
+            timesteps = timesteps[None]
+        timesteps = timesteps.expand(sample.shape[0])
+        t_emb = self.time_proj(timesteps)
+        t_emb = t_emb
+        emb = self.time_embedding(t_emb, timestep_cond)
+        if self.class_embedding is not None:
+            if class_labels is None:
+                raise ValueError('class_labels should be provided when num_class_embeds > 0')
+            if self.config.class_embed_type == 'timestep':
+                class_labels = self.time_proj(class_labels)
+            class_emb = self.class_embedding(class_labels)
+            emb = emb + class_emb
+        sample = self.conv_in(sample)
+        down_block_res_samples = sample,
+        for downsample_block in self.down_blocks:
+            if hasattr(downsample_block, 'has_cross_attention') and downsample_block.has_cross_attention:
+                sample, res_samples = downsample_block(hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask, cross_attention_kwargs=cross_attention_kwargs)
+            else:
+                sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
+            down_block_res_samples += res_samples
+        if down_block_additional_residuals is not None:
+            new_down_block_res_samples = ()
+            for down_block_res_sample, down_block_additional_residual in zip(down_block_res_samples, down_block_additional_residuals):
+                down_block_res_sample = down_block_res_sample + down_block_additional_residual
+                new_down_block_res_samples += down_block_res_sample,
+            down_block_res_samples = new_down_block_res_samples
+        if self.mid_block is not None:
+            sample = self.mid_block(sample, emb, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask, cross_attention_kwargs=cross_attention_kwargs)
+        if mid_block_additional_residual is not None:
+            sample = sample + mid_block_additional_residual
+        for i, upsample_block in enumerate(self.up_blocks):
+            is_final_block = i == len(self.up_blocks) - 1
+            res_samples = down_block_res_samples[-len(upsample_block.resnets):]
+            down_block_res_samples = down_block_res_samples[:-len(upsample_block.resnets)]
+            if not is_final_block and forward_upsample_size:
+                upsample_size = down_block_res_samples[-1].shape[2:]
+            if hasattr(upsample_block, 'has_cross_attention') and upsample_block.has_cross_attention:
+                sample = upsample_block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, encoder_hidden_states=encoder_hidden_states, cross_attention_kwargs=cross_attention_kwargs, upsample_size=upsample_size, attention_mask=attention_mask)
+            else:
+                sample = upsample_block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size)
+        if self.conv_norm_out:
+            sample = self.conv_norm_out(sample)
+            sample = self.conv_act(sample)
+        sample = self.conv_out(sample)
+        if not return_dict:
+            return sample,
+        return UNet2DConditionOutput(sample=sample)
+
+
+class LearnedClassifierFreeSamplingEmbeddings(ModelMixin, ConfigMixin):
+    """
+    Utility class for storing learned text embeddings for classifier free sampling
+    """
+
+    @register_to_config
+    def __init__(self, learnable: 'bool', hidden_size: 'Optional[int]'=None, length: 'Optional[int]'=None):
+        super().__init__()
+        self.learnable = learnable
+        if self.learnable:
+            assert hidden_size is not None, 'learnable=True requires `hidden_size` to be set'
+            assert length is not None, 'learnable=True requires `length` to be set'
+            embeddings = torch.zeros(length, hidden_size)
+        else:
+            embeddings = None
+        self.embeddings = torch.nn.Parameter(embeddings)
 
 
 import torch
