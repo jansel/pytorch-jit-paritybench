@@ -54,6 +54,16 @@ class ASTCleanup(ast.NodeTransformer):
 
     visit_ImportFrom = visit_Import
 
+    def visit_AnnAssign(self, node: ast.AnnAssign):
+        node.annotation = ast.Constant(ast.unparse(node.annotation))
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        for i, a in enumerate(node.args.args):
+            if a.annotation is not None:
+                a.annotation = ast.Constant(ast.unparse(a.annotation))
+        return self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call):
         if getattr(node.func, 'id', '') == 'print':
             # Strip print() calls

@@ -35,6 +35,8 @@ from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
 import {', '.join(sorted(IMPORT_WHITELIST))}
+import operator as op
+from dataclasses import dataclass
 import numpy as np
 from torch import Tensor
 
@@ -177,6 +179,7 @@ class PyTorchModuleExtractor(object):
                 self.search_file(name, archive.open)
 
     def add_available_symbol(self, node, overwrite=False):
+        node = ast.fix_missing_locations(ASTCleanup().visit(node)) # clean ast
         try:
             if overwrite:
                 self.available_symbols[node.name] = node
@@ -206,16 +209,16 @@ class PyTorchModuleExtractor(object):
             except Exception as e:
                 self.errors.record("constant", e, getattr(statement, "name", ""))
         for name in self.nn_module_names:
-            statement = self.available_symbols.pop(name, None)
+            statement = self.available_symbols.get(name)
             if statement:
                 self.add_requirements(statement) # add what is needed for module
                 try:
                     self.run_statement(statement)
+                    self.available_symbols.pop(name)
                 except Exception as e:
                     self.errors.record("define", e, getattr(statement, "name", ""))
 
     def run_statement(self, statement):
-        statement = ast.fix_missing_locations(ASTCleanup().visit(statement)) # clean ast
         self.output.run_statement(statement, source_required=True)
         name = getattr(statement, "name", None)
         if name:
@@ -236,10 +239,11 @@ class PyTorchModuleExtractor(object):
         need_config = False
         for name in sorted(needs):
             if name in self.available_symbols and name not in self.output:
-                requirement = self.available_symbols.pop(name)
+                requirement = self.available_symbols.get(name)
                 self.add_requirements(requirement)
                 try:
                     self.run_statement(requirement)
+                    self.available_symbols.pop(name)
                 except:
                     log.warning("Error adding requirement", exc_info=True)
             elif name in CONFIG_NAMES:
