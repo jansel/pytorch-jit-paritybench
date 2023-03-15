@@ -1,52 +1,82 @@
 import sys
 _module = sys.modules[__name__]
 del sys
+_config = _module
 bit_diffusion = _module
 checkpoint_merger = _module
 clip_guided_stable_diffusion = _module
 composable_stable_diffusion = _module
+ddim_noise_comparative_analysis = _module
 imagic_stable_diffusion = _module
 img2img_inpainting = _module
 interpolate_stable_diffusion = _module
 lpw_stable_diffusion = _module
 lpw_stable_diffusion_onnx = _module
+magic_mix = _module
 multilingual_stable_diffusion = _module
 one_step_unet = _module
 sd_text2img_k_diffusion = _module
 seed_resize_stable_diffusion = _module
 speech_to_image_diffusion = _module
 stable_diffusion_comparison = _module
+stable_diffusion_controlnet_img2img = _module
+stable_diffusion_controlnet_inpaint = _module
+stable_diffusion_controlnet_inpaint_img2img = _module
 stable_diffusion_mega = _module
+stable_unclip = _module
 text_inpainting = _module
+tiled_upscaling = _module
+unclip_image_interpolation = _module
+unclip_text_interpolation = _module
 wildcard_stable_diffusion = _module
 conftest = _module
+train_controlnet = _module
 train_dreambooth = _module
 train_dreambooth_flax = _module
+train_dreambooth_lora = _module
 image_to_image = _module
 inpainting = _module
+inference = _module
+train_dreambooth_colossalai = _module
 train_dreambooth_inpaint = _module
+train_dreambooth_inpaint_lora = _module
 inference_bf16 = _module
 textual_inversion_bf16 = _module
+train_text_to_image_lora = _module
+multi_token_clip = _module
+textual_inversion = _module
+textual_inversion_flax = _module
+train_multi_subject_dreambooth = _module
+train_text_to_image = _module
+textual_inversion = _module
+train_unconditional = _module
 run_diffuser_locomotion = _module
 test_examples = _module
 train_text_to_image = _module
 train_text_to_image_flax = _module
+train_text_to_image_lora = _module
 textual_inversion = _module
 textual_inversion_flax = _module
 train_unconditional = _module
-train_unconditional_ort = _module
 scripts = _module
 change_naming_configs_and_checkpoints = _module
 conversion_ldm_uncond = _module
 convert_dance_diffusion_to_diffusers = _module
 convert_ddpm_original_checkpoint_to_diffusers = _module
 convert_diffusers_to_original_stable_diffusion = _module
+convert_dit_to_diffusers = _module
+convert_k_upscaler_to_diffusers = _module
 convert_kakao_brain_unclip_to_diffusers = _module
 convert_ldm_original_checkpoint_to_diffusers = _module
+convert_lora_safetensor_to_diffusers = _module
 convert_models_diffuser_to_diffusers = _module
 convert_ncsnpp_original_checkpoint_to_diffusers = _module
+convert_original_controlnet_to_diffusers = _module
 convert_original_stable_diffusion_to_diffusers = _module
 convert_stable_diffusion_checkpoint_to_onnx = _module
+convert_unclip_txt2img_to_image_variation = _module
+convert_vae_diff_to_onnx = _module
+convert_vae_pt_to_diffusers = _module
 convert_versatile_diffusion_to_diffusers = _module
 convert_vq_diffusion_to_diffusers = _module
 generate_logits = _module
@@ -58,23 +88,28 @@ env = _module
 configuration_utils = _module
 dependency_versions_check = _module
 dependency_versions_table = _module
-dynamic_modules_utils = _module
 experimental = _module
 rl = _module
 value_guided_sampling = _module
-hub_utils = _module
-modeling_flax_pytorch_utils = _module
-modeling_flax_utils = _module
-modeling_utils = _module
+image_processor = _module
+loaders = _module
 models = _module
 attention = _module
 attention_flax = _module
+autoencoder_kl = _module
+controlnet = _module
 cross_attention = _module
+dual_transformer_2d = _module
 embeddings = _module
 embeddings_flax = _module
+modeling_flax_pytorch_utils = _module
+modeling_flax_utils = _module
+modeling_pytorch_flax_utils = _module
+modeling_utils = _module
 prior_transformer = _module
 resnet = _module
 resnet_flax = _module
+transformer_2d = _module
 unet_1d = _module
 unet_1d_blocks = _module
 unet_2d = _module
@@ -84,9 +119,8 @@ unet_2d_condition = _module
 unet_2d_condition_flax = _module
 vae = _module
 vae_flax = _module
-onnx_utils = _module
+vq_model = _module
 optimization = _module
-pipeline_flax_utils = _module
 pipeline_utils = _module
 pipelines = _module
 alt_diffusion = _module
@@ -102,38 +136,58 @@ ddim = _module
 pipeline_ddim = _module
 ddpm = _module
 pipeline_ddpm = _module
+dit = _module
+pipeline_dit = _module
 latent_diffusion = _module
 pipeline_latent_diffusion = _module
 pipeline_latent_diffusion_superresolution = _module
 latent_diffusion_uncond = _module
 pipeline_latent_diffusion_uncond = _module
+onnx_utils = _module
 paint_by_example = _module
 image_encoder = _module
 pipeline_paint_by_example = _module
+pipeline_flax_utils = _module
+pipeline_utils = _module
 pndm = _module
 pipeline_pndm = _module
 repaint = _module
 pipeline_repaint = _module
 score_sde_ve = _module
 pipeline_score_sde_ve = _module
+semantic_stable_diffusion = _module
+pipeline_semantic_stable_diffusion = _module
 stable_diffusion = _module
+convert_from_ckpt = _module
 pipeline_cycle_diffusion = _module
 pipeline_flax_stable_diffusion = _module
 pipeline_flax_stable_diffusion_img2img = _module
+pipeline_flax_stable_diffusion_inpaint = _module
 pipeline_onnx_stable_diffusion = _module
 pipeline_onnx_stable_diffusion_img2img = _module
 pipeline_onnx_stable_diffusion_inpaint = _module
 pipeline_onnx_stable_diffusion_inpaint_legacy = _module
+pipeline_onnx_stable_diffusion_upscale = _module
 pipeline_stable_diffusion = _module
+pipeline_stable_diffusion_attend_and_excite = _module
+pipeline_stable_diffusion_controlnet = _module
 pipeline_stable_diffusion_depth2img = _module
 pipeline_stable_diffusion_image_variation = _module
 pipeline_stable_diffusion_img2img = _module
 pipeline_stable_diffusion_inpaint = _module
 pipeline_stable_diffusion_inpaint_legacy = _module
+pipeline_stable_diffusion_instruct_pix2pix = _module
 pipeline_stable_diffusion_k_diffusion = _module
+pipeline_stable_diffusion_latent_upscale = _module
+pipeline_stable_diffusion_panorama = _module
+pipeline_stable_diffusion_pix2pix_zero = _module
+pipeline_stable_diffusion_sag = _module
 pipeline_stable_diffusion_upscale = _module
+pipeline_stable_unclip = _module
+pipeline_stable_unclip_img2img = _module
 safety_checker = _module
 safety_checker_flax = _module
+stable_unclip_image_normalizer = _module
 stable_diffusion_safe = _module
 pipeline_stable_diffusion_safe = _module
 safety_checker = _module
@@ -141,6 +195,7 @@ stochastic_karras_ve = _module
 pipeline_stochastic_karras_ve = _module
 unclip = _module
 pipeline_unclip = _module
+pipeline_unclip_image_variation = _module
 text_proj = _module
 versatile_diffusion = _module
 modeling_text_unet = _module
@@ -153,8 +208,10 @@ pipeline_vq_diffusion = _module
 schedulers = _module
 scheduling_ddim = _module
 scheduling_ddim_flax = _module
+scheduling_ddim_inverse = _module
 scheduling_ddpm = _module
 scheduling_ddpm_flax = _module
+scheduling_deis_multistep = _module
 scheduling_dpmsolver_multistep = _module
 scheduling_dpmsolver_multistep_flax = _module
 scheduling_dpmsolver_singlestep = _module
@@ -175,34 +232,44 @@ scheduling_sde_ve = _module
 scheduling_sde_ve_flax = _module
 scheduling_sde_vp = _module
 scheduling_unclip = _module
+scheduling_unipc_multistep = _module
 scheduling_utils = _module
 scheduling_utils_flax = _module
 scheduling_vq_diffusion = _module
 training_utils = _module
 utils = _module
+accelerate_utils = _module
+constants = _module
 deprecation_utils = _module
+doc_utils = _module
 dummy_flax_and_transformers_objects = _module
 dummy_flax_objects = _module
+dummy_onnx_objects = _module
 dummy_pt_objects = _module
 dummy_torch_and_librosa_objects = _module
 dummy_torch_and_scipy_objects = _module
 dummy_torch_and_transformers_and_k_diffusion_objects = _module
 dummy_torch_and_transformers_and_onnx_objects = _module
 dummy_torch_and_transformers_objects = _module
+dynamic_modules_utils = _module
+hub_utils = _module
 import_utils = _module
 logging = _module
 outputs = _module
 pil_utils = _module
 testing_utils = _module
+torch_utils = _module
 tests = _module
 pipeline = _module
 what_ever = _module
 test_models_unet_1d = _module
 test_models_unet_2d = _module
+test_models_unet_2d_condition = _module
 test_models_unet_2d_flax = _module
 test_models_vae = _module
 test_models_vae_flax = _module
 test_models_vq = _module
+pipeline_params = _module
 altdiffusion = _module
 test_alt_diffusion = _module
 test_alt_diffusion_img2img = _module
@@ -210,6 +277,7 @@ test_audio_diffusion = _module
 test_dance_diffusion = _module
 test_ddim = _module
 test_ddpm = _module
+test_dit = _module
 karras_ve = _module
 test_karras_ve = _module
 test_latent_diffusion = _module
@@ -219,26 +287,40 @@ test_paint_by_example = _module
 test_pndm = _module
 test_repaint = _module
 test_score_sde_ve = _module
+test_semantic_diffusion = _module
 test_cycle_diffusion = _module
 test_onnx_stable_diffusion = _module
 test_onnx_stable_diffusion_img2img = _module
 test_onnx_stable_diffusion_inpaint = _module
 test_onnx_stable_diffusion_inpaint_legacy = _module
+test_onnx_stable_diffusion_upscale = _module
 test_stable_diffusion = _module
+test_stable_diffusion_controlnet = _module
 test_stable_diffusion_image_variation = _module
 test_stable_diffusion_img2img = _module
 test_stable_diffusion_inpaint = _module
 test_stable_diffusion_inpaint_legacy = _module
+test_stable_diffusion_instruction_pix2pix = _module
 test_stable_diffusion_k_diffusion = _module
+test_stable_diffusion_panorama = _module
+test_stable_diffusion_pix2pix_zero = _module
+test_stable_diffusion_sag = _module
 stable_diffusion_2 = _module
 test_stable_diffusion = _module
+test_stable_diffusion_attend_and_excite = _module
 test_stable_diffusion_depth = _module
 test_stable_diffusion_flax = _module
+test_stable_diffusion_flax_inpaint = _module
 test_stable_diffusion_inpaint = _module
+test_stable_diffusion_latent_upscale = _module
 test_stable_diffusion_upscale = _module
 test_stable_diffusion_v_pred = _module
 test_safe_diffusion = _module
+test_stable_unclip = _module
+test_stable_unclip_img2img = _module
+test_pipeline_utils = _module
 test_unclip = _module
+test_unclip_image_variation = _module
 test_versatile_diffusion_dual_guided = _module
 test_versatile_diffusion_image_variation = _module
 test_versatile_diffusion_mega = _module
@@ -246,7 +328,29 @@ test_versatile_diffusion_text_to_image = _module
 test_vq_diffusion = _module
 test_check_copies = _module
 test_check_dummies = _module
+test_scheduler_ddim = _module
+test_scheduler_ddpm = _module
+test_scheduler_deis = _module
+test_scheduler_dpm_multi = _module
+test_scheduler_dpm_single = _module
+test_scheduler_euler = _module
+test_scheduler_euler_ancestral = _module
+test_scheduler_flax = _module
+test_scheduler_heun = _module
+test_scheduler_ipndm = _module
+test_scheduler_kdpm2_ancestral = _module
+test_scheduler_kdpm2_discrete = _module
+test_scheduler_lms = _module
+test_scheduler_pndm = _module
+test_scheduler_score_sde_ve = _module
+test_scheduler_unclip = _module
+test_scheduler_unipc = _module
+test_scheduler_vq_diffusion = _module
+test_schedulers = _module
 test_config = _module
+test_ema = _module
+test_hub_utils = _module
+test_image_processor = _module
 test_layers_utils = _module
 test_modeling_common = _module
 test_modeling_common_flax = _module
@@ -255,26 +359,29 @@ test_pipelines = _module
 test_pipelines_common = _module
 test_pipelines_flax = _module
 test_pipelines_onnx_common = _module
-test_scheduler = _module
-test_scheduler_flax = _module
 test_training = _module
+test_unet_2d_blocks = _module
+test_unet_blocks_common = _module
 test_utils = _module
 check_config_docstrings = _module
 check_copies = _module
+check_doc_toc = _module
 check_dummies = _module
 check_inits = _module
 check_repo = _module
 check_table = _module
 custom_init_isort = _module
 get_modified_files = _module
+overwrite_expected_slice = _module
 print_env = _module
+release = _module
 stale = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, matplotlib, numbers, numpy, pandas, queue, random, re, scipy, sklearn, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -338,58 +445,46 @@ import time
 import re
 
 
+from torchvision import transforms as tfms
+
+
 from typing import Any
 
 
-import random
-
-
-import itertools
+import types
 
 
 import math
 
 
-import torch.utils.checkpoint
-
-
-from torch.utils.data import Dataset
+import random
 
 
 import logging
 
 
-from typing import Iterable
+import torch.utils.checkpoint
 
 
-from torchvision.transforms import CenterCrop
+import itertools
 
 
-from torchvision.transforms import Compose
-
-
-from torchvision.transforms import InterpolationMode
-
-
-from torchvision.transforms import Normalize
-
-
-from torchvision.transforms import RandomHorizontalFlip
-
-
-from torchvision.transforms import Resize
-
-
-from torchvision.transforms import ToTensor
+from torch.utils.data import Dataset
 
 
 from copy import deepcopy
 
 
+from torchvision.datasets.utils import download_url
+
+
 from torch.onnx import export
 
 
-from uuid import uuid4
+from collections import defaultdict
+
+
+import torch.nn as nn
 
 
 from functools import partial
@@ -399,9 +494,6 @@ from torch import Tensor
 
 
 from torch import device
-
-
-import torch.nn as nn
 
 
 from enum import Enum
@@ -419,10 +511,22 @@ from math import acos
 from math import sin
 
 
+from itertools import repeat
+
+
+from logging import getLogger
+
+
 from scipy import integrate
 
 
 import copy
+
+
+from typing import Iterable
+
+
+from uuid import uuid4
 
 
 from collections import OrderedDict
@@ -458,167 +562,31 @@ class DiffusionUncond(nn.Module):
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
 
-FLAX_IMPORT_ERROR = """
-{0} requires the FLAX library but it was not found in your environment. Checkout the instructions on the
-installation page: https://github.com/google/flax and follow the ones that match your environment.
-"""
+class AttnProcsLayers(torch.nn.Module):
 
+    def __init__(self, state_dict: Dict[str, torch.Tensor]):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(state_dict.values())
+        self.mapping = {k: v for k, v in enumerate(state_dict.keys())}
+        self.rev_mapping = {v: k for k, v in enumerate(state_dict.keys())}
 
-INFLECT_IMPORT_ERROR = """
-{0} requires the inflect library but it was not found in your environment. You can install it with pip: `pip install
-inflect`
-"""
+        def map_to(module, state_dict, *args, **kwargs):
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                num = int(key.split('.')[1])
+                new_key = key.replace(f'layers.{num}', module.mapping[num])
+                new_state_dict[new_key] = value
+            return new_state_dict
 
-
-K_DIFFUSION_IMPORT_ERROR = """
-{0} requires the k-diffusion library but it was not found in your environment. You can install it with pip: `pip
-install k-diffusion`
-"""
-
-
-LIBROSA_IMPORT_ERROR = """
-{0} requires the librosa library but it was not found in your environment.  Checkout the instructions on the
-installation page: https://librosa.org/doc/latest/install.html and follow the ones that match your environment.
-"""
-
-
-ONNX_IMPORT_ERROR = """
-{0} requires the onnxruntime library but it was not found in your environment. You can install it with pip: `pip
-install onnxruntime`
-"""
-
-
-PYTORCH_IMPORT_ERROR = """
-{0} requires the PyTorch library but it was not found in your environment. Checkout the instructions on the
-installation page: https://pytorch.org/get-started/locally/ and follow the ones that match your environment.
-"""
-
-
-SCIPY_IMPORT_ERROR = """
-{0} requires the scipy library but it was not found in your environment. You can install it with pip: `pip install
-scipy`
-"""
-
-
-TRANSFORMERS_IMPORT_ERROR = """
-{0} requires the transformers library but it was not found in your environment. You can install it with pip: `pip
-install transformers`
-"""
-
-
-UNIDECODE_IMPORT_ERROR = """
-{0} requires the unidecode library but it was not found in your environment. You can install it with pip: `pip install
-Unidecode`
-"""
-
-
-def is_flax_available():
-    return _flax_available
-
-
-def is_inflect_available():
-    return _inflect_available
-
-
-def is_k_diffusion_available():
-    return _k_diffusion_available
-
-
-def is_librosa_available():
-    return _librosa_available
-
-
-def is_onnx_available():
-    return _onnx_available
-
-
-def is_scipy_available():
-    return _scipy_available
-
-
-def is_torch_available():
-    return _torch_available
-
-
-def is_transformers_available():
-    return _transformers_available
-
-
-def is_unidecode_available():
-    return _unidecode_available
-
-
-BACKENDS_MAPPING = OrderedDict([('flax', (is_flax_available, FLAX_IMPORT_ERROR)), ('inflect', (is_inflect_available, INFLECT_IMPORT_ERROR)), ('onnx', (is_onnx_available, ONNX_IMPORT_ERROR)), ('scipy', (is_scipy_available, SCIPY_IMPORT_ERROR)), ('torch', (is_torch_available, PYTORCH_IMPORT_ERROR)), ('transformers', (is_transformers_available, TRANSFORMERS_IMPORT_ERROR)), ('unidecode', (is_unidecode_available, UNIDECODE_IMPORT_ERROR)), ('librosa', (is_librosa_available, LIBROSA_IMPORT_ERROR)), ('k_diffusion', (is_k_diffusion_available, K_DIFFUSION_IMPORT_ERROR))])
-
-
-def is_transformers_version(operation: str, version: str):
-    """
-    Args:
-    Compares the current Transformers version to a given reference with an operation.
-        operation (`str`):
-            A string representation of an operator, such as `">"` or `"<="`
-        version (`str`):
-            A string version of PyTorch
-    """
-    if not _transformers_available:
-        return False
-    return compare_versions(parse(_transformers_version), operation, version)
-
-
-def requires_backends(obj, backends):
-    if not isinstance(backends, (list, tuple)):
-        backends = [backends]
-    name = obj.__name__ if hasattr(obj, '__name__') else obj.__class__.__name__
-    checks = (BACKENDS_MAPPING[backend] for backend in backends)
-    failed = [msg.format(name) for available, msg in checks if not available()]
-    if failed:
-        raise ImportError(''.join(failed))
-    if name in ['VersatileDiffusionTextToImagePipeline', 'VersatileDiffusionPipeline', 'VersatileDiffusionDualGuidedPipeline', 'StableDiffusionImageVariationPipeline', 'UnCLIPPipeline'] and is_transformers_version('<', '4.25.0'):
-        raise ImportError(f'You need to install `transformers>=4.25` in order to use {name}: \n```\n pip install --upgrade transformers \n```')
-    if name in ['StableDiffusionDepth2ImgPipeline'] and is_transformers_version('<', '4.26.0.dev0'):
-        raise ImportError(f"You need to install `transformers` from 'main' in order to use {name}: \n```\n pip install git+https://github.com/huggingface/transformers \n```")
-
-
-class DummyObject(type):
-    """
-    Metaclass for the dummy objects. Any class inheriting from it will return the ImportError generated by
-    `requires_backend` each time a user tries to access any method of that class.
-    """
-
-    def __getattr__(cls, key):
-        if key.startswith('_'):
-            return super().__getattr__(cls, key)
-        requires_backends(cls, cls._backends)
-
-
-class ModelMixin(metaclass=DummyObject):
-    _backends = ['torch']
-
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ['torch'])
-
-    @classmethod
-    def from_config(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-
-class Transformer2DModel(metaclass=DummyObject):
-    _backends = ['torch']
-
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ['torch'])
-
-    @classmethod
-    def from_config(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
+        def map_from(module, state_dict, *args, **kwargs):
+            all_keys = list(state_dict.keys())
+            for key in all_keys:
+                replace_key = key.split('.processor')[0] + '.processor'
+                new_key = key.replace(replace_key, f'layers.{module.rev_mapping[replace_key]}')
+                state_dict[new_key] = state_dict[key]
+                del state_dict[key]
+        self._register_state_dict_hook(map_to)
+        self._register_load_state_dict_pre_hook(map_from, with_module=True)
 
 
 def is_xformers_available():
@@ -653,6 +621,7 @@ class AttentionBlock(nn.Module):
         self.rescale_output_factor = rescale_output_factor
         self.proj_attn = nn.Linear(channels, channels, 1)
         self._use_memory_efficient_attention_xformers = False
+        self._attention_op = None
 
     def reshape_heads_to_batch_dim(self, tensor):
         batch_size, seq_len, dim = tensor.shape
@@ -668,7 +637,7 @@ class AttentionBlock(nn.Module):
         tensor = tensor.permute(0, 2, 1, 3).reshape(batch_size // head_size, seq_len, dim * head_size)
         return tensor
 
-    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool):
+    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable]=None):
         if use_memory_efficient_attention_xformers:
             if not is_xformers_available():
                 raise ModuleNotFoundError('Refer to https://github.com/facebookresearch/xformers for more information on how to install xformers', name='xformers')
@@ -680,6 +649,7 @@ class AttentionBlock(nn.Module):
                 except Exception as e:
                     raise e
         self._use_memory_efficient_attention_xformers = use_memory_efficient_attention_xformers
+        self._attention_op = attention_op
 
     def forward(self, hidden_states):
         residual = hidden_states
@@ -694,7 +664,7 @@ class AttentionBlock(nn.Module):
         key_proj = self.reshape_heads_to_batch_dim(key_proj)
         value_proj = self.reshape_heads_to_batch_dim(value_proj)
         if self._use_memory_efficient_attention_xformers:
-            hidden_states = xformers.ops.memory_efficient_attention(query_proj, key_proj, value_proj, attn_bias=None)
+            hidden_states = xformers.ops.memory_efficient_attention(query_proj, key_proj, value_proj, attn_bias=None, op=self._attention_op)
             hidden_states = hidden_states
         else:
             attention_scores = torch.baddbmm(torch.empty(query_proj.shape[0], query_proj.shape[1], key_proj.shape[1], dtype=query_proj.dtype, device=query_proj.device), query_proj, key_proj.transpose(-1, -2), beta=0, alpha=scale)
@@ -726,6 +696,178 @@ class AdaLayerNorm(nn.Module):
         return x
 
 
+class LabelEmbedding(nn.Module):
+    """
+    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
+
+    Args:
+        num_classes (`int`): The number of classes.
+        hidden_size (`int`): The size of the vector embeddings.
+        dropout_prob (`float`): The probability of dropping a label.
+    """
+
+    def __init__(self, num_classes, hidden_size, dropout_prob):
+        super().__init__()
+        use_cfg_embedding = dropout_prob > 0
+        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
+        self.num_classes = num_classes
+        self.dropout_prob = dropout_prob
+
+    def token_drop(self, labels, force_drop_ids=None):
+        """
+        Drops labels to enable classifier-free guidance.
+        """
+        if force_drop_ids is None:
+            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
+        else:
+            drop_ids = torch.tensor(force_drop_ids == 1)
+        labels = torch.where(drop_ids, self.num_classes, labels)
+        return labels
+
+    def forward(self, labels, force_drop_ids=None):
+        use_dropout = self.dropout_prob > 0
+        if self.training and use_dropout or force_drop_ids is not None:
+            labels = self.token_drop(labels, force_drop_ids)
+        embeddings = self.embedding_table(labels)
+        return embeddings
+
+
+class TimestepEmbedding(nn.Module):
+
+    def __init__(self, in_channels: int, time_embed_dim: int, act_fn: str='silu', out_dim: int=None, post_act_fn: Optional[str]=None, cond_proj_dim=None):
+        super().__init__()
+        self.linear_1 = nn.Linear(in_channels, time_embed_dim)
+        if cond_proj_dim is not None:
+            self.cond_proj = nn.Linear(cond_proj_dim, in_channels, bias=False)
+        else:
+            self.cond_proj = None
+        if act_fn == 'silu':
+            self.act = nn.SiLU()
+        elif act_fn == 'mish':
+            self.act = nn.Mish()
+        elif act_fn == 'gelu':
+            self.act = nn.GELU()
+        else:
+            raise ValueError(f"{act_fn} does not exist. Make sure to define one of 'silu', 'mish', or 'gelu'")
+        if out_dim is not None:
+            time_embed_dim_out = out_dim
+        else:
+            time_embed_dim_out = time_embed_dim
+        self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim_out)
+        if post_act_fn is None:
+            self.post_act = None
+        elif post_act_fn == 'silu':
+            self.post_act = nn.SiLU()
+        elif post_act_fn == 'mish':
+            self.post_act = nn.Mish()
+        elif post_act_fn == 'gelu':
+            self.post_act = nn.GELU()
+        else:
+            raise ValueError(f"{post_act_fn} does not exist. Make sure to define one of 'silu', 'mish', or 'gelu'")
+
+    def forward(self, sample, condition=None):
+        if condition is not None:
+            sample = sample + self.cond_proj(condition)
+        sample = self.linear_1(sample)
+        if self.act is not None:
+            sample = self.act(sample)
+        sample = self.linear_2(sample)
+        if self.post_act is not None:
+            sample = self.post_act(sample)
+        return sample
+
+
+def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, flip_sin_to_cos: bool=False, downscale_freq_shift: float=1, scale: float=1, max_period: int=10000):
+    """
+    This matches the implementation in Denoising Diffusion Probabilistic Models: Create sinusoidal timestep embeddings.
+
+    :param timesteps: a 1-D Tensor of N indices, one per batch element.
+                      These may be fractional.
+    :param embedding_dim: the dimension of the output. :param max_period: controls the minimum frequency of the
+    embeddings. :return: an [N x dim] Tensor of positional embeddings.
+    """
+    assert len(timesteps.shape) == 1, 'Timesteps should be a 1d-array'
+    half_dim = embedding_dim // 2
+    exponent = -math.log(max_period) * torch.arange(start=0, end=half_dim, dtype=torch.float32, device=timesteps.device)
+    exponent = exponent / (half_dim - downscale_freq_shift)
+    emb = torch.exp(exponent)
+    emb = timesteps[:, None].float() * emb[None, :]
+    emb = scale * emb
+    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
+    if flip_sin_to_cos:
+        emb = torch.cat([emb[:, half_dim:], emb[:, :half_dim]], dim=-1)
+    if embedding_dim % 2 == 1:
+        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+    return emb
+
+
+class Timesteps(nn.Module):
+
+    def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float):
+        super().__init__()
+        self.num_channels = num_channels
+        self.flip_sin_to_cos = flip_sin_to_cos
+        self.downscale_freq_shift = downscale_freq_shift
+
+    def forward(self, timesteps):
+        t_emb = get_timestep_embedding(timesteps, self.num_channels, flip_sin_to_cos=self.flip_sin_to_cos, downscale_freq_shift=self.downscale_freq_shift)
+        return t_emb
+
+
+class CombinedTimestepLabelEmbeddings(nn.Module):
+
+    def __init__(self, num_classes, embedding_dim, class_dropout_prob=0.1):
+        super().__init__()
+        self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=1)
+        self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
+        self.class_embedder = LabelEmbedding(num_classes, embedding_dim, class_dropout_prob)
+
+    def forward(self, timestep, class_labels, hidden_dtype=None):
+        timesteps_proj = self.time_proj(timestep)
+        timesteps_emb = self.timestep_embedder(timesteps_proj)
+        class_labels = self.class_embedder(class_labels)
+        conditioning = timesteps_emb + class_labels
+        return conditioning
+
+
+class AdaLayerNormZero(nn.Module):
+    """
+    Norm layer adaptive layer norm zero (adaLN-Zero).
+    """
+
+    def __init__(self, embedding_dim, num_embeddings):
+        super().__init__()
+        self.emb = CombinedTimestepLabelEmbeddings(num_embeddings, embedding_dim)
+        self.silu = nn.SiLU()
+        self.linear = nn.Linear(embedding_dim, 6 * embedding_dim, bias=True)
+        self.norm = nn.LayerNorm(embedding_dim, elementwise_affine=False, eps=1e-06)
+
+    def forward(self, x, timestep, class_labels, hidden_dtype=None):
+        emb = self.linear(self.silu(self.emb(timestep, class_labels, hidden_dtype=hidden_dtype)))
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = emb.chunk(6, dim=1)
+        x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
+        return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
+
+
+class LoRALinearLayer(nn.Module):
+
+    def __init__(self, in_features, out_features, rank=4):
+        super().__init__()
+        if rank > min(in_features, out_features):
+            raise ValueError(f'LoRA rank {rank} must be less or equal than {min(in_features, out_features)}')
+        self.down = nn.Linear(in_features, rank, bias=False)
+        self.up = nn.Linear(rank, out_features, bias=False)
+        nn.init.normal_(self.down.weight, std=1 / rank)
+        nn.init.zeros_(self.up.weight)
+
+    def forward(self, hidden_states):
+        orig_dtype = hidden_states.dtype
+        dtype = self.down.weight.dtype
+        down_hidden_states = self.down(hidden_states)
+        up_hidden_states = self.up(down_hidden_states)
+        return up_hidden_states
+
+
 class SlicedAttnAddedKVProcessor:
 
     def __init__(self, slice_size):
@@ -736,7 +878,7 @@ class SlicedAttnAddedKVProcessor:
         hidden_states = hidden_states.view(hidden_states.shape[0], hidden_states.shape[1], -1).transpose(1, 2)
         encoder_hidden_states = encoder_hidden_states.transpose(1, 2)
         batch_size, sequence_length, _ = hidden_states.shape
-        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length)
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
         hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
         query = attn.to_q(hidden_states)
         dim = query.shape[-1]
@@ -749,11 +891,11 @@ class SlicedAttnAddedKVProcessor:
         value = attn.head_to_batch_dim(value)
         encoder_hidden_states_key_proj = attn.head_to_batch_dim(encoder_hidden_states_key_proj)
         encoder_hidden_states_value_proj = attn.head_to_batch_dim(encoder_hidden_states_value_proj)
-        key = torch.concat([encoder_hidden_states_key_proj, key], dim=1)
-        value = torch.concat([encoder_hidden_states_value_proj, value], dim=1)
-        batch_size_attention = query.shape[0]
-        hidden_states = torch.zeros((batch_size_attention, sequence_length, dim // attn.heads), device=query.device, dtype=query.dtype)
-        for i in range(hidden_states.shape[0] // self.slice_size):
+        key = torch.cat([encoder_hidden_states_key_proj, key], dim=1)
+        value = torch.cat([encoder_hidden_states_value_proj, value], dim=1)
+        batch_size_attention, query_tokens, _ = query.shape
+        hidden_states = torch.zeros((batch_size_attention, query_tokens, dim // attn.heads), device=query.device, dtype=query.dtype)
+        for i in range(batch_size_attention // self.slice_size):
             start_idx = i * self.slice_size
             end_idx = (i + 1) * self.slice_size
             query_slice = query[start_idx:end_idx]
@@ -768,6 +910,40 @@ class SlicedAttnAddedKVProcessor:
         hidden_states = hidden_states.transpose(-1, -2).reshape(residual.shape)
         hidden_states = hidden_states + residual
         return hidden_states
+
+
+def deprecate(*args, take_from: Optional[Union[Dict, Any]]=None, standard_warn=True):
+    deprecated_kwargs = take_from
+    values = ()
+    if not isinstance(args[0], tuple):
+        args = args,
+    for attribute, version_name, message in args:
+        if version.parse(version.parse(__version__).base_version) >= version.parse(version_name):
+            raise ValueError(f"The deprecation tuple {attribute, version_name, message} should be removed since diffusers' version {__version__} is >= {version_name}")
+        warning = None
+        if isinstance(deprecated_kwargs, dict) and attribute in deprecated_kwargs:
+            values += deprecated_kwargs.pop(attribute),
+            warning = f'The `{attribute}` argument is deprecated and will be removed in version {version_name}.'
+        elif hasattr(deprecated_kwargs, attribute):
+            values += getattr(deprecated_kwargs, attribute),
+            warning = f'The `{attribute}` attribute is deprecated and will be removed in version {version_name}.'
+        elif deprecated_kwargs is None:
+            warning = f'`{attribute}` is deprecated and will be removed in version {version_name}.'
+        if warning is not None:
+            warning = warning + ' ' if standard_warn else ''
+            warnings.warn(warning + message, FutureWarning, stacklevel=2)
+    if isinstance(deprecated_kwargs, dict) and len(deprecated_kwargs) > 0:
+        call_frame = inspect.getouterframes(inspect.currentframe())[1]
+        filename = call_frame.filename
+        line_number = call_frame.lineno
+        function = call_frame.function
+        key, value = next(iter(deprecated_kwargs.items()))
+        raise TypeError(f'{function} in {filename} line {line_number - 1} got an unexpected keyword argument `{key}`')
+    if len(values) == 0:
+        return
+    elif len(values) == 1:
+        return values[0]
+    return values
 
 
 class CrossAttention(nn.Module):
@@ -785,13 +961,14 @@ class CrossAttention(nn.Module):
             Set to `True` for the query, key, and value linear layers to contain a bias parameter.
     """
 
-    def __init__(self, query_dim: int, cross_attention_dim: Optional[int]=None, heads: int=8, dim_head: int=64, dropout: float=0.0, bias=False, upcast_attention: bool=False, upcast_softmax: bool=False, added_kv_proj_dim: Optional[int]=None, norm_num_groups: Optional[int]=None, processor: Optional['AttnProcessor']=None):
+    def __init__(self, query_dim: int, cross_attention_dim: Optional[int]=None, heads: int=8, dim_head: int=64, dropout: float=0.0, bias=False, upcast_attention: bool=False, upcast_softmax: bool=False, cross_attention_norm: bool=False, added_kv_proj_dim: Optional[int]=None, norm_num_groups: Optional[int]=None, out_bias: bool=True, scale_qk: bool=True, processor: Optional['AttnProcessor']=None):
         super().__init__()
         inner_dim = dim_head * heads
         cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
         self.upcast_attention = upcast_attention
         self.upcast_softmax = upcast_softmax
-        self.scale = dim_head ** -0.5
+        self.cross_attention_norm = cross_attention_norm
+        self.scale = dim_head ** -0.5 if scale_qk else 1.0
         self.heads = heads
         self.sliceable_head_dim = heads
         self.added_kv_proj_dim = added_kv_proj_dim
@@ -799,6 +976,8 @@ class CrossAttention(nn.Module):
             self.group_norm = nn.GroupNorm(num_channels=inner_dim, num_groups=norm_num_groups, eps=1e-05, affine=True)
         else:
             self.group_norm = None
+        if cross_attention_norm:
+            self.norm_cross = nn.LayerNorm(cross_attention_dim)
         self.to_q = nn.Linear(query_dim, inner_dim, bias=bias)
         self.to_k = nn.Linear(cross_attention_dim, inner_dim, bias=bias)
         self.to_v = nn.Linear(cross_attention_dim, inner_dim, bias=bias)
@@ -806,12 +985,14 @@ class CrossAttention(nn.Module):
             self.add_k_proj = nn.Linear(added_kv_proj_dim, cross_attention_dim)
             self.add_v_proj = nn.Linear(added_kv_proj_dim, cross_attention_dim)
         self.to_out = nn.ModuleList([])
-        self.to_out.append(nn.Linear(inner_dim, query_dim))
+        self.to_out.append(nn.Linear(inner_dim, query_dim, bias=out_bias))
         self.to_out.append(nn.Dropout(dropout))
-        processor = processor if processor is not None else CrossAttnProcessor()
+        if processor is None:
+            processor = AttnProcessor2_0() if hasattr(F, 'scaled_dot_product_attention') and scale_qk else CrossAttnProcessor()
         self.set_processor(processor)
 
-    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool):
+    def set_use_memory_efficient_attention_xformers(self, use_memory_efficient_attention_xformers: bool, attention_op: Optional[Callable]=None):
+        is_lora = hasattr(self, 'processor') and isinstance(self.processor, (LoRACrossAttnProcessor, LoRAXFormersCrossAttnProcessor))
         if use_memory_efficient_attention_xformers:
             if self.added_kv_proj_dim is not None:
                 raise NotImplementedError('Memory efficient attention with `xformers` is currently not supported when `self.added_kv_proj_dim` is defined.')
@@ -824,7 +1005,16 @@ class CrossAttention(nn.Module):
                     _ = xformers.ops.memory_efficient_attention(torch.randn((1, 2, 40), device='cuda'), torch.randn((1, 2, 40), device='cuda'), torch.randn((1, 2, 40), device='cuda'))
                 except Exception as e:
                     raise e
-            processor = XFormersCrossAttnProcessor()
+            if is_lora:
+                processor = LoRAXFormersCrossAttnProcessor(hidden_size=self.processor.hidden_size, cross_attention_dim=self.processor.cross_attention_dim, rank=self.processor.rank, attention_op=attention_op)
+                processor.load_state_dict(self.processor.state_dict())
+                processor
+            else:
+                processor = XFormersCrossAttnProcessor(attention_op=attention_op)
+        elif is_lora:
+            processor = LoRACrossAttnProcessor(hidden_size=self.processor.hidden_size, cross_attention_dim=self.processor.cross_attention_dim, rank=self.processor.rank)
+            processor.load_state_dict(self.processor.state_dict())
+            processor
         else:
             processor = CrossAttnProcessor()
         self.set_processor(processor)
@@ -843,6 +1033,9 @@ class CrossAttention(nn.Module):
         self.set_processor(processor)
 
     def set_processor(self, processor: 'AttnProcessor'):
+        if hasattr(self, 'processor') and isinstance(self.processor, torch.nn.Module) and not isinstance(processor, torch.nn.Module):
+            logger.info(f'You are removing possibly trained weights of {self.processor} with {processor}')
+            self._modules.pop('processor')
         self.processor = processor
 
     def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, **cross_attention_kwargs):
@@ -867,21 +1060,34 @@ class CrossAttention(nn.Module):
         if self.upcast_attention:
             query = query.float()
             key = key.float()
-        attention_scores = torch.baddbmm(torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device), query, key.transpose(-1, -2), beta=0, alpha=self.scale)
-        if attention_mask is not None:
-            attention_scores = attention_scores + attention_mask
+        if attention_mask is None:
+            baddbmm_input = torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device)
+            beta = 0
+        else:
+            baddbmm_input = attention_mask
+            beta = 1
+        attention_scores = torch.baddbmm(baddbmm_input, query, key.transpose(-1, -2), beta=beta, alpha=self.scale)
         if self.upcast_softmax:
             attention_scores = attention_scores.float()
         attention_probs = attention_scores.softmax(dim=-1)
         attention_probs = attention_probs
         return attention_probs
 
-    def prepare_attention_mask(self, attention_mask, target_length):
+    def prepare_attention_mask(self, attention_mask, target_length, batch_size=None):
+        if batch_size is None:
+            deprecate('batch_size=None', '0.0.15', 'Not passing the `batch_size` parameter to `prepare_attention_mask` can lead to incorrect attention mask preparation and is deprecated behavior. Please make sure to pass `batch_size` to `prepare_attention_mask` when preparing the attention_mask.')
+            batch_size = 1
         head_size = self.heads
         if attention_mask is None:
             return attention_mask
         if attention_mask.shape[-1] != target_length:
-            attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+            if attention_mask.device.type == 'mps':
+                padding_shape = attention_mask.shape[0], attention_mask.shape[1], target_length
+                padding = torch.zeros(padding_shape, dtype=attention_mask.dtype, device=attention_mask.device)
+                attention_mask = torch.cat([attention_mask, padding], dim=2)
+            else:
+                attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+        if attention_mask.shape[0] < batch_size * head_size:
             attention_mask = attention_mask.repeat_interleave(head_size, dim=0)
         return attention_mask
 
@@ -927,17 +1133,18 @@ class GEGLU(nn.Module):
 
 class GELU(nn.Module):
     """
-    GELU activation function
+    GELU activation function with tanh approximation support with `approximate="tanh"`.
     """
 
-    def __init__(self, dim_in: int, dim_out: int):
+    def __init__(self, dim_in: int, dim_out: int, approximate: str='none'):
         super().__init__()
         self.proj = nn.Linear(dim_in, dim_out)
+        self.approximate = approximate
 
     def gelu(self, gate):
         if gate.device.type != 'mps':
-            return F.gelu(gate)
-        return F.gelu(gate.to(dtype=torch.float32))
+            return F.gelu(gate, approximate=self.approximate)
+        return F.gelu(gate.to(dtype=torch.float32), approximate=self.approximate)
 
     def forward(self, hidden_states):
         hidden_states = self.proj(hidden_states)
@@ -955,14 +1162,17 @@ class FeedForward(nn.Module):
         mult (`int`, *optional*, defaults to 4): The multiplier to use for the hidden dimension.
         dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
         activation_fn (`str`, *optional*, defaults to `"geglu"`): Activation function to be used in feed-forward.
+        final_dropout (`bool` *optional*, defaults to False): Apply a final dropout.
     """
 
-    def __init__(self, dim: int, dim_out: Optional[int]=None, mult: int=4, dropout: float=0.0, activation_fn: str='geglu'):
+    def __init__(self, dim: int, dim_out: Optional[int]=None, mult: int=4, dropout: float=0.0, activation_fn: str='geglu', final_dropout: bool=False):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
         if activation_fn == 'gelu':
             act_fn = GELU(dim, inner_dim)
+        if activation_fn == 'gelu-approximate':
+            act_fn = GELU(dim, inner_dim, approximate='tanh')
         elif activation_fn == 'geglu':
             act_fn = GEGLU(dim, inner_dim)
         elif activation_fn == 'geglu-approximate':
@@ -971,6 +1181,8 @@ class FeedForward(nn.Module):
         self.net.append(act_fn)
         self.net.append(nn.Dropout(dropout))
         self.net.append(nn.Linear(inner_dim, dim_out))
+        if final_dropout:
+            self.net.append(nn.Dropout(dropout))
 
     def forward(self, hidden_states):
         for module in self.net:
@@ -995,34 +1207,299 @@ class BasicTransformerBlock(nn.Module):
             obj: `bool`, *optional*, defaults to `False`): Configure if the attentions should contain a bias parameter.
     """
 
-    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, dropout=0.0, cross_attention_dim: Optional[int]=None, activation_fn: str='geglu', num_embeds_ada_norm: Optional[int]=None, attention_bias: bool=False, only_cross_attention: bool=False, upcast_attention: bool=False):
+    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, dropout=0.0, cross_attention_dim: Optional[int]=None, activation_fn: str='geglu', num_embeds_ada_norm: Optional[int]=None, attention_bias: bool=False, only_cross_attention: bool=False, upcast_attention: bool=False, norm_elementwise_affine: bool=True, norm_type: str='layer_norm', final_dropout: bool=False):
         super().__init__()
         self.only_cross_attention = only_cross_attention
-        self.use_ada_layer_norm = num_embeds_ada_norm is not None
+        self.use_ada_layer_norm_zero = num_embeds_ada_norm is not None and norm_type == 'ada_norm_zero'
+        self.use_ada_layer_norm = num_embeds_ada_norm is not None and norm_type == 'ada_norm'
+        if norm_type in ('ada_norm', 'ada_norm_zero') and num_embeds_ada_norm is None:
+            raise ValueError(f'`norm_type` is set to {norm_type}, but `num_embeds_ada_norm` is not defined. Please make sure to define `num_embeds_ada_norm` if setting `norm_type` to {norm_type}.')
         self.attn1 = CrossAttention(query_dim=dim, heads=num_attention_heads, dim_head=attention_head_dim, dropout=dropout, bias=attention_bias, cross_attention_dim=cross_attention_dim if only_cross_attention else None, upcast_attention=upcast_attention)
-        self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
+        self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn, final_dropout=final_dropout)
         if cross_attention_dim is not None:
             self.attn2 = CrossAttention(query_dim=dim, cross_attention_dim=cross_attention_dim, heads=num_attention_heads, dim_head=attention_head_dim, dropout=dropout, bias=attention_bias, upcast_attention=upcast_attention)
         else:
             self.attn2 = None
-        self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
+        if self.use_ada_layer_norm:
+            self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm)
+        elif self.use_ada_layer_norm_zero:
+            self.norm1 = AdaLayerNormZero(dim, num_embeds_ada_norm)
+        else:
+            self.norm1 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine)
         if cross_attention_dim is not None:
-            self.norm2 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim)
+            self.norm2 = AdaLayerNorm(dim, num_embeds_ada_norm) if self.use_ada_layer_norm else nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine)
         else:
             self.norm2 = None
-        self.norm3 = nn.LayerNorm(dim)
+        self.norm3 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine)
 
-    def forward(self, hidden_states, encoder_hidden_states=None, timestep=None, attention_mask=None, cross_attention_kwargs=None):
-        norm_hidden_states = self.norm1(hidden_states, timestep) if self.use_ada_layer_norm else self.norm1(hidden_states)
+    def forward(self, hidden_states, attention_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, timestep=None, cross_attention_kwargs=None, class_labels=None):
+        if self.use_ada_layer_norm:
+            norm_hidden_states = self.norm1(hidden_states, timestep)
+        elif self.use_ada_layer_norm_zero:
+            norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(hidden_states, timestep, class_labels, hidden_dtype=hidden_states.dtype)
+        else:
+            norm_hidden_states = self.norm1(hidden_states)
         cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
         attn_output = self.attn1(norm_hidden_states, encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None, attention_mask=attention_mask, **cross_attention_kwargs)
+        if self.use_ada_layer_norm_zero:
+            attn_output = gate_msa.unsqueeze(1) * attn_output
         hidden_states = attn_output + hidden_states
         if self.attn2 is not None:
             norm_hidden_states = self.norm2(hidden_states, timestep) if self.use_ada_layer_norm else self.norm2(hidden_states)
-            attn_output = self.attn2(norm_hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask, **cross_attention_kwargs)
+            attn_output = self.attn2(norm_hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=encoder_attention_mask, **cross_attention_kwargs)
             hidden_states = attn_output + hidden_states
-        hidden_states = self.ff(self.norm3(hidden_states)) + hidden_states
+        norm_hidden_states = self.norm3(hidden_states)
+        if self.use_ada_layer_norm_zero:
+            norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
+        ff_output = self.ff(norm_hidden_states)
+        if self.use_ada_layer_norm_zero:
+            ff_output = gate_mlp.unsqueeze(1) * ff_output
+        hidden_states = ff_output + hidden_states
         return hidden_states
+
+
+class AdaGroupNorm(nn.Module):
+    """
+    GroupNorm layer modified to incorporate timestep embeddings.
+    """
+
+    def __init__(self, embedding_dim: int, out_dim: int, num_groups: int, act_fn: Optional[str]=None, eps: float=1e-05):
+        super().__init__()
+        self.num_groups = num_groups
+        self.eps = eps
+        self.act = None
+        if act_fn == 'swish':
+            self.act = lambda x: F.silu(x)
+        elif act_fn == 'mish':
+            self.act = nn.Mish()
+        elif act_fn == 'silu':
+            self.act = nn.SiLU()
+        elif act_fn == 'gelu':
+            self.act = nn.GELU()
+        self.linear = nn.Linear(embedding_dim, out_dim * 2)
+
+    def forward(self, x, emb):
+        if self.act:
+            emb = self.act(emb)
+        emb = self.linear(emb)
+        emb = emb[:, :, None, None]
+        scale, shift = emb.chunk(2, dim=1)
+        x = F.group_norm(x, self.num_groups, eps=self.eps)
+        x = x * (1 + scale) + shift
+        return x
+
+
+def zero_module(module):
+    for p in module.parameters():
+        nn.init.zeros_(p)
+    return module
+
+
+class ControlNetConditioningEmbedding(nn.Module):
+    """
+    Quoting from https://arxiv.org/abs/2302.05543: "Stable Diffusion uses a pre-processing method similar to VQ-GAN
+    [11] to convert the entire dataset of 512 × 512 images into smaller 64 × 64 “latent images” for stabilized
+    training. This requires ControlNets to convert image-based conditions to 64 × 64 feature space to match the
+    convolution size. We use a tiny network E(·) of four convolution layers with 4 × 4 kernels and 2 × 2 strides
+    (activated by ReLU, channels are 16, 32, 64, 128, initialized with Gaussian weights, trained jointly with the full
+    model) to encode image-space conditions ... into feature maps ..."
+    """
+
+    def __init__(self, conditioning_embedding_channels: int, conditioning_channels: int=3, block_out_channels: Tuple[int]=(16, 32, 96, 256)):
+        super().__init__()
+        self.conv_in = nn.Conv2d(conditioning_channels, block_out_channels[0], kernel_size=3, padding=1)
+        self.blocks = nn.ModuleList([])
+        for i in range(len(block_out_channels) - 1):
+            channel_in = block_out_channels[i]
+            channel_out = block_out_channels[i + 1]
+            self.blocks.append(nn.Conv2d(channel_in, channel_in, kernel_size=3, padding=1))
+            self.blocks.append(nn.Conv2d(channel_in, channel_out, kernel_size=3, padding=1, stride=2))
+        self.conv_out = zero_module(nn.Conv2d(block_out_channels[-1], conditioning_embedding_channels, kernel_size=3, padding=1))
+
+    def forward(self, conditioning):
+        embedding = self.conv_in(conditioning)
+        embedding = F.silu(embedding)
+        for block in self.blocks:
+            embedding = block(embedding)
+            embedding = F.silu(embedding)
+        embedding = self.conv_out(embedding)
+        return embedding
+
+
+COMPEL_IMPORT_ERROR = """
+{0} requires the compel library but it was not found in your environment. You can install it with pip: `pip install compel`
+"""
+
+
+FLAX_IMPORT_ERROR = """
+{0} requires the FLAX library but it was not found in your environment. Checkout the instructions on the
+installation page: https://github.com/google/flax and follow the ones that match your environment.
+"""
+
+
+INFLECT_IMPORT_ERROR = """
+{0} requires the inflect library but it was not found in your environment. You can install it with pip: `pip install
+inflect`
+"""
+
+
+K_DIFFUSION_IMPORT_ERROR = """
+{0} requires the k-diffusion library but it was not found in your environment. You can install it with pip: `pip
+install k-diffusion`
+"""
+
+
+LIBROSA_IMPORT_ERROR = """
+{0} requires the librosa library but it was not found in your environment.  Checkout the instructions on the
+installation page: https://librosa.org/doc/latest/install.html and follow the ones that match your environment.
+"""
+
+
+OMEGACONF_IMPORT_ERROR = """
+{0} requires the omegaconf library but it was not found in your environment. You can install it with pip: `pip
+install omegaconf`
+"""
+
+
+ONNX_IMPORT_ERROR = """
+{0} requires the onnxruntime library but it was not found in your environment. You can install it with pip: `pip
+install onnxruntime`
+"""
+
+
+PYTORCH_IMPORT_ERROR = """
+{0} requires the PyTorch library but it was not found in your environment. Checkout the instructions on the
+installation page: https://pytorch.org/get-started/locally/ and follow the ones that match your environment.
+"""
+
+
+SCIPY_IMPORT_ERROR = """
+{0} requires the scipy library but it was not found in your environment. You can install it with pip: `pip install
+scipy`
+"""
+
+
+TENSORBOARD_IMPORT_ERROR = """
+{0} requires the tensorboard library but it was not found in your environment. You can install it with pip: `pip
+install tensorboard`
+"""
+
+
+TRANSFORMERS_IMPORT_ERROR = """
+{0} requires the transformers library but it was not found in your environment. You can install it with pip: `pip
+install transformers`
+"""
+
+
+UNIDECODE_IMPORT_ERROR = """
+{0} requires the unidecode library but it was not found in your environment. You can install it with pip: `pip install
+Unidecode`
+"""
+
+
+WANDB_IMPORT_ERROR = """
+{0} requires the wandb library but it was not found in your environment. You can install it with pip: `pip
+install wandb`
+"""
+
+
+def is_flax_available():
+    return _flax_available
+
+
+def is_inflect_available():
+    return _inflect_available
+
+
+def is_k_diffusion_available():
+    return _k_diffusion_available
+
+
+def is_librosa_available():
+    return _librosa_available
+
+
+def is_omegaconf_available():
+    return _omegaconf_available
+
+
+def is_onnx_available():
+    return _onnx_available
+
+
+def is_scipy_available():
+    return _scipy_available
+
+
+def is_torch_available():
+    return _torch_available
+
+
+def is_transformers_available():
+    return _transformers_available
+
+
+def is_unidecode_available():
+    return _unidecode_available
+
+
+def is_wandb_available():
+    return _wandb_available
+
+
+def is_transformers_version(operation: str, version: str):
+    """
+    Args:
+    Compares the current Transformers version to a given reference with an operation.
+        operation (`str`):
+            A string representation of an operator, such as `">"` or `"<="`
+        version (`str`):
+            A version string
+    """
+    if not _transformers_available:
+        return False
+    return compare_versions(parse(_transformers_version), operation, version)
+
+
+def requires_backends(obj, backends):
+    if not isinstance(backends, (list, tuple)):
+        backends = [backends]
+    name = obj.__name__ if hasattr(obj, '__name__') else obj.__class__.__name__
+    checks = (BACKENDS_MAPPING[backend] for backend in backends)
+    failed = [msg.format(name) for available, msg in checks if not available()]
+    if failed:
+        raise ImportError(''.join(failed))
+    if name in ['VersatileDiffusionTextToImagePipeline', 'VersatileDiffusionPipeline', 'VersatileDiffusionDualGuidedPipeline', 'StableDiffusionImageVariationPipeline', 'UnCLIPPipeline'] and is_transformers_version('<', '4.25.0'):
+        raise ImportError(f'You need to install `transformers>=4.25` in order to use {name}: \n```\n pip install --upgrade transformers \n```')
+    if name in ['StableDiffusionDepth2ImgPipeline', 'StableDiffusionPix2PixZeroPipeline'] and is_transformers_version('<', '4.26.0'):
+        raise ImportError(f'You need to install `transformers>=4.26` in order to use {name}: \n```\n pip install --upgrade transformers \n```')
+
+
+class DummyObject(type):
+    """
+    Metaclass for the dummy objects. Any class inheriting from it will return the ImportError generated by
+    `requires_backend` each time a user tries to access any method of that class.
+    """
+
+    def __getattr__(cls, key):
+        if key.startswith('_'):
+            return super().__getattr__(cls, key)
+        requires_backends(cls, cls._backends)
+
+
+class Transformer2DModel(metaclass=DummyObject):
+    _backends = ['torch']
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ['torch'])
+
+    @classmethod
+    def from_config(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
 
 
 class BaseOutput(OrderedDict):
@@ -1123,7 +1600,7 @@ class DualTransformer2DModel(nn.Module):
         self.condition_lengths = [77, 257]
         self.transformer_index_for_condition = [1, 0]
 
-    def forward(self, hidden_states, encoder_hidden_states, timestep=None, attention_mask=None, return_dict: bool=True):
+    def forward(self, hidden_states, encoder_hidden_states, timestep=None, attention_mask=None, cross_attention_kwargs=None, return_dict: bool=True):
         """
         Args:
             hidden_states ( When discrete, `torch.LongTensor` of shape `(batch size, num latent pixels)`.
@@ -1140,9 +1617,9 @@ class DualTransformer2DModel(nn.Module):
                 Whether or not to return a [`models.unet_2d_condition.UNet2DConditionOutput`] instead of a plain tuple.
 
         Returns:
-            [`~models.attention.Transformer2DModelOutput`] or `tuple`: [`~models.attention.Transformer2DModelOutput`]
-            if `return_dict` is True, otherwise a `tuple`. When returning a tuple, the first element is the sample
-            tensor.
+            [`~models.transformer_2d.Transformer2DModelOutput`] or `tuple`:
+            [`~models.transformer_2d.Transformer2DModelOutput`] if `return_dict` is True, otherwise a `tuple`. When
+            returning a tuple, the first element is the sample tensor.
         """
         input_states = hidden_states
         encoded_states = []
@@ -1150,7 +1627,7 @@ class DualTransformer2DModel(nn.Module):
         for i in range(2):
             condition_state = encoder_hidden_states[:, tokens_start:tokens_start + self.condition_lengths[i]]
             transformer_index = self.transformer_index_for_condition[i]
-            encoded_state = self.transformers[transformer_index](input_states, encoder_hidden_states=condition_state, timestep=timestep, return_dict=False)[0]
+            encoded_state = self.transformers[transformer_index](input_states, encoder_hidden_states=condition_state, timestep=timestep, cross_attention_kwargs=cross_attention_kwargs, return_dict=False)[0]
             encoded_states.append(encoded_state - input_states)
             tokens_start += self.condition_lengths[i]
         output_states = encoded_states[0] * self.mix_ratio + encoded_states[1] * (1 - self.mix_ratio)
@@ -1160,65 +1637,71 @@ class DualTransformer2DModel(nn.Module):
         return Transformer2DModelOutput(sample=output_states)
 
 
-class TimestepEmbedding(nn.Module):
-
-    def __init__(self, in_channels: int, time_embed_dim: int, act_fn: str='silu', out_dim: int=None):
-        super().__init__()
-        self.linear_1 = nn.Linear(in_channels, time_embed_dim)
-        self.act = None
-        if act_fn == 'silu':
-            self.act = nn.SiLU()
-        elif act_fn == 'mish':
-            self.act = nn.Mish()
-        if out_dim is not None:
-            time_embed_dim_out = out_dim
-        else:
-            time_embed_dim_out = time_embed_dim
-        self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim_out)
-
-    def forward(self, sample):
-        sample = self.linear_1(sample)
-        if self.act is not None:
-            sample = self.act(sample)
-        sample = self.linear_2(sample)
-        return sample
-
-
-def get_timestep_embedding(timesteps: torch.Tensor, embedding_dim: int, flip_sin_to_cos: bool=False, downscale_freq_shift: float=1, scale: float=1, max_period: int=10000):
+def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
-    This matches the implementation in Denoising Diffusion Probabilistic Models: Create sinusoidal timestep embeddings.
-
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
-    :param embedding_dim: the dimension of the output. :param max_period: controls the minimum frequency of the
-    embeddings. :return: an [N x dim] Tensor of positional embeddings.
+    embed_dim: output dimension for each position pos: a list of positions to be encoded: size (M,) out: (M, D)
     """
-    assert len(timesteps.shape) == 1, 'Timesteps should be a 1d-array'
-    half_dim = embedding_dim // 2
-    exponent = -math.log(max_period) * torch.arange(start=0, end=half_dim, dtype=torch.float32, device=timesteps.device)
-    exponent = exponent / (half_dim - downscale_freq_shift)
-    emb = torch.exp(exponent)
-    emb = timesteps[:, None].float() * emb[None, :]
-    emb = scale * emb
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
-    if flip_sin_to_cos:
-        emb = torch.cat([emb[:, half_dim:], emb[:, :half_dim]], dim=-1)
-    if embedding_dim % 2 == 1:
-        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+    if embed_dim % 2 != 0:
+        raise ValueError('embed_dim must be divisible by 2')
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000 ** omega
+    pos = pos.reshape(-1)
+    out = np.einsum('m,d->md', pos, omega)
+    emb_sin = np.sin(out)
+    emb_cos = np.cos(out)
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)
     return emb
 
 
-class Timesteps(nn.Module):
+def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
+    if embed_dim % 2 != 0:
+        raise ValueError('embed_dim must be divisible by 2')
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])
+    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])
+    emb = np.concatenate([emb_h, emb_w], axis=1)
+    return emb
 
-    def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float):
+
+def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
+    """
+    grid_size: int of the grid height and width return: pos_embed: [grid_size*grid_size, embed_dim] or
+    [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
+    """
+    grid_h = np.arange(grid_size, dtype=np.float32)
+    grid_w = np.arange(grid_size, dtype=np.float32)
+    grid = np.meshgrid(grid_w, grid_h)
+    grid = np.stack(grid, axis=0)
+    grid = grid.reshape([2, 1, grid_size, grid_size])
+    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
+    if cls_token and extra_tokens > 0:
+        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+    return pos_embed
+
+
+class PatchEmbed(nn.Module):
+    """2D Image to Patch Embedding"""
+
+    def __init__(self, height=224, width=224, patch_size=16, in_channels=3, embed_dim=768, layer_norm=False, flatten=True, bias=True):
         super().__init__()
-        self.num_channels = num_channels
-        self.flip_sin_to_cos = flip_sin_to_cos
-        self.downscale_freq_shift = downscale_freq_shift
+        num_patches = height // patch_size * (width // patch_size)
+        self.flatten = flatten
+        self.layer_norm = layer_norm
+        self.proj = nn.Conv2d(in_channels, embed_dim, kernel_size=(patch_size, patch_size), stride=patch_size, bias=bias)
+        if layer_norm:
+            self.norm = nn.LayerNorm(embed_dim, elementwise_affine=False, eps=1e-06)
+        else:
+            self.norm = None
+        pos_embed = get_2d_sincos_pos_embed(embed_dim, int(num_patches ** 0.5))
+        self.register_buffer('pos_embed', torch.from_numpy(pos_embed).float().unsqueeze(0), persistent=False)
 
-    def forward(self, timesteps):
-        t_emb = get_timestep_embedding(timesteps, self.num_channels, flip_sin_to_cos=self.flip_sin_to_cos, downscale_freq_shift=self.downscale_freq_shift)
-        return t_emb
+    def forward(self, latent):
+        latent = self.proj(latent)
+        if self.flatten:
+            latent = latent.flatten(2).transpose(1, 2)
+        if self.layer_norm:
+            latent = self.norm(latent)
+        return latent + self.pos_embed
 
 
 class GaussianFourierProjection(nn.Module):
@@ -1288,6 +1771,21 @@ class ImagePositionalEmbeddings(nn.Module):
         pos_emb = pos_emb.view(1, self.height * self.width, -1)
         emb = emb + pos_emb[:, :emb.shape[1], :]
         return emb
+
+
+class ModelMixin(metaclass=DummyObject):
+    _backends = ['torch']
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ['torch'])
+
+    @classmethod
+    def from_config(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
 
 
 class PriorTransformer(metaclass=DummyObject):
@@ -1616,10 +2114,38 @@ class FirDownsample2D(nn.Module):
         return hidden_states
 
 
-class Mish(torch.nn.Module):
+class KDownsample2D(nn.Module):
 
-    def forward(self, hidden_states):
-        return hidden_states * torch.tanh(torch.nn.functional.softplus(hidden_states))
+    def __init__(self, pad_mode='reflect'):
+        super().__init__()
+        self.pad_mode = pad_mode
+        kernel_1d = torch.tensor([[1 / 8, 3 / 8, 3 / 8, 1 / 8]])
+        self.pad = kernel_1d.shape[1] // 2 - 1
+        self.register_buffer('kernel', kernel_1d.T @ kernel_1d, persistent=False)
+
+    def forward(self, x):
+        x = F.pad(x, (self.pad,) * 4, self.pad_mode)
+        weight = x.new_zeros([x.shape[1], x.shape[1], self.kernel.shape[0], self.kernel.shape[1]])
+        indices = torch.arange(x.shape[1], device=x.device)
+        weight[indices, indices] = self.kernel
+        return F.conv2d(x, weight, stride=2)
+
+
+class KUpsample2D(nn.Module):
+
+    def __init__(self, pad_mode='reflect'):
+        super().__init__()
+        self.pad_mode = pad_mode
+        kernel_1d = torch.tensor([[1 / 8, 3 / 8, 3 / 8, 1 / 8]]) * 2
+        self.pad = kernel_1d.shape[1] // 2 - 1
+        self.register_buffer('kernel', kernel_1d.T @ kernel_1d, persistent=False)
+
+    def forward(self, x):
+        x = F.pad(x, ((self.pad + 1) // 2,) * 4, self.pad_mode)
+        weight = x.new_zeros([x.shape[1], x.shape[1], self.kernel.shape[0], self.kernel.shape[1]])
+        indices = torch.arange(x.shape[1], device=x.device)
+        weight[indices, indices] = self.kernel
+        return F.conv_transpose2d(x, weight, stride=2, padding=self.pad * 2 + 1)
 
 
 def downsample_2d(hidden_states, kernel=None, factor=2, gain=1):
@@ -1683,8 +2209,37 @@ def upsample_2d(hidden_states, kernel=None, factor=2, gain=1):
 
 
 class ResnetBlock2D(nn.Module):
+    """
+    A Resnet block.
 
-    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False, dropout=0.0, temb_channels=512, groups=32, groups_out=None, pre_norm=True, eps=1e-06, non_linearity='swish', time_embedding_norm='default', kernel=None, output_scale_factor=1.0, use_in_shortcut=None, up=False, down=False):
+    Parameters:
+        in_channels (`int`): The number of channels in the input.
+        out_channels (`int`, *optional*, default to be `None`):
+            The number of output channels for the first conv2d layer. If None, same as `in_channels`.
+        dropout (`float`, *optional*, defaults to `0.0`): The dropout probability to use.
+        temb_channels (`int`, *optional*, default to `512`): the number of channels in timestep embedding.
+        groups (`int`, *optional*, default to `32`): The number of groups to use for the first normalization layer.
+        groups_out (`int`, *optional*, default to None):
+            The number of groups to use for the second normalization layer. if set to None, same as `groups`.
+        eps (`float`, *optional*, defaults to `1e-6`): The epsilon to use for the normalization.
+        non_linearity (`str`, *optional*, default to `"swish"`): the activation function to use.
+        time_embedding_norm (`str`, *optional*, default to `"default"` ): Time scale shift config.
+            By default, apply timestep embedding conditioning with a simple shift mechanism. Choose "scale_shift" or
+            "ada_group" for a stronger conditioning with scale and shift.
+        kernal (`torch.FloatTensor`, optional, default to None): FIR filter, see
+            [`~models.resnet.FirUpsample2D`] and [`~models.resnet.FirDownsample2D`].
+        output_scale_factor (`float`, *optional*, default to be `1.0`): the scale factor to use for the output.
+        use_in_shortcut (`bool`, *optional*, default to `True`):
+            If `True`, add a 1x1 nn.conv2d layer for skip-connection.
+        up (`bool`, *optional*, default to `False`): If `True`, add an upsample layer.
+        down (`bool`, *optional*, default to `False`): If `True`, add a downsample layer.
+        conv_shortcut_bias (`bool`, *optional*, default to `True`):  If `True`, adds a learnable bias to the
+            `conv_shortcut` output.
+        conv_2d_out_channels (`int`, *optional*, default to `None`): the number of channels in the output.
+            If None, same as `out_channels`.
+    """
+
+    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False, dropout=0.0, temb_channels=512, groups=32, groups_out=None, pre_norm=True, eps=1e-06, non_linearity='swish', time_embedding_norm='default', kernel=None, output_scale_factor=1.0, use_in_shortcut=None, up=False, down=False, conv_shortcut_bias: bool=True, conv_2d_out_channels: Optional[int]=None):
         super().__init__()
         self.pre_norm = pre_norm
         self.pre_norm = True
@@ -1692,33 +2247,43 @@ class ResnetBlock2D(nn.Module):
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
         self.use_conv_shortcut = conv_shortcut
-        self.time_embedding_norm = time_embedding_norm
         self.up = up
         self.down = down
         self.output_scale_factor = output_scale_factor
+        self.time_embedding_norm = time_embedding_norm
         if groups_out is None:
             groups_out = groups
-        self.norm1 = torch.nn.GroupNorm(num_groups=groups, num_channels=in_channels, eps=eps, affine=True)
+        if self.time_embedding_norm == 'ada_group':
+            self.norm1 = AdaGroupNorm(temb_channels, in_channels, groups, eps=eps)
+        else:
+            self.norm1 = torch.nn.GroupNorm(num_groups=groups, num_channels=in_channels, eps=eps, affine=True)
         self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
         if temb_channels is not None:
             if self.time_embedding_norm == 'default':
-                time_emb_proj_out_channels = out_channels
+                self.time_emb_proj = torch.nn.Linear(temb_channels, out_channels)
             elif self.time_embedding_norm == 'scale_shift':
-                time_emb_proj_out_channels = out_channels * 2
+                self.time_emb_proj = torch.nn.Linear(temb_channels, 2 * out_channels)
+            elif self.time_embedding_norm == 'ada_group':
+                self.time_emb_proj = None
             else:
                 raise ValueError(f'unknown time_embedding_norm : {self.time_embedding_norm} ')
-            self.time_emb_proj = torch.nn.Linear(temb_channels, time_emb_proj_out_channels)
         else:
             self.time_emb_proj = None
-        self.norm2 = torch.nn.GroupNorm(num_groups=groups_out, num_channels=out_channels, eps=eps, affine=True)
+        if self.time_embedding_norm == 'ada_group':
+            self.norm2 = AdaGroupNorm(temb_channels, out_channels, groups_out, eps=eps)
+        else:
+            self.norm2 = torch.nn.GroupNorm(num_groups=groups_out, num_channels=out_channels, eps=eps, affine=True)
         self.dropout = torch.nn.Dropout(dropout)
-        self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        conv_2d_out_channels = conv_2d_out_channels or out_channels
+        self.conv2 = torch.nn.Conv2d(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
         if non_linearity == 'swish':
             self.nonlinearity = lambda x: F.silu(x)
         elif non_linearity == 'mish':
-            self.nonlinearity = Mish()
+            self.nonlinearity = nn.Mish()
         elif non_linearity == 'silu':
             self.nonlinearity = nn.SiLU()
+        elif non_linearity == 'gelu':
+            self.nonlinearity = nn.GELU()
         self.upsample = self.downsample = None
         if self.up:
             if kernel == 'fir':
@@ -1736,14 +2301,17 @@ class ResnetBlock2D(nn.Module):
                 self.downsample = partial(F.avg_pool2d, kernel_size=2, stride=2)
             else:
                 self.downsample = Downsample2D(in_channels, use_conv=False, padding=1, name='op')
-        self.use_in_shortcut = self.in_channels != self.out_channels if use_in_shortcut is None else use_in_shortcut
+        self.use_in_shortcut = self.in_channels != conv_2d_out_channels if use_in_shortcut is None else use_in_shortcut
         self.conv_shortcut = None
         if self.use_in_shortcut:
-            self.conv_shortcut = torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
+            self.conv_shortcut = torch.nn.Conv2d(in_channels, conv_2d_out_channels, kernel_size=1, stride=1, padding=0, bias=conv_shortcut_bias)
 
     def forward(self, input_tensor, temb):
         hidden_states = input_tensor
-        hidden_states = self.norm1(hidden_states)
+        if self.time_embedding_norm == 'ada_group':
+            hidden_states = self.norm1(hidden_states, temb)
+        else:
+            hidden_states = self.norm1(hidden_states)
         hidden_states = self.nonlinearity(hidden_states)
         if self.upsample is not None:
             if hidden_states.shape[0] >= 64:
@@ -1755,11 +2323,14 @@ class ResnetBlock2D(nn.Module):
             input_tensor = self.downsample(input_tensor)
             hidden_states = self.downsample(hidden_states)
         hidden_states = self.conv1(hidden_states)
-        if temb is not None:
+        if self.time_emb_proj is not None:
             temb = self.time_emb_proj(self.nonlinearity(temb))[:, :, None, None]
         if temb is not None and self.time_embedding_norm == 'default':
             hidden_states = hidden_states + temb
-        hidden_states = self.norm2(hidden_states)
+        if self.time_embedding_norm == 'ada_group':
+            hidden_states = self.norm2(hidden_states, temb)
+        else:
+            hidden_states = self.norm2(hidden_states)
         if temb is not None and self.time_embedding_norm == 'scale_shift':
             scale, shift = torch.chunk(temb, 2, dim=1)
             hidden_states = hidden_states * (1 + scale) + shift
@@ -1770,6 +2341,12 @@ class ResnetBlock2D(nn.Module):
             input_tensor = self.conv_shortcut(input_tensor)
         output_tensor = (input_tensor + hidden_states) / self.output_scale_factor
         return output_tensor
+
+
+class Mish(torch.nn.Module):
+
+    def forward(self, hidden_states):
+        return hidden_states * torch.tanh(torch.nn.functional.softplus(hidden_states))
 
 
 def rearrange_dims(tensor):
@@ -2651,6 +3228,142 @@ class SimpleCrossAttnDownBlock2D(nn.Module):
         return hidden_states, output_states
 
 
+class KDownBlock2D(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=4, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: int=32, add_downsample=False):
+        super().__init__()
+        resnets = []
+        for i in range(num_layers):
+            in_channels = in_channels if i == 0 else out_channels
+            groups = in_channels // resnet_group_size
+            groups_out = out_channels // resnet_group_size
+            resnets.append(ResnetBlock2D(in_channels=in_channels, out_channels=out_channels, dropout=dropout, temb_channels=temb_channels, groups=groups, groups_out=groups_out, eps=resnet_eps, non_linearity=resnet_act_fn, time_embedding_norm='ada_group', conv_shortcut_bias=False))
+        self.resnets = nn.ModuleList(resnets)
+        if add_downsample:
+            self.downsamplers = nn.ModuleList([KDownsample2D()])
+        else:
+            self.downsamplers = None
+        self.gradient_checkpointing = False
+
+    def forward(self, hidden_states, temb=None):
+        output_states = ()
+        for resnet in self.resnets:
+            if self.training and self.gradient_checkpointing:
+
+                def create_custom_forward(module):
+
+                    def custom_forward(*inputs):
+                        return module(*inputs)
+                    return custom_forward
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+            else:
+                hidden_states = resnet(hidden_states, temb)
+            output_states += hidden_states,
+        if self.downsamplers is not None:
+            for downsampler in self.downsamplers:
+                hidden_states = downsampler(hidden_states)
+        return hidden_states, output_states
+
+
+class KAttentionBlock(nn.Module):
+    """
+    A basic Transformer block.
+
+    Parameters:
+        dim (`int`): The number of channels in the input and output.
+        num_attention_heads (`int`): The number of heads to use for multi-head attention.
+        attention_head_dim (`int`): The number of channels in each head.
+        dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
+        cross_attention_dim (`int`, *optional*): The size of the encoder_hidden_states vector for cross attention.
+        activation_fn (`str`, *optional*, defaults to `"geglu"`): Activation function to be used in feed-forward.
+        num_embeds_ada_norm (:
+            obj: `int`, *optional*): The number of diffusion steps used during training. See `Transformer2DModel`.
+        attention_bias (:
+            obj: `bool`, *optional*, defaults to `False`): Configure if the attentions should contain a bias parameter.
+    """
+
+    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, dropout: float=0.0, cross_attention_dim: Optional[int]=None, attention_bias: bool=False, upcast_attention: bool=False, temb_channels: int=768, add_self_attention: bool=False, cross_attention_norm: bool=False, group_size: int=32):
+        super().__init__()
+        self.add_self_attention = add_self_attention
+        if add_self_attention:
+            self.norm1 = AdaGroupNorm(temb_channels, dim, max(1, dim // group_size))
+            self.attn1 = CrossAttention(query_dim=dim, heads=num_attention_heads, dim_head=attention_head_dim, dropout=dropout, bias=attention_bias, cross_attention_dim=None, cross_attention_norm=None)
+        self.norm2 = AdaGroupNorm(temb_channels, dim, max(1, dim // group_size))
+        self.attn2 = CrossAttention(query_dim=dim, cross_attention_dim=cross_attention_dim, heads=num_attention_heads, dim_head=attention_head_dim, dropout=dropout, bias=attention_bias, upcast_attention=upcast_attention, cross_attention_norm=cross_attention_norm)
+
+    def _to_3d(self, hidden_states, height, weight):
+        return hidden_states.permute(0, 2, 3, 1).reshape(hidden_states.shape[0], height * weight, -1)
+
+    def _to_4d(self, hidden_states, height, weight):
+        return hidden_states.permute(0, 2, 1).reshape(hidden_states.shape[0], -1, height, weight)
+
+    def forward(self, hidden_states, encoder_hidden_states=None, emb=None, attention_mask=None, cross_attention_kwargs=None):
+        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
+        if self.add_self_attention:
+            norm_hidden_states = self.norm1(hidden_states, emb)
+            height, weight = norm_hidden_states.shape[2:]
+            norm_hidden_states = self._to_3d(norm_hidden_states, height, weight)
+            attn_output = self.attn1(norm_hidden_states, encoder_hidden_states=None, **cross_attention_kwargs)
+            attn_output = self._to_4d(attn_output, height, weight)
+            hidden_states = attn_output + hidden_states
+        norm_hidden_states = self.norm2(hidden_states, emb)
+        height, weight = norm_hidden_states.shape[2:]
+        norm_hidden_states = self._to_3d(norm_hidden_states, height, weight)
+        attn_output = self.attn2(norm_hidden_states, encoder_hidden_states=encoder_hidden_states, **cross_attention_kwargs)
+        attn_output = self._to_4d(attn_output, height, weight)
+        hidden_states = attn_output + hidden_states
+        return hidden_states
+
+
+class KCrossAttnDownBlock2D(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, cross_attention_dim: int, dropout: float=0.0, num_layers: int=4, resnet_group_size: int=32, add_downsample=True, attn_num_head_channels: int=64, add_self_attention: bool=False, resnet_eps: float=1e-05, resnet_act_fn: str='gelu'):
+        super().__init__()
+        resnets = []
+        attentions = []
+        self.has_cross_attention = True
+        for i in range(num_layers):
+            in_channels = in_channels if i == 0 else out_channels
+            groups = in_channels // resnet_group_size
+            groups_out = out_channels // resnet_group_size
+            resnets.append(ResnetBlock2D(in_channels=in_channels, out_channels=out_channels, dropout=dropout, temb_channels=temb_channels, groups=groups, groups_out=groups_out, eps=resnet_eps, non_linearity=resnet_act_fn, time_embedding_norm='ada_group', conv_shortcut_bias=False))
+            attentions.append(KAttentionBlock(out_channels, out_channels // attn_num_head_channels, attn_num_head_channels, cross_attention_dim=cross_attention_dim, temb_channels=temb_channels, attention_bias=True, add_self_attention=add_self_attention, cross_attention_norm=True, group_size=resnet_group_size))
+        self.resnets = nn.ModuleList(resnets)
+        self.attentions = nn.ModuleList(attentions)
+        if add_downsample:
+            self.downsamplers = nn.ModuleList([KDownsample2D()])
+        else:
+            self.downsamplers = None
+        self.gradient_checkpointing = False
+
+    def forward(self, hidden_states, temb=None, encoder_hidden_states=None, attention_mask=None, cross_attention_kwargs=None):
+        output_states = ()
+        for resnet, attn in zip(self.resnets, self.attentions):
+            if self.training and self.gradient_checkpointing:
+
+                def create_custom_forward(module, return_dict=None):
+
+                    def custom_forward(*inputs):
+                        if return_dict is not None:
+                            return module(*inputs, return_dict=return_dict)
+                        else:
+                            return module(*inputs)
+                    return custom_forward
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(attn, return_dict=False), hidden_states, encoder_hidden_states, attention_mask, cross_attention_kwargs)
+            else:
+                hidden_states = resnet(hidden_states, temb)
+                hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states, emb=temb, attention_mask=attention_mask, cross_attention_kwargs=cross_attention_kwargs)
+            if self.downsamplers is None:
+                output_states += None,
+            else:
+                output_states += hidden_states,
+        if self.downsamplers is not None:
+            for downsampler in self.downsamplers:
+                hidden_states = downsampler(hidden_states)
+        return hidden_states, output_states
+
+
 class AttnUpBlock2D(nn.Module):
 
     def __init__(self, in_channels: int, prev_output_channel: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=1, resnet_eps: float=1e-06, resnet_time_scale_shift: str='default', resnet_act_fn: str='swish', resnet_groups: int=32, resnet_pre_norm: bool=True, attn_num_head_channels=1, output_scale_factor=1.0, add_upsample=True):
@@ -2975,6 +3688,105 @@ class SimpleCrossAttnUpBlock2D(nn.Module):
         return hidden_states
 
 
+class KUpBlock2D(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=5, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: Optional[int]=32, add_upsample=True):
+        super().__init__()
+        resnets = []
+        k_in_channels = 2 * out_channels
+        k_out_channels = in_channels
+        num_layers = num_layers - 1
+        for i in range(num_layers):
+            in_channels = k_in_channels if i == 0 else out_channels
+            groups = in_channels // resnet_group_size
+            groups_out = out_channels // resnet_group_size
+            resnets.append(ResnetBlock2D(in_channels=in_channels, out_channels=k_out_channels if i == num_layers - 1 else out_channels, temb_channels=temb_channels, eps=resnet_eps, groups=groups, groups_out=groups_out, dropout=dropout, non_linearity=resnet_act_fn, time_embedding_norm='ada_group', conv_shortcut_bias=False))
+        self.resnets = nn.ModuleList(resnets)
+        if add_upsample:
+            self.upsamplers = nn.ModuleList([KUpsample2D()])
+        else:
+            self.upsamplers = None
+        self.gradient_checkpointing = False
+
+    def forward(self, hidden_states, res_hidden_states_tuple, temb=None, upsample_size=None):
+        res_hidden_states_tuple = res_hidden_states_tuple[-1]
+        if res_hidden_states_tuple is not None:
+            hidden_states = torch.cat([hidden_states, res_hidden_states_tuple], dim=1)
+        for resnet in self.resnets:
+            if self.training and self.gradient_checkpointing:
+
+                def create_custom_forward(module):
+
+                    def custom_forward(*inputs):
+                        return module(*inputs)
+                    return custom_forward
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+            else:
+                hidden_states = resnet(hidden_states, temb)
+        if self.upsamplers is not None:
+            for upsampler in self.upsamplers:
+                hidden_states = upsampler(hidden_states)
+        return hidden_states
+
+
+class KCrossAttnUpBlock2D(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int, temb_channels: int, dropout: float=0.0, num_layers: int=4, resnet_eps: float=1e-05, resnet_act_fn: str='gelu', resnet_group_size: int=32, attn_num_head_channels=1, cross_attention_dim: int=768, add_upsample: bool=True, upcast_attention: bool=False):
+        super().__init__()
+        resnets = []
+        attentions = []
+        is_first_block = in_channels == out_channels == temb_channels
+        is_middle_block = in_channels != out_channels
+        add_self_attention = True if is_first_block else False
+        self.has_cross_attention = True
+        self.attn_num_head_channels = attn_num_head_channels
+        k_in_channels = out_channels if is_first_block else 2 * out_channels
+        k_out_channels = in_channels
+        num_layers = num_layers - 1
+        for i in range(num_layers):
+            in_channels = k_in_channels if i == 0 else out_channels
+            groups = in_channels // resnet_group_size
+            groups_out = out_channels // resnet_group_size
+            if is_middle_block and i == num_layers - 1:
+                conv_2d_out_channels = k_out_channels
+            else:
+                conv_2d_out_channels = None
+            resnets.append(ResnetBlock2D(in_channels=in_channels, out_channels=out_channels, conv_2d_out_channels=conv_2d_out_channels, temb_channels=temb_channels, eps=resnet_eps, groups=groups, groups_out=groups_out, dropout=dropout, non_linearity=resnet_act_fn, time_embedding_norm='ada_group', conv_shortcut_bias=False))
+            attentions.append(KAttentionBlock(k_out_channels if i == num_layers - 1 else out_channels, k_out_channels // attn_num_head_channels if i == num_layers - 1 else out_channels // attn_num_head_channels, attn_num_head_channels, cross_attention_dim=cross_attention_dim, temb_channels=temb_channels, attention_bias=True, add_self_attention=add_self_attention, cross_attention_norm=True, upcast_attention=upcast_attention))
+        self.resnets = nn.ModuleList(resnets)
+        self.attentions = nn.ModuleList(attentions)
+        if add_upsample:
+            self.upsamplers = nn.ModuleList([KUpsample2D()])
+        else:
+            self.upsamplers = None
+        self.gradient_checkpointing = False
+
+    def forward(self, hidden_states, res_hidden_states_tuple, temb=None, encoder_hidden_states=None, cross_attention_kwargs=None, upsample_size=None, attention_mask=None):
+        res_hidden_states_tuple = res_hidden_states_tuple[-1]
+        if res_hidden_states_tuple is not None:
+            hidden_states = torch.cat([hidden_states, res_hidden_states_tuple], dim=1)
+        for resnet, attn in zip(self.resnets, self.attentions):
+            if self.training and self.gradient_checkpointing:
+
+                def create_custom_forward(module, return_dict=None):
+
+                    def custom_forward(*inputs):
+                        if return_dict is not None:
+                            return module(*inputs, return_dict=return_dict)
+                        else:
+                            return module(*inputs)
+                    return custom_forward
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(attn, return_dict=False), hidden_states, encoder_hidden_states, attention_mask, cross_attention_kwargs)[0]
+            else:
+                hidden_states = resnet(hidden_states, temb)
+                hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states, emb=temb, attention_mask=attention_mask, cross_attention_kwargs=cross_attention_kwargs)
+        if self.upsamplers is not None:
+            for upsampler in self.upsamplers:
+                hidden_states = upsampler(hidden_states)
+        return hidden_states
+
+
 class UNet2DConditionModel(metaclass=DummyObject):
     _backends = ['torch']
 
@@ -3024,38 +3836,59 @@ class FrozenDict(OrderedDict):
 HUGGINGFACE_CO_RESOLVE_ENDPOINT = 'https://huggingface.co'
 
 
-def deprecate(*args, take_from: Optional[Union[Dict, Any]]=None, standard_warn=True):
-    deprecated_kwargs = take_from
-    values = ()
-    if not isinstance(args[0], tuple):
-        args = args,
-    for attribute, version_name, message in args:
-        if version.parse(version.parse(__version__).base_version) >= version.parse(version_name):
-            raise ValueError(f"The deprecation tuple {attribute, version_name, message} should be removed since diffusers' version {__version__} is >= {version_name}")
-        warning = None
-        if isinstance(deprecated_kwargs, dict) and attribute in deprecated_kwargs:
-            values += deprecated_kwargs.pop(attribute),
-            warning = f'The `{attribute}` argument is deprecated and will be removed in version {version_name}.'
-        elif hasattr(deprecated_kwargs, attribute):
-            values += getattr(deprecated_kwargs, attribute),
-            warning = f'The `{attribute}` attribute is deprecated and will be removed in version {version_name}.'
-        elif deprecated_kwargs is None:
-            warning = f'`{attribute}` is deprecated and will be removed in version {version_name}.'
-        if warning is not None:
-            warning = warning + ' ' if standard_warn else ''
-            warnings.warn(warning + message, FutureWarning, stacklevel=2)
-    if isinstance(deprecated_kwargs, dict) and len(deprecated_kwargs) > 0:
-        call_frame = inspect.getouterframes(inspect.currentframe())[1]
-        filename = call_frame.filename
-        line_number = call_frame.lineno
-        function = call_frame.function
-        key, value = next(iter(deprecated_kwargs.items()))
-        raise TypeError(f'{function} in {filename} line {line_number - 1} got an unexpected keyword argument `{key}`')
-    if len(values) == 0:
-        return
-    elif len(values) == 1:
-        return values[0]
-    return values
+def extract_commit_hash(resolved_file: Optional[str], commit_hash: Optional[str]=None):
+    """
+    Extracts the commit hash from a resolved filename toward a cache file.
+    """
+    if resolved_file is None or commit_hash is not None:
+        return commit_hash
+    resolved_file = str(Path(resolved_file).as_posix())
+    search = re.search('snapshots/([^/]+)/', resolved_file)
+    if search is None:
+        return None
+    commit_hash = search.groups()[0]
+    return commit_hash if REGEX_COMMIT_HASH.match(commit_hash) else None
+
+
+ENV_VARS_TRUE_VALUES = {'1', 'ON', 'YES', 'TRUE'}
+
+
+SESSION_ID = uuid4().hex
+
+
+_flax_version = 'N/A'
+
+
+_jax_version = 'N/A'
+
+
+_onnxruntime_version = 'N/A'
+
+
+_torch_version = 'N/A'
+
+
+def http_user_agent(user_agent: Union[Dict, str, None]=None) ->str:
+    """
+    Formats a user-agent string with basic info about a request.
+    """
+    ua = f'diffusers/{__version__}; python/{sys.version.split()[0]}; session_id/{SESSION_ID}'
+    if DISABLE_TELEMETRY or HF_HUB_OFFLINE:
+        return ua + '; telemetry/off'
+    if is_torch_available():
+        ua += f'; torch/{_torch_version}'
+    if is_flax_available():
+        ua += f'; jax/{_jax_version}'
+        ua += f'; flax/{_flax_version}'
+    if is_onnx_available():
+        ua += f'; onnxruntime/{_onnxruntime_version}'
+    if os.environ.get('DIFFUSERS_IS_CI', '').upper() in ENV_VARS_TRUE_VALUES:
+        ua += '; is_ci/true'
+    if isinstance(user_agent, dict):
+        ua += '; ' + '; '.join(f'{k}/{v}' for k, v in user_agent.items())
+    elif isinstance(user_agent, str):
+        ua += '; ' + user_agent
+    return ua
 
 
 CONFIG_NAME = 'config.json'
@@ -3572,36 +4405,6 @@ class VectorQuantizer(nn.Module):
         return z_q
 
 
-class VQModel(metaclass=DummyObject):
-    _backends = ['torch']
-
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ['torch'])
-
-    @classmethod
-    def from_config(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-
-class AutoencoderKL(metaclass=DummyObject):
-    _backends = ['torch']
-
-    def __init__(self, *args, **kwargs):
-        requires_backends(self, ['torch'])
-
-    @classmethod
-    def from_config(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        requires_backends(cls, ['torch'])
-
-
 class FlaxDiagonalGaussianDistribution(object):
 
     def __init__(self, parameters, deterministic=False):
@@ -3631,6 +4434,21 @@ class FlaxDiagonalGaussianDistribution(object):
 
     def mode(self):
         return self.mean
+
+
+class VQModel(metaclass=DummyObject):
+    _backends = ['torch']
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ['torch'])
+
+    @classmethod
+    def from_config(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
 
 
 class LDMBertAttention(nn.Module):
@@ -3722,6 +4540,69 @@ class PaintByExampleMapper(nn.Module):
         for block in self.blocks:
             hidden_states = block(hidden_states)
         return hidden_states
+
+
+class GaussianSmoothing(torch.nn.Module):
+    """
+    Arguments:
+    Apply gaussian smoothing on a 1d, 2d or 3d tensor. Filtering is performed seperately for each channel in the input
+    using a depthwise convolution.
+        channels (int, sequence): Number of channels of the input tensors. Output will
+            have this number of channels as well.
+        kernel_size (int, sequence): Size of the gaussian kernel. sigma (float, sequence): Standard deviation of the
+        gaussian kernel. dim (int, optional): The number of dimensions of the data.
+            Default value is 2 (spatial).
+    """
+
+    def __init__(self, channels: int=1, kernel_size: int=3, sigma: float=0.5, dim: int=2):
+        super().__init__()
+        if isinstance(kernel_size, int):
+            kernel_size = [kernel_size] * dim
+        if isinstance(sigma, float):
+            sigma = [sigma] * dim
+        kernel = 1
+        meshgrids = torch.meshgrid([torch.arange(size, dtype=torch.float32) for size in kernel_size])
+        for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
+            mean = (size - 1) / 2
+            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * torch.exp(-((mgrid - mean) / (2 * std)) ** 2)
+        kernel = kernel / torch.sum(kernel)
+        kernel = kernel.view(1, 1, *kernel.size())
+        kernel = kernel.repeat(channels, *([1] * (kernel.dim() - 1)))
+        self.register_buffer('weight', kernel)
+        self.groups = channels
+        if dim == 1:
+            self.conv = F.conv1d
+        elif dim == 2:
+            self.conv = F.conv2d
+        elif dim == 3:
+            self.conv = F.conv3d
+        else:
+            raise RuntimeError('Only 1, 2 and 3 dimensions are supported. Received {}.'.format(dim))
+
+    def forward(self, input):
+        """
+        Arguments:
+        Apply gaussian filter to input.
+            input (torch.Tensor): Input to apply gaussian filter on.
+        Returns:
+            filtered (torch.Tensor): Filtered output.
+        """
+        return self.conv(input, weight=self.weight, groups=self.groups)
+
+
+class ControlNetModel(metaclass=DummyObject):
+    _backends = ['torch']
+
+    def __init__(self, *args, **kwargs):
+        requires_backends(self, ['torch'])
+
+    @classmethod
+    def from_config(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        requires_backends(cls, ['torch'])
 
 
 def jax_cosine_distance(emb_1, emb_2, eps=1e-12):
@@ -3816,9 +4697,17 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaGroupNorm,
+     lambda: ([], {'embedding_dim': 4, 'out_dim': 4, 'num_groups': 1}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
     (ApproximateGELU,
      lambda: ([], {'dim_in': 4, 'dim_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ControlNetConditioningEmbedding,
+     lambda: ([], {'conditioning_embedding_channels': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
     (DownBlock1D,
      lambda: ([], {'out_channels': 4, 'in_channels': 4}),
@@ -3856,6 +4745,18 @@ TESTCASES = [
      lambda: ([], {'dim_in': 4, 'dim_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (GaussianSmoothing,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (KDownsample2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (KUpsample2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (LDMBertAttention,
      lambda: ([], {'embed_dim': 4, 'num_heads': 4, 'head_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -3864,6 +4765,10 @@ TESTCASES = [
      lambda: ([], {'in_features': 4}),
      lambda: ([torch.rand([16])], {}),
      False),
+    (LoRALinearLayer,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Mish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3887,7 +4792,7 @@ TESTCASES = [
     (TimestepEmbedding,
      lambda: ([], {'in_channels': 4, 'time_embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
+     False),
     (UpBlock1D,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3986,4 +4891,22 @@ class Test_huggingface_diffusers(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
 
