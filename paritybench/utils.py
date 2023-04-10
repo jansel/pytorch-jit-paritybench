@@ -132,10 +132,13 @@ def get_skiplist(main_args):
 
 def get_tol(main_args):
     if main_args.backend == 'inductor':
-        return 1e-3
+        return INDUCTOR_TOL
     else:
-        return 1e-4
+        return DYNAMO_TOL
 
+
+DYNAMO_TOL = 1e-4
+INDUCTOR_TOL = 1e-3
 
 SKIP_DYNAMO_EAGER = [
     "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",
