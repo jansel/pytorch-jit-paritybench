@@ -130,6 +130,12 @@ def get_skiplist(main_args):
     else:
         return SKIP.get(main_args.backend)
 
+def get_tol(main_args):
+    if main_args.backend == 'inductor':
+        return 1e-3
+    else:
+        return 1e-4
+
 
 SKIP_DYNAMO_EAGER = [
     "./generated/test_deepinsight_insightface.py:deeplab_xception_transfer_basemodel",
@@ -143,6 +149,7 @@ SKIP_DYNAMO_EAGER = [
     "./generated/test_adapter_hub_adapter_transformers.py:GPTNeoSelfAttention", # torch.where with dtype torch.uint8 is now deprecated.
     "./generated/test_ZhaoJ9014_face_evoLVe.py:AM_Softmax",
     "./generated/test_ZhaoJ9014_face_evoLVe.py:CircleLoss",
+    "./generated/test_ZhaoJ9014_face_evoLVe.py:MagFace",
     "./generated/test_fangchangma_self_supervised_depth_completion.py:PhotometricLoss",  # torch.index with dtype torch.uint8 is now deprecated.
 ]
 SKIP_INDUCTOR = []

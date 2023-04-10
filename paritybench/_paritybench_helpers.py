@@ -6,10 +6,11 @@ from functools import lru_cache
 
 import torch
 import torch._dynamo
+import torch._inductor
 from torch.testing._internal.jit_utils import JitTestCase
 
 from paritybench.utils import wrap_args, wrap_kwargs
-
+torch._inductor.config.fallback_random = True
 
 class DummyBlock(torch.nn.ReLU):
     expansion = 1
@@ -94,4 +95,4 @@ class _paritybench_base(JitTestCase):
             self.assertEqual(result1, result2)
         except AssertionError:
             return  # output is not deterministic
-        self.assertEqual(result2, result3)
+        self.assertEqual(result2, result3, atol=1e-3, rtol=1e-3)

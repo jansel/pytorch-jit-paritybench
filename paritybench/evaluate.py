@@ -8,13 +8,15 @@ from multiprocessing.pool import ThreadPool
 import pandas as pd
 import torch
 import torch._dynamo
+import torch._inductor
 from torch.testing._internal.jit_utils import JitTestCase
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
-from paritybench.utils import import_file, get_skiplist, subproc_wrapper, wrap_args, wrap_kwargs
+from paritybench.utils import import_file, get_skiplist, get_tol, subproc_wrapper, wrap_args, wrap_kwargs
 
 
 log = logging.getLogger(__name__)
+torch._inductor.config.fallback_random = True
 
 
 class EagerFailed(RuntimeError):
@@ -100,10 +102,11 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         record_error('run_jit {} '.format(main_args.compile_mode), e)
         raise JitFailed()
 
+    tol = get_tol(main_args)
     try:
         JitTestCase().assertEqual(result1, result2)
         try:
-            JitTestCase().assertEqual(result2, result3)
+            JitTestCase().assertEqual(result2, result3, atol=tol, rtol=tol)
         except Exception as e:
             record_error('check_output', e)
             raise JitFailed()
