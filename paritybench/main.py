@@ -43,6 +43,7 @@ def get_args(raw_args=None):
     group.add_argument("--evaluate-all", action="store_true", help="Check torch.jit.script parity")
 
     parser.add_argument("--jobs", "-j", type=int, default=4)
+    parser.add_argument("--offset", type=int, default=0, help="Pick files starting from this offset. Together with --limit, we can run through all files in multiple separate runs")
     parser.add_argument("--limit", "-l", type=int, help="only run the first N files")
     parser.add_argument("--filter", "-f", "-k", help="only run module containing given name")
     parser.add_argument("--no-fork", action="store_true", help="don't run *-one test in a subprocess")
@@ -55,6 +56,7 @@ def get_args(raw_args=None):
     parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu")
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
     parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
+    parser.add_argument("--compilation-metric-path", default="/tmp/compilation_metrics.log", help="The path to the compilation metric")
     args = parser.parse_args(raw_args)
     return args
 
@@ -83,4 +85,4 @@ def main(raw_args=None):
         return generate_all(args, download_dir=args.download_dir, limit=args.limit, jobs=args.jobs)
 
     # args.evaluate_all is the default:
-    return evaluate_all(args, tests_dir=args.tests_dir, limit=args.limit, jobs=args.jobs)
+    return evaluate_all(args, tests_dir=args.tests_dir, offset=args.offset, limit=args.limit, jobs=args.jobs)

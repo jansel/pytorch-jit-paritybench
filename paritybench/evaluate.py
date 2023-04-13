@@ -4,6 +4,7 @@ import re
 import time
 from functools import partial
 from multiprocessing.pool import ThreadPool
+import threading
 
 import pandas as pd
 import torch
@@ -17,6 +18,8 @@ from paritybench.utils import import_file, get_skiplist, get_tol, subproc_wrappe
 
 log = logging.getLogger(__name__)
 torch._inductor.config.fallback_random = True
+
+lock = threading.Lock()
 
 
 class EagerFailed(RuntimeError):
@@ -67,7 +70,13 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         args, kwargs = get_forward_args()
         args = wrap_args(args, device)
         kwargs = wrap_kwargs(kwargs, device)
+
+        torch.cuda.synchronize()
+        eager_start_ts = time.perf_counter()
         result1 = nn(*args, **kwargs)
+        torch.cuda.synchronize()
+        eager_elapse = time.perf_counter() - eager_start_ts
+
         result2 = nn(*args, **kwargs)
     except Exception as e:
         record_error('run_eager', e)
@@ -81,6 +90,9 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('export_onnx', e)
             raise OnnxFailed()
 
+    torch.cuda.synchronize()
+    dynamo_start_ts = time.perf_counter()
+   
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
@@ -102,6 +114,9 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         record_error('run_jit {} '.format(main_args.compile_mode), e)
         raise JitFailed()
 
+    torch.cuda.synchronize()
+    dynamo_elapse = time.perf_counter() - dynamo_start_ts
+
     tol = get_tol(main_args)
     try:
         JitTestCase().assertEqual(result1, result2)
@@ -113,6 +128,25 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     except AssertionError:
         pass  # output is not deterministic, cant check it -- assuming correct
 
+    from torch._dynamo.utils import compilation_metrics
+    model_id = f"{nn_cls.__module__}.{nn_cls.__name__}"
+    compilation_metrics = {
+        "model_id": model_id,
+        "dynamo_wall_time": dynamo_elapse,
+        "eager_wall_time": eager_elapse,
+        "wall_time_diff": dynamo_elapse - eager_elapse,
+        "_compile": compilation_metrics.get("_compile", [0.0])[0]
+    }
+
+    with lock, open(main_args.compilation_metric_path, "a") as f:
+        logline = []
+        for _, v in compilation_metrics.items():
+            if isinstance(v, float):
+                logline.append(f"{v:.3f}")
+            else:
+                logline.append(str(v))
+        f.write(' '.join(logline))
+        f.write('\n')
     return True
 
 
@@ -181,7 +215,7 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
 
 
 
-def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
+def evaluate_all(args, tests_dir: str = './generated', offset: int = 0, limit: int = None,
                  jobs=4):
     """
     Generate a paritybench score, main entrypoint for this module.
@@ -202,7 +236,7 @@ def evaluate_all(args, tests_dir: str = './generated', limit: int = None,
     testfiles.sort()
 
     if limit:
-        testfiles = testfiles[:limit]
+        testfiles = testfiles[offset: offset+limit]
 
     pool = ThreadPool(jobs)
     for errors_part, stats_part in pool.imap_unordered(fn, testfiles):
