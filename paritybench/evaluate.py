@@ -11,13 +11,19 @@ import torch
 import torch._dynamo
 import torch._inductor
 from torch.testing._internal.jit_utils import JitTestCase
+from torch._dynamo.testing import same
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
-from paritybench.utils import import_file, get_skiplist, get_tol, subproc_wrapper, wrap_args, wrap_kwargs
+from paritybench.utils import import_file, get_skiplist, get_cosine_and_fp64_outputs, get_tol, \
+    patch_torch_manual_seed, reset_rng_state, subproc_wrapper, wrap_args, wrap_kwargs
 
 
 log = logging.getLogger(__name__)
+
+# Remove inductor randomness
 torch._inductor.config.fallback_random = True
+# Remove randomeness when torch manual seed is called
+patch_torch_manual_seed()
 
 lock = threading.Lock()
 
@@ -43,6 +49,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     :param record_error: function to record an exception for debugging/reporting
     :return: True if the test passes
     """
+
     try:
         args, kwargs = get_init_args()
         nn = nn_cls(*args, **kwargs)
@@ -66,6 +73,9 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('compile {}'.format(main_args.compile_mode), e)
             raise JitFailed()
 
+    is_inductor_test = main_args.compile_mode == 'dynamo' and main_args.backend == 'inductor'
+    cosine = False
+    fp64_outputs = None
     try:
         args, kwargs = get_forward_args()
         args = wrap_args(args, device)
@@ -77,6 +87,12 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         torch.cuda.synchronize()
         eager_elapse = time.perf_counter() - eager_start_ts
 
+        if is_inductor_test:
+            cosine, fp64_outputs = get_cosine_and_fp64_outputs(nn, args)
+
+        reset_rng_state()
+        result1 = nn(*args, **kwargs)
+        reset_rng_state()
         result2 = nn(*args, **kwargs)
     except Exception as e:
         record_error('run_eager', e)
@@ -97,6 +113,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         if nn_script:
             result3 = nn_script(*args, **kwargs)
         else:
+            reset_rng_state()
             torch._dynamo.reset()
             if main_args.compile_mode == 'dynamo':
                 compiled_model = torch._dynamo.optimize(
@@ -121,7 +138,18 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     try:
         JitTestCase().assertEqual(result1, result2)
         try:
-            JitTestCase().assertEqual(result2, result3, atol=tol, rtol=tol)
+            if is_inductor_test:
+                JitTestCase().assertTrue(
+                    same(
+                        result2,
+                        result3,
+                        fp64_ref=fp64_outputs,
+                        cos_similarity=cosine,
+                        tol=tol,
+                    )
+                )
+            else:
+                JitTestCase().assertEqual(result2, result3, atol=tol, rtol=tol)
         except Exception as e:
             record_error('check_output', e)
             raise JitFailed()

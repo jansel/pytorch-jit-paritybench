@@ -1,7 +1,10 @@
 import copy
+import functools
 import logging
+import numpy as np
 import os
 import platform
+import random
 import re
 import resource
 import signal
@@ -12,6 +15,8 @@ import types
 import torch
 
 from torch import multiprocessing
+from torch._dynamo.utils import clone_inputs
+from torch.utils._pytree import tree_map
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
 
@@ -130,11 +135,75 @@ def get_skiplist(main_args):
     else:
         return SKIP.get(main_args.backend)
 
+
 def get_tol(main_args):
     if main_args.backend == 'inductor':
         return INDUCTOR_TOL
     else:
         return DYNAMO_TOL
+
+
+@functools.lru_cache(None)
+def patch_torch_manual_seed():
+    """Make torch manual seed deterministic. Helps with accuracy testing."""
+
+    def deterministic_torch_manual_seed(*args, **kwargs):
+        from torch._C import default_generator
+
+        seed = 1337
+        import torch.cuda
+
+        if not torch.cuda._is_in_bad_fork():
+            torch.cuda.manual_seed_all(seed)
+        return default_generator.manual_seed(seed)
+
+    torch.manual_seed = deterministic_torch_manual_seed
+
+
+def reset_rng_state():
+    torch.manual_seed(1337)
+    random.seed(1337)
+    np.random.seed(1337)
+
+
+def cast_to(dtype, model, inputs):
+    # cast model and inputs to fp16
+    if dtype == torch.float16:
+        model = model.half()
+    else:
+        model = model.to(dtype)
+
+    inputs = tree_map(
+        lambda x: x.to(dtype)
+        if isinstance(x, torch.Tensor) and x.is_floating_point()
+        else x,
+        inputs,
+    )
+    return model, inputs
+
+
+def cast_to_fp64(model, inputs):
+    return cast_to(torch.float64, model, inputs)
+
+
+def get_cosine_and_fp64_outputs(model, example_inputs):
+    # Collect the fp64 reference outputs to be used later for accuracy checking.
+    fp64_outputs = None
+    cosine = False
+    reset_rng_state()
+    try:
+        model_fp64, inputs_fp64 = cast_to_fp64(
+            copy.deepcopy(model),
+            clone_inputs(example_inputs),
+        )
+        fp64_outputs = model_fp64(inputs_fp64)
+    except Exception:
+        log.warning(
+            "fp64 golden ref were not generated for %s. Setting accuracy check to cosine",
+        )
+        cosine = True
+        fp64_outputs = None
+    return cosine, fp64_outputs
 
 
 DYNAMO_TOL = 1e-4
