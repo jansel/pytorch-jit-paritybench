@@ -1,4 +1,3 @@
-import copy
 import os
 import re
 import unittest
@@ -8,9 +7,16 @@ import torch
 import torch._dynamo
 import torch._inductor
 from torch.testing._internal.jit_utils import JitTestCase
+from torch._dynamo.testing import same
 
-from paritybench.utils import INDUCTOR_TOL, wrap_args, wrap_kwargs
+from paritybench.utils import INDUCTOR_TOL, get_cosine_and_fp64_outputs, \
+    patch_torch_manual_seed, reset_rng_state, wrap_args, wrap_kwargs
+
+# Remove randomness
 torch._inductor.config.fallback_random = True
+# Remove randomeness when torch manual seed is called
+patch_torch_manual_seed()
+
 
 class DummyBlock(torch.nn.ReLU):
     expansion = 1
@@ -69,7 +75,11 @@ class _paritybench_base(JitTestCase):
         args = wrap_args(args, device)
         kwargs = wrap_kwargs(kwargs, device)
 
+        cosine, fp64_outputs = get_cosine_and_fp64_outputs(script, args)
+
+        reset_rng_state()
         result1 = script(*args, **kwargs)
+        reset_rng_state()
         result2 = script(*args, **kwargs)
         if os.environ.get('TEST_PY_ONLY'):
             return
@@ -77,6 +87,7 @@ class _paritybench_base(JitTestCase):
         if os.environ.get('TEST_WORKING_ONLY') and not compiles:
             raise unittest.SkipTest("jit compile fails")
 
+        reset_rng_state()
         if not os.environ.get('TEST_TORCHSCRIPT'):  # test dynamo by default
             torch._dynamo.reset()
             compiled_model = torch._dynamo.optimize("inductor")(script)
@@ -95,4 +106,12 @@ class _paritybench_base(JitTestCase):
             self.assertEqual(result1, result2)
         except AssertionError:
             return  # output is not deterministic
-        self.assertEqual(result2, result3, atol=INDUCTOR_TOL, rtol=INDUCTOR_TOL)
+        self.assertTrue(
+            same(
+                result2,
+                result3,
+                fp64_ref=fp64_outputs,
+                cos_similarity=cosine,
+                tol=INDUCTOR_TOL,
+            )
+        )
