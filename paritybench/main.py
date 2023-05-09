@@ -56,7 +56,7 @@ def get_args(raw_args=None):
     parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu")
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
     parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
-    parser.add_argument("--compilation-metric-path", default="/tmp/compilation_metrics.log", help="The path to the compilation metric")
+    parser.add_argument("--metric-path", type=str, help="path of the compilation metric")
     args = parser.parse_args(raw_args)
     return args
 

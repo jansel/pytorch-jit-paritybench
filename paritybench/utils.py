@@ -199,7 +199,7 @@ def get_cosine_and_fp64_outputs(model, example_inputs):
         fp64_outputs = model_fp64(inputs_fp64)
     except Exception:
         log.warning(
-            "fp64 golden ref were not generated for %s. Setting accuracy check to cosine",
+            "fp64 golden ref were not generated. Setting accuracy check to cosine",
         )
         cosine = True
         fp64_outputs = None

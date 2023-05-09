@@ -76,22 +76,26 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     is_inductor_test = main_args.compile_mode == 'dynamo' and main_args.backend == 'inductor'
     cosine = False
     fp64_outputs = None
+
     try:
         args, kwargs = get_forward_args()
         args = wrap_args(args, device)
         kwargs = wrap_kwargs(kwargs, device)
 
-        torch.cuda.synchronize()
-        eager_start_ts = time.perf_counter()
-        result1 = nn(*args, **kwargs)
-        torch.cuda.synchronize()
-        eager_elapse = time.perf_counter() - eager_start_ts
-
         if is_inductor_test:
             cosine, fp64_outputs = get_cosine_and_fp64_outputs(nn, args)
 
+        if main_args.metric_path:
+            torch.cuda.synchronize()
+            eager_start_ts = time.perf_counter()
+        # The first eager run
         reset_rng_state()
         result1 = nn(*args, **kwargs)
+        if main_args.metric_path:
+            torch.cuda.synchronize()
+            eager_elapse = time.perf_counter() - eager_start_ts
+
+        # The second eager run
         reset_rng_state()
         result2 = nn(*args, **kwargs)
     except Exception as e:
@@ -106,13 +110,15 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('export_onnx', e)
             raise OnnxFailed()
 
-    torch.cuda.synchronize()
-    dynamo_start_ts = time.perf_counter()
+    if main_args.metric_path:
+        torch.cuda.synchronize()
+        dynamo_start_ts = time.perf_counter()
    
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
         else:
+            # Dynamo/Inductor/Export run
             reset_rng_state()
             torch._dynamo.reset()
             if main_args.compile_mode == 'dynamo':
@@ -131,13 +137,15 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         record_error('run_jit {} '.format(main_args.compile_mode), e)
         raise JitFailed()
 
-    torch.cuda.synchronize()
-    dynamo_elapse = time.perf_counter() - dynamo_start_ts
+    if main_args.metric_path:
+        torch.cuda.synchronize()
+        dynamo_elapse = time.perf_counter() - dynamo_start_ts
 
     tol = get_tol(main_args)
     try:
         JitTestCase().assertEqual(result1, result2)
         try:
+            # Dynamo/Inductor/Export accuracy check against eager mode
             if is_inductor_test:
                 JitTestCase().assertTrue(
                     same(
@@ -156,25 +164,28 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     except AssertionError:
         pass  # output is not deterministic, cant check it -- assuming correct
 
-    from torch._dynamo.utils import compilation_metrics
-    model_id = f"{nn_cls.__module__}.{nn_cls.__name__}"
-    compilation_metrics = {
-        "model_id": model_id,
-        "dynamo_wall_time": dynamo_elapse,
-        "eager_wall_time": eager_elapse,
-        "wall_time_diff": dynamo_elapse - eager_elapse,
-        "_compile": compilation_metrics.get("_compile", [0.0])[0]
-    }
+    # Record compilation metrics
+    if main_args.metric_path:
+        from torch._dynamo.utils import compilation_metrics
+        model_id = f"{nn_cls.__module__}.{nn_cls.__name__}"
+        compilation_metrics = {
+            "model_id": model_id,
+            "dynamo_wall_time": dynamo_elapse,
+            "eager_wall_time": eager_elapse,
+            "wall_time_diff": dynamo_elapse - eager_elapse,
+            "_compile": compilation_metrics.get("_compile", [0.0])[0]
+        }
 
-    with lock, open(main_args.compilation_metric_path, "a") as f:
-        logline = []
-        for _, v in compilation_metrics.items():
-            if isinstance(v, float):
-                logline.append(f"{v:.3f}")
-            else:
-                logline.append(str(v))
-        f.write(' '.join(logline))
-        f.write('\n')
+        with lock, open(main_args.metric_path, "a") as f:
+            logline = []
+            for _, v in compilation_metrics.items():
+                if isinstance(v, float):
+                    logline.append(f"{v:.3f}")
+                else:
+                    logline.append(str(v))
+            f.write(' '.join(logline))
+            f.write('\n')
+
     return True
 
 
@@ -239,8 +250,6 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args):
         stats["projects_passed"] += 1
 
     return errors, stats
-
-
 
 
 def evaluate_all(args, tests_dir: str = './generated', offset: int = 0, limit: int = None,
