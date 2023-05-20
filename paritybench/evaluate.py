@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import os
 import re
@@ -11,7 +12,9 @@ import torch
 import torch._dynamo
 import torch._inductor
 from torch.testing._internal.jit_utils import JitTestCase
+from torch._decomp import core_aten_decompositions
 from torch._dynamo.testing import same
+from torch._export import ExportDynamoConfig
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
 from paritybench.utils import import_file, get_skiplist, get_cosine_and_fp64_outputs, get_tol, \
@@ -128,10 +131,21 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
                 result3 = compiled_model(*args, **kwargs)
             else:
                 # main_args.compile_mode == 'export'
-                exported_model, _ = torch._dynamo.export(
-                    nn, *args, aten_graph=True, **kwargs
-                )
-                result3 = exported_model(*args, **kwargs)
+                DECOMP_TABLE = core_aten_decompositions()
+
+                with torch._dynamo.config.patch(dataclasses.asdict(ExportDynamoConfig())):
+                    exported_model, _ = torch._dynamo.export(
+                        nn,
+                        *args,
+                        aten_graph=True,
+                        tracing_mode="symbolic",
+                        decomposition_table=DECOMP_TABLE,
+                        constraints=None,
+                        assume_static_by_default=True,
+                        functionalize=True,
+                        **kwargs
+                    )
+                    result3 = exported_model(*args, **kwargs)
 
     except Exception as e:
         record_error('run_jit {} '.format(main_args.compile_mode), e)
