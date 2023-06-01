@@ -223,8 +223,37 @@ SKIP_DYNAMO_EAGER = [
     "./generated/test_ZhaoJ9014_face_evoLVe.py:CircleLoss",
     "./generated/test_ZhaoJ9014_face_evoLVe.py:MagFace",
     "./generated/test_fangchangma_self_supervised_depth_completion.py:PhotometricLoss",  # torch.index with dtype torch.uint8 is now deprecated.
+    "./generated/test_megvii_research_NAFNet.py:PSNRLoss",
+    "./generated/test_murufeng_FUIR.py:PSNRLoss",
+    "./generated/test_swz30_Restormer.py:PSNRLoss",  # Dynamo convert numpy.float64 to python float32.
 ]
-SKIP_INDUCTOR = []
+SKIP_INDUCTOR = [
+    "./generated/test_BIGBALLON_CIFAR_ZOO.py:SKConv",
+    "./generated/test_CDOTAD_AlphaGAN_Matting.py:_AsppBlock",
+    "./generated/test_CDOTAD_AlphaGAN_Matting.py:Encoder",
+    "./generated/test_LikeLy_Journey_SegmenTron.py:_GlobalAvgPooling",
+    "./generated/test_Minerva_J_Pytorch_Segmentation_multi_models.py:ChainedResidualPoolImproved",
+    "./generated/test_NVIDIA_CleanUNet.py:CleanUNet",
+    "./generated/test_VITA_Group_DeblurGANv2.py:ConvBlock",
+    "./generated/test_Tramac_awesome_semantic_segmentation_pytorch.py:_GlobalAvgPooling",
+    "./generated/test_Tramac_awesome_semantic_segmentation_pytorch.py:XceptionA",
+    "./generated/test_alibaba_EasyCV.py:ClassAttentionBlock",
+    "./generated/test_arnab39_cycleGAN_PyTorch.py:ResidualBlock",
+    "./generated/test_chengchunhsu_EveryPixelMatters.py:Bottleneck",
+    "./generated/test_deepinsight_insightface.py:DeepLabv3_plus",
+    "./generated/test_deepinsight_insightface.py:Xception",
+    "./generated/test_egorzakharov_PerceptualGAN.py:ResBlock",
+    "./generated/test_fidler_lab_defgrid_release.py:PPM",
+    "./generated/test_iscyy_yoloair.py:BottleneckCSPDNL",
+    "./generated/test_iscyy_yoloair.py:DNL",
+    "./generated/test_jfzhang95_pytorch_deeplab_xception.py:InvertedResidual",
+    "./generated/test_lescientifik_open_brats2020.py:UBlock",
+    "./generated/test_ltkong218_IFRNet.py:ResBlock",
+    "./generated/test_nihalsid_ViewAL.py:InvertedResidual",
+    "./generated/test_sithu31296_semantic_segmentation.py:PSAP",
+    "./generated/test_voldemortX_pytorch_auto_drive.py:SpatialConv",
+    "./generated/test_yassouali_pytorch_segmentation.py:_PSPModule",  # Backward fails.
+]
 SKIP = {
     "eager": SKIP_DYNAMO_EAGER,
     "inductor": SKIP_DYNAMO_EAGER + SKIP_INDUCTOR,
