@@ -116,7 +116,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
     if main_args.metric_path:
         torch.cuda.synchronize()
         dynamo_start_ts = time.perf_counter()
-   
+
     try:
         if nn_script:
             result3 = nn_script(*args, **kwargs)
@@ -142,7 +142,6 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
                         decomposition_table=DECOMP_TABLE,
                         constraints=None,
                         assume_static_by_default=True,
-                        functionalize=True,
                         **kwargs
                     )
                     result3 = exported_model(*args, **kwargs)
