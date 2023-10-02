@@ -51,7 +51,7 @@ def get_args(raw_args=None):
 
     parser.add_argument("--onnxdir", type=str, help="dir where to export modules to onnx during evaluate")
     parser.add_argument("--fullgraph", default=False, action="store_true", help="use fullgraph(no python fall back) when compiling with dynamo")
-    parser.add_argument("--compile_mode", default="dynamo", type=str, help="choose a mode of compilation: dynamo, export or torchscript")
+    parser.add_argument("--compile_mode", default="dynamo", type=str, help="choose a mode of compilation: dynamo, export, aot_inductor or torchscript")
     parser.add_argument("--backend", default="inductor", type=str, help="dynamo backends: {}".format(torch._dynamo.list_backends()))
     parser.add_argument("--device", default="cuda", type=str, help="evaluate modules using cuda or cpu")
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
