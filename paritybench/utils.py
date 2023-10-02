@@ -13,10 +13,14 @@ import tempfile
 import time
 import types
 import torch
+import weakref
 
+from typing import Any, Mapping, Tuple
 from torch import multiprocessing
 from torch._dynamo.utils import clone_inputs
-from torch.utils._pytree import tree_map
+from torch._inductor.utils import aot_inductor_launcher
+import torch.utils._pytree as pytree
+import torch.fx._pytree as fx_pytree
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
 
@@ -173,7 +177,7 @@ def cast_to(dtype, model, inputs):
     else:
         model = model.to(dtype)
 
-    inputs = tree_map(
+    inputs = pytree.tree_map(
         lambda x: x.to(dtype)
         if isinstance(x, torch.Tensor) and x.is_floating_point()
         else x,
@@ -204,6 +208,55 @@ def get_cosine_and_fp64_outputs(model, example_inputs):
         cosine = True
         fp64_outputs = None
     return cosine, fp64_outputs
+
+
+class AOTInductorModelCache:
+    cache = dict()
+
+    @classmethod
+    def load(cls, model, example_args, example_kwargs, eager_forward):
+        key = weakref.ref(model)
+        if key not in cls.cache:
+            so_path, exported = torch._export.aot_compile(
+                model, tuple(example_args), example_kwargs
+            )
+
+            module = torch.utils.cpp_extension.load_inline(
+                name="aot_inductor",
+                cpp_sources=[aot_inductor_launcher],
+                functions=["run"],
+                extra_ldflags=[so_path],
+                with_cuda=True,
+            )
+
+            value = {
+                "module": module,
+                "exported": exported,
+                "output_spec": exported.call_spec.out_spec,
+            }
+            cls.cache[key] = value
+
+        return (
+            cls.cache[key]["module"],
+            cls.cache[key]["exported"],
+            cls.cache[key]["output_spec"],
+        )
+
+
+def export_aot_inductor(model, example_args, example_kwargs, eager_forward):
+    module, exported, output_spec = AOTInductorModelCache.load(
+        model, example_args, example_kwargs, eager_forward
+    )
+
+    def opt_aot_inductor(_, example_args, example_kwargs):
+        flat_example_inputs = fx_pytree.tree_flatten_spec(
+            (example_args, example_kwargs), exported.call_spec.in_spec
+        )
+        output_tensors = module.run(flat_example_inputs)
+        return pytree.tree_unflatten(output_tensors, output_spec)
+
+    return opt_aot_inductor
+
 
 
 DYNAMO_TOL = 1e-4

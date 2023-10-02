@@ -18,7 +18,7 @@ from torch._export import ExportDynamoConfig
 
 from paritybench.reporting import ErrorAggregatorDict, Stats
 from paritybench.utils import import_file, get_skiplist, get_cosine_and_fp64_outputs, get_tol, \
-    patch_torch_manual_seed, reset_rng_state, subproc_wrapper, wrap_args, wrap_kwargs
+    patch_torch_manual_seed, reset_rng_state, subproc_wrapper, wrap_args, wrap_kwargs, export_aot_inductor
 
 
 log = logging.getLogger(__name__)
@@ -129,8 +129,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
                     main_args.backend, nopython=main_args.fullgraph
                 )(nn)
                 result3 = compiled_model(*args, **kwargs)
-            else:
-                # main_args.compile_mode == 'export'
+            elif main_args.compile_mode == 'export':
                 DECOMP_TABLE = core_aten_decompositions()
 
                 with torch._dynamo.config.patch(dataclasses.asdict(ExportDynamoConfig())):
@@ -145,6 +144,11 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
                         **kwargs
                     )
                     result3 = exported_model(*args, **kwargs)
+            elif main_args.compile_mode == 'aot_inductor':
+                compiled_model = export_aot_inductor(nn, args, kwargs, nn.forward)
+                result3 = compiled_model(compiled_model, args, kwargs)
+            else:
+                raise AssertionError("Invalid compile_mode")
 
     except Exception as e:
         record_error('run_jit {} '.format(main_args.compile_mode), e)
