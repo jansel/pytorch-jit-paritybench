@@ -217,9 +217,10 @@ class AOTInductorModelCache:
     def load(cls, model, example_args, example_kwargs, eager_forward):
         key = weakref.ref(model)
         if key not in cls.cache:
-            so_path, exported = torch._export.aot_compile(
-                model, tuple(example_args), example_kwargs
-            )
+            with torch.no_grad():
+                so_path, exported = torch._export.aot_compile(
+                    model, tuple(example_args), example_kwargs
+                )
 
             module = torch.utils.cpp_extension.load_inline(
                 name="aot_inductor",
@@ -232,19 +233,17 @@ class AOTInductorModelCache:
             value = {
                 "module": module,
                 "exported": exported,
-                "output_spec": exported.call_spec.out_spec,
             }
             cls.cache[key] = value
 
         return (
             cls.cache[key]["module"],
             cls.cache[key]["exported"],
-            cls.cache[key]["output_spec"],
         )
 
 
 def export_aot_inductor(model, example_args, example_kwargs, eager_forward):
-    module, exported, output_spec = AOTInductorModelCache.load(
+    module, exported = AOTInductorModelCache.load(
         model, example_args, example_kwargs, eager_forward
     )
 
@@ -253,7 +252,7 @@ def export_aot_inductor(model, example_args, example_kwargs, eager_forward):
             (example_args, example_kwargs), exported.call_spec.in_spec
         )
         output_tensors = module.run(flat_example_inputs)
-        return pytree.tree_unflatten(output_tensors, output_spec)
+        return pytree.tree_unflatten(output_tensors, exported.call_spec.out_spec)
 
     return opt_aot_inductor
 

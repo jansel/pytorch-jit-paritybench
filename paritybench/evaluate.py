@@ -76,7 +76,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
             record_error('compile {}'.format(main_args.compile_mode), e)
             raise JitFailed()
 
-    is_inductor_test = main_args.compile_mode == 'dynamo' and main_args.backend == 'inductor'
+    is_inductor_test = main_args.compile_mode in ('dynamo', 'aot_inductor') and main_args.backend == 'inductor'
     cosine = False
     fp64_outputs = None
 
