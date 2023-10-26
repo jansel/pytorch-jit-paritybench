@@ -210,41 +210,17 @@ def get_cosine_and_fp64_outputs(model, example_inputs):
     return cosine, fp64_outputs
 
 
-class AOTInductorModelCache:
-    cache = dict()
-
-    @classmethod
-    def load(cls, model, example_args, example_kwargs, eager_forward):
-        key = weakref.ref(model)
-        if key not in cls.cache:
-            with torch.no_grad():
-                so_path, exported = torch._export.aot_compile(
-                    model, tuple(example_args), example_kwargs
-                )
-
-            module = torch.utils.cpp_extension.load_inline(
-                name="aot_inductor",
-                cpp_sources=[aot_inductor_launcher],
-                functions=["run"],
-                extra_ldflags=[so_path],
-                with_cuda=True,
-            )
-
-            value = {
-                "module": module,
-                "exported": exported,
-            }
-            cls.cache[key] = value
-
-        return (
-            cls.cache[key]["module"],
-            cls.cache[key]["exported"],
+def export_aot_inductor(model, example_args, example_kwargs, device):
+    with torch.no_grad():
+        so_path, exported = torch._export.aot_compile(
+            model, tuple(example_args), example_kwargs
         )
 
-
-def export_aot_inductor(model, example_args, example_kwargs, eager_forward):
-    module, exported = AOTInductorModelCache.load(
-        model, example_args, example_kwargs, eager_forward
+    module = torch.utils.cpp_extension.load_inline(
+        name="aot_inductor",
+        cpp_sources=[aot_inductor_launcher(so_path, device)],
+        functions=["run"],
+        with_cuda=(device == "cuda"),
     )
 
     def opt_aot_inductor(_, example_args, example_kwargs):
