@@ -190,17 +190,18 @@ def cast_to_fp64(model, inputs):
     return cast_to(torch.float64, model, inputs)
 
 
-def get_cosine_and_fp64_outputs(model, example_inputs):
+def get_cosine_and_fp64_outputs(model, args, kwargs):
     # Collect the fp64 reference outputs to be used later for accuracy checking.
     fp64_outputs = None
     cosine = False
     reset_rng_state()
     try:
-        model_fp64, inputs_fp64 = cast_to_fp64(
+        model_fp64, args_fp64, kwargs_fp64 = cast_to_fp64(
             copy.deepcopy(model),
-            clone_inputs(example_inputs),
+            clone_inputs(args),
+            clone_inputs(kwargs),
         )
-        fp64_outputs = model_fp64(inputs_fp64)
+        fp64_outputs = model_fp64(*args_fp64, **kwargs_fp64)
     except Exception:
         log.warning(
             "fp64 golden ref were not generated. Setting accuracy check to cosine",
