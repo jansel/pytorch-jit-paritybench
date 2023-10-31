@@ -86,7 +86,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
         kwargs = wrap_kwargs(kwargs, device)
 
         if is_inductor_test:
-            cosine, fp64_outputs = get_cosine_and_fp64_outputs(nn, args)
+            cosine, fp64_outputs = get_cosine_and_fp64_outputs(nn, args, kwargs)
 
         if main_args.metric_path:
             torch.cuda.synchronize()
