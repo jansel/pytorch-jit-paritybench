@@ -212,23 +212,24 @@ def get_cosine_and_fp64_outputs(model, example_inputs):
 
 def export_aot_inductor(model, example_args, example_kwargs, device):
     with torch.no_grad():
-        so_path, exported = torch._export.aot_compile(
+        so_path = torch._export.aot_compile(
             model, tuple(example_args), example_kwargs
         )
 
     module = torch.utils.cpp_extension.load_inline(
         name="aot_inductor",
         cpp_sources=[aot_inductor_launcher(so_path, device)],
-        functions=["run"],
+        functions=["run", "get_call_spec"],
         with_cuda=(device == "cuda"),
     )
 
     def opt_aot_inductor(_, example_args, example_kwargs):
-        flat_example_inputs = fx_pytree.tree_flatten_spec(
-            (example_args, example_kwargs), exported.call_spec.in_spec
-        )
+        call_spec = module.get_call_spec()
+        in_spec = pytree.treespec_loads(call_spec[0])
+        out_spec = pytree.treespec_loads(call_spec[1])
+        flat_example_inputs = fx_pytree.tree_flatten_spec((example_args, example_kwargs), in_spec)
         output_tensors = module.run(flat_example_inputs)
-        return pytree.tree_unflatten(output_tensors, exported.call_spec.out_spec)
+        return pytree.tree_unflatten(output_tensors, out_spec)
 
     return opt_aot_inductor
 
