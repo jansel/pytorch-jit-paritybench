@@ -280,7 +280,7 @@ def evaluate_all(args, tests_dir: str = './generated', offset: int = 0, limit: i
     :param jobs: how many processes to run at once
     """
     feval = partial(evaluate_pyfile_subproc, args=args)
-    fn = partial(subproc_wrapper, fn=feval)
+    fn = partial(subproc_wrapper, fn=feval, fresh_cache_dir=args.fresh_cache_dir)
     start = time.time()
     stats = Stats()
     errors = ErrorAggregatorDict()

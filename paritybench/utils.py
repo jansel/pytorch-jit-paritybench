@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import functools
 import logging
@@ -18,7 +19,7 @@ import weakref
 from typing import Any, Mapping, Tuple
 from torch import multiprocessing
 from torch._dynamo.utils import clone_inputs
-from torch._inductor.utils import aot_inductor_launcher
+from torch._inductor.utils import aot_inductor_launcher, cache_dir, fresh_inductor_cache
 import torch.utils._pytree as pytree
 import torch.fx._pytree as fx_pytree
 
@@ -83,7 +84,7 @@ def import_file(path):
     return module
 
 
-def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
+def subproc_wrapper(path: str, fn: callable, timeout: int = 900, fresh_cache_dir: bool = False):
     """
     A wrapper around call_with_timeout() adding a temp dir and error handling.
 
@@ -93,7 +94,9 @@ def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
     :return: errors, stats
     """
     log.info(f"Running {path}")
-    with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
+    with tempfile.TemporaryDirectory(
+        prefix="paritybench"
+    ) as tempdir, fresh_inductor_cache() if fresh_cache_dir else contextlib.nullcontext():
         try:
             return call_with_timeout(fn, (tempdir, path), {}, timeout=timeout)
         except TimeoutError:
@@ -110,10 +113,12 @@ def subproc_wrapper(path: str, fn: callable, timeout: int = 900):
             ), Stats({"crash": 1})
 
 
-def tempdir_wrapper(path: str, fn: callable):
+def tempdir_wrapper(path: str, fn: callable, fresh_cache_dir: bool = False):
     """ Non-forking version of subproc_wrapper """
     log.info(f"Running {path}")
-    with tempfile.TemporaryDirectory(prefix="paritybench") as tempdir:
+    with tempfile.TemporaryDirectory(
+        prefix="paritybench"
+    ) as tempdir, fresh_inductor_cache() if fresh_cache_dir else contextlib.nullcontext():
         return fn(tempdir, path)
 
 
@@ -222,6 +227,8 @@ def export_aot_inductor(model, example_args, example_kwargs, device):
         cpp_sources=[aot_inductor_launcher(so_path, device)],
         functions=["run", "get_call_spec"],
         with_cuda=(device == "cuda"),
+        # use a unique build directory to avoid test interference
+        build_directory=tempfile.mkdtemp(dir=cache_dir()),
     )
 
     def opt_aot_inductor(_, example_args, example_kwargs):
