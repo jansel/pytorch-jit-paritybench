@@ -26,7 +26,7 @@ def main_one_file(fn, path, args):
     else:
         wrapper = tempdir_wrapper
 
-    errors, stats = wrapper(path, fn=fn)
+    errors, stats = wrapper(path, fn=fn, fresh_cache_dir=args.fresh_cache_dir)
 
     errors.print_report()
     log.info(f"Stats: {stats}")
@@ -57,6 +57,7 @@ def get_args(raw_args=None):
     parser.add_argument("--download-dir", default="./paritybench_download", help="dir where to download project default: ./paritybench_download")
     parser.add_argument("--tests-dir", default="./generated", help="dir where to generate test scripts default: ./generated")
     parser.add_argument("--metric-path", type=str, help="path of the compilation metric")
+    parser.add_argument("--fresh-cache-dir", action="store_true", help="use a fresh cache dir for each individual inductor test run and remove it after done")
     args = parser.parse_args(raw_args)
     return args
 
