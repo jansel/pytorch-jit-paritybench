@@ -146,7 +146,7 @@ def evaluate_nn_module(nn_cls, get_init_args, get_forward_args, record_error, ma
                     result3 = exported_model(*args, **kwargs)
             elif main_args.compile_mode == 'aot_inductor':
                 compiled_model = export_aot_inductor(nn, args, kwargs, device.type)
-                result3 = compiled_model(compiled_model, args, kwargs)
+                result3 = compiled_model(args, kwargs)
             else:
                 raise AssertionError("Invalid compile_mode")
 
