@@ -19,7 +19,7 @@ import weakref
 from typing import Any, Mapping, Tuple
 from torch import multiprocessing
 from torch._dynamo.utils import clone_inputs
-from torch._inductor.utils import aot_inductor_launcher, cache_dir, fresh_inductor_cache
+from torch._inductor.utils import fresh_inductor_cache
 import torch.utils._pytree as pytree
 import torch.fx._pytree as fx_pytree
 
@@ -222,25 +222,7 @@ def export_aot_inductor(model, example_args, example_kwargs, device):
             model, tuple(example_args), example_kwargs
         )
 
-    module = torch.utils.cpp_extension.load_inline(
-        name="aot_inductor",
-        cpp_sources=[aot_inductor_launcher(so_path, device)],
-        functions=["run", "get_call_spec"],
-        with_cuda=(device == "cuda"),
-        # use a unique build directory to avoid test interference
-        build_directory=tempfile.mkdtemp(dir=cache_dir()),
-    )
-
-    def opt_aot_inductor(_, example_args, example_kwargs):
-        call_spec = module.get_call_spec()
-        in_spec = pytree.treespec_loads(call_spec[0])
-        out_spec = pytree.treespec_loads(call_spec[1])
-        flat_example_inputs = fx_pytree.tree_flatten_spec((example_args, example_kwargs), in_spec)
-        output_tensors = module.run(flat_example_inputs)
-        return pytree.tree_unflatten(output_tensors, out_spec)
-
-    return opt_aot_inductor
-
+    return torch._export.aot_load(so_path, device=device)
 
 
 DYNAMO_TOL = 1e-4
